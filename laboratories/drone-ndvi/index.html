@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drone NDVI survey · Future Food Production</title>
+<meta name="description" content="Fly a multispectral drone over a variable 3D wheat field, build an NDVI or NDRE orthomosaic tile by tile, delineate management zones with k-means and write a variable-rate nitrogen prescription — then check it against the hidden ground truth.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live calculators for the Derive tab */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  var geom = function (v) { var g = v.H * v.p / v.f * 1e-3, S = 1280 * g * (1 - v.os / 100), L = 960 * g, n = Math.ceil(200 / S) + 1; return { g: g, S: S, L: L, n: n }; };
+  FFP_CALC.dnLines = function (v) { return geom(v).n; };
+  FFP_CALC.dnTime = function (v) { var q = geom(v); return (q.n * (300 + q.L) / v.v + (q.n - 1) * Math.PI * q.S / 2 / 4 + 2 * v.H / 3) / 60; };
+  FFP_CALC.dnCell = function (v) {
+    function km(r, t, L, Rs) { if (L <= 1e-6) return Rs; var a = (1 - t) / r, b = Math.sqrt(Math.max(1e-12, a * a - 1)), x = b * r * L, ct = x > 18 ? 1 : 1 / Math.tanh(x); return (1 - Rs * (a - b * ct)) / (a - Rs + b * ct); }
+    var fc = 1 - Math.exp(-0.5 * v.L), Lv = v.L / Math.max(fc, 1e-6);
+    var red = fc * km(0.036, 0.004, Lv, 0.234) + (1 - fc) * 0.234, nir = fc * km(0.459, 0.491, Lv, 0.31) + (1 - fc) * 0.31;
+    return (nir - red) / (nir + red);
+  };
+})();
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .map-card { grid-column: 1 / -1; }
+  .map-wrap { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); cursor: crosshair; }
+  .map-wrap canvas { display: block; width: 100%; }
+  .map-row { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; align-items: start; }
+  #map-legend { font: 500 .78rem var(--font-mono); color: var(--ink-2); background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  #map-legend .cbar { height: 10px; border-radius: 3px; margin: 6px 0 3px; }
+  #map-legend .cbar-ticks { display: flex; justify-content: space-between; color: var(--muted); }
+  .map-note { font-size: .78rem; color: var(--muted); margin-top: 10px; line-height: 1.45; }
+  .zone-tab { width: 100%; border-collapse: collapse; font-size: .84rem; }
+  .zone-tab th, .zone-tab td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+  .zone-tab td.num, .zone-tab th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .zone-tab i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; }
+  .zone-foot { font-size: .78rem; color: var(--muted); margin: 10px 0 0; }
+  @media (max-width: 900px) { .map-row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="lab" data-slug="drone-ndvi">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Drone NDVI survey</h1>
+    <p class="lead">A 6-hectare spring-wheat field near Västerås at stem elongation, just before the supplementary nitrogen dose. Somewhere in it are nitrogen-starved patches, waterlogged hollows, a compacted headland and creeping-thistle patches — but you cannot see them in the numbers yet. Plan a multispectral drone flight, watch the orthomosaic build up image by image, turn it into management zones and a variable-rate nitrogen prescription, and then walk into the crop to discover whether your map told the truth.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card map-card">
+      <h3>The orthomosaic, tile by tile</h3>
+      <div class="chart-sub">Each image the drone captures fills its footprint (white frames) on a 1 m grid. Switch the layer in <em>Display</em>: index, zones, prescription, true colour or the hidden causes. Click the map to walk to that spot in 3D.</div>
+      <div class="map-row">
+        <div class="map-wrap"><canvas id="map2d" aria-label="Map of the field showing the selected layer"></canvas></div>
+        <div>
+          <div id="map-legend"></div>
+          <p class="map-note">North is up. The field is 300 m × 200 m; tramlines (wheel tracks every 24 m) run east–west. The N-rich reference strip lies in the north-west quarter. Headland and gateway (south-west corner, by the farm track) carry most of the machinery traffic.</p>
+        </div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h3>Index distribution</h3>
+      <div class="chart-sub">Histogram of the mapped index (1 m cells). After the survey the bars are coloured by management zone.</div>
+      <div class="chart" id="chart-hist"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Management zones</h3>
+      <div class="chart-sub">k-means zones of the smoothed index, ordered from lowest to highest, with the rate the chosen rule assigns to each.</div>
+      <div id="zone-table" style="min-height:220px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Nitrogen applied vs uniform</h3>
+      <div class="chart-sub" id="n-sub">Rate per zone for the prescription and for a uniform application of the planned mean rate.</div>
+      <div class="chart" id="chart-n"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Flight height: detail versus time</h3>
+      <div class="chart-sub">Flight time and ground sampling distance for this field as the flight height changes (current sensor, overlaps and speed).</div>
+      <div class="chart" id="chart-plan"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Watch the survey fly.</strong> The drone takes off from the orange pad on the farm track, climbs to its flight height and flies the <em>lawn-mower</em> pattern: straight lines along the field, turning beyond the edge. Each time it fires the camera, the cyan footprint on the ground is added to the map — both on the crop in 3D and in the orthomosaic below. Choose <em>Camera → Follow drone</em> to ride along.</li>
+        <li><strong>Read the true-colour and the index maps.</strong> Switch <em>Map layer</em> between <em>True colour</em> and <em>Vegetation index</em>. The paler, yellower patches in true colour become obvious low-NDVI patches; the wheel tracks every 24 m become brown lines. Weed patches look lush in both.</li>
+        <li><strong>Trade detail against time.</strong> Lower the flight height to 30 m: the ground sampling distance falls to about 2 cm and the number of images and flight lines explodes; the camera cannot fire fast enough and the forward overlap drops (warning in the readouts). At 120 m the whole field takes under 11 minutes — and the map is still more than detailed enough for nitrogen zones.</li>
+        <li><strong>Make zones and a prescription.</strong> When the survey is complete, the index is smoothed, clustered into k zones and each zone receives a nitrogen rate. Compare the rules: the <em>linear compensating</em> rule (more nitrogen where the crop is thin), the <em>reinforcing</em> rule (β &lt; 0) and the <em>sufficiency-index</em> rule that compares each zone with the N-rich strip.</li>
+        <li><strong>Reveal the truth.</strong> Choose <em>Hidden causes</em>. Which low-index zones are really short of nitrogen, and which are waterlogged or compacted — places where extra nitrogen is wasted and may leach? Look at <em>Net return</em> and <em>N surplus</em> for each rule.</li>
+        <li><strong>Ground-truth it.</strong> Click anywhere on the crop (or on the map). The camera walks you into a 12 m × 8 m plot built from the hidden model — pale, thin nitrogen-starved plants, stunted plants in waterlogged hollows with standing water, dark thistles overtopping the wheat — with a label giving the plant data an agronomist would record.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A drone map shows <em>where</em> the crop differs, not <em>why</em>. Variable-rate nitrogen only pays where the low index is caused by nitrogen shortage. Zones must be checked in the field (ground-truthing) before a prescription is sent to the spreader — the “null hypothesis” of precision agriculture is that uniform management is good enough until proven otherwise (Whelan &amp; McBratney, 2000).</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From flight plan to prescription map</h2>
+      <p>A drone survey for nitrogen management has five steps, each of which is simulated here with a physical or statistical model: <strong>(1)</strong> plan a flight that images every part of the field with enough overlap to build a mosaic; <strong>(2)</strong> record calibrated reflectance in the red, red-edge and near-infrared bands; <strong>(3)</strong> compute a vegetation index for every cell of the mosaic; <strong>(4)</strong> summarise the map into a few management zones; <strong>(5)</strong> assign a nitrogen rate to each zone and export the prescription to a variable-rate spreader (see <a href="/lessons/precision-farming/">Lesson 11.1</a> and <a href="/lessons/remote-sensing/">Lesson 11.2</a>).</p>
+
+      <h3>1 · Flight planning</h3>
+      <p>The camera's ground sampling distance (GSD) grows linearly with flight height (Eq. D1). The image footprint sets how far apart the flight lines can be for a given side overlap, and how often the camera must fire for a given forward overlap (Eq. D2). Overlaps of about 70–80 % in both directions are needed because the mosaicking software matches features between neighbouring images; over a uniform crop canopy there are few distinct features, so generous overlap is the norm (see Worked example 3 in Lesson 11.2). The number of images and the flight time then follow from the field size and the ground speed. Lower flights give finer detail but more flight lines, more images and more batteries — and a camera that must fire faster than it can store images. In the EU, drones in the <em>open category</em> may fly no higher than 120 m above the ground (Commission Implementing Regulation (EU) 2019/947).</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 680 280" role="img" aria-label="Lawn-mower flight pattern over a field with image footprints, line spacing and overlaps">
+          <defs><marker id="dn-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+          <rect x="90" y="50" width="420" height="190" class="fill-accent-soft" stroke="currentColor" stroke-width="1.2"/>
+          <text x="96" y="234" class="t-small">field (300 m × 200 m)</text>
+          <g class="stroke-magenta" stroke-width="2" fill="none" stroke-dasharray="6 4">
+            <path d="M60 80 L540 80 A15 15 0 0 1 540 110 L60 110 A15 15 0 0 0 60 140 L540 140 A15 15 0 0 1 540 170 L60 170 A15 15 0 0 0 60 200 L540 200"/>
+          </g>
+          <g class="stroke-water" stroke-width="1.5" fill="none">
+            <rect x="330" y="62" width="44" height="36" rx="2"/><rect x="358" y="62" width="44" height="36" rx="2"/><rect x="386" y="62" width="44" height="36" rx="2"/>
+            <rect x="358" y="92" width="44" height="36" rx="2" stroke-dasharray="3 2"/>
+          </g>
+          <text x="440" y="74" class="t-small">image footprints: L along</text><text x="440" y="90" class="t-small">track, W across track</text>
+          <path d="M330 56 L358 56" class="stroke" stroke-width="1" marker-start="url(#dn-ah)" marker-end="url(#dn-ah)"/><text x="300" y="47" class="t-small">d = L(1 − o<tspan dy="3" font-size="9">f</tspan><tspan dy="-3">)</tspan></text>
+          <path d="M600 80 L600 110" class="stroke" stroke-width="1" marker-start="url(#dn-ah)" marker-end="url(#dn-ah)"/><text x="606" y="99" class="t-small">S = W(1 − o<tspan dy="3" font-size="9">s</tspan><tspan dy="-3">)</tspan></text>
+          <circle cx="60" cy="250" r="7" class="fill-amber"/><text x="72" y="254" class="t-small">take-off</text>
+          <path d="M60 244 L60 86" class="stroke-muted" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#dn-ah)"/>
+          <text x="300" y="266" class="t-small t-muted">n = ⌈D/S⌉ + 1 flight lines; turns outside the field</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> A lawn-mower survey. Flight lines are spaced S apart so that neighbouring strips overlap by o<sub>s</sub>; along each line the camera fires every d metres so that successive images overlap by o<sub>f</sub>. Turns are flown outside the field so that the camera is level and at speed over the crop.</figcaption>
+      </figure>
+
+      <h3>2 · Reflectance of the crop</h3>
+      <p>Every 1 m cell of the virtual field has a leaf area index, a leaf chlorophyll content, a soil moisture and a weed cover set by the hidden causes. Its reflectance in each camera band is computed with the same physics as the <a href="/laboratories/spectral-signatures/">Spectral signatures</a> laboratory: PROSPECT-D gives the leaf reflectance and transmittance, a Kubelka–Munk canopy model the reflectance of the plants, and the fraction of soil visible between the rows follows Beer's law (Eq. D3). The camera adds radiometric noise, which averages out over the many pixels in each cell (Eq. D4). NDVI and NDRE are then computed cell by cell (Eq. D5).</p>
+      <table>
+        <caption>Table 1. The hidden causes of variation and how they act in the model (strengths depend on the scenario).</caption>
+        <tr><th>Cause</th><th>Where</th><th>Effect on the crop</th><th>Effect on the index</th><th>Does extra N help?</th></tr>
+        <tr><td>Nitrogen deficiency</td><td>irregular patches (e.g. manure history)</td><td>lower chlorophyll and LAI, paler colour</td><td>lower NDVI, much lower NDRE</td><td><strong>yes</strong> — the crop needs more N</td></tr>
+        <tr><td>Waterlogging</td><td>low-lying hollows</td><td>stunted, sparse, yellowing crop (root anoxia, N loss by denitrification)</td><td>strongly lower; wet soil darkens the background</td><td>hardly — yield potential is low; N is at risk of loss</td></tr>
+        <tr><td>Soil compaction</td><td>headland and field entrance</td><td>shallower roots, thinner stand</td><td>lower</td><td>little</td></tr>
+        <tr><td>Creeping thistle (<em>Cirsium arvense</em>)</td><td>patches</td><td>competition lowers wheat yield</td><td><strong>higher</strong> — weeds are green too</td><td>no — the weeds take it</td></tr>
+        <tr><td>Wheel tracks</td><td>tramlines every 24 m</td><td>no crop in two 0.5 m tracks</td><td>much lower in the affected cells</td><td>no — masked out before zoning</td></tr>
+        <tr><td>N-rich reference strip</td><td>a 6 m × 96 m strip given extra N earlier</td><td>no N limitation</td><td>highest</td><td>no — it is the reference</td></tr>
+      </table>
+
+      <h3>3 · From map to zones</h3>
+      <p>A 1 m map contains far more detail than a fertiliser spreader with a 24 m working width can use. The map is therefore <strong>cleaned</strong> (wheel tracks masked), <strong>smoothed</strong> with a moving window and <strong>clustered</strong> into k zones with k-means (Eq. D6; Lesson 11.1, Eq. 11.1.10), and small fragments are removed with a majority filter. The share of the map's variance that the zones explain tells you how well k zones summarise the field; more zones always explain more, but each must be large enough to manage and to verify (Fridgen et al., 2004).</p>
+
+      <h3>4 · From zones to nitrogen rates</h3>
+      <p>Two families of rules are used in practice. <strong>Index-proportional rules</strong> start from the rate the farmer planned and move it up or down with the zone's index (Eq. D7). With β &gt; 0 the rule <em>compensates</em>: thin crop gets more nitrogen, dense crop less, which suits nitrogen-limited variation. With β &lt; 0 it <em>reinforces</em>: nitrogen follows yield potential, which suits variation caused by soil or water. Both keep the field total fixed, so they redistribute rather than save nitrogen. <strong>Sufficiency-index rules</strong> compare every zone with a well-fertilised reference — an N-rich strip, or a high percentile of the field as a “virtual reference” (Holland &amp; Schepers, 2013) — and convert the shortfall into a rate through the assumed shape of the nitrogen-response curve (Eq. D8; Holland &amp; Schepers, 2010). Where the index is lower than even an unfertilised crop would be, the low value cannot be caused by nitrogen, and the rate is <em>backed off</em>.</p>
+      <div class="callout note"><div class="callout-title">Sweden: satellites and tractor sensors</div><p>Swedish farmers can build nitrogen prescriptions for free from Sentinel-2 images in the CropSAT service (Söderström et al., 2017), and tractor-mounted reflectance sensors such as the Yara N-Sensor adjust the rate on the go. Choose <em>Sentinel-2</em> as the sensor to see what a 10 m satellite pixel makes of the same field.</p></div>
+
+      <h3>5 · Judging a prescription</h3>
+      <p>In a real field you never know the true nitrogen need of every square metre. Here you do: each cell has a hidden yield potential and nitrogen need, and a quadratic-plateau response (Eq. D9) turns any rate map into yield, nitrogen cost and nitrogen surplus. The readouts compare your prescription with a uniform application and with the ideal (perfect-information) map. Expect modest gains — typically a few euros per hectare — which is consistent with the long-standing finding that the value of variable-rate nitrogen depends heavily on how much of the variation is nitrogen-responsive (Bullock et al., 2002; Lowenberg-DeBoer &amp; Erickson, 2019). The environmental benefit, less surplus nitrogen where the crop cannot use it, is often the stronger argument.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“A finer drone map gives a better prescription.” For nitrogen zoning, a 5 cm and a 50 cm map give almost the same zones after smoothing to the spreader's working width. Fine GSD pays for other jobs — counting plants, finding weed patches, detecting disease foci — not for zone maps. Try 30 m and 120 m and compare the zones.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+
+      <div class="eq-box" id="eq-dn-gsd">
+        <div class="eq-head"><span class="eq-label">Ground sampling distance and image footprint</span><span class="eq-num">(D1)</span></div>
+        <div class="eq-main">\[ \text{GSD}=\frac{H\,p}{f},\qquad W=N_x\,\text{GSD},\qquad L=N_y\,\text{GSD} \]</div>
+        <p class="eq-read">the ground distance covered by one pixel is the flight height times the pixel pitch divided by the focal length; the footprint of an image is the number of pixels across (W, across the flight direction) or along (L) times the GSD.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>RedEdge-MX</th></tr>
+          <tr><td>\(H\)</td><td>flight height above ground</td><td>m</td><td>20–120</td></tr>
+          <tr><td>\(p\)</td><td>detector pixel pitch</td><td>m (µm)</td><td>3.75 µm</td></tr>
+          <tr><td>\(f\)</td><td>focal length</td><td>m (mm)</td><td>5.4 mm</td></tr>
+          <tr><td>\(N_x, N_y\)</td><td>pixels across and along the flight direction</td><td>–</td><td>1280, 960</td></tr>
+          <tr><td>GSD</td><td>ground sampling distance</td><td>m px⁻¹</td><td>0.056 m at 80 m</td></tr>
+          <tr><td>\(W, L\)</td><td>footprint across and along track</td><td>m</td><td>71 m, 53 m at 80 m</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Treat the camera as a pinhole at height H with the detector a distance f behind it (Lesson 11.2, Eq. 11.2.7).</li>
+            <li>A ray from the edge of one ground pixel through the pinhole lands on the edge of one detector pixel. The triangles on either side of the pinhole are similar, so GSD/H = p/f.</li>
+            <li>Worked number: \(80\times3.75\times10^{-6}/(5.4\times10^{-3})=0.0556\) m = 5.6 cm; W = 1280 × 0.0556 = 71.1 m, L = 960 × 0.0556 = 53.3 m. The MicaSense specification, 8 cm at 120 m, is the same equation at H = 120 m (8.3 cm).</li>
+            <li>DJI states the Mavic 3M multispectral GSD as H/21.7 cm per pixel, i.e. \(p/f=1/2170\) — the same equation with the ratio given directly.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Nadir images over flat ground; lens distortion, terrain relief and aircraft tilt are ignored. The effective resolution of the final orthomosaic is somewhat coarser than the GSD because of motion blur, optics and resampling.</p></details>
+        <div class="eq-units">\(\text{m}\times\text{m}/\text{m}=\text{m}\) ✓</div>
+        <div class="mini-calc" data-formula="H*p/f/10" data-output="GSD" data-unit="cm px⁻¹" data-digits="2" data-plot="H">
+          <div data-var="H" data-label="Flight height H" data-min="10" data-max="120" data-step="1" data-value="80" data-unit="m"></div>
+          <div data-var="p" data-label="Pixel pitch p" data-min="1.5" data-max="6" data-step="0.05" data-value="3.75" data-unit="µm"></div>
+          <div data-var="f" data-label="Focal length f" data-min="3" data-max="16" data-step="0.1" data-value="5.4" data-unit="mm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-dn-plan">
+        <div class="eq-head"><span class="eq-label">Line spacing, photo interval, number of lines and flight time</span><span class="eq-num">(D2)</span></div>
+        <div class="eq-main">\[ S=W(1-o_s),\quad d=L(1-o_f),\quad \Delta t=\frac{d}{v}\ge\Delta t_{\min},\quad n=\left\lceil\frac{D}{S}\right\rceil+1 \] \[ T\approx\frac{n\,(W_F+L)}{v}+\frac{(n-1)\,\pi S/2}{v_{\text{turn}}}+\frac{2H}{v_z} \]</div>
+        <p class="eq-read">flight lines are spaced one footprint width reduced by the side overlap; the camera fires every footprint length reduced by the forward overlap, which at ground speed v means every Δt seconds; enough lines are needed to cover the field width D; the flight time adds the straight lines, the semicircular turns and the climb and descent.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(o_s, o_f\)</td><td>side and forward overlap</td><td>–</td><td>0.75, 0.75</td></tr>
+          <tr><td>\(S, d\)</td><td>line spacing, distance between exposures</td><td>m</td><td>17.8, 13.3</td></tr>
+          <tr><td>\(v, v_{\text{turn}}, v_z\)</td><td>ground speed, speed in turns, climb/descent speed</td><td>m s⁻¹</td><td>8, 4, 3</td></tr>
+          <tr><td>\(\Delta t_{\min}\)</td><td>shortest interval between captures the camera supports (assumed)</td><td>s</td><td>1 (RedEdge-MX), 2 (Mavic 3M)</td></tr>
+          <tr><td>\(D, W_F\)</td><td>field width (across lines), field length (along lines)</td><td>m</td><td>200, 300</td></tr>
+          <tr><td>\(n\)</td><td>number of flight lines</td><td>–</td><td>13</td></tr>
+          <tr><td>\(T\)</td><td>flight time</td><td>s</td><td>≈ 760 (12.7 min)</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Two neighbouring strips of width W overlap by \(o_sW\) when their centre lines are \(W(1-o_s)\) apart.</li>
+            <li>The lines are centred on the field; n lines with spacing S span \((n-1)S\) between the outermost centre lines, and the outermost strips reach W/2 beyond them. Requiring \((n-1)S\ge D\) guarantees coverage with margin: \(n=\lceil D/S\rceil+1\).</li>
+            <li>Along a line the same reasoning gives \(d=L(1-o_f)\). If \(d/v\) is shorter than the camera's minimum interval, the achieved overlap is only \(1-v\,\Delta t_{\min}/L\) — slow down or fly higher.</li>
+            <li>Worked number (80 m, 75 %/75 %, 8 m s⁻¹): S = 0.25 × 71.1 = 17.8 m, n = ⌈200/17.8⌉ + 1 = 13; d = 0.25 × 53.3 = 13.3 m, Δt = 1.67 s; each line is 300 + 53 = 353 m, so 13 × 353/8 = 574 s of imaging, 12 turns of π × 8.9 m at 4 m s⁻¹ = 84 s, plus climb, transit and landing: ≈ 12.7 min, 351 images.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Constant speed and height, no wind, instantaneous acceleration, semicircular turns outside the field. Real flight-planning software adds lead-in distances, takes wind into account and may fly lines perpendicular to the wind. Usable battery time (22 min for a RedEdge-carrying quadcopter, 35 min for the Mavic 3M, whose maximum flight time without wind is 43 min according to DJI) is an assumption with a reserve for landing.</p></details>
+        <div class="eq-units">\(S, d\): m; \(\Delta t=\text{m}/(\text{m s}^{-1})=\text{s}\); \(T\): \(\text{m}/(\text{m s}^{-1})=\text{s}\) ✓</div>
+        <div class="mini-calc" data-fn="dnTime" data-output="Approximate flight time" data-unit="min" data-digits="1" data-plot="H" data-title="Try it — flight time for this 300 m × 200 m field">
+          <div data-var="H" data-label="Flight height H" data-min="20" data-max="120" data-step="1" data-value="80" data-unit="m"></div>
+          <div data-var="os" data-label="Side overlap" data-min="40" data-max="85" data-step="1" data-value="75" data-unit="%"></div>
+          <div data-var="v" data-label="Ground speed v" data-min="3" data-max="15" data-step="0.5" data-value="8" data-unit="m s⁻¹"></div>
+          <div data-var="p" data-label="Pixel pitch p" data-min="2" data-max="5" data-step="0.05" data-value="3.75" data-unit="µm"></div>
+          <div data-var="f" data-label="Focal length f" data-min="3" data-max="12" data-step="0.1" data-value="5.4" data-unit="mm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-dn-cell">
+        <div class="eq-head"><span class="eq-label">Reflectance of a 1 m cell: plants, soil and wheel tracks</span><span class="eq-num">(D3)</span></div>
+        <div class="eq-main">\[ f_c=1-e^{-0.5\,L},\qquad \rho_{\text{crop}}=f_c\,\rho_{\text{KM}}\!\left(r,t,\tfrac{L}{f_c},\rho_s\right)+(1-f_c)\,\rho_s \] \[ \rho_{\text{cell}}=(1-f_{\text{tr}})\,\rho_{\text{crop}}+f_{\text{tr}}\,0.92\,\rho_s \]</div>
+        <p class="eq-read">the fraction of ground covered by plants seen from above follows Beer's law with the leaf area index; the vegetated part reflects like a Kubelka–Munk canopy whose local leaf area index is the cell's LAI divided by the cover, the rest is bare soil; wheel tracks replace part of the cell with slightly darker compacted soil.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(L\)</td><td>leaf area index of wheat plus thistles in the cell</td><td>m² m⁻²</td></tr>
+          <tr><td>\(f_c\)</td><td>vertical (nadir) canopy cover; 0.5 = extinction coefficient for random leaf angles (Lesson 11.2, Eq. 11.2.10)</td><td>–</td></tr>
+          <tr><td>\(r, t\)</td><td>band-averaged leaf reflectance and transmittance from PROSPECT-D at the cell's chlorophyll content (LAI-weighted mix of wheat and thistle leaves)</td><td>–</td></tr>
+          <tr><td>\(\rho_{\text{KM}}\)</td><td>Kubelka–Munk canopy reflectance (Spectral signatures lab, Eq. S3)</td><td>–</td></tr>
+          <tr><td>\(\rho_s\)</td><td>soil reflectance, mixed from the dry and wet reference soils by soil moisture</td><td>–</td></tr>
+          <tr><td>\(f_{\text{tr}}\)</td><td>fraction of the cell occupied by wheel tracks (0.5 m wide)</td><td>–</td></tr>
+        </table>
+        <details><summary>Why combine a gap fraction with a turbid-medium canopy?</summary>
+          <ol class="steps">
+            <li>Drilled cereals grow in rows 12–15 cm apart. Seen from above, part of the soil between the rows is visible until the canopy closes. A turbid-medium canopy spread evenly over the whole cell would hide the soil too early and make NDVI saturate at unrealistically low LAI.</li>
+            <li>Beer's law gives the probability that a vertical line of sight passes the canopy without hitting a leaf: \(P_0=e^{-0.5L}\); the covered fraction is \(1-P_0\).</li>
+            <li>The leaves are concentrated in the covered fraction, where their local LAI is \(L/f_c\); that part reflects like a Kubelka–Munk canopy over soil.</li>
+            <li>Result: at L = 2.3 the cover is 0.68 and NDVI ≈ 0.68 in the lab model with MicaSense bands (the simplified calculator below, with fixed leaf and soil reflectances, gives ≈ 0.70), close to typical drone values for wheat at stem elongation; at L = 5 the cover is 0.92 and NDVI ≈ 0.88.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Shadows, leaf angle effects on the view and the sun–view geometry (bidirectional effects) are ignored, as is multiple scattering between the vegetated and bare fractions. Model parameters such as how strongly waterlogging reduces LAI are illustrative assumptions chosen to produce realistic index ranges; they are not measured values for a particular field.</p></details>
+        <div class="eq-units">all reflectances and fractions dimensionless; \(0.5L\): m² m⁻² × 1 ✓</div>
+        <div class="mini-calc" data-fn="dnCell" data-output="NDVI of the cell (red 668 / NIR 842 nm, dry-ish soil)" data-digits="3" data-plot="L" data-ymin="0" data-ymax="1">
+          <div data-var="L" data-label="Leaf area index L" data-min="0" data-max="7" data-step="0.05" data-value="2.3" data-unit="m² m⁻²"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-dn-noise">
+        <div class="eq-head"><span class="eq-label">Radiometric noise and pixel averaging</span><span class="eq-num">(D4)</span></div>
+        <div class="eq-main">\[ \sigma_{\text{px}}=0.003+0.02\,\rho,\qquad \sigma_{\text{cell}}=\frac{\sigma_{\text{px}}}{\sqrt{n_{\text{px}}}}=\sigma_{\text{px}}\,\frac{\text{GSD}}{1\ \text{m}} \]</div>
+        <p class="eq-read">each pixel's reflectance carries a small absolute error plus two per cent of the signal; averaging the n pixels that fall into a 1 m cell reduces the error by the square root of n, which for square pixels is the ratio of the GSD to the cell size.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\sigma_{\text{px}}\)</td><td>assumed random error of one pixel (sensor noise plus calibration)</td><td>reflectance</td></tr>
+          <tr><td>\(n_{\text{px}}=(1\,\text{m}/\text{GSD})^2\)</td><td>pixels per 1 m cell</td><td>–</td></tr>
+          <tr><td>\(\sigma_{\text{cell}}\)</td><td>error of the cell mean</td><td>reflectance</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Errors are independent between pixels, so they average out; systematic errors — a wrongly calibrated reflectance panel, a cloud passing during the flight, the sun angle changing between the first and last line — do not average out and are not simulated. For Sentinel-2 the model averages the true reflectance over each 10 m (20 m for red-edge bands) pixel and adds σ<sub>px</sub> once; atmospheric correction errors are ignored.</p></details>
+        <div class="eq-units">reflectance × dimensionless ratio = reflectance ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-dn-index">
+        <div class="eq-head"><span class="eq-label">NDVI and NDRE of each cell</span><span class="eq-num">(D5)</span></div>
+        <div class="eq-main">\[ \text{NDVI}=\frac{\rho_{\text{NIR}}-\rho_{\text{red}}}{\rho_{\text{NIR}}+\rho_{\text{red}}},\qquad \text{NDRE}=\frac{\rho_{\text{NIR}}-\rho_{\text{RE}}}{\rho_{\text{NIR}}+\rho_{\text{RE}}} \]</div>
+        <p class="eq-read">both indices are normalised differences; NDVI uses the red band where chlorophyll absorbs strongly, NDRE the red-edge band where it absorbs less, so NDRE keeps distinguishing chlorophyll (nitrogen) levels after NDVI has saturated.</p>
+        <table class="symbols">
+          <tr><th>Sensor</th><th>Red</th><th>Red edge</th><th>NIR</th></tr>
+          <tr><td>MicaSense RedEdge-MX</td><td>668 nm (14)</td><td>717 nm (12)</td><td>842 nm (57)</td></tr>
+          <tr><td>DJI Mavic 3M</td><td>650 ± 16 nm</td><td>730 ± 16 nm</td><td>860 ± 26 nm</td></tr>
+          <tr><td>Sentinel-2 MSI</td><td>B4 664.6 nm (10 m)</td><td>B5 704.1 nm (20 m)</td><td>B8 832.8 nm (10 m) for NDVI; B8A 864.7 nm (20 m) for NDRE</td></tr>
+        </table>
+        <details><summary>Why NDRE for nitrogen?</summary><p>In this model at stem elongation the N-rich strip, the typical field and a severely N-deficient patch have NDVI ≈ 0.72, 0.67 and 0.50 but NDRE (RedEdge-MX) ≈ 0.43, 0.38 and 0.23: the relative difference between reference and field is about twice as large with NDRE, which is what a sufficiency-index rule needs. Derivations of both indices are in the <a href="/laboratories/spectral-signatures/">Spectral signatures</a> lab (Eq. S6).</p></details>
+        <div class="eq-units">ratio of reflectance differences — dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-dn-kmeans">
+        <div class="eq-head"><span class="eq-label">Smoothing and k-means zoning</span><span class="eq-num">(D6)</span></div>
+        <div class="eq-main">\[ \bar V_i=\frac{1}{|N_i|}\sum_{j\in N_i}V_j,\qquad \min_{C_1..C_k}\sum_{z=1}^{k}\sum_{i\in C_z}\left(\bar V_i-\mu_z\right)^2,\qquad R^2=1-\frac{\text{SSE}}{\text{SST}} \]</div>
+        <p class="eq-read">each cell's index is replaced by the mean of its neighbourhood (tracks excluded); the cells are then divided into k groups so that the summed squared distance between each cell's smoothed index and its group mean is as small as possible; R² is the share of the smoothed map's variance explained by the zones.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(N_i\)</td><td>the (2r + 1) × (2r + 1) cells around cell i (5, 9 or 15 m windows)</td><td>–</td></tr>
+          <tr><td>\(C_z, \mu_z\)</td><td>cells of zone z and their mean smoothed index</td><td>–</td></tr>
+          <tr><td>SSE, SST</td><td>within-zone and total sum of squares</td><td>–</td></tr>
+        </table>
+        <details><summary>Algorithm (Lloyd, 1982)</summary><ol class="steps"><li>Start the k centres at the (z − ½)/k quantiles of the smoothed index.</li><li>Assign every cell to its nearest centre; recompute each centre as the mean of its cells.</li><li>Repeat until no cell changes zone; J cannot increase, so the algorithm converges.</li><li>Sort zones from low to high index; replace each label by the most common label in its 5 × 5 neighbourhood (majority filter) so that no zone is too fragmented for a spreader.</li></ol></details>
+        <div class="eq-units">sums of squared index values — dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-dn-linear">
+        <div class="eq-head"><span class="eq-label">Linear, mass-conserving nitrogen rule</span><span class="eq-num">(D7)</span></div>
+        <div class="eq-main">\[ N_z=\bar N\left[1-\beta\,\frac{V_z-\bar V}{\bar V}\right],\qquad \bar V=\sum_z a_z V_z,\qquad \sum_z a_z N_z=\bar N \]</div>
+        <p class="eq-read">each zone receives the planned mean rate, changed by β times the zone's relative index deviation from the area-weighted field mean; because the deviations sum to zero over the field, the field total is unchanged.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(N_z, \bar N\)</td><td>rate in zone z; planned mean rate</td><td>kg N ha⁻¹</td></tr>
+          <tr><td>\(V_z, \bar V\)</td><td>mean smoothed index of zone z; area-weighted field mean</td><td>–</td></tr>
+          <tr><td>\(a_z\)</td><td>area share of zone z</td><td>–</td></tr>
+          <tr><td>\(\beta\)</td><td>response factor: &gt; 0 compensating, &lt; 0 reinforcing</td><td>–</td></tr>
+        </table>
+        <details><summary>Implementation details</summary><p>This is Eq. 11.1.11 of <a href="/lessons/precision-farming/">Lesson 11.1</a>, where the conservation of the total is proved. Rates are clipped to 0–150 kg N ha⁻¹ and, if clipping occurred, the unclipped zones are rescaled so that the total is conserved; finally rates are rounded to 5 kg N ha⁻¹, a typical step of a spreader controller.</p></details>
+        <div class="eq-units">kg N ha⁻¹ × dimensionless = kg N ha⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="N*(1-b*(V-Vm)/Vm)" data-output="Zone rate N<sub>z</sub>" data-unit="kg N ha⁻¹" data-digits="1" data-plot="V">
+          <div data-var="N" data-label="Planned mean N̄" data-min="20" data-max="120" data-step="5" data-value="60" data-unit="kg ha⁻¹"></div>
+          <div data-var="b" data-label="Response factor β" data-min="-1.5" data-max="3" data-step="0.1" data-value="1"></div>
+          <div data-var="V" data-label="Zone index V<sub>z</sub>" data-min="0.3" data-max="0.9" data-step="0.005" data-value="0.60"></div>
+          <div data-var="Vm" data-label="Field mean V̄" data-min="0.3" data-max="0.9" data-step="0.005" data-value="0.65"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-dn-si">
+        <div class="eq-head"><span class="eq-label">Sufficiency-index rule with back-off</span><span class="eq-num">(D8)</span></div>
+        <div class="eq-main">\[ \text{SI}_z=\frac{V_z}{V_{\text{ref}}},\qquad N_z=N_{\text{opt}}\sqrt{\frac{1-\text{SI}_z}{\Delta\text{SI}}}\quad\text{for}\ 1-\Delta\text{SI}\le \text{SI}_z\le1 \] \[ N_z\to0\ \text{for}\ \text{SI}_z&lt;1-\Delta\text{SI}\quad\text{(back-off)} \]</div>
+        <p class="eq-read">the sufficiency index is the zone's index divided by that of a non-limited reference; the rate is the optimum rate times the square root of the index shortfall relative to the shortfall of an unfertilised crop; where the index is lower still, nitrogen is not what limits the crop and the rate is reduced.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(V_{\text{ref}}\)</td><td>index of the N-rich strip (or 95th percentile of the field)</td><td>–</td><td>from the map</td></tr>
+          <tr><td>\(N_{\text{opt}}\)</td><td>economic optimum rate for a crop with no N supply from earlier doses</td><td>kg N ha⁻¹</td><td>120</td></tr>
+          <tr><td>\(\Delta\text{SI}\)</td><td>1 − SI of an unfertilised crop</td><td>–</td><td>0.30 (NDVI), 0.45 (NDRE)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Assume, as Holland &amp; Schepers (2010) do, that the index of the crop responds to the nitrogen it has received like a quadratic that levels off at the optimum: \(\text{SI}(N)=1-\Delta\text{SI}\,(1-N/N_{\text{opt}})^2\) for \(0\le N\le N_{\text{opt}}\).</li>
+            <li>At N = 0 this gives SI = 1 − ΔSI (the unfertilised crop); at \(N=N_{\text{opt}}\) it gives SI = 1 (the reference) with zero slope.</li>
+            <li>A zone observed at SI has behaved as if it had received \(N_{\text{eff}}=N_{\text{opt}}\left(1-\sqrt{(1-\text{SI})/\Delta\text{SI}}\right)\).</li>
+            <li>The nitrogen still missing is \(N_{\text{opt}}-N_{\text{eff}}=N_{\text{opt}}\sqrt{(1-\text{SI})/\Delta\text{SI}}\) ✓. Holland &amp; Schepers subtract earlier fertiliser and other credits from \(N_{\text{opt}}\); here \(N_{\text{opt}}\) is already the remaining optimum.</li>
+            <li>Back-off: an index below 1 − ΔSI is lower than an unfertilised crop would show, so something else (water, compaction, damage) limits the crop. The laboratory reduces the rate linearly to zero over a further 0.08 of SI — a simplified version of the back-off option described by Holland &amp; Schepers.</li>
+            <li>Worked number: V = 0.62, V<sub>ref</sub> = 0.70, SI = 0.886; ΔSI = 0.30, N<sub>opt</sub> = 120: \(N=120\sqrt{0.114/0.30}=74\) kg N ha⁻¹.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The quadratic shape is an assumption about how the <em>index</em> (not the yield) responds to nitrogen; ΔSI and N<sub>opt</sub> must be calibrated for the crop, stage, sensor and region, and the reference must be representative. The strip must not be affected by the same non-nitrogen problems as the zones it is compared with.</p></details>
+        <div class="eq-units">kg N ha⁻¹ × \(\sqrt{\text{dimensionless}}\) = kg N ha⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="Nopt*sqrt(max(0,min(1,(1-V/Vr)/dSI)))" data-output="Zone rate N<sub>z</sub> (without back-off)" data-unit="kg N ha⁻¹" data-digits="1" data-plot="V">
+          <div data-var="V" data-label="Zone index V<sub>z</sub>" data-min="0.3" data-max="0.8" data-step="0.005" data-value="0.62"></div>
+          <div data-var="Vr" data-label="Reference V<sub>ref</sub>" data-min="0.4" data-max="0.9" data-step="0.005" data-value="0.70"></div>
+          <div data-var="dSI" data-label="ΔSI" data-min="0.08" data-max="0.6" data-step="0.01" data-value="0.30"></div>
+          <div data-var="Nopt" data-label="N<sub>opt</sub>" data-min="60" data-max="180" data-step="5" data-value="120" data-unit="kg ha⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-dn-yield">
+        <div class="eq-head"><span class="eq-label">Hidden yield response, net return and nitrogen surplus</span><span class="eq-num">(D9)</span></div>
+        <div class="eq-main">\[ Y=Y_p\left[1-c\left(1-\frac{\min(N,N^\ast)}{N^\ast}\right)^{2}\right] \] \[ \Pi=p_g\,Y-p_N\,N,\qquad N_{\text{surplus}}=\max(0,\,N-N^\ast) \]</div>
+        <p class="eq-read">grain yield rises along a quadratic to a plateau at the cell's nitrogen need; the net return is the grain value minus the nitrogen cost; nitrogen applied above the need is a surplus at risk of leaching.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Range in the model</th></tr>
+          <tr><td>\(Y_p\)</td><td>yield potential of the cell (reduced by waterlogging, compaction, weeds)</td><td>t ha⁻¹</td><td>3–9</td></tr>
+          <tr><td>\(N^\ast\)</td><td>supplementary nitrogen need of the cell (hidden)</td><td>kg N ha⁻¹</td><td>0 (strip) – 130</td></tr>
+          <tr><td>\(c\)</td><td>relative yield loss if the supplementary dose is skipped (larger where N stress is larger)</td><td>–</td><td>0.08–0.38</td></tr>
+          <tr><td>\(p_g, p_N\)</td><td>grain price, nitrogen price</td><td>€ t⁻¹, € kg⁻¹</td><td>210, 1.2 (adjustable)</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Quadratic-plateau functions are a standard description of cereal yield response to nitrogen (Cerrato &amp; Blackmer, 1990). Here the plateau is placed exactly at the hidden need, so the economic optimum equals the need; real response curves are estimated from trials with considerable uncertainty. Protein, lodging, leaching and nitrous-oxide emissions are not modelled; the surplus is an indicator of risk only. Prices are illustrative defaults — adjust them to current values.</p></details>
+        <div class="eq-units">\(Y\): t ha⁻¹; \(\Pi\): € t⁻¹ × t ha⁻¹ − € kg⁻¹ × kg ha⁻¹ = € ha⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="Yp*(1-c*(1-min(N,Nn)/Nn)**2)" data-output="Yield" data-unit="t ha⁻¹" data-digits="2" data-plot="N">
+          <div data-var="N" data-label="Applied N" data-min="0" data-max="160" data-step="5" data-value="60" data-unit="kg ha⁻¹"></div>
+          <div data-var="Nn" data-label="Need N*" data-min="10" data-max="150" data-step="5" data-value="110" data-unit="kg ha⁻¹"></div>
+          <div data-var="Yp" data-label="Yield potential Y<sub>p</sub>" data-min="3" data-max="10" data-step="0.1" data-value="7.5" data-unit="t ha⁻¹"></div>
+          <div data-var="c" data-label="Loss without the dose, c" data-min="0.05" data-max="0.4" data-step="0.01" data-value="0.3"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. <em>Save investigation</em> stores your settings and all readouts in your notebook; the URL of the page also stores every setting.</p>
+      <ol class="task-list">
+        <li><h4>Plan the flight</h4><p>With the RedEdge-MX, find the lowest flight height at which the whole field can be flown on one battery with 75 %/75 % overlap at 8 m s⁻¹. Record the GSD, the number of lines and images and the photo interval. Then check with Eqs. D1–D2 by hand. At what height does the camera's capture rate start to limit the forward overlap, and what could you change to fix it?</p></li>
+        <li><h4>Does GSD matter for nitrogen zones?</h4><p>Fly the <em>Typical Mälardalen field</em> at 30 m and at 120 m, and look at the Sentinel-2 map too. Keep k = 3 and a 9 m smoothing window. Compare the zone maps, R² and the net return of the linear rule. For which purposes would the extra detail of a 2 cm GSD be worth the extra flying?</p></li>
+        <li><h4>Diagnose before you prescribe</h4><p>Choose the <em>Wet spring</em> scenario. Apply the compensating linear rule (β = 1.5) and the reinforcing rule (β = −1). Which gives the higher net return and the smaller nitrogen surplus? Switch to <em>Hidden causes</em> and click into the lowest zone to explain the result.</p></li>
+        <li><h4>The reference strip and the sufficiency index</h4><p>Choose <em>Uneven nitrogen supply</em>, the sufficiency-index rule and k = 4. Compare NDVI (ΔSI = 0.30) with NDRE (ΔSI = 0.45): SI of each zone, rates, net return and surplus. Then switch the reference from the N-rich strip to the 95th percentile. Explain the differences with Eq. D8 and the saturation of NDVI.</p></li>
+        <li><h4>Weeds in disguise</h4><p>Choose <em>Creeping-thistle patches</em>. Where do the thistle patches fall in the index map and the zones? What rate does the compensating rule give them, and why is that the wrong management? Walk into a patch (click it) and describe what a scout would see. Which additional data (another index, an RGB image at fine GSD, a field visit) would separate weeds from vigorous wheat?</p></li>
+        <li><h4>Is variable-rate nitrogen worth it here?</h4><p>For the <em>Uniform, well-managed field</em> and for <em>Uneven nitrogen supply</em>, find the rule and settings with the best net return. Compare it with the value of perfect information. With a drone service costing, say, 8–15 € ha⁻¹ per flight (an assumption — find a real quote), does VRA pay in either field? What about the environmental benefit (N surplus)?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-drone-ndvi">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"The MicaSense RedEdge-MX has 3.75 µm pixels and a 5.4 mm lens. What is its ground sampling distance at a flight height of 60 m?","answer":4.17,"tol":0.02,"unit":"cm px⁻¹","hint":"Eq. D1: GSD = H·p/f; convert µm and mm to metres.","explain":"<p>\\(60\\times3.75\\times10^{-6}/5.4\\times10^{-3}=0.0417\\) m = 4.2 cm. Check with the readout after setting H = 60 m.</p>"},
+          {"type":"numeric","q":"At 100 m with 70 % side overlap, how many flight lines does the RedEdge-MX need to cover the 200 m width of the field (Eq. D2)?","answer":9,"abstol":0.1,"unit":"lines","hint":"W = 1280 × GSD; S = W(1 − 0.70); n = ⌈200/S⌉ + 1.","explain":"<p>GSD = 6.94 cm, W = 88.9 m, S = 26.7 m, 200/26.7 = 7.5 → ⌈7.5⌉ + 1 = 9 lines (the readout <em>Flight lines × spacing</em> confirms it).</p>"},
+          {"type":"numeric","q":"A zone has a mean NDVI of 0.60, the field mean is 0.65 and the planned rate is 60 kg N ha⁻¹. What rate does the compensating linear rule with β = 1 give this zone (before rounding)?","answer":64.6,"tol":0.02,"unit":"kg N ha⁻¹","hint":"Eq. D7: N = N̄[1 − β(V − V̄)/V̄].","explain":"<p>\\(60\\,[1-(0.60-0.65)/0.65]=60\\times1.077=64.6\\) kg N ha⁻¹; the spreader would apply 65.</p>"},
+          {"type":"numeric","q":"With the sufficiency-index rule, a zone has V = 0.62, the N-rich strip V<sub>ref</sub> = 0.70, ΔSI = 0.30 and N<sub>opt</sub> = 120 kg N ha⁻¹. What rate does Eq. D8 give?","answer":74,"tol":0.03,"unit":"kg N ha⁻¹","explain":"<p>SI = 0.886; \\(120\\sqrt{(1-0.886)/0.30}=120\\times0.617=74\\) kg N ha⁻¹. SI is above 1 − ΔSI = 0.70, so no back-off applies.</p>"},
+          {"type":"mcq","q":"In the <em>Creeping-thistle patches</em> scenario the thistle patches end up in the highest-index zone. What does the compensating linear rule (β > 0) do there?","options":["Gives them less nitrogen than average — which happens to be right, but for the wrong reason","Gives them more nitrogen than average","Gives them exactly the average rate","Excludes them from fertilisation automatically"],"answer":0,"feedback":["","More N goes to low-index zones, not high-index ones.","Only zones with the field-mean index get the average rate.","The rule knows nothing about weeds."],"explain":"<p>The rule sees a dense green canopy and lowers the rate. Less N on a weed patch is sensible, but the rule would do the same for a genuinely vigorous wheat zone — and the wheat inside the patch still competes with the weeds. The index cannot tell weeds from crop; ground truth or a fine-resolution RGB image can.</p>"},
+          {"type":"tf","q":"Flying lower (smaller GSD) always gives a better nitrogen prescription, because the map is more detailed.","answer":false,"explain":"<p>After masking tracks and smoothing to a 9 m window — still finer than a 24 m spreader — maps from 30 m and 120 m give practically the same zones and rates, while the 30 m flight takes about twice as long and needs about seven times as many images. Detail pays for weed or plant counting, not for nitrogen zones.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>The field</strong> is a synthetic 300 m × 200 m spring-wheat field on a 1 m grid. The spatial patterns (patches, hollows, headland, thistle patches) are random but realistic in size; their effects on LAI, chlorophyll, height and yield potential are illustrative assumptions chosen to give realistic index ranges, not measurements from a particular field.</li>
+        <li><strong>Reflectance</strong> is computed with PROSPECT-D (Féret et al., 2017) for the leaves, a Kubelka–Munk canopy (Allen &amp; Richardson, 1968) and Beer's-law cover (Eq. D3) over measured dry and wet reference soils. Bidirectional effects, shadows and multiple scattering between plants and soil are ignored.</li>
+        <li><strong>The camera</strong> records calibrated surface reflectance with random noise (Eq. D4). Systematic errors (panel calibration, changing sunlight, vignetting) and mosaicking artefacts are not simulated; every cell is mapped by the first image that covers it.</li>
+        <li><strong>The flight</strong> is flown at constant height and speed without wind; the minimum capture interval (1 s for the RedEdge-MX, 2 s for the Mavic 3M) and usable battery times are assumptions. The Sentinel-2 overpass is an illustrative animation; cloud cover and revisit time are not simulated.</li>
+        <li><strong>Zones</strong> are k-means clusters of the smoothed index; spatial contiguity is encouraged only by smoothing and a majority filter.</li>
+        <li><strong>Economics</strong> use a quadratic-plateau response with the plateau at the hidden need (Eq. D9); prices are adjustable illustrative values; application costs, the cost of the drone survey and quality premiums are not included.</li>
+        <li><strong>The 3D scene</strong> is painted with the true-colour reflectance of the same model, seen at an oblique angle and white-balanced for display; buildings, trees and neighbouring crops are illustrative.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Holland, K. H., &amp; Schepers, J. S. (2010). Derivation of a variable rate nitrogen application model for in-season fertilization of corn. <em>Agronomy Journal</em>, 102(5), 1415–1424. <a href="https://doi.org/10.2134/agronj2010.0015" target="_blank" rel="noopener">doi:10.2134/agronj2010.0015</a></li>
+        <li>Holland, K. H., &amp; Schepers, J. S. (2013). Use of a virtual-reference concept to interpret active crop canopy sensor data. <em>Precision Agriculture</em>, 14(1), 71–85. <a href="https://doi.org/10.1007/s11119-012-9301-6" target="_blank" rel="noopener">doi:10.1007/s11119-012-9301-6</a></li>
+        <li>Raun, W. R., Solie, J. B., Johnson, G. V., Stone, M. L., Mullen, R. W., Freeman, K. W., Thomason, W. E., &amp; Lukina, E. V. (2002). Improving nitrogen use efficiency in cereal grain production with optical sensing and variable rate application. <em>Agronomy Journal</em>, 94(4), 815–820. <a href="https://doi.org/10.2134/agronj2002.8150" target="_blank" rel="noopener">doi:10.2134/agronj2002.8150</a></li>
+        <li>Söderström, M., Piikki, K., Stenberg, M., Stadig, H., &amp; Martinsson, J. (2017). Producing nitrogen (N) uptake maps in winter wheat by combining proximal crop measurements with Sentinel-2 and DMC satellite images in a decision support system for farmers. <em>Acta Agriculturae Scandinavica, Section B — Soil &amp; Plant Science</em>, 67(7), 637–650. <a href="https://doi.org/10.1080/09064710.2017.1324044" target="_blank" rel="noopener">doi:10.1080/09064710.2017.1324044</a></li>
+        <li>Fridgen, J. J., Kitchen, N. R., Sudduth, K. A., Drummond, S. T., Wiebold, W. J., &amp; Fraisse, C. W. (2004). Management Zone Analyst (MZA): Software for subfield management zone delineation. <em>Agronomy Journal</em>, 96(1), 100–108. <a href="https://doi.org/10.2134/agronj2004.1000" target="_blank" rel="noopener">doi:10.2134/agronj2004.1000</a></li>
+        <li>Lloyd, S. (1982). Least squares quantization in PCM. <em>IEEE Transactions on Information Theory</em>, 28(2), 129–137. <a href="https://doi.org/10.1109/TIT.1982.1056489" target="_blank" rel="noopener">doi:10.1109/TIT.1982.1056489</a></li>
+        <li>Cerrato, M. E., &amp; Blackmer, A. M. (1990). Comparison of models for describing corn yield response to nitrogen fertilizer. <em>Agronomy Journal</em>, 82(1), 138–143. <a href="https://doi.org/10.2134/agronj1990.00021962008200010030x" target="_blank" rel="noopener">doi:10.2134/agronj1990.00021962008200010030x</a></li>
+        <li>Whelan, B. M., &amp; McBratney, A. B. (2000). The “null hypothesis” of precision agriculture management. <em>Precision Agriculture</em>, 2(3), 265–279. <a href="https://doi.org/10.1023/A:1011838806489" target="_blank" rel="noopener">doi:10.1023/A:1011838806489</a></li>
+        <li>Bullock, D. S., Lowenberg-DeBoer, J., &amp; Swinton, S. M. (2002). Adding value to spatially managed inputs by understanding site-specific yield response. <em>Agricultural Economics</em>, 27(3), 233–245. <a href="https://doi.org/10.1111/j.1574-0862.2002.tb00119.x" target="_blank" rel="noopener">doi:10.1111/j.1574-0862.2002.tb00119.x</a></li>
+        <li>Lowenberg-DeBoer, J., &amp; Erickson, B. (2019). Setting the record straight on precision agriculture adoption. <em>Agronomy Journal</em>, 111(4), 1552–1569. <a href="https://doi.org/10.2134/agronj2018.12.0779" target="_blank" rel="noopener">doi:10.2134/agronj2018.12.0779</a></li>
+        <li>Maes, W. H., &amp; Steppe, K. (2019). Perspectives for remote sensing with unmanned aerial vehicles in precision agriculture. <em>Trends in Plant Science</em>, 24(2), 152–164. <a href="https://doi.org/10.1016/j.tplants.2018.11.007" target="_blank" rel="noopener">doi:10.1016/j.tplants.2018.11.007</a></li>
+        <li>Féret, J.-B., Gitelson, A. A., Noble, S. D., &amp; Jacquemoud, S. (2017). PROSPECT-D: Towards modeling leaf optical properties through a complete lifecycle. <em>Remote Sensing of Environment</em>, 193, 204–215. <a href="https://doi.org/10.1016/j.rse.2017.03.004" target="_blank" rel="noopener">doi:10.1016/j.rse.2017.03.004</a></li>
+        <li>Allen, W. A., &amp; Richardson, A. J. (1968). Interaction of light with a plant canopy. <em>Journal of the Optical Society of America</em>, 58(8), 1023–1028. <a href="https://doi.org/10.1364/JOSA.58.001023" target="_blank" rel="noopener">doi:10.1364/JOSA.58.001023</a></li>
+        <li>European Commission. (2019). Commission Implementing Regulation (EU) 2019/947 of 24 May 2019 on the rules and procedures for the operation of unmanned aircraft. <em>Official Journal of the European Union</em>, L 152, 45 (as amended). <a href="https://eur-lex.europa.eu/eli/reg_impl/2019/947/oj" target="_blank" rel="noopener">eur-lex.europa.eu</a></li>
+        <li>MicaSense. (2026). <em>RedEdge-MX</em> (8 cm GSD at 120 m) and <em>band centre wavelengths and bandwidths</em>. <a href="https://www.micasense.com/rededge-mx" target="_blank" rel="noopener">micasense.com</a>; DJI. (2026). <em>DJI Mavic 3M specifications</em> (bands, GSD = H/21.7 cm, flight time). <a href="https://ag.dji.com/mavic-3-m/specs" target="_blank" rel="noopener">ag.dji.com</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

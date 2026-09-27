@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The agricultural Earth · Future Food Production</title>
+<meta name="description" content="A photoreal 3D Earth with a physically correct day–night terminator, city lights and clouds, carrying FAOSTAT columns of cropland, pasture, population, cereal production, calorie supply and yield, and an animated land-budget explorer.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  #stage { background: #010208; }
+  .eg-card { position: absolute; right: 12px; top: 56px; z-index: 5; width: 272px; display: none; background: rgba(8,12,16,.8); color: #e6eee9; border: 1px solid rgba(255,255,255,.16); border-radius: 12px; padding: 10px 12px 9px; font: 500 .76rem/1.45 var(--font-sans); backdrop-filter: blur(10px); }
+  .eg-card .eg-name { font: 650 1rem var(--font-sans); margin: 0 18px 6px 0; color: #fff; }
+  .eg-card table { width: 100%; border-collapse: collapse; margin: 0; font-size: .74rem; }
+  .eg-card td { padding: 2px 0; border: 0; color: #cfdad4; vertical-align: top; }
+  .eg-card td.num { text-align: right; font-family: var(--font-mono); font-size: .72rem; }
+  .eg-card td b { color: #fff; }
+  .eg-card .eg-src { margin-top: 6px; font-size: .66rem; color: #9fb2a8; }
+  .eg-card .eg-x { position: absolute; top: 6px; right: 8px; background: none; border: 0; color: #cfdad4; font-size: 1.1rem; cursor: pointer; }
+  .eg-loading { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 5; background: rgba(8,12,16,.75); color: #cfdad4; border-radius: 999px; padding: 6px 14px; font: 500 .76rem var(--font-mono); }
+  .label3d.eg-lab { font-size: 11px; padding: 3px 7px; margin-top: -26px; }
+  .label3d.eg-lab::after { content: ''; position: absolute; left: 50%; bottom: -7px; width: 1px; height: 7px; background: rgba(255,255,255,.5); }
+  #landbudget { height: 360px; position: relative; }
+  .lb-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 8px; }
+  .lb-bar .lb-title { font: 650 .9rem var(--font-sans); flex: 1; min-width: 220px; }
+  .lb-note { font-size: .84rem; color: var(--ink-2); margin-top: 8px; min-height: 2.6em; }
+  .chart-card.wide { grid-column: 1 / -1; }
+  @media (max-width: 700px) {
+    #stage { aspect-ratio: 3 / 4; }
+    #stage .hud-chip { font-size: .62rem; padding: 3px 7px; }
+    #stage .stage-hud { max-width: 70%; gap: 4px; }
+    #stage .stage-legend { font-size: .6rem; padding: 5px 7px; }
+    #stage .stage-legend .cbar { width: 120px; }
+    #stage .stage-hint { display: none; }
+    .eg-card { width: 220px; top: 50px; font-size: .7rem; }
+  }
+</style>
+</head>
+<body data-page="lab" data-slug="earth-food-globe">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>The agricultural Earth</h1>
+    <p class="lead">Almost half of the planet's habitable land is farmed. Spin a photorealistic Earth — with the day–night terminator computed for any date and time, city lights on the night side, drifting clouds and a glowing atmosphere — and raise columns of FAOSTAT data over 40 countries that together hold four fifths of the world's people and cropland: cropland, pastures, population, cereal production, food energy supply and cereal yield. Click a column to inspect a country, then use the land-budget explorer to follow the world's land from ice and desert to the calories and protein on our plates.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage tall" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>The 15 largest columns</h3>
+      <div class="chart-sub">The current layer for the 15 highest-ranking countries, in the colours of the globe. For yields and per-person values the dashed line marks the world value.</div>
+      <div class="chart" id="chart-rank" style="height:420px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>How much land feeds one person?</h3>
+      <div class="chart-sub">Cropland and permanent pastures per inhabitant (logarithmic axes; bubble area ∝ population; green = more pasture than cropland). The cross marks the world average. Hover for values, click a bubble to fly to the country.</div>
+      <div class="chart" id="chart-bubble" style="height:420px"></div>
+    </div>
+    <div class="chart-card wide">
+      <div class="lb-bar"><div class="lb-title" id="lb-title"></div>
+        <button type="button" class="btn btn-sm" id="lb-back">◂ Back</button><button type="button" class="btn btn-sm" id="lb-play">▶ Play</button><button type="button" class="btn btn-sm btn-primary" id="lb-next">Next ▸</button></div>
+      <div class="chart-sub">Land-budget explorer: from the whole land surface to the food on our plates. Areas are drawn to scale within each step; dashed rectangles can be clicked to zoom in.</div>
+      <div id="landbudget"></div>
+      <div class="lb-note" id="lb-note"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the agricultural Earth</h2>
+      <ol>
+        <li><strong>Find the terminator.</strong> The default view shows 22 September, close to the equinox. The line between day and night runs almost exactly north–south, and city lights switch on along it. Drag the <em>Time of day</em> slider and watch the terminator sweep westwards by 15° every hour; press <em>Play the day</em> to let the Earth turn.</li>
+        <li><strong>Change the season.</strong> Move the date to 21 June and look at the Arctic: the whole region north of the Arctic Circle stays in daylight while Antarctica is dark. The <em>Midnight sun in Sweden</em> view shows the sun still above the horizon over northern Scandinavia at 22:00 UTC; the readout gives the day length in Västerås.</li>
+        <li><strong>Where is the cropland?</strong> With the <em>Cropland area</em> layer, India, the United States, China and Russia tower above all others: together they hold over a third of the world's cropland. Now switch to <em>Permanent meadows and pastures</em>: China, Australia, the United States, Kazakhstan, Brazil and Saudi Arabia lead — much of it dry rangeland.</li>
+        <li><strong>Divide by people.</strong> Tick <em>Per person</em>. Egypt, Japan, the Netherlands and Bangladesh have only 350–600 m² of cropland per inhabitant, Sweden about 2,400 m² and Kazakhstan almost 15,000 m². A Mongolian has about 33 hectares of pasture.</li>
+        <li><strong>Compare yields.</strong> The <em>Cereal yield</em> layer shows more than a tenfold range, from 0.6 t ha⁻¹ in Sudan to over 8 t ha⁻¹ in the United States and 9 t ha⁻¹ in New Zealand. These yield gaps are one of the three big levers of the <a href="/laboratories/planetary-boundaries-dashboard/">Planetary boundaries dashboard</a>.</li>
+        <li><strong>Click a column.</strong> The country card lists all six indicators. Then walk through the land-budget explorer below the globe: habitable land → agriculture → pasture and cropland → livestock versus crops → calories and protein.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Agriculture occupies about 48 million km² — 44 % of the world's habitable land. Livestock uses roughly 80 % of it (grazing plus feed crops) but supplies only 17 % of our calories and 38 % of our protein. How much land a country needs depends on yields, diets and trade, not only on population.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Reading the agricultural Earth</h2>
+      <h3>What the columns measure</h3>
+      <p>All data come from the statistical databases of the Food and Agriculture Organization of the United Nations (FAOSTAT) and the UN World Population Prospects 2024, downloaded through Our World in Data. Each column stands on the geographic centre of its country; its height is proportional to the value (linear scale), and its colour follows the legend. Remember that a column is a national total: it hides how production is spread within a country.</p>
+      <table>
+        <caption>The six data layers</caption>
+        <tr><th>Layer</th><th>Definition (FAO)</th><th>Year</th></tr>
+        <tr><td>Cropland</td><td>Arable land (temporary crops, temporary meadows, fallow) plus permanent crops such as orchards and vineyards</td><td>2022</td></tr>
+        <tr><td>Permanent meadows and pastures</td><td>Land used for five years or more for herbaceous forage, cultivated or growing wild; here computed as agricultural land minus cropland</td><td>2022</td></tr>
+        <tr><td>Population</td><td>Mid-year population (UN WPP 2024)</td><td>2022</td></tr>
+        <tr><td>Cereal production</td><td>Harvested grain of all cereals (wheat, maize, rice as paddy, barley, sorghum, millets, oats …)</td><td>2024</td></tr>
+        <tr><td>Food energy supply</td><td>Food supply per person (kcal per day) from the food balance sheets, multiplied by population; it measures food available to consumers, including waste, not food produced</td><td>2023</td></tr>
+        <tr><td>Cereal yield</td><td>Cereal production divided by harvested cereal area</td><td>2024</td></tr>
+      </table>
+      <p>The 40 countries hold about 79 % of the world's cropland, 72 % of its pastures, 80 % of its people and 89 % of its cereal production.</p>
+
+      <h3>Why the same area feeds different numbers of people</h3>
+      <p>The world has about 1.57 billion hectares of cropland and 8.0 billion people — about 1,960 m² of cropland per person (2022). National values differ by a factor of forty. Egypt (360 m² per person) and Japan (350 m²) feed large populations from little land because of high yields and, above all, imports: Japan produces only about 90 kg of cereals per person per year. Kazakhstan (about 14,900 m² per person) and Australia (12,100 m²) export much of their grain. Sweden, with about 2,400 m² per person and cereal yields of 5.2 t ha⁻¹, is close to self-sufficient in cereals. The land a person “uses” therefore depends on four things: population, diet, yields and trade.</p>
+      <div class="callout note"><div class="callout-title">Pasture is not all alike</div><p>“Permanent meadows and pastures” range from lush Irish grassland to the dry rangelands of Saudi Arabia (170 million ha), Mongolia and inland Australia that support only a few animals per square kilometre. That is why the pasture columns tower over the cropland columns while pastures supply far fewer calories. Many of these lands cannot grow crops at all; grazing is one of the few ways to produce food from them.</p></div>
+
+      <h3>The land budget of food</h3>
+      <p>Of the Earth's land surface, about 10 % is covered by glaciers and a further 14 % by deserts and other barren land. Of the remaining habitable land, 44 % — about 48 million km² — is used for agriculture: one third cropland and two thirds grazing land. When the cropland that grows animal feed is added to the grazing land, livestock accounts for about 80 % of agricultural land, crops for people 16 % and non-food crops 4 %. Yet meat, dairy and farmed fish provide only 17 % of the world's calories and 38 % of its protein (Ritchie &amp; Roser, Our World in Data). Poore and Nemecek (2018) reached the same conclusion from their life-cycle data: animal products use about 83 % of the world's farmland and provide 37 % of protein and 18 % of calories. This asymmetry is the reason why diets dominate the land footprint in the <a href="/laboratories/diet-footprint/">Diet footprint composer</a>.</p>
+
+      <h3>Day, night and the terminator</h3>
+      <p>The globe is lit by the sun at the date and time you choose. Two angles fix the sun's position relative to the Earth: the <strong>solar declination</strong> \(\delta\), the latitude where the sun is overhead at noon (between +23.4° in June and −23.4° in December), and the longitude of the <strong>subsolar point</strong>, which moves west by 15° per hour as the Earth turns. A point on the surface with outward normal \(\mathbf{n}\) is in daylight when \(\mathbf{n}\cdot\mathbf{s} > 0\), where \(\mathbf{s}\) points to the sun; the terminator is the great circle \(\mathbf{n}\cdot\mathbf{s}=0\).</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 660 310" role="img" aria-label="Earth in June with the rotation axis tilted towards the sun, the terminator perpendicular to the sun's rays, the equator, the subsolar point and the declination angle">
+          <defs><marker id="egA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <circle cx="250" cy="160" r="110" class="fill-water-soft" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M 250 50 A 110 110 0 0 1 250 270 Z" class="fill-amber-soft" opacity="0.9"/>
+          <line x1="250" y1="42" x2="250" y2="278" class="stroke-magenta" stroke-width="2.4" style="color:var(--magenta)"/>
+          <text x="250" y="30" text-anchor="middle" class="t-small" style="fill:var(--magenta)">terminator (n·s = 0)</text>
+          <line x1="304" y1="35" x2="196" y2="285" class="stroke-muted" stroke-dasharray="5 4"/>
+          <text x="312" y="44" class="t-small t-muted">rotation axis</text>
+          <circle cx="299.6" cy="45.3" r="3" class="fill-accent"/><text x="318" y="62" class="t-small t-muted">North Pole (daylight all day)</text>
+          <line x1="149" y1="116.3" x2="351" y2="203.7" class="stroke-muted" stroke-dasharray="2 4"/>
+          <text x="92" y="110" class="t-small t-muted">equator</text>
+          <line x1="250" y1="160" x2="354" y2="160" class="stroke-amber" stroke-width="2.2" marker-end="url(#egA)" style="color:var(--amber)"/>
+          <circle cx="360" cy="160" r="5" class="fill-amber"/>
+          <text x="368" y="152" class="t-small">subsolar point</text>
+          <path d="M 300 160 A 50 50 0 0 1 295.9 179.9" class="stroke" stroke-width="1.5" fill="none"/>
+          <text x="304" y="183" class="t-small">δ = 23.4°</text>
+          <text x="300" y="250" class="t-small">day side (n·s &gt; 0)</text>
+          <text x="140" y="228" class="t-small t-muted">night side</text>
+          <line x1="500" y1="130" x2="420" y2="130" class="stroke-amber" stroke-width="2" marker-end="url(#egA)" style="color:var(--amber)"/>
+          <line x1="500" y1="160" x2="420" y2="160" class="stroke-amber" stroke-width="2" marker-end="url(#egA)" style="color:var(--amber)"/>
+          <line x1="500" y1="190" x2="420" y2="190" class="stroke-amber" stroke-width="2" marker-end="url(#egA)" style="color:var(--amber)"/>
+          <circle cx="570" cy="160" r="32" class="fill-amber"/><text x="570" y="214" text-anchor="middle" class="t-small">sunlight (parallel rays)</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The Earth at the June solstice. The sun's rays arrive as a parallel beam; the terminator is the great circle perpendicular to them. Because the rotation axis leans 23.4° towards the sun, the subsolar point lies 23.4° north of the equator (the declination δ) and the whole Arctic stays on the day side as the Earth turns.</figcaption>
+      </figure>
+      <p>Two small corrections make the model accurate to about a minute: the declination is computed from Spencer's (1971) Fourier series rather than a single sine, and the <strong>equation of time</strong> — up to ±16 minutes — accounts for the elliptical orbit and the tilt of the Earth's axis, which make solar noon drift relative to clock noon. The shader blends the day and night textures over a twilight band of a few degrees around the terminator, adds specular sunlight on water (the roughness map is smooth over the oceans), casts cloud shadows and tints the limb blue on the day side and orange at the terminator, mimicking Rayleigh scattering.</p>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example</span><span class="we-title">How many people does a hectare of cropland feed?</span></div>
+        <div class="we-problem"><p>In 2022 the world had 1,571 million hectares of cropland and 8,021 million people. Bangladesh had 8.83 million ha and 169.4 million people; Sweden 2.53 million ha and 10.5 million people. Compute the number of people per hectare of cropland and the cropland per person.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution"><ol class="steps">
+          <li><strong>World:</strong> \(8021/1571 = 5.1\) people ha⁻¹; \(10^4/5.1 = 1{,}960\) m² per person.</li>
+          <li><strong>Bangladesh:</strong> \(169.4/8.83 = 19.2\) people ha⁻¹, 521 m² per person — made possible by two or three rice harvests per year on the same field and a largely plant-based diet.</li>
+          <li><strong>Sweden:</strong> \(10.5/2.53 = 4.1\) people ha⁻¹, about 2,400 m² per person, close to the world average; part of the Swedish food supply grows abroad (coffee, fruit, feed soy) and part of Sweden's cereals are exported.</li>
+        </ol><span class="answer">World 5.1 people ha⁻¹; Bangladesh 19; Sweden 4.1</span></div></details>
+      </div>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“A country's cropland feeds its own people.” Food is traded: the cropland shown for Argentina, Canada or Kazakhstan feeds people on other continents, and the food energy supply of Japan or Egypt relies on land abroad. Consumption-based land footprints, such as those in the <a href="/laboratories/diet-footprint/">Diet footprint composer</a>, count the land where our food is actually grown.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the globe</h2>
+      <div class="eq-box" id="eq-eg-declination">
+        <div class="eq-head"><span class="eq-label">Solar declination (Spencer, 1971)</span><span class="eq-num">(G1)</span></div>
+        <div class="eq-main">\[ \delta = 0.006918 - 0.399912\cos B + 0.070257\sin B - 0.006758\cos 2B + 0.000907\sin 2B - 0.002697\cos 3B + 0.00148\sin 3B \]
+        \[ B = \frac{2\pi\,(n-1)}{365} \]</div>
+        <p class="eq-read">the declination, in radians, is a short Fourier series in the day angle B, which runs once around the circle during the year.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\delta\)</td><td>solar declination: latitude of the subsolar point</td><td>rad</td></tr>
+          <tr><td>\(n\)</td><td>day of the year (1 = 1 January)</td><td>–</td></tr>
+          <tr><td>\(B\)</td><td>day angle</td><td>rad</td></tr>
+        </table>
+        <details><summary>Where does it come from?</summary><ol class="steps">
+          <li>The Earth's axis is tilted by about 23.44° relative to its orbit. If the orbit were circular, \(\delta\) would follow \(\sin\delta = \sin 23.44^{\circ}\sin\lambda\), where \(\lambda\) is the sun's ecliptic longitude.</li>
+          <li>Because the orbit is slightly elliptical (eccentricity 0.017), \(\lambda\) does not increase uniformly through the year.</li>
+          <li>Spencer fitted a Fourier series to astronomical ephemeris values; the maximum error is about 0.0006 rad (0.035°), far below what matters for lighting a globe.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>The series is fitted to one epoch and ignores leap years and the slow changes of the orbit; for this laboratory the year is 2026. A simpler formula, \(\delta = 0.409\sin(2\pi n/365 - 1.39)\), is used in FAO-56 and in <code>physics.js</code>; the two agree within about half a degree.</p></details>
+        <div class="eq-units">All terms are dimensionless coefficients multiplying trigonometric functions: \(\delta\) is in radians. ✓</div>
+        <div class="mini-calc" data-formula="(0.006918-0.399912*cos(2*PI*(n-1)/365)+0.070257*sin(2*PI*(n-1)/365)-0.006758*cos(4*PI*(n-1)/365)+0.000907*sin(4*PI*(n-1)/365)-0.002697*cos(6*PI*(n-1)/365)+0.00148*sin(6*PI*(n-1)/365))*180/PI" data-output="Declination δ" data-unit="°" data-digits="2" data-plot="n">
+          <div data-var="n" data-label="Day of year n" data-min="1" data-max="365" data-step="1" data-value="172"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-eg-subsolar">
+        <div class="eq-head"><span class="eq-label">Equation of time and the subsolar longitude</span><span class="eq-num">(G2)</span></div>
+        <div class="eq-main">\[ E = 229.2\,(0.000075 + 0.001868\cos B - 0.032077\sin B - 0.014615\cos 2B - 0.04089\sin 2B) \]
+        \[ \lambda_s = -15^{\circ}\,\text{h}^{-1}\left(t_{\text{UTC}} - 12\ \text{h} + \frac{E}{60\ \text{min h}^{-1}}\right) \]</div>
+        <p class="eq-read">the equation of time E, in minutes, is how far a sundial runs ahead of the clock; the sun is overhead at the longitude where local solar time is noon, which moves 15 degrees west every hour.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(E\)</td><td>equation of time</td><td>min</td></tr>
+          <tr><td>\(t_{\text{UTC}}\)</td><td>coordinated universal time</td><td>h</td></tr>
+          <tr><td>\(\lambda_s\)</td><td>longitude of the subsolar point (east positive)</td><td>°</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Apparent solar time at longitude \(\lambda\) is \(t_{\text{sol}} = t_{\text{UTC}} + \lambda/15 + E/60\) (hours; 15° per hour of rotation).</li>
+          <li>The sun is overhead where \(t_{\text{sol}} = 12\) h. Solving for \(\lambda\) gives the second equation.</li>
+          <li>Example: 21 March (\(n = 80\)), \(E = -7.9\) min. At 12:00 UTC, \(\lambda_s = -15\times(0 - 0.131) = +1.97^{\circ}\): the sun is slightly east of Greenwich.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>UTC is treated as mean solar time at Greenwich (they differ by less than a second). Local clock times include time zones and summer time: 12:00 in Stockholm in summer is 10:00 UTC.</p></details>
+        <div class="eq-units">\({}^{\circ}\,\text{h}^{-1}\times(\text{h} + \text{min}/(\text{min h}^{-1})) = {}^{\circ}\) ✓</div>
+        <div class="mini-calc" data-formula="-15*(t-12+229.2*(0.000075+0.001868*cos(2*PI*(n-1)/365)-0.032077*sin(2*PI*(n-1)/365)-0.014615*cos(4*PI*(n-1)/365)-0.04089*sin(4*PI*(n-1)/365))/60)" data-output="Subsolar longitude λs" data-unit="° E" data-digits="2" data-plot="t">
+          <div data-var="t" data-label="Time t (UTC)" data-min="0" data-max="24" data-step="0.25" data-value="12" data-unit="h"></div>
+          <div data-var="n" data-label="Day of year n" data-min="1" data-max="365" data-step="1" data-value="80"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-eg-terminator">
+        <div class="eq-head"><span class="eq-label">Sun vector and the day–night terminator</span><span class="eq-num">(G3)</span></div>
+        <div class="eq-main">\[ \mathbf{s} = (\cos\delta\cos\lambda_s,\ \sin\delta,\ -\cos\delta\sin\lambda_s), \qquad \cos\theta_z = \mathbf{n}\cdot\mathbf{s} \]</div>
+        <p class="eq-read">the unit vector to the sun points at the subsolar point; the cosine of the sun's zenith angle at any surface point is the dot product of its outward normal with this vector — positive in daylight, zero on the terminator.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\mathbf{s}\)</td><td>unit vector towards the sun in Earth-fixed coordinates</td><td>–</td></tr>
+          <tr><td>\(\mathbf{n}\)</td><td>outward unit normal of the surface point (Eq. G4)</td><td>–</td></tr>
+          <tr><td>\(\theta_z\)</td><td>solar zenith angle (90° minus solar elevation)</td><td>°</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>The sun is so far away that its rays are parallel: the same \(\mathbf{s}\) applies everywhere.</li>
+          <li>The sun is at the zenith of the subsolar point, so \(\mathbf{s}\) is that point's normal, \(\mathbf{n}(\delta,\lambda_s)\).</li>
+          <li>For a point at latitude \(\varphi\), longitude \(\lambda\), expanding the dot product gives the classical \(\cos\theta_z = \sin\varphi\sin\delta + \cos\varphi\cos\delta\cos(\lambda-\lambda_s)\), where \(\lambda-\lambda_s\) is the hour angle.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Atmospheric refraction lifts the sun by about 0.6° at the horizon, and the sun's disc has a radius of 0.27°, so real daylight extends slightly beyond \(\mathbf{n}\cdot\mathbf{s}=0\). The shader therefore blends day and night over a twilight band of a few degrees instead of a sharp line.</p></details>
+        <div class="eq-units">Dot product of two unit vectors: dimensionless, between −1 and 1. ✓</div>
+        <div class="mini-calc" data-formula="asin(sin(phi*PI/180)*sin(d*PI/180)+cos(phi*PI/180)*cos(d*PI/180)*cos(H*PI/180))*180/PI" data-output="Solar elevation" data-unit="°" data-digits="1" data-plot="H">
+          <div data-var="phi" data-label="Latitude φ (Västerås 59.6)" data-min="-90" data-max="90" data-step="0.1" data-value="59.6" data-unit="°"></div>
+          <div data-var="d" data-label="Declination δ" data-min="-23.45" data-max="23.45" data-step="0.05" data-value="23.45" data-unit="°"></div>
+          <div data-var="H" data-label="Hour angle λ − λs" data-min="-180" data-max="180" data-step="1" data-value="0" data-unit="°"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-eg-latlon">
+        <div class="eq-head"><span class="eq-label">From latitude and longitude to the globe</span><span class="eq-num">(G4)</span></div>
+        <div class="eq-main">\[ \mathbf{n}(\varphi,\lambda) = (\cos\varphi\cos\lambda,\ \sin\varphi,\ -\cos\varphi\sin\lambda), \qquad (u, v) = \left(\frac{\lambda + 180^{\circ}}{360^{\circ}},\ \frac{\varphi + 90^{\circ}}{180^{\circ}}\right) \]</div>
+        <p class="eq-read">a point on the unit sphere is found from its latitude and longitude with the y axis through the poles; the texture coordinate of the equirectangular map is simply longitude and latitude rescaled to the range 0–1.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\varphi\), \(\lambda\)</td><td>latitude (north positive) and longitude (east positive)</td><td>°</td></tr>
+          <tr><td>\(u\), \(v\)</td><td>texture coordinates in the day, night and cloud maps</td><td>–</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The Earth is drawn as a sphere, although it is flattened by 1/298; columns stand at country centroids, which for large or oddly shaped countries (Russia, Chile) may lie far from where the farming is.</p></details>
+        <div class="eq-units">Components of a unit vector are dimensionless; \(|\mathbf{n}| = 1\). ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-eg-landpc">
+        <div class="eq-head"><span class="eq-label">Land per person and people per hectare</span><span class="eq-num">(G5)</span></div>
+        <div class="eq-main">\[ a = \frac{A\cdot 10^{4}\ \text{m}^2\,\text{ha}^{-1}}{P}, \qquad \rho = \frac{P}{A} \]</div>
+        <p class="eq-read">the land per person is the area in hectares, converted to square metres, divided by the population; its inverse, people per hectare, is the population-support density of the land.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(A\)</td><td>cropland or pasture area</td><td>ha</td></tr>
+          <tr><td>\(P\)</td><td>population</td><td>persons</td></tr>
+          <tr><td>\(a\), \(\rho\)</td><td>area per person; people per hectare</td><td>m² person⁻¹; persons ha⁻¹</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Per-person values mix production and consumption: they ignore trade, and pasture of very different productivity is counted equally.</p></details>
+        <div class="eq-units">\(\dfrac{\text{ha}\cdot\text{m}^2\,\text{ha}^{-1}}{\text{persons}} = \text{m}^2\ \text{person}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="A*1e6*1e4/(P*1e6)" data-output="Cropland per person" data-unit="m²" data-digits="0" data-plot="P">
+          <div data-var="A" data-label="Cropland A (Sweden 2.53)" data-min="0.1" data-max="200" data-step="0.01" data-value="2.53" data-unit="Mha"></div>
+          <div data-var="P" data-label="Population P (Sweden 10.5)" data-min="1" data-max="1500" data-step="0.1" data-value="10.5" data-unit="million"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-eg-energy">
+        <div class="eq-head"><span class="eq-label">National food energy supply</span><span class="eq-num">(G6)</span></div>
+        <div class="eq-main">\[ S = e\,P, \qquad S_{\text{yr}} = 365\ \text{d yr}^{-1}\cdot e\,P \]</div>
+        <p class="eq-read">a country's daily food energy supply is the supply per person times the population; multiplied by 365 it becomes an annual amount.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>World 2023</th></tr>
+          <tr><td>\(e\)</td><td>food energy supply per person (food balance sheets)</td><td>kcal person⁻¹ d⁻¹</td><td>3,006</td></tr>
+          <tr><td>\(P\)</td><td>population</td><td>persons</td><td>8.09 × 10⁹</td></tr>
+          <tr><td>\(S\)</td><td>food energy supply</td><td>Tcal d⁻¹ (10¹² kcal)</td><td>24.3</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Supply is measured at the retail and household level before waste; typical intake is several hundred kilocalories lower. Supply is not production: a net exporter such as Argentina produces far more food energy than it supplies, an importer such as Japan far less.</p></details>
+        <div class="eq-units">\(\text{kcal person}^{-1}\,\text{d}^{-1}\times\text{persons} = \text{kcal d}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="e*P*1e6/1e12" data-output="Food energy supply" data-unit="Tcal d⁻¹" data-digits="2" data-plot="P">
+          <div data-var="e" data-label="Supply per person e" data-min="1800" data-max="4000" data-step="10" data-value="3006" data-unit="kcal d⁻¹"></div>
+          <div data-var="P" data-label="Population P" data-min="1" data-max="8200" data-step="1" data-value="8092" data-unit="million"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-eg-height">
+        <div class="eq-head"><span class="eq-label">Column height and day length</span><span class="eq-num">(G7)</span></div>
+        <div class="eq-main">\[ h_i = 0.5\,R_{\oplus}\,k\,\frac{x_i}{\max_j x_j}, \qquad N = \frac{24}{\pi}\arccos\!\left(-\tan\varphi\tan\delta\right) \]</div>
+        <p class="eq-read">each column rises in proportion to its value, the tallest reaching half an Earth radius times the height factor k; the day length at latitude φ follows from the sunset hour angle.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(h_i\), \(x_i\)</td><td>height and value of column \(i\)</td><td>Earth radii; layer unit</td></tr>
+          <tr><td>\(k\)</td><td>column-height factor (slider)</td><td>–</td></tr>
+          <tr><td>\(N\)</td><td>astronomical day length (FAO-56 Eq. 34)</td><td>h</td></tr>
+        </table>
+        <details><summary>Why linear heights?</summary><p>With a linear scale a column twice as tall means twice the value — the only honest choice for comparing totals. Area- or volume-based encodings exaggerate or hide differences; logarithmic heights would make India and Sweden look similar. The colour adds a second, square-root-scaled cue so that small columns remain distinguishable.</p></details>
+        <div class="eq-units">\(\arccos\) returns radians; \(24/\pi\) converts half a turn (π rad) to 12 h. ✓</div>
+        <div class="mini-calc" data-formula="24/PI*acos(max(-1,min(1,-tan(phi*PI/180)*tan(0.409*sin(2*PI*n/365-1.39)))))" data-output="Day length N" data-unit="h" data-digits="2" data-plot="n">
+          <div data-var="phi" data-label="Latitude φ (Västerås 59.6)" data-min="-66" data-max="66" data-step="0.1" data-value="59.6" data-unit="°"></div>
+          <div data-var="n" data-label="Day of year n" data-min="1" data-max="365" data-step="1" data-value="172"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the globe, the charts and the country cards. <em>Save investigation</em> stores the current view and readouts in your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Chasing the terminator</h4><p>Set the date to 21 March and find the time (UTC) at which the terminator passes through Västerås (59.6° N, 16.5° E) in the evening. Repeat for 21 June and 21 December. Compare with the day lengths in the readout and explain the differences with Eqs. G1–G3.</p></li>
+        <li><h4>Land per person</h4><p>With the <em>Per person</em> option, rank the ten countries with the least and the most cropland per person. Which of them import and which export cereals? Use the country cards (cereal production per person) and the bubble chart to support your answer.</p></li>
+        <li><h4>Yield gaps</h4><p>List the five countries with the lowest cereal yields. How much more cereal would Nigeria and Ethiopia produce on their present cereal area if they reached the world average yield? Link your result to the technology lever of the Planetary boundaries dashboard.</p></li>
+        <li><h4>Pastures that feed few</h4><p>Compare the pasture columns of Australia, Saudi Arabia and Mongolia with their population and food energy supply. Using the land-budget explorer, explain why grazing land is two thirds of all farmland but livestock provides less than a fifth of the world's calories.</p></li>
+        <li><h4>Sweden in the world</h4><p>Find Sweden's cropland per person, pasture share and cereal yield. Is the Swedish diet (see the Diet footprint composer) fed from Swedish land alone? Estimate how many hectares abroad an average Swede uses, using the land footprint of the Swedish diet (m²·yr per day × 365).</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-earth-food-globe">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the globe and the equations","questions":[
+          {"type":"numeric","q":"Show cropland <em>per person</em> and click Sweden. How many square metres of cropland are there per Swedish inhabitant (2022)?","answer":2413,"tol":0.02,"unit":"m²","hint":"Eq. G5: 2.53 Mha × 10⁴ m² ha⁻¹ / 10.5 million people.","explain":"<p>\\(a = 2.53\\times10^{6}\\times10^{4}/(10.49\\times10^{6}) \\approx 2{,}410\\) m² — close to the world average of about 1,960 m².</p>"},
+          {"type":"mcq","q":"Which of the 40 countries has the largest area of permanent meadows and pastures?","options":["China","Australia","United States","Mongolia"],"answer":0,"feedback":["","Australia is second with 332 million ha.","The United States is third with 267 million ha.","Mongolia has 111 million ha — the most per person, not in total."],"explain":"<p>China reports 393 million ha of permanent meadows and pastures, much of it on the dry Tibetan plateau and in Inner Mongolia.</p>"},
+          {"type":"numeric","q":"Use Eq. G1: what is the solar declination on 21 June (day 172)?","answer":23.45,"tol":0.01,"unit":"°","hint":"B = 2π × 171/365; or read it from the readout under the globe.","explain":"<p>Spencer's series gives \\(\\delta = 23.45^{\\circ}\\): the sun is overhead at the Tropic of Cancer.</p>"},
+          {"type":"numeric","q":"At 12:00 UTC on 21 March (day 80), at which longitude is the sun overhead? (Give degrees east; use the readout or Eq. G2.)","answer":1.97,"abstol":0.1,"unit":"° E","hint":"The equation of time on 21 March is about −7.9 min.","explain":"<p>\\(\\lambda_s = -15\\times(12 - 12 - 7.86/60) = +1.97^{\\circ}\\) E. Because of the equation of time, solar noon in Greenwich comes about 8 minutes after 12:00 UTC.</p>"},
+          {"type":"multi","q":"Which statements are supported by the land-budget explorer?","options":["About 44 % of habitable land is used for agriculture","Livestock uses about 80 % of agricultural land","Cropland is about two thirds of agricultural land","Meat, dairy and farmed fish supply about 38 % of the world's protein"],"answer":[0,1,3],"shuffle":false,"explain":"<p>Cropland is about one third of agricultural land; permanent meadows and pastures are about two thirds.</p>"},
+          {"type":"numeric","q":"What is the astronomical day length in Västerås (59.6° N) on 21 June according to the FAO-56 formula (readout under the globe)?","answer":18.35,"tol":0.01,"unit":"h","hint":"Eq. G7 with φ = 59.6° and n = 172.","explain":"<p>\\(\\delta = 0.409\\sin(2\\pi\\cdot172/365 - 1.39) = 0.409\\) rad, \\(\\omega_s = \\arccos(-\\tan59.6^{\\circ}\\tan23.4^{\\circ}) = 2.40\\) rad and \\(N = 24\\omega_s/\\pi = 18.35\\) h. Refraction and the sun's disc add roughly another half hour of real daylight.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Data.</strong> Country values are downloaded from Our World in Data (September 2026) and originate from FAOSTAT (land use 2022; cereal production and yield 2024; food balance sheets 2023) and UN World Population Prospects 2024 (population in the land-use year). Pastures are computed as agricultural land minus cropland, following FAO's definition of agricultural land as cropland plus permanent meadows and pastures.</li>
+        <li><strong>Positions.</strong> Columns stand at country centroids from Google's public DSPL country table. National totals hide regional distribution.</li>
+        <li><strong>Encoding.</strong> Column height is linear in the value (Eq. G7); colour uses a square-root scale of the same value. Per-person values divide by the population of the same data year (cereal production uses the 2023 population).</li>
+        <li><strong>Sun.</strong> Spencer's (1971) declination and equation of time for 2026, UTC treated as mean Greenwich time, spherical Earth, no refraction; the day–night transition is blended over a twilight band. Day length uses the FAO-56 formula shared with <code>physics.js</code>.</li>
+        <li><strong>Rendering.</strong> Day, night and cloud/roughness/elevation maps are the Solar System Scope textures (based on NASA imagery) resized in the three.js example library; the atmosphere is a visual approximation of Rayleigh scattering, not a radiative-transfer model; clouds are a static global cloud map that drifts slowly, not a weather forecast.</li>
+        <li><strong>Land budget.</strong> Shares from Ritchie &amp; Roser (Our World in Data) based on FAO data and Poore &amp; Nemecek (2018); FAOSTAT totals for 2022 are shown where available. Shares are rounded and different sources differ by a few percentage points (e.g., 80 % vs 83 % of farmland for livestock).</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>FAO (2025). <em>FAOSTAT: Land use; Crops and livestock products; Food balances</em>. Rome: Food and Agriculture Organization of the United Nations. <a href="https://www.fao.org/faostat/" target="_blank" rel="noopener">fao.org/faostat</a> — accessed through <a href="https://ourworldindata.org/land-use" target="_blank" rel="noopener">Our World in Data</a></li>
+        <li>United Nations, Department of Economic and Social Affairs, Population Division (2024). <em>World Population Prospects 2024</em>. <a href="https://population.un.org/wpp/" target="_blank" rel="noopener">population.un.org/wpp</a></li>
+        <li>Ritchie, H., &amp; Roser, M. (2019, updated). Half of the world's habitable land is used for agriculture. <em>Our World in Data</em>. <a href="https://ourworldindata.org/global-land-for-agriculture" target="_blank" rel="noopener">ourworldindata.org/global-land-for-agriculture</a></li>
+        <li>Poore, J., &amp; Nemecek, T. (2018). Reducing food's environmental impacts through producers and consumers. <em>Science</em>, 360(6392), 987–992. <a href="https://doi.org/10.1126/science.aaq0216" target="_blank" rel="noopener">doi:10.1126/science.aaq0216</a></li>
+        <li>Spencer, J. W. (1971). Fourier series representation of the position of the sun. <em>Search</em>, 2(5), 172.</li>
+        <li>Duffie, J. A., &amp; Beckman, W. A. (2013). <em>Solar Engineering of Thermal Processes</em> (4th ed.). Hoboken, NJ: Wiley. <a href="https://doi.org/10.1002/9781118671603" target="_blank" rel="noopener">doi:10.1002/9781118671603</a></li>
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration: guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56). Rome: FAO. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">fao.org</a></li>
+        <li>Solar System Scope (n.d.). <em>Solar textures</em> (Earth day, night and cloud maps, CC BY 4.0), as resized in the three.js example assets. <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">solarsystemscope.com/textures</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-criteria decision studio · Future Food Production</title>
+<meta name="description" content="Rank protein sources or lettuce production systems on climate, land, water, cost, nutrition, acceptance, animal welfare, readiness and resilience: min–max, target and vector normalisation, direct, swing and AHP weights with consistency ratio, weighted sum, TOPSIS and weighted product, Monte Carlo rank acceptability and weight sensitivity.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Eq. M6 — consistency ratio of a 3 × 3 AHP matrix (principal eigenvalue by power iteration) */
+FFP_CALC.mcdaCR3 = v => { const A = [[1, v.a, v.b], [1 / v.a, 1, v.c], [1 / v.b, 1 / v.c, 1]]; let w = [1 / 3, 1 / 3, 1 / 3]; for (let k = 0; k < 100; k++) { const Aw = A.map(r => r[0] * w[0] + r[1] * w[1] + r[2] * w[2]); const s = Aw[0] + Aw[1] + Aw[2]; w = Aw.map(x => x / s); } const Aw = A.map(r => r[0] * w[0] + r[1] * w[1] + r[2] * w[2]); const l = (Aw[0] / w[0] + Aw[1] / w[1] + Aw[2] / w[2]) / 3; return (l - 3) / 2 / 0.58; };
+/* Eq. M3 — vector-normalised score of value x in a column {x, y, z} */
+FFP_CALC.mcdaVec = v => v.x / Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  #stage { aspect-ratio: 16 / 10; min-height: 440px; }
+  .mc-tip { position: absolute; display: none; z-index: 6; pointer-events: none; background: rgba(10, 16, 14, .93); color: #e6eee9; border: 1px solid rgba(255, 255, 255, .14); border-radius: 10px; padding: 8px 10px; font: 500 .76rem var(--font-sans); max-width: 320px; backdrop-filter: blur(6px); }
+  .mc-tip table { border-collapse: collapse; margin-top: 4px; }
+  .mc-tip td { padding: 1px 5px; font: 500 .72rem var(--font-mono); } .mc-tip td:nth-child(n+2) { text-align: right; } .mc-tip small { color: #9fb2a8; }
+  .wdot, .adot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .mc-w { margin: 8px 0; } .mc-w .ctl-lab label { display: flex; align-items: center; }
+  .wbar { display: grid; grid-template-columns: 78px 1fr 52px; gap: 6px; align-items: center; font: 500 .76rem var(--font-mono); color: var(--ink-2); margin: 4px 0; }
+  .wbar i { display: block; height: 8px; border-radius: 4px; }
+  .wbar b { text-align: right; font-weight: 600; }
+  .mc-card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px 12px; margin: 16px 0; }
+  .mc-card h3 { font: 650 .92rem var(--font-sans); margin: 0 0 2px; }
+  .mc-card .chart-sub { font-size: .78rem; color: var(--muted); margin-bottom: 8px; }
+  .mc-card.inactive .ahp-wrap { opacity: .55; }
+  .mc-wrap { overflow-x: auto; }
+  table.mx { border-collapse: collapse; font-size: .82rem; min-width: 760px; width: 100%; }
+  .mx th, .mx td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .mx th { font: 650 .78rem var(--font-sans); color: var(--ink-2); }
+  .mx .u { font: 500 .66rem var(--font-mono); color: var(--muted); font-weight: 400; }
+  .mx td.num, .mx th.num { text-align: right; }
+  .mx input[type="number"] { width: 64px; padding: 3px 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: 500 .78rem var(--font-mono); text-align: right; }
+  .mx tr.off td { opacity: .45; }
+  .mx tr.tgt td { background: var(--bg-sunk); font-size: .76rem; color: var(--muted); }
+  .mx label.inc { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
+  .nbar { height: 4px; background: var(--bg-sunk); border-radius: 2px; margin: 3px 0 0 auto; width: 64px; }
+  .nbar i { display: block; height: 4px; border-radius: 2px; background: var(--accent); }
+  .qb { display: inline-block; margin-top: 2px; font: 700 .6rem var(--font-mono); padding: 0 4px; border-radius: 4px; background: var(--bg-sunk); color: var(--muted); }
+  .qb.q-L { background: var(--accent-soft); color: var(--accent); } .qb.q-I { background: var(--amber-soft); color: var(--amber); } .qb.q-D, .qb.q-T { background: var(--water-soft); color: var(--water); } .qb.q-E { background: var(--danger-soft); color: var(--danger); } .qb.q-J { background: var(--magenta-soft); color: var(--magenta); }
+  .mx-notes { font-size: .8rem; color: var(--ink-2); margin: 10px 0 0; padding-left: 18px; }
+  .mx-notes li { margin: 3px 0; }
+  .mc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  table.ahp { border-collapse: collapse; font-size: .8rem; }
+  .ahp th, .ahp td { padding: 4px 5px; border: 1px solid var(--line); text-align: center; font-family: var(--font-mono); }
+  .ahp th { background: var(--bg-sunk); font: 650 .74rem var(--font-sans); }
+  .ahp td.diag { background: var(--bg-sunk); color: var(--muted); }
+  .ahp td.recip { color: var(--muted); }
+  .ahp select { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: 500 .78rem var(--font-mono); padding: 2px 2px; }
+  .ahp-stats { font-size: .84rem; margin: 10px 0 0; line-height: 1.6; } .ahp-stats .ok { color: var(--ok); } .ahp-stats .bad { color: var(--danger); }
+  table.acc { border-collapse: collapse; font-size: .82rem; width: 100%; }
+  .acc th, .acc td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; } .acc td.num, .acc th.num { text-align: right; font-family: var(--font-mono); }
+  .sens-head { display: flex; gap: 8px; align-items: center; font-size: .82rem; color: var(--ink-2); margin-bottom: 4px; }
+  .sens-head select { padding: 3px 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); font: 500 .8rem var(--font-sans); }
+  textarea.csv { width: 100%; min-height: 130px; font: 500 .8rem var(--font-mono); padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--ink); }
+  .csv-msg { font-size: .8rem; margin-left: 6px; } .csv-msg.ok { color: var(--ok); } .csv-msg.bad { color: var(--danger); }
+  .chart-card.full { grid-column: 1 / -1; }
+</style>
+</head>
+<body data-page="lab" data-slug="mcda-studio">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Multi-criteria decision studio</h1>
+    <p class="lead">Beef or mycoprotein, peas or insects, a heated greenhouse or a vertical farm? No single number decides. Build the decision the way an analyst does: choose the criteria, normalise them, elicit weights by points, by swings or by pairwise comparisons with a consistency check, aggregate with the weighted sum, TOPSIS or the weighted product — and then find out how much of the ranking survives when the weights, the method or the data change.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>The same weights, three aggregation methods</h3>
+      <div class="chart-sub">Scores with your current weights under the weighted sum (Eq. M7), TOPSIS (M8) and the weighted product (M10). Where the orders differ, the ranking depends on the method, not only on the values.</div>
+      <div class="chart" id="ch-methods" style="height:320px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>One-at-a-time weight sensitivity</h3>
+      <div class="sens-head"><label for="sens-crit">Vary the weight of</label><select id="sens-crit"></select></div>
+      <div class="chart" id="ch-sens" style="height:300px"></div>
+      <div class="chart-sub" id="sens-note" style="margin-top:4px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Rank acceptability (Monte Carlo)</h3>
+      <div class="chart-sub" id="acc-sub">Share of weight draws in which each alternative attains each rank (Eq. M9).</div>
+      <div class="mc-wrap"><table class="acc" id="acc-table"></table></div>
+    </div>
+    <div class="chart-card">
+      <h3>Current weights</h3>
+      <div class="chart-sub">Normalised weights of the included criteria for the chosen weighting method (sum = 100 %).</div>
+      <div class="chart" id="ch-weights" style="height:300px"></div>
+    </div>
+  </div>
+
+  <section class="mc-card" aria-labelledby="mx-h">
+    <h3 id="mx-h">Performance matrix — edit, include or exclude</h3>
+    <div class="chart-sub"><span id="mx-sub"></span>. Tick boxes include or exclude alternatives and criteria; the thin bars show the normalised score (1 = best). Data-quality badges: <b>L</b> peer-reviewed LCA · <b>I</b> industry-commissioned LCA · <b>D</b> derived · <b>E</b> estimate · <b>J</b> judgement on a constructed scale · <b>T</b> teaching value.</div>
+    <div class="mc-wrap"><table class="mx" id="mx-table"></table></div>
+    <ul class="mx-notes" id="mx-notes"></ul>
+    <div class="mc-actions"><button class="btn btn-sm" type="button" id="mx-reset">Reset this data set</button><button class="btn btn-sm" type="button" id="mx-csv">Download matrix (CSV)</button></div>
+  </section>
+
+  <section class="mc-card" id="ahp-card" aria-labelledby="ahp-h">
+    <h3 id="ahp-h">AHP pairwise-comparison matrix</h3>
+    <div class="chart-sub">Row criterion compared with column criterion on Saaty's 1–9 scale (9 = extremely more important, 1 = equal, 1/9 = extremely less). The lower triangle holds the reciprocals. <span id="ahp-n"></span> criteria included. Ask range-aware questions: “how much more does it matter to improve A from its worst to its best value than B?”</div>
+    <div class="ahp-wrap mc-wrap"><table class="ahp" id="ahp-table"></table></div>
+    <div class="ahp-stats" id="ahp-stats"></div>
+    <div class="mc-actions"><button class="btn btn-sm" type="button" id="ahp-consistent">Fill consistently from my direct weights</button><button class="btn btn-sm" type="button" id="ahp-fix">Repair the most inconsistent judgement</button></div>
+  </section>
+
+  <section class="mc-card" aria-labelledby="csv-h">
+    <h3 id="csv-h">Your own decision matrix</h3>
+    <div class="chart-sub">Paste a table (comma, semicolon or tab separated). First row: a label, then each criterion as <code>Name (unit) [min]</code> or <code>[max]</code>; one row per alternative. Then press <em>Load</em> — the data set “My data” appears in the controls. Use it for your course project.</div>
+    <textarea class="csv" id="csv-in" spellcheck="false" aria-label="Paste your decision matrix">Alternative, GHG (kg CO2e per kg) [min], Water (L per kg) [min], Cost (SEK per kg) [min], Taste (1-9) [max], Local jobs (per 100 t) [max]
+Imported field lettuce, 0.68, 56, 25, 6, 0.5
+Greenhouse with biofuel heat, 0.60, 21, 45, 7, 2.0
+Vertical farm, 0.69, 2, 80, 7, 3.0
+Home and allotment growing, 0.30, 40, 10, 8, 0</textarea>
+    <div class="mc-actions"><button class="btn btn-sm btn-primary" type="button" id="csv-load">Load my matrix</button><span class="csv-msg" id="csv-msg"></span></div>
+  </section>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the decision board</h2>
+      <p>The stage is a <em>decision board</em>. On the left, each vertical axis is a criterion; its thickness and the coloured bar at the top show its weight. Each coloured line is an alternative, plotted at its normalised score on every criterion — 1 at the top means best in the set, 0 at the bottom worst. On the right, the alternatives are ranked by their aggregated score; the ranking re-sorts itself smoothly whenever you change anything. Hover over a line or a bar to read the raw values.</p>
+      <ol>
+        <li><strong>Start with the protein sources and equal weights.</strong> Beef's line runs along the bottom on the environmental axes but high on acceptance, nutrition and readiness; pea protein and mycoprotein are high almost everywhere. Read the ranking and the readout “Lead over runner-up”.</li>
+        <li><strong>Be a stakeholder.</strong> Press <em>Environmentalist</em>, <em>Economist</em>, <em>Consumer</em> and <em>Farmer</em> under <em>Stakeholder weights</em>. Which alternatives stay near the top whatever the weights? Which move? This is the core message of MCDA: value judgements are visible, and some conclusions do not depend on them.</li>
+        <li><strong>Change the normalisation.</strong> Switch between min–max, target and vector. Min–max stretches every criterion to the full 0–1 range, so a criterion on which all options are nearly equal still separates them; target normalisation asks “is it good enough?”; vector normalisation keeps proportions. The ranking can change even though no value did.</li>
+        <li><strong>Reproduce Lesson 15.4.</strong> Load the method preset <em>Lesson 15.4 example</em>: the lettuce systems with the swing weights of Worked example 2. The weighted sum gives C 0.92 &gt; D 0.60 ≈ A 0.59 &gt; B 0.41. Switch to TOPSIS (the <em>TOPSIS check</em> preset): A and D swap. Then untick option B in the matrix — the dominated gas greenhouse — and watch the order of A and D reverse again (rank reversal).</li>
+        <li><strong>Try the AHP.</strong> Choose <em>AHP matrix</em> as weighting method and change one judgement in the matrix card so that it contradicts the others: the consistency ratio rises above 0.10, and the studio names the most inconsistent judgement.</li>
+        <li><strong>Stress-test.</strong> Look at the rank-acceptability table: under uniform weights (SMAA), how often is the leader first? Switch <em>Monte Carlo weights</em> between <em>Uniform</em> and <em>Around mine</em>, and add data uncertainty. A recommendation is only as strong as its acceptability.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>MCDA does not remove value judgements — it makes them explicit and testable. A good analysis reports three things: the ranking under stated weights, the weights at which it changes (sensitivity), and how often each alternative wins across plausible weights (acceptability).</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From performance matrix to recommendation</h2>
+      <p>Every MCDA starts with a <strong>performance matrix</strong>: alternatives in rows, criteria in columns, each cell a value in the criterion's own unit (Lesson 15.4). The studio then follows the standard steps — normalise, weight, aggregate, test robustness — and lets you change each choice independently.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 200" role="img" aria-label="Pipeline of the studio: performance matrix, normalisation, weighting, aggregation and robustness analysis, with the methods offered at each step.">
+            <defs><marker id="mc-lab-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g class="t-small" text-anchor="middle">
+              <rect x="10" y="40" width="120" height="110" rx="12" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="70" y="64" style="font-weight:700">Matrix</text><text x="70" y="86" class="t-muted">alternatives ×</text><text x="70" y="100" class="t-muted">criteria, units,</text><text x="70" y="114" class="t-muted">directions,</text><text x="70" y="128" class="t-muted">data quality</text>
+              <rect x="152" y="40" width="130" height="110" rx="12" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="217" y="64" style="font-weight:700">Normalise</text><text x="217" y="86">min–max (M1)</text><text x="217" y="104">target (M2)</text><text x="217" y="122">vector (M3)</text>
+              <rect x="304" y="40" width="130" height="110" rx="12" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/><text x="369" y="64" style="font-weight:700">Weight</text><text x="369" y="86">direct, swing (M4)</text><text x="369" y="104">AHP eigenvector (M5)</text><text x="369" y="122">consistency (M6)</text>
+              <rect x="456" y="40" width="130" height="110" rx="12" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/><text x="521" y="64" style="font-weight:700">Aggregate</text><text x="521" y="86">weighted sum (M7)</text><text x="521" y="104">TOPSIS (M8)</text><text x="521" y="122">weighted product (M10)</text>
+              <rect x="608" y="40" width="102" height="110" rx="12" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="659" y="64" style="font-weight:700">Robustness</text><text x="659" y="86">sensitivity</text><text x="659" y="104">break-even w</text><text x="659" y="122">SMAA (M9)</text>
+            </g>
+            <g stroke="currentColor" stroke-width="1.3" marker-end="url(#mc-lab-ar)"><line x1="130" y1="95" x2="150" y2="95"/><line x1="282" y1="95" x2="302" y2="95"/><line x1="434" y1="95" x2="454" y2="95"/><line x1="586" y1="95" x2="606" y2="95"/></g>
+            <path d="M659 150 C659 190 70 190 70 152" fill="none" class="stroke-muted" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#mc-lab-ar)"/>
+            <text x="365" y="194" text-anchor="middle" class="t-small t-muted">iterate: robustness results send you back to criteria, data and weights</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The steps of the studio. Each box is an independent choice in the controls; the Derive tab gives the equation behind every method.</figcaption>
+      </figure>
+      <h3>The two data sets</h3>
+      <p><strong>Protein sources</strong> compares six ways to deliver 100 g of protein. The three life-cycle criteria come from peer-reviewed or industry LCAs: beef, chicken and peas from the global meta-analysis of Poore and Nemecek (2018); mycoprotein from a Carbon Trust study commissioned by its producer (2023); mealworms from Oonincx and de Boer (2012); cultivated meat from the ex-ante LCA of Sinke et al. (2023) for 2030 with renewable energy at the facility. The other six criteria have no natural unit; they are scored on <strong>constructed scales</strong> (1–5, or TRL 1–9) whose anchors are given in the matrix notes. Those scores are the course team's illustrative judgements for 2026 — replace them with your own evidence, or with scores from a stakeholder workshop. The badges in the matrix show the quality of every value; a matrix that mixes a peer-reviewed global mean, an industry report and a judgement must say so.</p>
+      <p><strong>Lettuce systems</strong> is Table 1 of Lesson 15.4 — four ways to supply a Stockholm retailer in January — so that you can reproduce every worked example of the lesson in the studio.</p>
+      <div class="callout warn"><div class="callout-title">Comparability of LCA data</div><p>Values from different studies differ in functional unit, system boundary, year and impact method: Poore and Nemecek report global means from farm to retail; the Carbon Trust study stops at the factory gate; Sinke et al. model a future (2030) system. Before trusting a small difference, check that the studies are comparable — and use the data-uncertainty option of the Monte Carlo analysis to see whether the ranking survives.</p></div>
+      <h3>Normalisation changes the question</h3>
+      <p>Min–max normalisation measures each option against the best and worst <em>in the set</em>; it is the natural partner of swing weights and the weighted sum. Target normalisation measures against an external target — a planetary-boundary share, a policy goal — and stops rewarding once the target is met. Vector normalisation divides by the length of the criterion column, keeps ratios between options and is the classical choice for TOPSIS (Hwang &amp; Yoon, 1981). Because min–max depends on the extremes of the set, adding or removing an option can reverse the ranking of two others (Lesson 15.4, Worked example 3).</p>
+      <h3>Weights are trade-offs across ranges</h3>
+      <p>Direct points answer “how important is this criterion?”. Swing weighting asks the question the weighted sum actually needs: how valuable is moving each criterion from its worst to its best value <em>in this set</em> (von Winterfeldt &amp; Edwards, 1986)? The studio shows each swing next to its slider. The analytic hierarchy process derives weights from pairwise comparisons as the principal eigenvector of the comparison matrix and checks the judgements with Saaty's consistency ratio; CR ≤ 0.10 is the usual acceptance threshold (Saaty, 1980).</p>
+      <h3>Compensation and the choice of aggregation</h3>
+      <p>The weighted sum is fully compensatory: a very poor score can be bought back by good scores elsewhere. TOPSIS ranks by relative closeness to an ideal and distance from an anti-ideal point; its Euclidean distance makes large deviations count more. The weighted product multiplies ratio-normalised scores, so a near-zero score on one criterion drags the whole product down — a strong-sustainability reading in which critical natural capital cannot be substituted.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“The MCDA proved that alternative X is best.” An MCDA shows which alternative is best <em>under stated weights, data and method</em>. If the leader's first-rank acceptability is 55 % under plausible weights, the honest conclusion is that the choice depends on values that stakeholders must negotiate — not that the analysis failed.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier 2024–2026</div><p>Assessments of emerging food technologies increasingly combine prospective LCA, techno-economic analysis and social indicators in one MCDA, and use stochastic methods (SMAA) to report acceptabilities instead of single rankings. Reviews of vertical farming call for exactly this integration of environmental, economic and social criteria (Dziumla et al., 2025).</p></div>
+      <a class="lab-link" data-lab="lca-comparator" data-why="Produce the climate, energy, water and land values for the lettuce systems yourself, with uncertainty."></a>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the studio</h2>
+      <p>Alternatives are indexed \(i = 1\dots m\), criteria \(j = 1\dots n\); \(x_{ij}\) is the performance of alternative \(i\) on criterion \(j\), and \(v_{ij}\) its normalised, benefit-oriented score (higher is better).</p>
+
+      <div class="eq-box" id="eq-mcda-lab-minmax">
+        <div class="eq-head"><span class="eq-label">Min–max normalisation</span><span class="eq-num">(M1)</span></div>
+        <div class="eq-main">\[ v_{ij} = \frac{x_{ij}-\min_i x_{ij}}{\max_i x_{ij}-\min_i x_{ij}}\ \ \text{(benefit)}, \qquad v_{ij} = \frac{\max_i x_{ij}-x_{ij}}{\max_i x_{ij}-\min_i x_{ij}}\ \ \text{(cost)} \]</div>
+        <p class="eq-read">the score is the distance from the worst value in the set divided by the range of the set; the best option gets 1 and the worst 0.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_{ij}\)</td><td>performance of alternative \(i\) on criterion \(j\)</td><td>criterion unit</td></tr>
+          <tr><td>\(v_{ij}\)</td><td>normalised score, 0 (worst in set) to 1 (best)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Look for a linear map \(v = \alpha x + \beta\) with \(v = 1\) at the best and \(v = 0\) at the worst value; solving the two conditions gives the expressions above (Lesson 15.4, Eq. 15.4.1).</li>
+            <li>Protein example (GHG, cost criterion): range 0.44–49.89 kg CO₂e per 100 g protein; chicken \((49.89-5.70)/(49.89-0.44) = 0.894\).</li>
+            <li>If all values are equal the criterion cannot discriminate; the studio then gives every option 1.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Interval scale defined by the option set: adding or removing an option that sets an extreme changes every score in the column and can reverse rankings.</p></details>
+        <div class="eq-units">unit / unit = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="(xmax-x)/(xmax-xmin)" data-output="Score v (cost criterion)" data-unit="" data-digits="3" data-plot="x" data-ymin="0" data-ymax="1" data-title="Try it — chicken's GHG score">
+          <div data-var="x" data-label="Value x" data-min="0.44" data-max="49.89" data-step="0.01" data-value="5.70" data-unit="kg CO₂e"></div>
+          <div data-var="xmin" data-label="Best (minimum)" data-min="0.1" data-max="2" data-step="0.01" data-value="0.44" data-unit="kg CO₂e"></div>
+          <div data-var="xmax" data-label="Worst (maximum)" data-min="10" data-max="60" data-step="0.01" data-value="49.89" data-unit="kg CO₂e"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mcda-lab-target">
+        <div class="eq-head"><span class="eq-label">Target normalisation</span><span class="eq-num">(M2)</span></div>
+        <div class="eq-main">\[ v_{ij} = \min\!\left(1,\ \frac{t_j}{x_{ij}}\right)\ \ \text{(cost)}, \qquad v_{ij} = \min\!\left(1,\ \frac{x_{ij}}{t_j}\right)\ \ \text{(benefit)} \]</div>
+        <p class="eq-read">the score is the target divided by the value for a cost criterion, or the value divided by the target for a benefit criterion, capped at one when the target is met.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(t_j\)</td><td>external target for criterion \(j\) (editable in the target row of the matrix)</td><td>criterion unit</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Divide by an external reference so that the scale does not depend on the option set (Lesson 15.4, Eq. 15.4.2).</li>
+            <li>The ratio rewards improvement in proportion (halving emissions doubles the score) until the target is reached: “good enough” is a deliberate non-linearity.</li>
+            <li>Example: a climate target of 0.5 kg CO₂e kg⁻¹ gives the vertical farm (0.84) \(0.5/0.84 = 0.60\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The default targets in the studio are illustrative. Science-based targets — a per-capita share of a planetary boundary or a national climate budget — are more defensible than round numbers.</p></details>
+        <div class="eq-units">unit / unit = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="min(1, t/x)" data-output="Target score v" data-unit="" data-digits="3" data-plot="x" data-ymin="0" data-ymax="1" data-title="Try it — distance to a climate target">
+          <div data-var="x" data-label="Value x" data-min="0.1" data-max="3" data-step="0.01" data-value="0.84" data-unit="kg CO₂e kg⁻¹"></div>
+          <div data-var="t" data-label="Target t" data-min="0.1" data-max="1.5" data-step="0.01" data-value="0.5" data-unit="kg CO₂e kg⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mcda-lab-vector">
+        <div class="eq-head"><span class="eq-label">Vector normalisation</span><span class="eq-num">(M3)</span></div>
+        <div class="eq-main">\[ r_{ij} = \frac{x_{ij}}{\sqrt{\sum_{k} x_{kj}^{2}}}, \qquad v_{ij} = r_{ij}\ \text{(benefit)}, \qquad v_{ij} = 1 - r_{ij}\ \text{(cost, weighted sum only)} \]</div>
+        <p class="eq-read">each value is divided by the Euclidean length of its criterion column; for the weighted sum, cost criteria are turned into benefits by subtracting from one, whereas TOPSIS keeps the raw direction and picks the minimum as ideal.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(r_{ij}\)</td><td>vector-normalised value: each column becomes a unit vector</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Treat the column \((x_{1j},\dots,x_{mj})\) as a vector and divide by its length; ratios between options are preserved.</li>
+            <li>Unlike min–max, no option is forced to 0 or 1, so small differences stay small — which is why vector and min–max normalisation can rank the same data differently.</li>
+          </ol>
+        </details>
+        <div class="eq-units">unit / unit = dimensionless ✓</div>
+        <div class="mini-calc" data-fn="mcdaVec" data-output="Normalised value r" data-unit="" data-digits="3" data-plot="x" data-ymin="0" data-ymax="1" data-title="Try it — one value in a column of three">
+          <div data-var="x" data-label="Value x" data-min="0" data-max="10" data-step="0.1" data-value="3"></div>
+          <div data-var="y" data-label="Second value" data-min="0" data-max="10" data-step="0.1" data-value="4"></div>
+          <div data-var="z" data-label="Third value" data-min="0" data-max="10" data-step="0.1" data-value="5"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mcda-lab-swing">
+        <div class="eq-head"><span class="eq-label">Direct and swing weights</span><span class="eq-num">(M4)</span></div>
+        <div class="eq-main">\[ w_j = \frac{s_j}{\sum_{k} s_k}, \qquad \sum_j w_j = 1 \]</div>
+        <p class="eq-read">each weight is the points given to its criterion divided by the total points of all included criteria.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(s_j\)</td><td>points for criterion \(j\): importance (direct) or value of its worst-to-best swing (swing)</td><td>points</td></tr>
+          <tr><td>\(w_j\)</td><td>normalised weight</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Swing elicitation: imagine an option that is worst on every criterion; choose the criterion whose improvement from worst to best you value most and give it 100; rate the other swings relative to it.</li>
+            <li>Normalise to sum 1. Lesson 15.4, Worked example 2: points (100, 30, 40, 80, 50) → weights (0.333, 0.100, 0.133, 0.267, 0.167).</li>
+            <li>Excluding a criterion re-normalises the others — its points no longer count.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Swing weights are only valid for the ranges they were elicited on: if the option set changes the ranges, ask again (range sensitivity).</p></details>
+        <div class="eq-units">points / points = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="s1/(s1+s2+s3)" data-output="Weight of criterion 1" data-unit="" data-digits="3" data-plot="s1" data-ymin="0" data-ymax="1" data-title="Try it — three criteria">
+          <div data-var="s1" data-label="Points, criterion 1" data-min="0" data-max="100" data-step="1" data-value="100"></div>
+          <div data-var="s2" data-label="Points, criterion 2" data-min="0" data-max="100" data-step="1" data-value="80"></div>
+          <div data-var="s3" data-label="Points, criterion 3" data-min="0" data-max="100" data-step="1" data-value="50"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mcda-lab-ahp">
+        <div class="eq-head"><span class="eq-label">AHP weights: the principal eigenvector</span><span class="eq-num">(M5)</span></div>
+        <div class="eq-main">\[ A\,\mathbf w = \lambda_{\max}\mathbf w, \qquad \mathbf w^{(k+1)} = \frac{A\,\mathbf w^{(k)}}{\sum_i\big(A\,\mathbf w^{(k)}\big)_i} \]</div>
+        <p class="eq-read">the weight vector is the principal eigenvector of the pairwise matrix; the studio finds it by power iteration — multiplying a starting vector by the matrix and rescaling it to sum one until it stops changing.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(A = [a_{ij}]\)</td><td>pairwise matrix, \(a_{ij}\) = importance of \(i\) over \(j\) on the 1–9 scale, \(a_{ji} = 1/a_{ij}\)</td><td>–</td></tr>
+          <tr><td>\(\lambda_{\max}\)</td><td>principal eigenvalue, \(\ge n\)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>If judgements are perfectly consistent, \(a_{ij} = w_i/w_j\) and \(A\mathbf w = n\mathbf w\): the weights are an eigenvector with eigenvalue \(n\) (Saaty, 1977).</li>
+            <li>By the Perron–Frobenius theorem a positive matrix has a unique positive principal eigenvector; repeated multiplication amplifies its component fastest, so power iteration converges to it.</li>
+            <li>Lesson 15.4, Figure 3 defaults (climate ≻ land 3, ≻ water 3, = cost, ≻ security 2, …) give about (0.32, 0.09, 0.14, 0.29, 0.15).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Pairwise questions without reference to ranges share the weakness of direct rating; adding an alternative can reverse AHP rankings when AHP is also used to score alternatives (Belton &amp; Gear, 1983). The studio uses AHP for criterion weights only.</p></details>
+        <div class="eq-units">ratios of importance: dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-mcda-lab-cr">
+        <div class="eq-head"><span class="eq-label">Consistency index and ratio</span><span class="eq-num">(M6)</span></div>
+        <div class="eq-main">\[ \lambda_{\max} = \frac1n\sum_i\frac{(A\mathbf w)_i}{w_i}, \qquad \text{CI} = \frac{\lambda_{\max}-n}{n-1}, \qquad \text{CR} = \frac{\text{CI}}{\text{RI}_n} \]</div>
+        <p class="eq-read">the largest eigenvalue is estimated as the average ratio of A w to w; the consistency index is its excess over n divided by n − 1; the consistency ratio divides by the average index of random matrices of the same size.</p>
+        <table class="symbols">
+          <tr><th>\(n\)</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th><th>10</th></tr>
+          <tr><td>\(\text{RI}_n\) (Saaty, 1980)</td><td>0.58</td><td>0.90</td><td>1.12</td><td>1.24</td><td>1.32</td><td>1.41</td><td>1.45</td><td>1.49</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The trace of \(A\) equals \(n\) and the sum of its eigenvalues; inconsistency pushes \(\lambda_{\max}\) above \(n\), so \(\text{CI}\) is zero only for perfect consistency.</li>
+            <li>Dividing by the random index compares your matrix with randomly filled ones; CR ≤ 0.10 is accepted.</li>
+            <li>The studio also finds the judgement that deviates most from the ratio implied by the weights, \(\max|\ln(a_{ij}w_j/w_i)|\), and proposes the Saaty value closest to \(w_i/w_j\).</li>
+          </ol>
+        </details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-fn="mcdaCR3" data-output="Consistency ratio CR" data-unit="" data-digits="3" data-plot="c" data-ymin="0" data-ymax="0.5" data-title="Try it — three criteria: when do judgements contradict?">
+          <div data-var="a" data-label="a₁₂" data-min="0.111" data-max="9" data-step="0.001" data-value="3" data-scale="log"></div>
+          <div data-var="b" data-label="a₁₃" data-min="0.111" data-max="9" data-step="0.001" data-value="5" data-scale="log"></div>
+          <div data-var="c" data-label="a₂₃" data-min="0.111" data-max="9" data-step="0.001" data-value="2" data-scale="log"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mcda-lab-wsm">
+        <div class="eq-head"><span class="eq-label">Weighted sum</span><span class="eq-num">(M7)</span></div>
+        <div class="eq-main">\[ V_i = \sum_{j=1}^{n} w_j\,v_{ij} \]</div>
+        <p class="eq-read">the overall value of an alternative is the weighted sum of its normalised scores.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(V_i\)</td><td>overall value, 0–1</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Multi-attribute value theory: with mutually preferentially independent criteria, preferences can be represented by an additive value function (Keeney &amp; Raiffa, 1993).</li>
+            <li>Lesson 15.4, Worked example 3: option C = \(0.333(1)+0.100(0.927)+0.133(0.927)+0.267(0.763)+0.167(1) = 0.920\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Full compensation: a poor score is offset by good scores elsewhere. Use swing weights with min–max scores.</p></details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-formula="w*v1+(1-w)*v2" data-output="Weighted sum V" data-unit="" data-digits="3" data-plot="w" data-ymin="0" data-ymax="1" data-title="Try it — two criteria">
+          <div data-var="v1" data-label="Score on criterion 1" data-min="0" data-max="1" data-step="0.01" data-value="0.9"></div>
+          <div data-var="v2" data-label="Score on criterion 2" data-min="0" data-max="1" data-step="0.01" data-value="0.2"></div>
+          <div data-var="w" data-label="Weight of criterion 1" data-min="0" data-max="1" data-step="0.01" data-value="0.5"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mcda-lab-topsis">
+        <div class="eq-head"><span class="eq-label">TOPSIS closeness coefficient</span><span class="eq-num">(M8)</span></div>
+        <div class="eq-main">\[ u_{ij} = w_j r_{ij}, \quad D_i^{\pm} = \sqrt{\sum_j\big(u_{ij}-u_j^{\pm}\big)^2}, \quad C_i = \frac{D_i^{-}}{D_i^{+}+D_i^{-}} \]</div>
+        <p class="eq-read">weighted normalised values place every alternative in criterion space; its closeness is its distance from the anti-ideal point divided by the sum of its distances from the ideal and the anti-ideal.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(u_j^{+}, u_j^{-}\)</td><td>ideal and anti-ideal: best and worst weighted value of criterion \(j\) (min for cost criteria with vector normalisation)</td><td>–</td></tr>
+          <tr><td>\(C_i\)</td><td>closeness: 1 at the ideal, 0 at the anti-ideal</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Hwang and Yoon (1981): the best alternative should be near the ideal and far from the anti-ideal; the ratio balances both.</li>
+            <li>With vector normalisation the studio uses the classical form (Lesson 15.4, Eq. 15.4.6); with min–max or target scores, which are already benefit-oriented, the ideal is the maximum of every column.</li>
+            <li>Worked example 3 of Lesson 15.4 (swing weights, vector): C 0.878 &gt; A 0.626 &gt; D 0.586 &gt; B 0.445.</li>
+          </ol>
+        </details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-formula="dm/(dp+dm)" data-output="Closeness C" data-unit="" data-digits="3" data-plot="dp" data-ymin="0" data-ymax="1" data-title="Try it — distances to the ideal and anti-ideal">
+          <div data-var="dp" data-label="Distance to ideal D⁺" data-min="0.01" data-max="0.5" data-step="0.01" data-value="0.12"></div>
+          <div data-var="dm" data-label="Distance to anti-ideal D⁻" data-min="0.01" data-max="0.5" data-step="0.01" data-value="0.08"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mcda-lab-smaa">
+        <div class="eq-head"><span class="eq-label">Rank acceptability and weight perturbation</span><span class="eq-num">(M9)</span></div>
+        <div class="eq-main">\[ b_i^{r} = \frac1N\sum_{k=1}^{N}\mathbf 1\!\left[\text{rank}_i(\mathbf w^{(k)}) = r\right], \qquad w_j^{(k)} = \frac{E_j}{\sum_l E_l},\ \ E_j = \begin{cases} -\ln U_j & \text{uniform (SMAA)}\\ w_j\,e^{\sigma Z_j} & \text{around mine}\end{cases} \]</div>
+        <p class="eq-read">the acceptability of rank r for alternative i is the share of N weight vectors under which it attains that rank; uniform weight vectors come from normalised exponential random numbers, perturbed ones from your weights times lognormal factors.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(U_j, Z_j\)</td><td>uniform (0, 1) and standard normal random numbers</td><td>–</td></tr>
+          <tr><td>\(\sigma\)</td><td>spread of ln(weight) around your weights</td><td>–</td></tr>
+          <tr><td>\(b_i^{r}\)</td><td>rank acceptability index (Lahdelma et al., 1998)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Normalised independent exponential numbers are Dirichlet(1,…,1): uniform over all weight vectors (Lesson 15.4, Eq. 15.4.9).</li>
+            <li>Around your weights, \(\sigma = 0.4\) means that a weight typically varies by a factor \(e^{0.4}\approx1.5\) before renormalisation.</li>
+            <li>Each \(b_i^r\) is a binomial proportion with standard error \(\sqrt{b(1-b)/N}\).</li>
+            <li>One-at-a-time sensitivity (the sensitivity chart) varies one weight from 0 to 1 and rescales the others in proportion; lines cross at the break-even weights of Lesson 15.4, Eq. 15.4.8.</li>
+          </ol>
+        </details>
+        <div class="eq-units">dimensionless proportions ✓</div>
+        <div class="mini-calc" data-formula="100*sqrt(b*(1-b)/n)" data-output="Standard error" data-unit="percentage points" data-digits="2" data-plot="n" data-title="Try it — precision of an acceptability">
+          <div data-var="b" data-label="Acceptability b" data-min="0.01" data-max="0.99" data-step="0.01" data-value="0.6"></div>
+          <div data-var="n" data-label="Draws N" data-min="500" data-max="20000" data-step="500" data-value="5000" data-scale="log"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mcda-lab-wpm">
+        <div class="eq-head"><span class="eq-label">Weighted product with ratio normalisation</span><span class="eq-num">(M10)</span></div>
+        <div class="eq-main">\[ P_i = \prod_{j} v_{ij}^{\,w_j}, \qquad v_{ij} = \frac{x_{ij}}{\max_i x_{ij}}\ \text{(benefit)}, \quad v_{ij} = \frac{\min_i x_{ij}}{x_{ij}}\ \text{(cost)} \]</div>
+        <p class="eq-read">the score is the product of ratio-normalised scores, each raised to its weight — a weighted geometric mean.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(P_i\)</td><td>weighted-product score</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>\(\ln P_i = \sum_j w_j \ln v_{ij}\): because \(\ln v\to-\infty\) as \(v\to0\), a near-zero score cannot be compensated (Lesson 15.4, Eq. 15.4.7).</li>
+            <li>Ratio normalisation keeps orders of magnitude: beef's land score is \(1.52/163.6 = 0.009\) with mycoprotein's land use as the best in the set.</li>
+          </ol>
+        </details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-formula="pow(v1,w)*pow(v2,1-w)" data-output="Weighted product P" data-unit="" data-digits="3" data-plot="v2" data-ymin="0" data-ymax="1" data-title="Try it — a weak criterion drags the product down">
+          <div data-var="v1" data-label="Score on criterion 1" data-min="0.01" data-max="1" data-step="0.01" data-value="0.95"></div>
+          <div data-var="v2" data-label="Score on criterion 2" data-min="0.01" data-max="1" data-step="0.01" data-value="0.05"></div>
+          <div data-var="w" data-label="Weight of criterion 1" data-min="0" data-max="1" data-step="0.01" data-value="0.5"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the studio; save each analysis with <em>Save investigation</em>. The page link keeps the method, your weights and any edits to the matrix.</p>
+      <ol class="task-list">
+        <li><h4>Reproduce the lesson</h4><p>With the method preset <em>Lesson 15.4 example</em>, check the weighted-sum scores of Worked example 3 and the TOPSIS scores. Untick option B and explain, with Eq. M1, why the order of A and D reverses although neither changed.</p></li>
+        <li><h4>Whose protein?</h4><p>For the protein sources, record the top three under each stakeholder profile and under equal weights. Which alternative is in the top three for every stakeholder? Which conclusion would you present to a municipal procurement officer, and which uncertainty would you flag?</p></li>
+        <li><h4>How robust is the winner?</h4><p>With your preferred weights, compare the first-rank acceptability of the leader under <em>Around mine</em> (σ = 0.2, 0.4, 0.8) and under uniform weights. Then add data uncertainty. At what point would you stop calling the leader “the best option”?</p></li>
+        <li><h4>Consistent judgements</h4><p>Choose <em>AHP matrix</em> and fill the matrix for the protein criteria from your own judgement, criterion pair by criterion pair. Is your CR below 0.10? Use <em>Repair the most inconsistent judgement</em> once and compare the weights with your direct points.</p></li>
+        <li><h4>Compensation</h4><p>Compare the weighted sum and the weighted product for the protein sources with equal weights. Which alternative gains most under the product, and which criterion causes that? Relate the result to strong and weak sustainability (Lesson 15.4).</p></li>
+        <li><h4>Your own decision</h4><p>Paste the performance matrix of your course project (or of a decision in your municipality) into <em>Your own decision matrix</em>. Document the source and quality of each value, choose and justify a normalisation and a weighting method, and report the ranking with its acceptability.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-mcda-studio">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the studio and the equations","questions":[
+          {"type":"numeric","q":"Load the method preset <em>Lesson 15.4 example</em> (lettuce systems, min–max, weighted sum, swing weights 100/30/40/80/50). What is the weighted-sum score of option C, the heat-pump greenhouse?","answer":0.920,"abstol":0.004,"unit":"","hint":"Read the ranking panel, or use Eq. M7 with the scores of Worked example 1 of Lesson 15.4.","explain":"<p>\\(V_C = 0.333(1)+0.100(0.927)+0.133(0.927)+0.267(0.763)+0.167(1) = 0.920\\).</p>"},
+          {"type":"mcq","q":"Now choose the <em>TOPSIS check</em> preset (vector normalisation, TOPSIS). Which option ranks second?","options":["A Field, Almería + truck","D Vertical farm","B Greenhouse, gas","C Greenhouse, heat pump"],"answer":0,"feedback":["","D is second under the weighted sum, but third under TOPSIS.","B, the dominated option, is last in both.","C is first under both methods."],"explain":"<p>TOPSIS gives C 0.878 &gt; A 0.626 &gt; D 0.586 &gt; B 0.445: A and D swap places compared with the weighted sum, because vector normalisation and Euclidean distance treat D's cost disadvantage and A's land and water disadvantages differently.</p>"},
+          {"type":"mcq","q":"Protein sources, min–max, weighted sum, equal weights. Which alternative ranks first?","options":["Pea protein","Mycoprotein","Chicken","Cultivated meat"],"answer":0,"explain":"<p>Pea protein 0.836 &gt; mycoprotein 0.796 &gt; chicken 0.706 &gt; insect protein 0.602 &gt; beef 0.454 &gt; cultivated meat 0.429. Pea protein is best or near best on the environmental criteria, cost, welfare, readiness and resilience; its weakest scores are nutrition and acceptance. Under the weighted product mycoprotein moves ahead (0.85 against 0.69), because its land and water use are the lowest in the set.</p>"},
+          {"type":"numeric","q":"A 3 × 3 AHP matrix has \\(a_{12} = 3\\), \\(a_{13} = 5\\) and \\(a_{23} = 2\\). Use the mini-calculator of Eq. M6 (or the eigenvector) to find its consistency ratio.","answer":0.0032,"abstol":0.002,"unit":"","explain":"<p>\\(\\mathbf w = (0.648, 0.230, 0.122)\\), \\(\\lambda_{\\max} = 3.004\\), CI = 0.0018, CR = 0.0018/0.58 = 0.003 — very consistent (Lesson 15.4).</p>"},
+          {"type":"tf","q":"In the lettuce data set, unticking the dominated option B (gas greenhouse) cannot change the order of the remaining options under min–max normalisation, because nobody would choose B anyway.","answer":false,"explain":"<p>B sets the worst climate value (2.52). Without it the climate range shrinks to 0.55–0.84, D's climate score falls from 0.853 to 0, and A overtakes D under the weighted sum: a rank reversal caused by an irrelevant option.</p>"},
+          {"type":"multi","q":"Which of these make a ranking more trustworthy? (Select all that apply.)","options":["A high first-rank acceptability of the leader under plausible weights","The same winner under the weighted sum and TOPSIS","A consistency ratio of 0.25 in the AHP matrix","Break-even weights far from the elicited weights"],"answer":[0,1,3],"explain":"<p>Robust rankings survive changes of weights (acceptability, break-even distance) and of method. A CR above 0.10 signals contradictory judgements that should be revised.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Protein data set</strong> (per 100 g protein): GHG, land and freshwater of beef (beef herd), chicken and peas are the global means of Poore &amp; Nemecek (2018) via Our World in Data, as used in Lessons 1.3 and 12.1. Mycoprotein: 0.53 kg CO₂e, 0.000167 ha and 31 L blue water per kg (Carbon Trust, 2023; cradle to processing gate; commissioned by the producer), converted with 11 g protein per 100 g (44 % protein in dry matter, Lesson 12.3, and about 25 % dry matter). Mealworm: 14 kg CO₂e and 18 m² per kg edible protein (Oonincx &amp; de Boer, 2012). Cultivated meat: 4.0 kg CO₂e per kg with renewable energy at the facility (Sinke et al., 2023), 21.5 % protein (their assumed 18–25 %); its land use is derived from Sinke et al.'s finding that it converts crops into meat almost three times more efficiently than chicken. Freshwater of mealworm (190 L) and cultivated meat (450 L) are estimates without direct data.</li>
+        <li><strong>Constructed scales</strong> (cost, nutrition, acceptance, animal welfare, resilience; TRL) are illustrative judgements for 2026 with the anchors given in the matrix notes; they are the place where your own evidence or stakeholder scores belong.</li>
+        <li><strong>Lettuce data set</strong>: Table 1 of Lesson 15.4 (teaching values from Lessons 15.1–15.3).</li>
+        <li><strong>Normalisation</strong>: min–max (M1), target with editable illustrative targets (M2), vector (M3; for the weighted sum, cost criteria are converted with 1 − r). The weighted product always uses ratio normalisation (M10). TOPSIS uses the classical vector form when vector normalisation is chosen, otherwise the benefit-oriented scores of M1 or M2.</li>
+        <li><strong>AHP</strong>: principal eigenvector by power iteration (200 iterations or convergence to 10⁻¹²); random indices of Saaty (1980); “repair” replaces the most inconsistent judgement by the Saaty value closest to \(w_i/w_j\).</li>
+        <li><strong>Monte Carlo</strong>: uniform weights (Dirichlet(1,…,1)) or your weights × lognormal factors with spread σ; optional data uncertainty multiplies every value by a lognormal factor with geometric standard deviation 1.2 (as in Lesson 15.4, Figure 5). Ties are broken by the order of the alternatives.</li>
+        <li><strong>Stakeholder weight profiles</strong> are illustrative stereotypes for discussion, not survey results.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Belton, V., &amp; Gear, T. (1983). On a short-coming of Saaty's method of analytic hierarchies. <em>Omega</em>, 11(3), 228–230. <a href="https://doi.org/10.1016/0305-0483(83)90047-6" target="_blank" rel="noopener">doi:10.1016/0305-0483(83)90047-6</a></li>
+        <li>Belton, V., &amp; Stewart, T. J. (2002). <em>Multiple criteria decision analysis: An integrated approach</em>. Springer. <a href="https://doi.org/10.1007/978-1-4615-1495-4" target="_blank" rel="noopener">doi:10.1007/978-1-4615-1495-4</a></li>
+        <li>Carbon Trust. (2023). <em>Quorn footprint comparison report</em> (Version 3.61, December 2023; commissioned by Quorn Foods). <a href="https://www.quorn.co.uk/assets/files/content/Carbon-Trust-Comparison-Report-2023.pdf" target="_blank" rel="noopener">quorn.co.uk</a></li>
+        <li>Commission Implementing Regulation (EU) 2021/882 of 1 June 2021 authorising the placing on the market of dried <em>Tenebrio molitor</em> larva as a novel food. <a href="https://eur-lex.europa.eu/eli/reg_impl/2021/882/oj" target="_blank" rel="noopener">ELI</a></li>
+        <li>Dziumla, J., Guenther, E., Karthe, D., &amp; Dijkstra-Silva, S. (2025). Sustainability assessment for novel approaches in the agri-food industry: The example of vertical farming. <em>Journal of Cleaner Production</em>, 495, 145036. <a href="https://doi.org/10.1016/j.jclepro.2025.145036" target="_blank" rel="noopener">doi:10.1016/j.jclepro.2025.145036</a></li>
+        <li>Herreman, L., Nommensen, P., Pennings, B., &amp; Laus, M. C. (2020). Comprehensive overview of the quality of plant- and animal-sourced proteins based on the digestible indispensable amino acid score. <em>Food Science &amp; Nutrition</em>, 8(10), 5379–5391. <a href="https://doi.org/10.1002/fsn3.1809" target="_blank" rel="noopener">doi:10.1002/fsn3.1809</a></li>
+        <li>Hwang, C.-L., &amp; Yoon, K. (1981). <em>Multiple attribute decision making: Methods and applications</em>. Springer. <a href="https://doi.org/10.1007/978-3-642-48318-9" target="_blank" rel="noopener">doi:10.1007/978-3-642-48318-9</a></li>
+        <li>Keeney, R. L., &amp; Raiffa, H. (1993). <em>Decisions with multiple objectives: Preferences and value trade-offs</em>. Cambridge University Press. <a href="https://doi.org/10.1017/CBO9781139174084" target="_blank" rel="noopener">doi:10.1017/CBO9781139174084</a></li>
+        <li>Lahdelma, R., Hokkanen, J., &amp; Salminen, P. (1998). SMAA — Stochastic multiobjective acceptability analysis. <em>European Journal of Operational Research</em>, 106(1), 137–143. <a href="https://doi.org/10.1016/S0377-2217(97)00163-X" target="_blank" rel="noopener">doi:10.1016/S0377-2217(97)00163-X</a></li>
+        <li>OECD &amp; JRC. (2008). <em>Handbook on constructing composite indicators: Methodology and user guide</em>. OECD Publishing. <a href="https://doi.org/10.1787/9789264043466-en" target="_blank" rel="noopener">doi:10.1787/9789264043466-en</a></li>
+        <li>Oonincx, D. G. A. B., &amp; de Boer, I. J. M. (2012). Environmental impact of the production of mealworms as a protein source for humans — a life cycle assessment. <em>PLoS ONE</em>, 7(12), e51145. <a href="https://doi.org/10.1371/journal.pone.0051145" target="_blank" rel="noopener">doi:10.1371/journal.pone.0051145</a></li>
+        <li>Poore, J., &amp; Nemecek, T. (2018). Reducing food's environmental impacts through producers and consumers. <em>Science</em>, 360(6392), 987–992. <a href="https://doi.org/10.1126/science.aaq0216" target="_blank" rel="noopener">doi:10.1126/science.aaq0216</a></li>
+        <li>Saaty, T. L. (1977). A scaling method for priorities in hierarchical structures. <em>Journal of Mathematical Psychology</em>, 15(3), 234–281. <a href="https://doi.org/10.1016/0022-2496(77)90033-5" target="_blank" rel="noopener">doi:10.1016/0022-2496(77)90033-5</a></li>
+        <li>Saaty, T. L. (1980). <em>The analytic hierarchy process: Planning, priority setting, resource allocation</em>. McGraw-Hill.</li>
+        <li>Sinke, P., Swartz, E., Sanctorum, H., van der Giesen, C., &amp; Odegard, I. (2023). Ex-ante life cycle assessment of commercial-scale cultivated meat production in 2030. <em>The International Journal of Life Cycle Assessment</em>, 28(3), 234–254. <a href="https://doi.org/10.1007/s11367-022-02128-8" target="_blank" rel="noopener">doi:10.1007/s11367-022-02128-8</a></li>
+        <li>von Winterfeldt, D., &amp; Edwards, W. (1986). <em>Decision analysis and behavioral research</em>. Cambridge University Press.</li>
+      </ol>
+      <a class="lab-link" data-lab="resilience-simulator" data-why="Score the resilience criterion with evidence: how do diversity, stocks and local production change the loss of supply after a shock?"></a>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

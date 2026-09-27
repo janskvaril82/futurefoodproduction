@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorisation timeline simulator · Future Food Production</title>
+<meta name="description" content="Monte Carlo simulation of the EU novel food procedure under Regulation (EU) 2015/2283: validity checks, EFSA assessment with clock stops, comitology and the traditional-food route, calibrated on published durations and real authorisations.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+#stage .stage-hud { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 240px); }
+@media (max-width: 640px) { .stage.tall { aspect-ratio: 3 / 4; } #stage .stage-hud { display: none; } }
+#stage .gbar { display: inline-block; width: 56px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.14); margin-left: 6px; vertical-align: 1px; overflow: hidden; }
+#stage .gbar i { display: block; height: 100%; border-radius: 3px; }
+.at-legend-row { display: flex; flex-wrap: wrap; gap: 12px; font-size: .78rem; color: var(--ink-2); margin: 6px 0 0; }
+.at-legend-row i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
+.dg.at-fig text { font-size: 13.5px; }
+.dg.at-fig text.t-small, .dg.at-fig .t-small text { font-size: 12.5px; }
+.prose table.at-val { font-size: .84rem; }
+.prose table.at-val td.num, .prose table.at-val th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prose table.at-val td:first-child { min-width: 190px; }
+.prose table.at-val td:nth-child(2) { white-space: nowrap; }
+</style>
+</head>
+<body data-page="lab" data-slug="authorisation-timeline">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Authorisation timeline simulator</h1>
+    <p class="lead">A novel food cannot be sold in the European Union until it is on the Union list — and nobody can tell a start-up exactly when that will be. This laboratory turns the procedure of Regulation (EU) 2015/2283 into a stochastic model calibrated on the durations of 292 real applications and checked against eighteen real authorisations. Watch a single application move through validity checks, EFSA's risk assessment with its clock stops and the vote of the Member States; then run a thousand of them to see the whole distribution of time-to-market, the chance of success and the levers that shorten the wait most.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage tall" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>How long does authorisation take? 1,000 simulated dossiers</h3>
+      <div class="chart-sub">Bars: share of all applications authorised in each quarter-year (darker = between P10 and P90). Magenta: probability that the food is on the market by a given time — it levels off below 100 % because some dossiers fail. <span id="hist-sub-extra"></span></div>
+      <div class="chart tall" id="chart-hist"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Where does the time go?</h3>
+      <div class="chart-sub">Mean duration of each phase in the simulated authorisations, compared with the legal timetable (EFSA 9 months, Commission 7 months; publication and entry into force at their usual durations). The difference is mostly clock stops and overruns.</div>
+      <div class="chart" id="chart-phases"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Which improvement saves most time?</h3>
+      <div class="chart-sub">Reduction of the median time to authorisation when one lever is changed and everything else is kept (common random numbers, 700 runs each). The best lever is highlighted.</div>
+      <div class="chart" id="chart-sens"></div>
+    </div>
+    <div class="chart-card">
+      <h3>The EU compared with other jurisdictions</h3>
+      <div class="chart-sub">Boxes: model (P10–P25–median–P75–P90). Diamonds: real EU procedures. Solid bars: documented cases (Gourmey's duck cells, EU, pending since July 2024; Vow's quail, FSANZ A1269; Aleph Farms' beef, Singapore) or the UK target. Dashed outlines: the FDA's maximum review clock after filing, which excludes the notifier's time. Sources in the last tab.</div>
+      <div class="chart tall" id="chart-intl"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Watch one application.</strong> The animation follows a single simulated Article 10 application from submission to decision. Green bars are the European Commission, blue bars the European Food Safety Authority (EFSA), magenta the Member States in the PAFF Committee. The amber hatched blocks are <em>clock stops</em>: EFSA has asked for more data and waits for the applicant. Notice the dashed "legal deadline" on EFSA's row: it moves to the right with every clock stop, because the nine months of Article 11 are <em>net</em> time.</li>
+        <li><strong>Press "New application" (the dice) five or six times.</strong> The same rules and the same parameters give totals from under two to more than five years. That variability, not the average, is what a company has to plan for.</li>
+        <li><strong>Read the histogram.</strong> It is skewed to the right: the median is shorter than the mean, and the slowest tenth of dossiers takes around five years. The magenta curve tells you the probability of being on the market by a given date — it levels off at the probability of authorisation, because roughly one dossier in four fails (invalid, negative opinion, withdrawn or no qualified majority).</li>
+        <li><strong>Compare the presets "Excellent dossier" and "Weak dossier".</strong> The legal clocks are identical, yet the median moves by more than two years and the probability of success from about 90 % to about 40 %. The quality of the application is the largest variable in the procedure.</li>
+        <li><strong>Look at the lever chart.</strong> Which improvement saves most time — a faster EFSA, a faster Commission, or fewer and quicker answers from the applicant? The answer tells a regulatory-affairs manager where to invest effort before submission.</li>
+        <li><strong>Switch the route to "Traditional food".</strong> Without objections a notification is decided in about a year. Raise the probability of a safety objection and watch a second hump appear in the histogram: the long detour through an Article 16 application.</li>
+        <li><strong>Compare jurisdictions</strong> in the last chart. Be careful: some bars are real cases, some are official targets and some are only the regulator's own maximum review time.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>An authorisation procedure is a chain of random durations and yes/no decisions. Adding the legal time limits (about 19 months for an Article 10 application, Eq. T7) badly underestimates reality; adding average durations (about 3.3 years) hides the risk. A Monte Carlo model gives what a business plan needs: the <strong>distribution</strong> of time-to-market and the <strong>probability</strong> of success.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>The procedure and its clocks</h2>
+      <p>Regulation (EU) 2015/2283 offers two routes for a novel food that is not yet on the Union list (see the <a href="/laboratories/novel-food-navigator/">Novel food navigator</a> for how to decide). The <strong>application route</strong> (Articles 10–12) is open to every novel food; the <strong>notification route</strong> (Articles 14–20) only to traditional foods from third countries with at least 25 years of safe use. Figure 1 shows both with their legal clocks.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg at-fig" viewBox="0 0 960 440" role="img" aria-label="The two EU procedures with their legal time limits">
+            <defs><marker id="at-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <text x="15" y="22" class="t-small t-muted" font-weight="700">APPLICATION ROUTE · ARTICLES 10–12 (ANY NOVEL FOOD)</text>
+            <g class="t-small" text-anchor="middle">
+              <rect x="15" y="36" width="140" height="56" rx="9" class="fill-amber-soft" stroke="currentColor" stroke-width=".6"/><text x="85" y="59">Application</text><text x="85" y="77" class="t-muted">Art. 10(1)</text>
+              <rect x="173" y="36" width="140" height="56" rx="9" class="fill-accent-soft" stroke="currentColor" stroke-width=".6"/><text x="243" y="59">Validity check</text><text x="243" y="77" class="t-muted">"without delay"</text>
+              <rect x="331" y="36" width="140" height="56" rx="9" class="fill-water-soft" stroke="currentColor" stroke-width=".6"/><text x="401" y="59">EFSA assessment</text><text x="401" y="77" class="t-muted">9 months net</text>
+              <rect x="489" y="36" width="140" height="56" rx="9" class="fill-sunk" stroke="currentColor" stroke-width=".6"/><text x="559" y="59">Opinion</text><text x="559" y="77" class="t-muted">published</text>
+              <rect x="647" y="36" width="140" height="56" rx="9" class="fill-accent-soft" stroke="currentColor" stroke-width=".6"/><text x="717" y="59">Draft act</text><text x="717" y="77" class="t-muted">≤ 7 months</text>
+              <rect x="805" y="36" width="140" height="56" rx="9" class="fill-magenta-soft" stroke="currentColor" stroke-width=".6"/><text x="875" y="59">PAFF vote (QMV)</text><text x="875" y="77" class="t-muted">→ Union list</text>
+            </g>
+            <g stroke-width="1.4" fill="none" style="color:var(--muted)" stroke="currentColor">
+              <path d="M155 64 H171" marker-end="url(#at-arr)"/><path d="M313 64 H329" marker-end="url(#at-arr)"/><path d="M471 64 H487" marker-end="url(#at-arr)"/><path d="M629 64 H645" marker-end="url(#at-arr)"/><path d="M787 64 H803" marker-end="url(#at-arr)"/>
+            </g>
+            <g class="t-small t-muted" text-anchor="middle">
+              <text x="243" y="112">EFSA's view within</text><text x="243" y="127">30 working days</text>
+              <text x="401" y="112">+ every clock stop</text><text x="401" y="127">(Art. 11(4))</text>
+              <text x="559" y="112">mean 48 days after</text><text x="559" y="127">adoption</text>
+              <text x="717" y="112">Art. 12(1);</text><text x="717" y="127">extension Art. 21</text>
+              <text x="875" y="112">in force on the 20th</text><text x="875" y="127">day after the OJ</text>
+            </g>
+            <line x1="15" y1="150" x2="945" y2="150" stroke="currentColor" style="color:var(--line-strong)" stroke-dasharray="4 4"/>
+            <text x="15" y="176" class="t-small t-muted" font-weight="700">NOTIFICATION ROUTE · ARTICLES 14–18 (TRADITIONAL FOOD FROM A THIRD COUNTRY)</text>
+            <g class="t-small" text-anchor="middle">
+              <rect x="15" y="190" width="140" height="56" rx="9" class="fill-amber-soft" stroke="currentColor" stroke-width=".6"/><text x="85" y="213">Notification</text><text x="85" y="231" class="t-muted">Art. 14</text>
+              <rect x="173" y="190" width="140" height="56" rx="9" class="fill-accent-soft" stroke="currentColor" stroke-width=".6"/><text x="243" y="213">Validity, forward</text><text x="243" y="231" class="t-muted">≤ 1 month (15(1))</text>
+              <rect x="331" y="190" width="140" height="56" rx="9" class="fill-magenta-soft" stroke="currentColor" stroke-width=".6"/><text x="401" y="213">Objection window</text><text x="401" y="231" class="t-muted">4 months (15(2))</text>
+              <rect x="489" y="190" width="140" height="56" rx="9" class="fill-accent-soft" stroke="currentColor" stroke-width=".6"/><text x="559" y="213">No objection:</text><text x="559" y="231" class="t-muted">authorised (15(4))</text>
+              <rect x="331" y="318" width="140" height="56" rx="9" class="fill-amber-soft" stroke="currentColor" stroke-width=".6"/><text x="401" y="341">Application</text><text x="401" y="359" class="t-muted">Art. 16</text>
+              <rect x="489" y="318" width="140" height="56" rx="9" class="fill-water-soft" stroke="currentColor" stroke-width=".6"/><text x="559" y="341">EFSA opinion</text><text x="559" y="359" class="t-muted">6 months net (17)</text>
+              <rect x="647" y="318" width="140" height="56" rx="9" class="fill-accent-soft" stroke="currentColor" stroke-width=".6"/><text x="717" y="341">Draft act</text><text x="717" y="359" class="t-muted">≤ 3 months (18)</text>
+              <rect x="805" y="318" width="140" height="56" rx="9" class="fill-magenta-soft" stroke="currentColor" stroke-width=".6"/><text x="875" y="341">PAFF vote</text><text x="875" y="359" class="t-muted">→ Union list</text>
+            </g>
+            <g stroke-width="1.4" fill="none" style="color:var(--muted)" stroke="currentColor">
+              <path d="M155 218 H171" marker-end="url(#at-arr)"/><path d="M313 218 H329" marker-end="url(#at-arr)"/><path d="M471 218 H487" marker-end="url(#at-arr)"/>
+              <path d="M401 246 V316" marker-end="url(#at-arr)"/><path d="M471 346 H487" marker-end="url(#at-arr)"/><path d="M629 346 H645" marker-end="url(#at-arr)"/><path d="M787 346 H803" marker-end="url(#at-arr)"/>
+            </g>
+            <g class="t-small t-muted">
+              <text x="410" y="276">reasoned safety</text><text x="410" y="291">objection (Art. 15(5))</text>
+              <text x="647" y="213">No EFSA opinion, no committee vote;</text><text x="647" y="229">in seven real cases authorised 232–324 days</text><text x="647" y="245">after forwarding (Table 3).</text>
+            </g>
+            <text x="15" y="410" class="t-small t-muted">No data protection for traditional foods (Art. 26(3)). The validity check of a notification took 25–288 days in the seven real cases.</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The two procedures of Regulation (EU) 2015/2283 and their legal time limits. "Without delay" means the regulation sets no number of days. The only clocks with a hard number are EFSA's nine (or six) months of net assessment time and the Commission's seven (or three) months to submit a draft to the Standing Committee on Plants, Animals, Food and Feed (PAFF).</figcaption>
+      </figure>
+      <p>Three legal details decide how long the procedure really takes:</p>
+      <ul>
+        <li><strong>Clock stops.</strong> When EFSA asks for additional information, it fixes a period for the answer after consulting the applicant, and unless the Commission objects within eight working days the nine months are "automatically extended by that additional period" (Article 11(4)). Information sent on the applicant's own initiative does not extend the clock (Article 11(6)); if the applicant does not answer in time, EFSA gives its opinion on the data it has (Article 11(5)).</li>
+        <li><strong>Unregulated waiting.</strong> The validity check must be done "without delay", and EFSA's suitability check has no deadline at all. In 2018–2024 these two steps together took almost ten months on average (Le Bloch et al., 2025).</li>
+        <li><strong>Risk management.</strong> The seven months of Article 12(1) run from the <em>publication</em> of the opinion to the submission of the draft to the committee. The vote, adoption, publication in the Official Journal and entry into force twenty days later come on top.</li>
+      </ul>
+
+      <h2 data-nonum>What the data say</h2>
+      <p>Le Bloch et al. (2025) reconstructed the history of all 292 novel food applications submitted to EFSA between 2018 and 2024 from EFSA's public portal. Their statistics are the backbone of this model:</p>
+      <table>
+        <caption>Table 1. Durations of the phases of the Article 10 procedure, 2018–2024 (Le Bloch et al., 2025).</caption>
+        <thead><tr><th>Phase</th><th class="num">Mean ± SD</th><th class="num">Range</th><th class="num">n</th></tr></thead>
+        <tbody>
+          <tr><td>Commission validity check (A)</td><td class="num">114 ± 181 d</td><td class="num">0–1,430 d</td><td class="num">194</td></tr>
+          <tr><td>EFSA suitability check (B)</td><td class="num">185 ± 122 d</td><td class="num">15–758 d</td><td class="num">194</td></tr>
+          <tr><td>EFSA scientific evaluation (C)</td><td class="num">629 ± 338 d</td><td class="num">179–1,714 d</td><td class="num">88</td></tr>
+          <tr><td>… requests for additional data</td><td class="num">2.7 ± 1.9</td><td class="num">0–8</td><td class="num">–</td></tr>
+          <tr><td>… applicant's response per request</td><td class="num">130 d (mean)</td><td class="num">0–733 d</td><td class="num">–</td></tr>
+          <tr><td>… cumulative response time</td><td class="num">353 ± 299 d</td><td class="num">0–1,213 d</td><td class="num">–</td></tr>
+          <tr><td>… share of evaluation spent waiting for the applicant</td><td class="num">47 ± 25 %</td><td class="num">–</td><td class="num">–</td></tr>
+          <tr><td>… EFSA exceeded nine months net (overrun 156 ± 212 d)</td><td class="num">26 %</td><td class="num">5–951 d</td><td class="num">93</td></tr>
+          <tr><td>Adoption → publication of the opinion (D)</td><td class="num">48 ± 16 d</td><td class="num">26–107 d</td><td class="num">91</td></tr>
+          <tr><td>Submission → publication of the opinion (W)</td><td class="num">937 ± 436 d</td><td class="num">330–2,314 d</td><td class="num">91</td></tr>
+          <tr><td>Positive opinions</td><td class="num">79 of 91 (86.8 %)</td><td class="num">–</td><td class="num">91</td></tr>
+          <tr><td>Invalid: studies not notified (Transparency Regulation), after 297 ± 121 d</td><td class="num">30 of 292</td><td class="num">74–570 d</td><td class="num">292</td></tr>
+        </tbody>
+      </table>
+      <p>The paper does not measure the Commission's risk-management phase. For that step — and to test the whole model — the laboratory uses the dates that the Commission itself records in the recitals of every implementing regulation: when the application was submitted, when EFSA was asked for an opinion and when EFSA adopted it. Table 2 lists eleven Article 10 authorisations of 2021–2025, from the first insects to duckweed; Table 3 lists seven traditional-food notifications. The simulator draws these real procedures as diamonds on the histogram.</p>
+      <div class="table-wrap"><table class="at-val" id="val-art10">
+        <caption>Table 2. Eleven real Article 10 procedures, computed from the recitals of the implementing regulations. A: submission → Commission mandate to EFSA; B + C: mandate → EFSA opinion adopted; E: opinion → implementing regulation (days).</caption>
+        <thead><tr><th>Novel food</th><th>Act</th><th class="num">Submitted</th><th class="num">A</th><th class="num">B + C</th><th class="num">E</th><th class="num">Total (d)</th><th class="num">Years</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="table-wrap"><table class="at-val" id="val-tf">
+        <caption>Table 3. Seven traditional-food notifications without objections. V: notification → valid notification forwarded; L: forwarded → implementing regulation (days).</caption>
+        <thead><tr><th>Traditional food</th><th>Act</th><th class="num">Notified</th><th class="num">V</th><th class="num">L</th><th class="num">Total (d)</th><th class="num">Months</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p>Two regularities stand out. First, the real Article 10 totals range from about 2.4 to 5.5 years with a median of about 3.4 years — close to, but slightly slower than, the model's median calibrated on the 2018–2024 averages. The early insect dossiers were submitted when the new regulation was only months old. Second, once a traditional-food notification has been forwarded, authorisation followed after 232–324 days in all seven cases: the four-month objection window plus about five months to adopt the implementing act. "Without delay" in Article 15(4) means months in practice.</p>
+
+      <h2 data-nonum>Why simulate instead of adding averages?</h2>
+      <p>The expected total is the sum of the expected phase durations (Eq. T1) — that part is simple. But a start-up burning cash does not care about the mean. It asks: <em>what is the probability that we are on the market before our money runs out?</em> Three features make that question hard to answer with pencil and paper:</p>
+      <ol>
+        <li><strong>Skewed phases.</strong> Every duration is positive and has a long right tail (the validity check ranged from 0 to 1,430 days). Sums of such variables are skewed too, so the median is shorter than the mean and the 90th percentile lies far out.</li>
+        <li><strong>Random numbers of random durations.</strong> The number of clock stops is itself random, and each stop has a random length. The variance of such a compound sum has two parts (Eq. T3).</li>
+        <li><strong>Failure points.</strong> An application can be declared invalid, withdrawn, receive a negative opinion or fail in committee. The probability of success is a product of stage probabilities (Eq. T6), and failures cut off the distribution of times.</li>
+      </ol>
+      <p>Monte Carlo simulation (Metropolis &amp; Ulam, 1949) handles all three by brute force: draw every random quantity from its distribution, follow the rules of the regulation, record the outcome, and repeat a thousand times. Percentiles and probabilities are then simply counted.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"EFSA must decide within nine months, so an assessment cannot take longer." The nine months are <em>net</em> of clock stops, which on average added almost a year (353 days). EFSA's evaluation lasted 629 days on average and up to 1,714 days — and in a quarter of cases EFSA also exceeded its own net nine months.</p></div>
+
+      <h2 data-nonum>The traditional-food shortcut</h2>
+      <p>A traditional food from a third country — for example fonio grains from West Africa or haskap berries with a history of safe use in Japan — can be notified instead. Without a reasoned safety objection there is no EFSA opinion and no committee vote, and the seven cases in Table 3 were authorised 8.4 to 19.1 months after notification. The risk lies in the objection window: an objection sends the file into an Article 16 application with EFSA's six-month clock, clock stops and a committee vote, and the whole route can then take longer than a direct Article 10 application. No statistic on the frequency of objections has been published, so the probability is a parameter for you to explore. Remember too that data protection is not available for traditional foods (Article 26(3)).</p>
+
+      <h2 data-nonum>Other jurisdictions</h2>
+      <p>The last chart places the EU beside the cases analysed in <a href="/lessons/global-regulation/">Lesson 14.3</a>. Compare like with like: Singapore's approval of Aleph Farms' cultivated beef took about 46 months from application; Food Standards Australia New Zealand gazetted Vow's cultured quail about 28 months after receiving the application; the UK Food Standards Agency's sandbox aims at about 2.5 years for a routine, non-complex application. The US figures are of a different kind: under the 2016 GRAS rule the FDA answers a GRAS notice within 180 days of filing, extendable by 90 days, and the 2026 proposal would allow up to 405 days — but those clocks exclude the notifier's own preparation, and a self-affirmed GRAS conclusion needs no FDA review at all. In the EU, the first application for a cultivated-meat product (duck cells, July 2024) was still pending in September 2026.</p>
+      <div class="callout frontier"><div class="callout-title">Frontier 2025–2026</div><p>Regulators now compete on speed. In the UK sandbox for cell-cultivated products, the average time to the first request for further information fell from 195 days before the sandbox to 90 days, and to 46 days for requests issued in 2026 (FSA, 2026). In the EU the equivalent lever is the applicant's side: EFSA's pre-submission advice, the mandatory notification of studies and complete dossiers written to EFSA's 2024 guidance. Use the lever chart to see which of these matters most.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <div class="eq-box" id="eq-at-total">
+        <div class="eq-head"><span class="eq-label">Duration of an Article 10 procedure</span><span class="eq-num">(T1)</span></div>
+        <div class="eq-main">\[ W = A + B + \underbrace{T_{\text{act}} + \sum_{i=1}^{n} R_i}_{C\ \text{(EFSA evaluation)}} + D + E + T_{\text{EIF}} \]\[ \mathbb{E}[W] = \bar A + \bar B + \bar T_{\text{act}} + \bar n\,\bar R + \bar D + \bar E + T_{\text{EIF}} \]</div>
+        <p class="eq-read">the time from submission to authorisation is the sum of the Commission's validity check, EFSA's suitability check, EFSA's evaluation (running-clock time plus all clock stops), the publication lag, the risk-management phase up to adoption, and the twenty-odd days until the implementing regulation enters into force.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Model value</th></tr>
+          <tr><td>\(A\)</td><td>Commission validity check (submission → valid, forwarded)</td><td>d</td><td>lognormal, 114 ± 181</td></tr>
+          <tr><td>\(B\)</td><td>EFSA suitability check</td><td>d</td><td>lognormal, 185 ± 122</td></tr>
+          <tr><td>\(T_{\text{act}}\)</td><td>EFSA running-clock (net) time</td><td>d</td><td>Eq. T2, mean ≈ 276</td></tr>
+          <tr><td>\(n,\ R_i\)</td><td>number of clock stops; duration of stop \(i\)</td><td>–; d</td><td>Eq. T3</td></tr>
+          <tr><td>\(D\)</td><td>adoption → publication of the opinion</td><td>d</td><td>lognormal, 48 ± 16</td></tr>
+          <tr><td>\(E\)</td><td>publication → adoption of the implementing regulation</td><td>d</td><td>lognormal, median 243</td></tr>
+          <tr><td>\(T_{\text{EIF}}\)</td><td>publication in the Official Journal and entry into force on the 20th day</td><td>d</td><td>21</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The phases follow each other without overlap, so the total is their sum.</li>
+            <li>The expectation of a sum equals the sum of the expectations — no independence assumption is needed for this step.</li>
+            <li>The clock stops form a random sum. If \(n\) is independent of the stop lengths, Wald's identity gives \(\mathbb{E}\left[\sum_{i=1}^{n} R_i\right] = \mathbb{E}[n]\,\mathbb{E}[R]\).</li>
+            <li>With the model values: \(114 + 185 + 276 + 2.7\times130 + 48 + 290 + 21 \approx 1{,}285\) days \(\approx 3.5\) years for the mean of a completed procedure; the median is shorter (≈ 3.3 years) because the distribution is right-skewed.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Phases are independent in the model; in reality a poor dossier tends to be slow in every phase, which widens the distribution. \(E\) was fitted to eleven authorisations (Table 2) and includes the PAFF vote.</p></details>
+        <div class="eq-units">every term in days (\(n\) dimensionless) → days; divide by 365.25 for years ✓</div>
+        <div class="mini-calc" data-formula="(A + B + Tact + n*R + D + E + 21)/365.25" data-output="Expected duration of a completed procedure" data-unit="years" data-digits="2" data-plot="n" data-title="Try it — the mean of Eq. T1">
+          <div data-var="A" data-label="Validity check A" data-min="0" data-max="400" data-step="1" data-value="114" data-unit="d"></div>
+          <div data-var="B" data-label="Suitability check B" data-min="15" data-max="400" data-step="5" data-value="185" data-unit="d"></div>
+          <div data-var="Tact" data-label="EFSA running clock T<sub>act</sub>" data-min="120" data-max="450" data-step="1" data-value="276" data-unit="d"></div>
+          <div data-var="n" data-label="Clock stops n" data-min="0" data-max="8" data-step="0.1" data-value="2.7"></div>
+          <div data-var="R" data-label="Response per stop R" data-min="10" data-max="400" data-step="5" data-value="130" data-unit="d"></div>
+          <div data-var="D" data-label="Publication D" data-min="20" data-max="110" data-step="1" data-value="48" data-unit="d"></div>
+          <div data-var="E" data-label="Risk management E" data-min="60" data-max="800" data-step="10" data-value="290" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-at-efsa">
+        <div class="eq-head"><span class="eq-label">EFSA's net clock: on time or overrun</span><span class="eq-num">(T2)</span></div>
+        <div class="eq-main">\[ T_{\text{act}} = \begin{cases} T_{9}\,U, \quad U \sim \text{Beta}(6,\ 1.4),\ U \in [0.5,\,1] & \text{with probability } 1-\pi_{o} \\[4pt] T_{9} + O, \quad O \sim \text{LN}(\bar O = 156\ \text{d},\ s_O = 212\ \text{d}) & \text{with probability } \pi_{o} \end{cases} \]\[ T_{9} = 9\times 30.44\ \text{d} = 274\ \text{d} \]</div>
+        <p class="eq-read">EFSA's running-clock time is, in most cases, a random fraction of the nine-month budget; with probability \(\pi_o\) the budget is used up and an overrun is added on top.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(T_9\)</td><td>legal net assessment time, Article 11(1)</td><td>d</td><td>274</td></tr>
+          <tr><td>\(U\)</td><td>fraction of the budget used when EFSA is on time (mean 0.81)</td><td>–</td><td>Beta(6, 1.4)</td></tr>
+          <tr><td>\(\pi_o\)</td><td>probability that EFSA exceeds nine months net</td><td>–</td><td>0.26 × workload<sup>1.5</sup></td></tr>
+          <tr><td>\(O\)</td><td>overrun beyond nine months</td><td>d</td><td>156 ± 212</td></tr>
+        </table>
+        <details><summary>Follow the calibration</summary>
+          <ol class="steps">
+            <li>Le Bloch et al. (2025) report that EFSA exceeded nine months net in 26 % of 93 cases, by 156 ± 212 days. This fixes \(\pi_o\) and the distribution of \(O\).</li>
+            <li>The mean running time follows from the evaluation mean minus the stops: \(629 - 353 = 276\) d.</li>
+            <li>Law of total expectation: \(276 = (1-0.26)\,\bar T_{\text{on time}} + 0.26\,(274 + 156)\), so \(\bar T_{\text{on time}} = (276 - 111.8)/0.74 = 222\) d, i.e. \(\mathbb{E}[U] = 222/274 = 0.81\). A Beta(6, 1.4) distribution has mean \(6/7.4 = 0.811\).</li>
+            <li>The EFSA workload slider scales \(\pi_o\), \(O\) and the suitability check; at workload 1 the model reproduces 25.8 % overruns in 20,000 runs.</li>
+          </ol>
+        </details>
+        <div class="eq-units">fraction × days → days; days + days → days ✓</div>
+        <div class="mini-calc" data-formula="(1-po)*274*0.811 + po*(274+O)" data-output="Mean running-clock time" data-unit="d" data-digits="0" data-plot="po">
+          <div data-var="po" data-label="Probability of overrun π<sub>o</sub>" data-min="0" data-max="0.8" data-step="0.01" data-value="0.26"></div>
+          <div data-var="O" data-label="Mean overrun Ō" data-min="0" data-max="400" data-step="1" data-value="156" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-at-stops">
+        <div class="eq-head"><span class="eq-label">Clock stops as a compound random sum</span><span class="eq-num">(T3)</span></div>
+        <div class="eq-main">\[ S = \sum_{i=1}^{n} R_i,\quad n \sim \text{NB}\big(\bar n,\ \text{Var}\,n = 1.34\,\bar n\big),\quad R_i \sim \text{LN}(\bar R,\ s_R) \]\[ \mathbb{E}[S] = \bar n\,\bar R, \qquad \text{Var}[S] = \bar n\, s_R^{2} + \text{Var}(n)\,\bar R^{2} \]</div>
+        <p class="eq-read">the total waiting time is the sum of a random number of random response times; its mean is the mean number of stops times the mean response, and its variance has one part from the variable response times and one from the variable number of stops.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(n\)</td><td>number of requests for additional data (negative binomial, overdispersed)</td><td>–</td><td>2.7 ± 1.9</td></tr>
+          <tr><td>\(R_i\)</td><td>time from EFSA's request to the applicant's answer</td><td>d</td><td>130 ± 103</td></tr>
+          <tr><td>\(S\)</td><td>cumulative clock-stop time</td><td>d</td><td>353 ± 299</td></tr>
+        </table>
+        <details><summary>Follow the derivation and the calibration of \(s_R\)</summary>
+          <ol class="steps">
+            <li>Law of total variance: \(\text{Var}[S] = \mathbb{E}[\text{Var}(S\mid n)] + \text{Var}(\mathbb{E}[S\mid n]) = \mathbb{E}[n]\,s_R^2 + \text{Var}(n)\,\bar R^2\).</li>
+            <li>The count has SD 1.9, so \(\text{Var}(n) = 3.61 = 1.34 \times 2.7\): more dispersed than a Poisson count (variance = mean). A negative binomial (gamma–Poisson mixture) reproduces this.</li>
+            <li>Solve for \(s_R\) with the published cumulative SD: \(299^2 = 2.7\,s_R^2 + 3.61\times130^2\) ⇒ \(s_R^2 = (89{,}401 - 61{,}009)/2.7 = 10{,}516\) ⇒ \(s_R = 103\) d.</li>
+            <li>Check: \(\mathbb{E}[S] = 2.7\times130 = 351\) d vs 353 d measured ✓.</li>
+          </ol>
+        </details>
+        <div class="eq-units">(–)·d² + (–)·d² → d²; square root → d ✓</div>
+        <div class="mini-calc" data-formula="sqrt(nb*sR*sR + 1.337*nb*R*R)" data-output="SD of the cumulative clock-stop time" data-unit="d" data-digits="0" data-plot="nb">
+          <div data-var="nb" data-label="Mean number of stops n̄" data-min="0" data-max="8" data-step="0.1" data-value="2.7"></div>
+          <div data-var="R" data-label="Mean response R̄" data-min="10" data-max="400" data-step="5" data-value="130" data-unit="d"></div>
+          <div data-var="sR" data-label="SD of a response s<sub>R</sub>" data-min="0" data-max="300" data-step="5" data-value="103" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-at-lognormal">
+        <div class="eq-head"><span class="eq-label">A lognormal duration from a published mean and SD</span><span class="eq-num">(T4)</span></div>
+        <div class="eq-main">\[ X = e^{\mu + \sigma Z},\ Z \sim N(0,1): \qquad \sigma^2 = \ln\!\left(1 + \frac{s^2}{m^2}\right), \qquad \mu = \ln m - \frac{\sigma^2}{2}, \qquad \tilde X = e^{\mu} \]</div>
+        <p class="eq-read">a positive, right-skewed duration with mean m and standard deviation s is modelled as the exponential of a normal variable; the log-scale parameters follow from the coefficient of variation, and the median is e to the power mu.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(m,\ s\)</td><td>published mean and standard deviation</td><td>d</td></tr>
+          <tr><td>\(\mu,\ \sigma\)</td><td>mean and SD of \(\ln X\)</td><td>–</td></tr>
+          <tr><td>\(\tilde X\)</td><td>median of \(X\)</td><td>d</td></tr>
+        </table>
+        <details><summary>Follow the derivation (method of moments)</summary>
+          <ol class="steps">
+            <li>For a lognormal variable, \(\mathbb{E}[X] = e^{\mu+\sigma^2/2}\) and \(\text{Var}[X] = (e^{\sigma^2}-1)\,e^{2\mu+\sigma^2}\).</li>
+            <li>Dividing the variance by the squared mean: \(s^2/m^2 = e^{\sigma^2}-1\), hence \(\sigma^2 = \ln(1 + s^2/m^2)\).</li>
+            <li>Taking the log of the mean: \(\ln m = \mu + \sigma^2/2\), hence \(\mu = \ln m - \sigma^2/2\).</li>
+            <li>Example, validity check: \(m = 114,\ s = 181\) d ⇒ \(\sigma = 1.12\), \(\mu = 4.11\), median \(= e^{4.11} = 61\) d. Half of all validity checks take less than two months, but the mean is pulled up by a few very long ones.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The lognormal is a convenient, positive, right-skewed shape; the data do not prove it is the true distribution. Values are truncated at the largest observed duration where relevant.</p></details>
+        <div class="eq-units">\(s/m\) is dimensionless, so \(\sigma\) is dimensionless; \(e^{\mu}\) carries the unit of \(m\) ✓</div>
+        <div class="mini-calc" data-formula="exp(log(m) - 0.5*log(1 + s*s/(m*m)))" data-output="Median duration" data-unit="d" data-digits="0" data-plot="s">
+          <div data-var="m" data-label="Mean m" data-min="10" data-max="800" data-step="1" data-value="114" data-unit="d"></div>
+          <div data-var="s" data-label="Standard deviation s" data-min="1" data-max="600" data-step="1" data-value="181" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-at-success">
+        <div class="eq-head"><span class="eq-label">Probability of authorisation</span><span class="eq-num">(T5)</span></div>
+        <div class="eq-main">\[ P_{\text{auth}} = (1-\pi_{\text{inv}})\;\mathbb{E}\!\left[(1-\pi_{w})^{n}\right]\;(1-\pi_{\text{neg}})\;(1-\pi_{\text{term}}), \qquad \mathbb{E}\!\left[(1-\pi_w)^{n}\right] = \left(\frac{r}{r + \bar n\,\pi_w}\right)^{r} \]</div>
+        <p class="eq-read">an application is authorised only if it is valid, survives every clock stop without being withdrawn, receives a positive opinion and passes the committee; for a negative-binomial number of stops the middle factor has a closed form.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Default</th></tr>
+          <tr><td>\(\pi_{\text{inv}}\)</td><td>application invalid (studies not notified)</td><td>0.103 (30/292)</td></tr>
+          <tr><td>\(\pi_w\)</td><td>withdrawal per clock stop (assumption)</td><td>0.02</td></tr>
+          <tr><td>\(\pi_{\text{neg}}\)</td><td>negative opinion</td><td>0.132 (12/91)</td></tr>
+          <tr><td>\(\pi_{\text{term}}\)</td><td>no qualified majority or procedure terminated (assumption)</td><td>0.02</td></tr>
+          <tr><td>\(r\)</td><td>negative-binomial shape, \(r = \bar n^2/(\text{Var}\,n - \bar n) = \bar n/0.337\), i.e. 8.0 for \(\bar n = 2.7\)</td><td>8.0</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The events are sequential and, in the model, independent: multiply the survival probabilities.</li>
+            <li>For a random number of stops, the probability of surviving all of them is the probability-generating function of \(n\) evaluated at \(1-\pi_w\). For the negative binomial, \(G(z) = [r/(r + \bar n(1-z))]^r\).</li>
+            <li>Numbers: \(0.897\times(8/8.054)^8\times0.868\times0.98 = 0.897\times0.948\times0.868\times0.98 = 0.723\). The simulation gives 72.4 % in 20,000 runs ✓.</li>
+          </ol>
+        </details>
+        <div class="eq-units">all factors are probabilities (dimensionless) ✓</div>
+        <div class="mini-calc" data-formula="100*(1-inv)*pow(1+0.337*w, -nb/0.337)*(1-neg)*(1-term)" data-output="Probability of authorisation" data-unit="%" data-digits="1" data-plot="neg" data-ymin="0" data-ymax="100">
+          <div data-var="inv" data-label="π<sub>inv</sub>" data-min="0" data-max="0.4" data-step="0.005" data-value="0.103"></div>
+          <div data-var="nb" data-label="Mean stops n̄" data-min="0" data-max="8" data-step="0.1" data-value="2.7"></div>
+          <div data-var="w" data-label="π<sub>w</sub> per stop" data-min="0" data-max="0.2" data-step="0.005" data-value="0.02"></div>
+          <div data-var="neg" data-label="π<sub>neg</sub>" data-min="0" data-max="0.5" data-step="0.005" data-value="0.132"></div>
+          <div data-var="term" data-label="π<sub>term</sub>" data-min="0" data-max="0.2" data-step="0.005" data-value="0.02"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-at-tf">
+        <div class="eq-head"><span class="eq-label">Expected duration of the traditional-food route</span><span class="eq-num">(T6)</span></div>
+        <div class="eq-main">\[ \mathbb{E}[T_{\text{TF}}] = \bar V + T_{4} + (1-p_{\text{obj}})\,\bar L + p_{\text{obj}}\,\bar T_{16} + T_{\text{EIF}} \]\[ \bar T_{16} = \bar T_{\text{prep}} + \bar A' + T_{6} + \bar S' + \bar D + \bar E' \]</div>
+        <p class="eq-read">the expected time equals the validity check, the four-month objection window and — weighted by the probability of each branch — either the Commission's adoption lag or the whole Article 16 detour.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Model value</th></tr>
+          <tr><td>\(\bar V\)</td><td>notification → forwarded (Table 3: median 84 d, range 25–288 d)</td><td>lognormal, median 73 d</td></tr>
+          <tr><td>\(T_4\)</td><td>objection window, Article 15(2)</td><td>122 d</td></tr>
+          <tr><td>\(\bar L\)</td><td>end of window → adoption (Table 3)</td><td>155 ± 32 d</td></tr>
+          <tr><td>\(p_{\text{obj}}\)</td><td>probability of a reasoned safety objection</td><td>assumption</td></tr>
+          <tr><td>\(\bar T_{16}\)</td><td>the Article 16 detour: preparing the application \(\bar T_{\text{prep}}\), validity \(\bar A'\), EFSA's six months \(T_6\), clock stops \(\bar S'\), publication \(\bar D\), Commission and vote \(\bar E'\) (Art. 18, scaled by 3/7)</td><td>see Sources</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Two mutually exclusive branches after the window: no objection (probability \(1-p\)) and objection (probability \(p\)).</li>
+            <li>Law of total expectation: \(\mathbb{E}[T] = (1-p)\,\mathbb{E}[T\mid\text{no obj.}] + p\,\mathbb{E}[T\mid\text{obj.}]\); the common first steps factor out.</li>
+            <li>Without objection: \(102 + 122 + 155 + 21 \approx 400\) d ≈ 13 months (Table 3: 400 d including entry into force).</li>
+          </ol>
+        </details>
+        <div class="eq-units">days + (dimensionless × days) → days ✓</div>
+        <div class="mini-calc" data-formula="(V + 122 + (1-p)*L + p*(prep + 60 + 183 + S + 48 + E) + 21)/30.44" data-output="Expected duration" data-unit="months" data-digits="1" data-plot="p">
+          <div data-var="V" data-label="Validity check V̄" data-min="10" data-max="300" data-step="5" data-value="102" data-unit="d"></div>
+          <div data-var="L" data-label="Adoption lag L̄" data-min="30" data-max="300" data-step="5" data-value="155" data-unit="d"></div>
+          <div data-var="p" data-label="Probability of objection p<sub>obj</sub>" data-min="0" data-max="1" data-step="0.01" data-value="0.25"></div>
+          <div data-var="prep" data-label="Preparing the Art. 16 file" data-min="30" data-max="720" data-step="10" data-value="180" data-unit="d"></div>
+          <div data-var="S" data-label="Clock stops S̄'" data-min="0" data-max="600" data-step="10" data-value="250" data-unit="d"></div>
+          <div data-var="E" data-label="Commission + vote Ē'" data-min="30" data-max="400" data-step="10" data-value="125" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-at-legal">
+        <div class="eq-head"><span class="eq-label">The legal timetable — a lower bound, not a forecast</span><span class="eq-num">(T7)</span></div>
+        <div class="eq-main">\[ W_{\text{legal}} \approx \underbrace{1}_{\text{forward}} + \underbrace{9}_{\text{EFSA}} + \underbrace{1.6}_{\text{publication}} + \underbrace{7}_{\text{Commission}} + \underbrace{0.7}_{\text{in force}} \approx 19\ \text{months}, \qquad T_{\text{TF,legal}} \approx 1 + 4 = 5\ \text{months} \]</div>
+        <p class="eq-read">if every "without delay" were zero days, EFSA used exactly its nine months without any clock stop and the Commission its seven, an application would take about nineteen months; a traditional food without objection could in principle be authorised about five months after a valid notification.</p>
+        <table class="symbols">
+          <tr><th>Term</th><th>Legal basis</th><th>Months</th></tr>
+          <tr><td>Forwarding to EFSA</td><td>Art. 11(1): ≤ 1 month after validity</td><td>≤ 1</td></tr>
+          <tr><td>EFSA opinion (net)</td><td>Art. 11(1)</td><td>9</td></tr>
+          <tr><td>Publication of the opinion</td><td>not regulated (mean 48 d)</td><td>1.6</td></tr>
+          <tr><td>Draft implementing act</td><td>Art. 12(1)</td><td>≤ 7</td></tr>
+          <tr><td>Entry into force</td><td>20th day after publication in the OJ</td><td>0.7</td></tr>
+        </table>
+        <details><summary>Why is reality twice as long?</summary><p>Validity and suitability checks have no numeric deadline (together about 10 months on average), clock stops add about 12 months, EFSA overran in a quarter of cases, and the committee vote and adoption come after the seven months. Compare the legal bar with the model bar in the "Where does the time go?" chart.</p></details>
+        <div class="eq-units">months + months → months ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-at-mc">
+        <div class="eq-head"><span class="eq-label">Monte Carlo estimates and their precision</span><span class="eq-num">(T8)</span></div>
+        <div class="eq-main">\[ \hat P = \frac{1}{N}\sum_{j=1}^{N} \mathbb{1}\{\text{run } j \text{ authorised by } t\}, \qquad \text{SE}(\hat P) = \sqrt{\frac{\hat P(1-\hat P)}{N}}, \qquad \text{SE}(\hat t_{0.5}) \approx \frac{1}{2\,f(t_{0.5})\sqrt{N}} \]</div>
+        <p class="eq-read">a probability is estimated by the fraction of simulated runs in which the event happened; its standard error shrinks with the square root of the number of runs. The median's standard error depends on the density of outcomes at the median.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(N\)</td><td>number of simulated applications</td><td>–</td></tr>
+          <tr><td>\(\hat P\)</td><td>estimated probability (e.g., on the market within 3 years)</td><td>–</td></tr>
+          <tr><td>\(f(t_{0.5})\)</td><td>probability density of the duration at the median</td><td>a⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Each run is a Bernoulli trial with success probability \(P\); the count of successes is binomial with variance \(NP(1-P)\).</li>
+            <li>Dividing by \(N\): \(\text{Var}(\hat P) = P(1-P)/N\).</li>
+            <li>Example: \(\hat P = 0.28\) (on the market within 3 years) with \(N = 1000\): \(\text{SE} = \sqrt{0.28\times0.72/1000} = 0.014\) — about ±3 percentage points at 95 %. Press "Re-run Monte Carlo" to see this sampling noise.</li>
+            <li>For quantiles, the asymptotic variance is \(p(1-p)/(N f^2)\); for the median \(p = 0.5\), giving the formula above.</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(\hat P\) dimensionless; \(1/(f\sqrt N)\): 1/(a⁻¹) → a ✓</div>
+        <div class="mini-calc" data-formula="100*1.96*sqrt(P*(1-P)/N)" data-output="95 % margin of error" data-unit="percentage points" data-digits="1" data-plot="N">
+          <div data-var="P" data-label="Estimated probability P̂" data-min="0.01" data-max="0.99" data-step="0.01" data-value="0.28"></div>
+          <div data-var="N" data-label="Number of runs N" data-min="100" data-max="10000" data-scale="log" data-value="1000"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Record the settings and results with <em>Save investigation</em>, or download the runs as CSV and analyse them in the <a href="/laboratories/statistics-workbench/">Statistics workbench</a>.</p>
+      <ol class="task-list">
+        <li><h4>Mean, median, tail</h4><p>With the preset <em>EU average 2018–24</em>, record the mean, median, P10 and P90 of the time to authorisation. Why is the mean larger than the median? Run the Monte Carlo five times and estimate how precise the median is (compare with Eq. T8).</p></li>
+        <li><h4>Validate the model</h4><p>Table 2 lists eleven real procedures. In which percentile of the simulated distribution does each one fall? If the model were perfect, the percentiles would be spread evenly between 0 and 100. What pattern do you see, and which features of the early insect dossiers (submitted 2018–2019) could explain it?</p></li>
+        <li><h4>Where should a start-up invest?</h4><p>Use the lever chart. Rank the levers by months saved. Then propose three concrete actions before submission (for example EFSA pre-submission advice, notifying every study in EFSA's database, generating stability and batch data early) and argue which parameter each one changes and by how much.</p></li>
+        <li><h4>Cash runway</h4><p>A precision-fermentation start-up has cash for 36 months after submission. Read from the magenta curve the probability that it reaches the market in time with an average, an excellent and a weak dossier. How much would the excellent dossier be worth if the company is worth €40 million on the market and nothing if it runs out of money?</p></li>
+        <li><h4>Notify or apply?</h4><p>A Peruvian fruit with 40 years of documented use could go either route. Find the probability of objection at which the median of the traditional-food route equals the median of an Article 10 application. Which other consideration (hint: Article 26(3)) might still make an Article 10 application attractive?</p></li>
+        <li><h4>Which jurisdiction first?</h4><p>Using the comparison chart and <a href="/lessons/global-regulation/">Lesson 14.3</a>, argue whether a cultivated-meat company should file in Singapore, the UK or the EU first. Distinguish carefully between real cases, official targets and legal review clocks.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-authorisation-timeline">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Apply the preset \"EU average 2018–24\". What is the median time from submission to authorisation (in years) among authorised dossiers?","answer":3.3,"range":[2.95,3.7],"unit":"years","hint":"Read the first readout, or the green 'median' line in the histogram.","explain":"<p>About 3.3 years with 1,000 runs (it varies slightly between Monte Carlo runs). The mean is about 3.5 years: the distribution is skewed to the right.</p>"},
+          {"type":"numeric","q":"With the same preset, what is the probability (in %) that a submitted application is authorised at all?","answer":72,"range":[67,77],"unit":"%","hint":"Readout 'Probability of authorisation', or Eq. T5.","explain":"<p>About 72 %: \\(0.897\\times0.948\\times0.868\\times0.98 = 0.723\\). About 10 % of dossiers are invalid, 11 % receive a negative opinion, 5 % are withdrawn and 1–2 % fail in committee.</p>"},
+          {"type":"mcq","q":"With the average preset, which single change shortens the median time to authorisation the most?","options":["Removing all clock stops (a complete dossier that EFSA never has to question)","Reducing EFSA's workload by 30 %","Making the Commission 30 % faster","Halving the validity check"],"answer":0,"feedback":["","EFSA's workload affects the suitability check and overruns: a few months at most.","The risk-management phase is long, but a 30 % cut saves under four months.","The validity check has a median of only about two months."],"hint":"Look at the lever chart.","explain":"<p>Removing all clock stops saves roughly 11–13 months of the median (the exact number varies between Monte Carlo runs): clock stops are the largest single component of the procedure (Table 1: 353 days on average).</p>"},
+          {"type":"numeric","q":"Switch to the traditional-food route and set the probability of a safety objection to 0 %. What is the median time to authorisation in months?","answer":12.4,"range":[11,14],"unit":"months","hint":"Read the median readout (in years) and multiply by 12.","explain":"<p>About 12–13 months (≈ 1.03 years): a validity check with a median of about 2.4 months, the 4-month objection window, about 5 months to adopt the implementing act and 21 days to entry into force. The seven real notifications in Table 3 took 8.4–19.1 months.</p>"},
+          {"type":"tf","q":"Because Article 11(1) gives EFSA nine months, an EFSA risk assessment cannot legally last longer than nine months of calendar time.","answer":false,"explain":"<p>False. The nine months are net: every request for additional information extends them by the time given to the applicant (Article 11(4)). EFSA's evaluations lasted 179–1,714 days in 2018–2024.</p>"},
+          {"type":"multi","q":"Which statements about the simulated distribution of time to authorisation are correct? (Select all that apply.)","options":["It is skewed to the right, so its mean exceeds its median","The magenta curve reaches 100 % if you wait long enough","A 1,000-run estimate of a probability of about 0.3 has a standard error of about 1.4 percentage points","Better dossiers shift the distribution to the left and raise the probability of success"],"answer":[0,2,3],"explain":"<p>The curve levels off at the probability of authorisation (about 72 %), not 100 %, because some dossiers fail. \\(\\sqrt{0.3\\times0.7/1000} = 0.0145\\).</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>Phase durations for the Article 10 route are drawn independently from lognormal distributions with the means and standard deviations of Le Bloch et al. (2025) (Eq. T4); the validity check is truncated at the longest observed value (1,430 d).</li>
+        <li>EFSA's running clock follows Eq. T2; the number of clock stops is negative-binomial with mean 2.7 and variance 1.34 × mean; responses are lognormal (130 ± 103 d). The stops are placed at uniformly random points of the running clock.</li>
+        <li>The risk-management phase (publication of the opinion → adoption of the implementing regulation) is lognormal with median 243 d and log-SD 0.60, fitted to the eleven procedures of Table 2 after subtracting the mean publication lag. It includes the PAFF vote; Article 21 extensions are represented only through this spread.</li>
+        <li>Invalidity under the Transparency Regulation (10.3 %) applies at EFSA's suitability check after 297 ± 121 days. Negative opinions (13.2 %) end the procedure after publication. Withdrawal (2 % per clock stop) and failure in comitology (2 %) are <strong>assumptions</strong> — no published rates exist.</li>
+        <li>The traditional-food route uses the validity checks and adoption lags of the seven notifications in Table 3. The probability of a safety objection and the time to prepare an Article 16 application are <strong>assumptions</strong>; after an objection the model uses EFSA's six-month clock with 70 % of the Article 10 clock stops and a Commission phase scaled by 3/7 (the ratio of the legal limits in Articles 18 and 12).</li>
+        <li>Phases are independent, parameters do not change over time, and Article 22 ad hoc extensions, requests to modify an application and parallel health-claim procedures (Article 28) are not modelled. The model describes the procedure; it says nothing about the safety of any food.</li>
+        <li>International comparisons mix documented single cases (Singapore, Australia–New Zealand), an official target (UK) and legal maximum review times (USA). They are not like-for-like statistics.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Regulation (EU) 2015/2283 of the European Parliament and of the Council of 25 November 2015 on novel foods. <em>OJ</em> L 327, 11.12.2015, p. 1. <a href="https://eur-lex.europa.eu/eli/reg/2015/2283/oj" target="_blank" rel="noopener">ELI</a></li>
+        <li>Commission Implementing Regulation (EU) 2017/2469 of 20 December 2017 laying down administrative and scientific requirements for applications referred to in Article 10 of Regulation (EU) 2015/2283. <a href="https://eur-lex.europa.eu/eli/reg_impl/2017/2469/oj" target="_blank" rel="noopener">ELI</a></li>
+        <li>Commission Implementing Regulation (EU) 2017/2468 of 20 December 2017 laying down administrative and scientific requirements concerning traditional foods from third countries. <a href="https://eur-lex.europa.eu/eli/reg_impl/2017/2468/oj" target="_blank" rel="noopener">ELI</a></li>
+        <li>Le Bloch, J., Rouault, M., Langhi, C., Hignard, M., Iriantsoa, V., &amp; Michelet, O. (2025). The novel food evaluation process delays access to food innovation in the European Union. <em>npj Science of Food</em>, 9, 117. <a href="https://doi.org/10.1038/s41538-025-00492-x" target="_blank" rel="noopener">doi:10.1038/s41538-025-00492-x</a></li>
+        <li>Implementing regulations used for validation (recitals): (EU) 2018/1991, 2018/2016, 2018/2017, 2020/206, 2020/917, 2021/882, 2021/1975, 2021/2191, 2022/169, 2022/188, 2022/2534, 2023/5, 2023/58, 2023/2847, 2024/1048, 2025/89 and 2025/153 — linked in Tables 2 and 3.</li>
+        <li>Regulation (EU) 2019/1381 of the European Parliament and of the Council of 20 June 2019 on the transparency and sustainability of the EU risk assessment in the food chain. <a href="https://eur-lex.europa.eu/eli/reg/2019/1381/oj" target="_blank" rel="noopener">ELI</a></li>
+        <li>EFSA NDA Panel (2024). Guidance on the scientific requirements for an application for authorisation of a novel food in the context of Regulation (EU) 2015/2283. <em>EFSA Journal</em>, 22(9), e8961. <a href="https://doi.org/10.2903/j.efsa.2024.8961" target="_blank" rel="noopener">doi:10.2903/j.efsa.2024.8961</a></li>
+        <li>FSA — Food Standards Agency (2026). Regulatory sandbox report for cell-cultivated products: FSA Business Committee, September 2026. <a href="https://www.gov.uk/government/publications/food-standards-agency-business-committee-meeting-september-2026/regulatory-sandbox-report-for-cell-cultivated-products-fsa-business-committee" target="_blank" rel="noopener">gov.uk</a></li>
+        <li>FSANZ — Food Standards Australia New Zealand (2025). <em>Approval report — Application A1269: Cultured quail as a novel food</em>. <a href="https://www.foodstandards.gov.au/food-standards-code/applications/A1269-Cultured-Quail-as-a-Novel-Food" target="_blank" rel="noopener">foodstandards.gov.au</a></li>
+        <li>Singapore Food Agency (2026). <em>SFA list of approved novel foods (as at 14 August 2026)</em>. <a href="https://www.sfa.gov.sg/docs/default-source/regulatory-standards-frameworks-and-guidelines/2026-08-14-sfa-list-of-approved-novel-foods.pdf" target="_blank" rel="noopener">sfa.gov.sg</a></li>
+        <li>FDA (2016). Substances generally recognized as safe; final rule. <em>Federal Register</em>, 81, 54960 (17 August 2016); FDA (2026). Substances generally recognized as safe; proposed rule. <em>Federal Register</em>, 91, 51834 (11 August 2026). <a href="https://www.federalregister.gov/documents/2026/08/11/2026-16296/substances-generally-recognized-as-safe" target="_blank" rel="noopener">federalregister.gov</a></li>
+        <li>Metropolis, N., &amp; Ulam, S. (1949). The Monte Carlo method. <em>Journal of the American Statistical Association</em>, 44(247), 335–341. <a href="https://doi.org/10.1080/01621459.1949.10483310" target="_blank" rel="noopener">doi:10.1080/01621459.1949.10483310</a></li>
+        <li>Marsaglia, G., &amp; Tsang, W. W. (2000). A simple method for generating gamma variables. <em>ACM Transactions on Mathematical Software</em>, 26(3), 363–372. <a href="https://doi.org/10.1145/358407.358414" target="_blank" rel="noopener">doi:10.1145/358407.358414</a></li>
+      </ol>
+      <p>Related: <a href="/lessons/eu-novel-food/">Lesson 14.1 — The EU Novel Food Regulation</a> · <a href="/lessons/global-regulation/">Lesson 14.3 — Global regulatory landscapes</a> · <a href="/laboratories/novel-food-navigator/">Novel food navigator</a> · <a href="/laboratories/technology-diffusion/">Technology diffusion model</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

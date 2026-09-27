@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hedonic study analyser · Future Food Production</title>
+<meta name="description" content="Analyse 9-point hedonic ratings from your own tasting or from a simulation: product means with confidence intervals, block ANOVA with panellists as blocks versus one-way ANOVA, Tukey HSD, effect sizes, the Friedman test, consumer segmentation with k-means and the link between liking and food neophobia.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* Live calculators for the Derive tab (classic script, runs before the deferred site scripts). */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  var LZ = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  function lnG(z) { if (z < 0.5) return Math.log(Math.PI / Math.abs(Math.sin(Math.PI * z))) - lnG(1 - z); z -= 1; var x = LZ[0]; for (var i = 1; i < 9; i++) x += LZ[i] / (z + i); var t = z + 7.5; return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x); }
+  function betacf(a, b, x) { var qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - qab * x / qap; if (Math.abs(d) < 1e-300) d = 1e-300; d = 1 / d; var h = d; for (var m = 1; m <= 300; m++) { var m2 = 2 * m, aa = m * (b - m) * x / ((qam + m2) * (a + m2)); d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300; c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; h *= d * c; aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2)); d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300; c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; var del = d * c; h *= del; if (Math.abs(del - 1) < 3e-16) break; } return h; }
+  function betainc(x, a, b) { if (x <= 0) return 0; if (x >= 1) return 1; var bt = Math.exp(lnG(a + b) - lnG(a) - lnG(b) + a * Math.log(x) + b * Math.log(1 - x)); return x < (a + 1) / (a + b + 2) ? bt * betacf(a, b, x) / a : 1 - bt * betacf(b, a, 1 - x) / b; }
+  function tCdf(t, df) { var x = df / (df + t * t), p = 0.5 * betainc(x, df / 2, 0.5); return t > 0 ? 1 - p : p; }
+  function tInv(p, df) { var lo = -80, hi = 80; for (var i = 0; i < 90; i++) { var m = (lo + hi) / 2; if (tCdf(m, df) < p) lo = m; else hi = m; } return (lo + hi) / 2; }
+  function fCdf(x, d1, d2) { return x <= 0 ? 0 : betainc(d1 * x / (d1 * x + d2), d1 / 2, d2 / 2); }
+  function gammaP(a, x) { if (x <= 0) return 0; if (x < a + 1) { var ap = a, s = 1 / a, del = s; for (var n = 0; n < 500; n++) { ap++; del *= x / ap; s += del; if (Math.abs(del) < Math.abs(s) * 1e-15) break; } return s * Math.exp(-x + a * Math.log(x) - lnG(a)); } var b = x + 1 - a, c = 1e300, d = 1 / b, h = d; for (var i = 1; i < 500; i++) { var an = -i * (i - a); b += 2; d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300; c = b + an / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; var dl = d * c; h *= dl; if (Math.abs(dl - 1) < 1e-15) break; } return 1 - Math.exp(-x + a * Math.log(x) - lnG(a)) * h; }
+  /* H1 */ FFP_CALC.hedCI = function (v) { var n = Math.round(v.n); return tInv(0.975, n - 1) * v.s / Math.sqrt(n); };
+  /* H2 */ FFP_CALC.hedRcbdP = function (v) { var t = Math.round(v.t), b = Math.round(v.b), d1 = t - 1, d2 = (t - 1) * (b - 1); return 1 - fCdf((v.ssp / d1) / (v.sse / d2), d1, d2); };
+  /* H6 */ FFP_CALC.hedFriedP = function (v) { return 1 - gammaP((Math.round(v.t) - 1) / 2, v.chi / 2); };
+})();
+</script>
+<style>
+.ha-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.stage.light-stage .stage-hud { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 100px); }
+.stage.light-stage .stage-hud .hud-chip { background: color-mix(in srgb, var(--bg-elev) 90%, transparent); color: var(--ink); border-color: var(--line); }
+.stage.light-stage .stage-hud .hud-chip b { color: var(--accent); }
+.stage.light-stage .stage-toolbar button { background: var(--bg-sunk); color: var(--ink-2); border-color: var(--line); }
+.data-card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin: 0 0 16px; }
+.data-card h3 { font: 650 .92rem var(--font-sans); margin: 0 0 2px; }
+.data-card .sub { font-size: .78rem; color: var(--muted); margin-bottom: 8px; }
+.data-card textarea { width: 100%; min-height: 170px; font: .76rem/1.4 var(--font-mono); padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.data-card .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.pmsg { font-size: .8rem; color: var(--muted); } .pmsg.ok { color: var(--ok); } .pmsg.bad { color: var(--danger); font-weight: 600; }
+.tables-card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin: 0 0 16px; overflow-x: auto; }
+.tables-card table.res { width: 100%; border-collapse: collapse; font-size: .82rem; margin: 6px 0 14px; }
+.tables-card table.res caption { text-align: left; font: 650 .86rem var(--font-sans); padding: 4px 0 6px; color: var(--ink); }
+.tables-card table.res th { font: 600 .7rem var(--font-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+.tables-card table.res td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.tables-card table.res .num { text-align: right; font-family: var(--font-mono); }
+.tables-card table.res tr.hl td { font-weight: 700; }
+.tables-card table.res tr.sep td { background: var(--bg-sunk); font: 600 .74rem var(--font-mono); color: var(--muted); }
+.tables-card table.res td.sig { color: var(--magenta); font-weight: 700; }
+.ss-note { font-size: .78rem; color: var(--ink-2); margin-top: 4px; }
+</style>
+</head>
+<body data-page="lab" data-slug="hedonic-analysis">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Hedonic study analyser</h1>
+    <p class="lead">Every consumer in a hedonic test rates every product on the 9-point scale — and every consumer uses the scale differently. This analyser turns a table of ratings into the answers a product developer needs: how much each product is liked (with its uncertainty), whether the products differ once each panellist's personal scale use is removed, which pairs differ and by how much, whether the panel hides segments that love or hate the novel product, and whether liking follows food neophobia. Start with the illustrative cricket-bread study, simulate your own scenarios, paste your data, or load the ratings recorded in the sensory booth.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage light-stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+      <div class="data-card">
+        <h3>Your data</h3>
+        <div class="sub">One row per panellist, one column per product (9-point ratings, CSV or tab-separated, e.g. copied from a spreadsheet). A first column of panellist codes and a column named <code>FNS</code> (or <code>covariate</code>) are recognised automatically. Rows with missing values or values outside 1–9 are dropped and reported.</div>
+        <textarea id="paste" spellcheck="false" aria-label="Hedonic data table"></textarea>
+        <div class="row"><button type="button" class="btn btn-sm btn-primary" id="paste-run">Analyse pasted data</button><button type="button" class="btn btn-sm" id="paste-reset">Restore example</button><span class="pmsg" id="paste-msg" aria-live="polite"></span></div>
+      </div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Why blocking matters</h3>
+      <div class="chart-sub">The same ratings split into sums of squares. A one-way ANOVA leaves the differences between panellists in the error term; the block ANOVA moves them out, so the same product differences stand out against a smaller error.</div>
+      <div class="chart" id="chart-ss"></div>
+      <div class="ss-note" id="ss-note"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Which products differ? (Tukey HSD)</h3>
+      <div class="chart-sub">Simultaneous 95 % confidence intervals for all pairwise differences, from the block error term (thick; magenta = significant). Thin grey lines: the same intervals if panellists were ignored.</div>
+      <div class="chart" id="chart-tukey"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Consumer segments</h3>
+      <div class="chart-sub">Mean liking profile of each k-means segment compared with the whole panel. Diverging profiles mean that the panel average describes nobody.</div>
+      <div class="chart tall" id="chart-seg"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Liking and food neophobia</h3>
+      <div class="chart-sub">Each point is a panellist: covariate (e.g., Food Neophobia Scale score) against the chosen liking measure, with the least-squares line and its 95 % confidence band.</div>
+      <div class="chart tall" id="chart-cov"></div>
+    </div>
+  </div>
+  <div class="tables-card" id="tables"></div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Look at the raw ratings.</strong> In the <em>Ratings</em> view every dot is one panellist. The black diamond and bar show the mean and its 95 % confidence interval; the box shows the quartiles; the letters summarise Tukey's test. Liking falls as the share of cricket flour rises — but look at how widely the dots spread: individual consumers disagree by several scale points.</li>
+        <li><strong>See the panellists.</strong> Switch to <em>Panellists</em>. Many lines run roughly parallel: some people rate everything high, others everything low. That is <em>scale use</em>, not product liking. The block ANOVA removes it; compare the two F tests in the readouts and the <em>Why blocking matters</em> chart. In the example the block ANOVA gives F(2, 70) = 18.1 against F(2, 105) = 10.5 for the one-way analysis, and blocking is worth about 1.7 times as many panellists.</li>
+        <li><strong>Find the hidden segment.</strong> With k = 2 the lines are coloured by segment. One group likes all three breads almost equally, the other rejects the cricket breads. The <em>Consumer segments</em> chart shows the two profiles, and the covariate chart shows that the rejecters tend to score higher on food neophobia. (The example is simulated and labelled as such — your own data may or may not show segments.)</li>
+        <li><strong>Break the blocks.</strong> Apply the preset <em>Huge scale-use differences</em>: the one-way ANOVA loses almost all its power while the block ANOVA hardly notices. The <em>efficiency of blocking</em> readout tells you how many more panellists a design without blocking would need.</li>
+        <li><strong>Check the assumptions.</strong> The <em>Residuals</em> view shows the residuals after removing panellist and product means. Stripes are normal for integer ratings; strong skewness or outliers call for the Friedman test, which the readouts report as a rank-based check.</li>
+        <li><strong>Use your own data.</strong> Paste your table below the readouts, or choose <em>Project</em> to load the ratings recorded in the sensory booth. Read off the numbers for your report: means with CIs, F and p of the block ANOVA, Tukey comparisons with effect sizes.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>In a hedonic test each consumer is a block. Comparing products <em>within</em> consumers removes the largest source of noise — the way each person uses the scale — and turns a small student panel into a sensitive instrument. But an average can hide opposite opinions: always look at the distribution and at possible segments before concluding that “consumers like the product moderately”.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From ratings to conclusions</h2>
+      <p>The 9-point hedonic scale (Peryam &amp; Pilgrim, 1957) asks consumers how much they like a product, from “dislike extremely” (1) to “like extremely” (9). In a typical study every consumer tastes every product in a balanced order (<a href="/laboratories/sensory-booth/">sensory booth</a>), so the data form a table with one row per consumer and one column per product. Three questions follow: how much is each product liked, do the products differ, and is the answer the same for everybody?</p>
+      <h3>1. How much is each product liked?</h3>
+      <p>The mean rating with a 95 % confidence interval (Eq. H1) is the basic summary. Remember what it is: an average of ordered categories whose spacing is not perfectly equal (<a href="/lessons/sensory-methods/#affective">Lesson 13.3</a>). Report the share of consumers who like the product (6–9) alongside the mean — it is easier to communicate and less sensitive to how the categories are spaced.</p>
+      <h3>2. Do the products differ? Blocking</h3>
+      <p>The ratings vary for three reasons: products differ, consumers differ in how they use the scale, and every single rating contains noise. A one-way ANOVA compares products against all variation within products — including the consumer differences. The randomised complete block ANOVA (Eq. H2) estimates a separate effect for each consumer and removes it, so the product F test is computed against the residual noise only. The relative efficiency (Eq. H3) turns the gain into a number of consumers: an efficiency of 2 means that a design without blocking would need twice as many consumers for the same precision.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 220" role="img" aria-label="Partition of the total variation of hedonic ratings into products, panellists and error; in a one-way ANOVA panellists and error are combined into the error term">
+            <text x="20" y="30" font-weight="700">One-way ANOVA</text>
+            <rect x="170" y="14" width="120" height="30" class="fill-accent" opacity=".85"/><rect x="290" y="14" width="400" height="30" class="fill-sunk" stroke="currentColor"/>
+            <text x="230" y="34" text-anchor="middle" class="t-small" style="fill:#fff">products</text><text x="490" y="34" text-anchor="middle" class="t-small">within products (error) = panellists + noise</text>
+            <text x="20" y="92" font-weight="700">Block ANOVA</text>
+            <rect x="170" y="76" width="120" height="30" class="fill-accent" opacity=".85"/><rect x="290" y="76" width="230" height="30" class="fill-amber" opacity=".75"/><rect x="520" y="76" width="170" height="30" class="fill-sunk" stroke="currentColor"/>
+            <text x="230" y="96" text-anchor="middle" class="t-small" style="fill:#fff">products</text><text x="405" y="96" text-anchor="middle" class="t-small">panellists (blocks)</text><text x="605" y="96" text-anchor="middle" class="t-small">error</text>
+            <line x1="170" y1="140" x2="690" y2="140" stroke="currentColor"/>
+            <text x="430" y="160" text-anchor="middle" class="t-small">total sum of squares \(SS_T\) — the same in both analyses</text>
+            <text x="20" y="196" class="t-small t-muted">F = (product mean square) / (error mean square): the block design divides by a much smaller error mean square, at the cost of b − 1 error degrees of freedom.</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Blocking does not change the product sum of squares; it changes what the product effect is compared with.</figcaption>
+      </figure>
+      <h3>3. Which products differ, and by how much?</h3>
+      <p>A significant F says only that <em>some</em> products differ. Tukey's honestly significant difference (Eq. H4) compares all pairs while keeping the familywise error rate at 5 %; it must use the error mean square and degrees of freedom of the block ANOVA. Effect sizes (Eq. H5) express the differences in scale points and in standardised form. When the residuals are badly skewed — many ratings at the ends of the scale, a few wild consumers — the Friedman test (Eq. H6), which uses only the ranks within each consumer, is a useful check.</p>
+      <h3>4. Is the answer the same for everybody? Segmentation</h3>
+      <p>For novel foods, a mean rating of 5.5 may hide a group that likes the product and a group that rejects it. Consumer segmentation groups panellists with similar liking profiles. The analyser uses k-means (Eq. H7): it finds k centre profiles that minimise the squared distance of each panellist to its nearest centre (Lloyd, 1982). Centring each panellist's ratings first removes scale use, so that the clusters reflect <em>what</em> people like rather than <em>how high</em> they rate. Segments found in a small panel are hypotheses, not findings: k-means always returns k groups, even in random data, so check whether the segments make sense and, ideally, whether they relate to something measured independently — such as food neophobia (Eq. H8; <a href="/laboratories/neophobia-scales/">neophobia-scales laboratory</a>).</p>
+      <div class="callout warn"><div class="callout-title">Common pitfalls with student data</div><p>(1) Treating the ratings of one consumer as independent observations — use the block ANOVA. (2) Running many t-tests between pairs of products — use Tukey. (3) Claiming “no difference” from a non-significant F with 15 consumers — report the confidence intervals. (4) Deleting consumers who “rate strangely” — that is exactly the variation a segmentation should explain.</p></div>
+      <a class="lab-link" data-lab="sensory-booth" data-why="Plan the hedonic test analysed here: a Williams design balances serving positions and carry-over, and the ratings you record in the booth can be loaded here with one click."></a>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The statistics behind the analyser</h2>
+      <div class="eq-box" id="eq-ha-mean-ci">
+        <div class="eq-head"><span class="eq-label">Product mean and its confidence interval</span><span class="eq-num">(H1)</span></div>
+        <div class="eq-main">\[ \bar y_{\cdot j} = \frac{1}{b}\sum_{i=1}^{b} y_{ij}, \qquad \bar y_{\cdot j} \pm t_{0.975,\,b-1}\,\frac{s_j}{\sqrt b} \]</div>
+        <p class="eq-read">the mean liking of product j is the average rating over the b panellists; its 95 % confidence interval extends a t-quantile times the standard error on either side.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(y_{ij}\)</td><td>rating of product \(j\) by panellist \(i\)</td><td>points (1–9)</td></tr>
+          <tr><td>\(b\)</td><td>number of panellists</td><td>–</td></tr>
+          <tr><td>\(s_j\)</td><td>standard deviation of the ratings of product \(j\)</td><td>points</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Independent panellists; the interval treats the category numbers as interval-scaled and relies on the central limit theorem, which is reasonable for about 20 or more panellists. This interval contains the panellist variation; the block analysis below compares products <em>within</em> panellists and is more precise for differences.</p></details>
+        <div class="eq-units">\(t\) is dimensionless, \(s/\sqrt b\) is in points ✓</div>
+        <div class="mini-calc" data-fn="hedCI" data-output="Half-width of the 95 % CI" data-unit="points" data-digits="2" data-plot="n" data-ymin="0" data-title="Try it — how precise is a mean rating?">
+          <div data-var="n" data-label="Panellists b" data-min="5" data-max="120" data-step="1" data-value="36"></div>
+          <div data-var="s" data-label="SD of the ratings s" data-min="0.5" data-max="3" data-step="0.05" data-value="1.6" data-unit="points"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ha-rcbd">
+        <div class="eq-head"><span class="eq-label">Block ANOVA: products and panellists</span><span class="eq-num">(H2)</span></div>
+        <div class="eq-main">\[ y_{ij} = \mu + \tau_j + \beta_i + \varepsilon_{ij}, \qquad SS_T = SS_{\text{prod}} + SS_{\text{pan}} + SS_E, \qquad F = \frac{SS_{\text{prod}}/(t-1)}{SS_E/[(t-1)(b-1)]} \]</div>
+        <p class="eq-read">each rating is the overall mean plus a product effect plus a panellist effect plus random error; the total variation splits into the three parts, and the product effect is tested against the error mean square with t − 1 and (t − 1)(b − 1) degrees of freedom.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\tau_j, \beta_i\)</td><td>effect of product \(j\); effect (scale use) of panellist \(i\)</td><td>points</td></tr>
+          <tr><td>\(SS_{\text{prod}} = b\sum_j(\bar y_{\cdot j}-\bar y)^2\)</td><td>between-product sum of squares</td><td>points²</td></tr>
+          <tr><td>\(SS_{\text{pan}} = t\sum_i(\bar y_{i\cdot}-\bar y)^2\)</td><td>between-panellist sum of squares</td><td>points²</td></tr>
+          <tr><td>\(SS_E\)</td><td>residual sum of squares (by subtraction)</td><td>points²</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Split every deviation: \(y_{ij}-\bar y = (\bar y_{\cdot j}-\bar y) + (\bar y_{i\cdot}-\bar y) + (y_{ij}-\bar y_{\cdot j}-\bar y_{i\cdot}+\bar y)\).</li>
+            <li>Square and sum over \(i, j\): the cross-products vanish because each part sums to zero over the index it does not depend on.</li>
+            <li>Degrees of freedom: \(bt-1 = (t-1)+(b-1)+(t-1)(b-1)\).</li>
+            <li>A one-way ANOVA puts \(SS_{\text{pan}}+SS_E\) into its error term with \(t(b-1)\) df — that is the grey bar of the <em>Why blocking matters</em> chart.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Additivity (no panellist × product interaction beyond the error), approximately normal errors with equal variance, independent panellists. With balanced data a mixed model with random panellists gives the same product F test (Næs et al., 2010). The analyser is computed with <code>anovaRCBD</code> from the course statistics library.</p></details>
+        <div class="eq-units">SS in points², so F = points²/points² is dimensionless ✓</div>
+        <div class="mini-calc" data-fn="hedRcbdP" data-output="p-value (products)" data-unit="" data-digits="4" data-plot="ssp" data-ymin="0" data-ymax="1" data-title="Try it — the product F test of a block design">
+          <div data-var="t" data-label="Products t" data-min="2" data-max="6" data-step="1" data-value="3"></div>
+          <div data-var="b" data-label="Panellists b" data-min="5" data-max="80" data-step="1" data-value="36"></div>
+          <div data-var="ssp" data-label="SS<sub>prod</sub>" data-min="0" data-max="60" data-step="0.5" data-value="20" data-unit="points²"></div>
+          <div data-var="sse" data-label="SS<sub>E</sub>" data-min="10" data-max="250" data-step="1" data-value="110" data-unit="points²"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ha-efficiency">
+        <div class="eq-head"><span class="eq-label">Relative efficiency of blocking</span><span class="eq-num">(H3)</span></div>
+        <div class="eq-main">\[ \mathrm{RE} = \frac{(b-1)\,MS_{\text{pan}} + b(t-1)\,MS_E}{(bt-1)\,MS_E}\cdot\frac{(f_1+1)(f_2+3)}{(f_1+3)(f_2+1)}, \qquad f_1 = (t-1)(b-1),\; f_2 = t(b-1) \]</div>
+        <p class="eq-read">the error variance that a design without blocking would have had is estimated from the block ANOVA's mean squares; its ratio to the block design's error mean square, with a small correction for the different degrees of freedom, is how many times more panellists the unblocked design would need.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(MS_{\text{pan}}, MS_E\)</td><td>panellist and error mean squares of the block ANOVA</td><td>points²</td></tr>
+          <tr><td>\(f_1, f_2\)</td><td>error degrees of freedom of the block and the unblocked design</td><td>–</td></tr>
+          <tr><td>RE</td><td>relative efficiency (≈ factor by which the panel would have to grow)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Without blocking, the error would contain the panellist variation: its expected value is estimated by pooling panellist and error sums of squares, \([(b-1)MS_{\text{pan}} + b(t-1)MS_E]/(bt-1)\) (Montgomery, 2017).</li>
+            <li>The variance of a product mean is error variance divided by \(b\); equal precision therefore needs \(b\) to grow in proportion to the error variance.</li>
+            <li>Fisher's factor corrects for the fact that fewer error degrees of freedom make an estimated variance slightly less useful.</li>
+          </ol>
+        </details>
+        <div class="eq-units">points²/points² — dimensionless ✓</div>
+        <div class="mini-calc" data-formula="((b-1)*mp+b*(t-1)*me)/((b*t-1)*me)*(((t-1)*(b-1)+1)*(t*(b-1)+3))/(((t-1)*(b-1)+3)*(t*(b-1)+1))" data-output="Relative efficiency" data-unit="×" data-digits="2" data-plot="mp" data-title="Try it — what is blocking worth?">
+          <div data-var="t" data-label="Products t" data-min="2" data-max="6" data-step="1" data-value="3"></div>
+          <div data-var="b" data-label="Panellists b" data-min="5" data-max="80" data-step="1" data-value="36"></div>
+          <div data-var="mp" data-label="MS<sub>pan</sub>" data-min="0.2" data-max="12" data-step="0.1" data-value="4" data-unit="points²"></div>
+          <div data-var="me" data-label="MS<sub>E</sub>" data-min="0.3" data-max="4" data-step="0.05" data-value="1.4" data-unit="points²"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ha-tukey">
+        <div class="eq-head"><span class="eq-label">Tukey HSD after the block ANOVA</span><span class="eq-num">(H4)</span></div>
+        <div class="eq-main">\[ \text{HSD} = q_{0.95;\,t,\,(t-1)(b-1)}\sqrt{\frac{MS_E}{b}}, \qquad (\bar y_{\cdot k}-\bar y_{\cdot j}) \pm \text{HSD} \]</div>
+        <p class="eq-read">two product means differ significantly when their difference exceeds the studentised-range quantile times the standard error of a mean from the block error term; the same half-width gives simultaneous 95 % intervals for all pairwise differences.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(q\)</td><td>upper 5 % point of the studentised range for \(t\) means and \((t-1)(b-1)\) df</td><td>–</td></tr>
+          <tr><td>\(MS_E\)</td><td>error mean square of the block ANOVA</td><td>points²</td></tr>
+        </table>
+        <details><summary>Where it comes from</summary><p>If no products differ, the range of the \(t\) means divided by \(\sqrt{MS_E/b}\) follows the studentised range distribution; controlling the range controls every pairwise comparison, so the familywise error rate is 5 %. The analyser uses <code>tukeyRCBD</code> from the course library (see also Eq. 13.4.9 in <a href="/lessons/sensory-statistics/#eq-tukey">Lesson 13.4</a>). The grey intervals use the one-way error term instead and are wider whenever panellists differ.</p></details>
+        <div class="eq-units">points ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-ha-effect">
+        <div class="eq-head"><span class="eq-label">Effect sizes</span><span class="eq-num">(H5)</span></div>
+        <div class="eq-main">\[ \eta_p^2 = \frac{SS_{\text{prod}}}{SS_{\text{prod}} + SS_E}, \qquad d_z = \frac{\bar d}{s_d}, \qquad \bar d \pm t_{0.975,\,b-1}\frac{s_d}{\sqrt b} \]</div>
+        <p class="eq-read">partial eta squared is the product share of product-plus-error variation; for a pair of products, d z is the mean of the within-panellist differences divided by their standard deviation, and the paired confidence interval gives the difference in scale points.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(d_i = y_{ik}-y_{ij}\)</td><td>difference between two ratings of panellist \(i\)</td><td>points</td></tr>
+          <tr><td>\(\bar d, s_d\)</td><td>mean and SD of the differences</td><td>points</td></tr>
+        </table>
+        <details><summary>Interpretation</summary><p>Report the difference in points with its interval first (“the 10 % bread was liked 1.3 points less, 95 % CI 0.8–1.8”), then \(d_z\) or \(\eta_p^2\). Cohen's benchmarks were defined for independent groups and should not be applied mechanically to \(d_z\) (Lakens, 2013).</p></details>
+        <div class="eq-units">\(\bar d/s_d\): points/points — dimensionless ✓</div>
+        <div class="mini-calc" data-formula="dbar/sd" data-output="d_z" data-unit="" data-digits="2" data-plot="dbar" data-title="Try it — standardised paired difference">
+          <div data-var="dbar" data-label="Mean difference d̄" data-min="0" data-max="3" data-step="0.05" data-value="1.3" data-unit="points"></div>
+          <div data-var="sd" data-label="SD of differences s<sub>d</sub>" data-min="0.3" data-max="3" data-step="0.05" data-value="1.5" data-unit="points"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ha-friedman">
+        <div class="eq-head"><span class="eq-label">Friedman rank test (with ties)</span><span class="eq-num">(H6)</span></div>
+        <div class="eq-main">\[ \chi^2_F = \frac{\dfrac{12}{b\,t(t+1)}\displaystyle\sum_{j=1}^{t} R_j^2 - 3b(t+1)}{1 - \dfrac{\sum \left(\tau^3-\tau\right)}{b\,(t^3-t)}}, \qquad \chi^2_F \;\dot\sim\; \chi^2_{t-1} \]</div>
+        <p class="eq-read">rank the products within each panellist, add the ranks of each product over panellists, and compare the spread of the rank sums with what random ranking would give; the denominator corrects for tied ratings.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(R_j\)</td><td>sum over panellists of the within-panellist rank of product \(j\) (ties: average ranks)</td><td>–</td></tr>
+          <tr><td>\(\tau\)</td><td>size of each group of tied ratings within a panellist</td><td>–</td></tr>
+        </table>
+        <details><summary>Why use it</summary><p>The test uses only the order of the products within each consumer, so it needs no assumption about the spacing of the scale categories or about normality (Friedman, 1937). With 9-point data many ratings are tied, hence the correction. It answers the same question as the block ANOVA's F test and should agree with it when the ANOVA assumptions hold.</p></details>
+        <div class="eq-units">ranks are dimensionless ✓</div>
+        <div class="mini-calc" data-fn="hedFriedP" data-output="p-value" data-unit="" data-digits="4" data-plot="chi" data-ymin="0" data-ymax="1" data-title="Try it — p-value of the Friedman statistic">
+          <div data-var="chi" data-label="χ²<sub>F</sub>" data-min="0" data-max="25" data-step="0.1" data-value="8"></div>
+          <div data-var="t" data-label="Products t" data-min="2" data-max="8" data-step="1" data-value="3"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ha-kmeans">
+        <div class="eq-head"><span class="eq-label">k-means segmentation of panellists</span><span class="eq-num">(H7)</span></div>
+        <div class="eq-main">\[ \min_{c_1,\dots,c_k}\ \sum_{i=1}^{b} \min_{s}\ \lVert \mathbf{x}_i - \mathbf{c}_s \rVert^2, \qquad x_{ij} = y_{ij} - \bar y_{i\cdot}\ \ \text{(centred profiles)} \]</div>
+        <p class="eq-read">choose k centre profiles so that the sum of squared distances from each panellist's liking profile to its nearest centre is as small as possible; with centring, each profile is the panellist's ratings minus his or her own mean.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\mathbf{x}_i\)</td><td>profile of panellist \(i\) (ratings of the \(t\) products, optionally centred)</td><td>points</td></tr>
+          <tr><td>\(\mathbf{c}_s\)</td><td>centre (mean profile) of segment \(s\)</td><td>points</td></tr>
+          <tr><td>\(k\)</td><td>number of segments</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the algorithm</summary>
+          <ol class="steps">
+            <li><strong>Start:</strong> pick initial centres at random, spread out (k-means++: each new centre with probability proportional to its squared distance from the existing ones).</li>
+            <li><strong>Assign</strong> every panellist to the nearest centre.</li>
+            <li><strong>Update</strong> each centre to the mean profile of its members (Lloyd, 1982). Steps 2–3 never increase the objective, so the algorithm converges.</li>
+            <li>Because it can stop in a local minimum, the analyser restarts 24 times and keeps the best solution; segments are labelled A, B, … from the highest to the lowest liking of the most novel product.</li>
+            <li>The readout reports the share of the variation between segments, \(1 - \text{WSS}/\text{TSS}\); even random data give a positive share, so treat segments as hypotheses.</li>
+          </ol>
+        </details>
+        <div class="eq-units">squared distances in points² ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-ha-correlation">
+        <div class="eq-head"><span class="eq-label">Liking and a covariate: correlation and regression</span><span class="eq-num">(H8)</span></div>
+        <div class="eq-main">\[ r = \frac{\sum (x_i-\bar x)(y_i-\bar y)}{\sqrt{\sum (x_i-\bar x)^2\sum (y_i-\bar y)^2}}, \qquad \tanh\!\left(\operatorname{artanh} r \pm \frac{1.96}{\sqrt{n-3}}\right), \qquad \hat y = a + b\,x \]</div>
+        <p class="eq-read">the Pearson correlation measures how closely liking follows the covariate on a straight line; its confidence interval is computed on Fisher's z scale and transformed back; the least-squares line gives the expected change in liking per point of the covariate.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_i\)</td><td>covariate of panellist \(i\), e.g. FNS score</td><td>points (10–70)</td></tr>
+          <tr><td>\(y_i\)</td><td>liking measure, e.g. mean of novel products minus control</td><td>points</td></tr>
+          <tr><td>\(r\)</td><td>Pearson correlation</td><td>–</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>A correlation in one study panel is not causation: neophobic students may also dislike rye bread. The covariate should be measured <em>before</em> tasting. Measurement error in the scale attenuates the correlation — see the <a href="/laboratories/neophobia-scales/">neophobia-scales laboratory</a>.</p></details>
+        <div class="eq-units">\(r\) is dimensionless; the slope is in liking points per covariate point ✓</div>
+        <div class="mini-calc" data-formula="tanh(0.5*log((1+r)/(1-r))-1.96/sqrt(n-3))" data-output="Lower 95 % limit of r" data-unit="" data-digits="3" data-plot="n" data-ymin="-1" data-ymax="1" data-title="Try it — how precise is a correlation?">
+          <div data-var="r" data-label="Observed r" data-min="-0.9" data-max="0.9" data-step="0.01" data-value="-0.45"></div>
+          <div data-var="n" data-label="Panellists n" data-min="6" data-max="300" data-step="1" data-value="36"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <ol class="task-list">
+        <li><h4>What is blocking worth?</h4><p>Simulate 24 panellists with a panellist SD of 0.3, 0.9 and 1.8 points (all else equal). For each, record the F tests of both ANOVAs and the efficiency of blocking. Explain the pattern with Eqs. H2–H3.</p></li>
+        <li><h4>How many consumers?</h4><p>With a true drop of 0.4 points per novelty step and an error SD of 1.1, resample the panel several times for b = 12, 24 and 48. How often is the 0 % – 10 % difference significant (Tukey)? Relate your answer to Eq. B7 of the sensory-booth laboratory.</p></li>
+        <li><h4>Segments or noise?</h4><p>Apply <em>No product effect</em> and set k = 2. The algorithm still finds two segments — how much variation do they “explain”? Now apply <em>Love it or hate it</em>. What distinguishes a real segment from an artefact? Which evidence would convince you?</p></li>
+        <li><h4>Neophobia and liking</h4><p>In the illustrative study, report r between FNS and the novel-minus-control liking with its confidence interval. How does the correlation change when you choose “mean liking” instead? Why is a difference score a better measure of attitude to the novel product than the raw rating?</p></li>
+        <li><h4>Ordinal data</h4><p>Compare the p-values of the block ANOVA and the Friedman test for several simulated panels, including one with a very high control mean (8.5). When do they disagree, and why? Look at the <em>Scale use</em> and <em>Residuals</em> views.</p></li>
+        <li><h4>Your study</h4><p>Load or paste your own ratings and write the results section: means with CIs, the block ANOVA, Tukey comparisons with differences in points and d<sub>z</sub>, and — clearly labelled as exploratory — any segments and covariate relations.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-hedonic-analysis">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the analyser and the equations","questions":[
+          {"type":"mcq","q":"Why does the block ANOVA usually give a larger F for products than the one-way ANOVA on the same ratings?","options":["It uses more degrees of freedom for error","It removes the panellist (scale-use) variation from the error term","It gives more weight to the products that differ most","It assumes the ratings are normally distributed, the one-way ANOVA does not"],"answer":1,"feedback":["It uses fewer error degrees of freedom (b − 1 fewer).","","Both analyses weight products equally.","Both analyses make the same distributional assumptions."],"explain":"<p>The product sum of squares is identical; the block design divides it by a smaller error mean square because \\(SS_{\\text{pan}}\\) has been removed (Eq. H2).</p>"},
+          {"type":"numeric","q":"A block ANOVA of 3 breads rated by 24 panellists gives MS_pan = 4.0 and MS_E = 1.2. Estimate the relative efficiency of blocking without the degrees-of-freedom correction (Eq. H3).","answer":1.756,"tol":0.02,"unit":"×","hint":"(b − 1)·MS_pan + b(t − 1)·MS_E, divided by (bt − 1)·MS_E.","explain":"<p>\\((23\\times4.0 + 24\\times2\\times1.2)/(71\\times1.2) = 149.6/85.2 = 1.76\\): without blocking about 76 % more panellists would be needed for the same precision (the df correction lowers this slightly).</p>"},
+          {"type":"tf","q":"If k-means finds two segments in your panel, your consumers really consist of two groups.","answer":false,"explain":"<p>k-means always returns k groups, even in random data (try the preset <em>No product effect</em>). Segments are hypotheses that need support — for example a relation to an independently measured trait such as food neophobia.</p>"},
+          {"type":"numeric","q":"The Tukey HSD of a block design is q·√(MS_E/b). With q = 3.43, MS_E = 1.2 and b = 24, what is the smallest significant difference between two means?","answer":0.767,"tol":0.02,"unit":"points","explain":"<p>\\(3.43\\times\\sqrt{1.2/24} = 3.43\\times0.2236 = 0.767\\) points (Eq. H4).</p>"},
+          {"type":"multi","q":"Which statements about the illustrative cricket-bread example are true? (Select all that apply.)","options":["The data are simulated for teaching and are not measurements","The panellist lines in the Panellists view run roughly parallel","Liking of the novel breads is unrelated to FNS by construction","A segment of rejecters was built into the simulation"],"answer":[0,1,3],"explain":"<p>The example is simulated with a hidden segment of rejecters whose FNS scores are higher, so liking of the novel breads is related to FNS by construction.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>Data: complete blocks only (every panellist rated every product); incomplete rows are dropped and counted. Ratings must be whole or decimal numbers from 1 to 9.</li>
+        <li>Block ANOVA without interaction (<code>anovaRCBD</code>), one-way ANOVA (<code>anova1</code>) and Tukey HSD from the block error term (<code>tukeyRCBD</code>) from the course statistics library; the one-way Tukey intervals shown for comparison use the one-way error mean square.</li>
+        <li>Relative efficiency with Fisher's degrees-of-freedom correction; Friedman test with average ranks and tie correction, χ² approximation.</li>
+        <li>k-means on raw or panellist-centred profiles, k-means++ initialisation, 24 restarts, deterministic seed; segments ordered by liking of the most novel product.</li>
+        <li><strong>The example data are simulated</strong> (not measured): 36 panellists, three breads, product means falling with cricket flour, a panellist SD of 0.9 and an error SD of 1.0 points, and a hidden segment (about one third) that likes the cricket breads less and has higher FNS scores. The simulation model is Eq. H2 plus a segment term, rounded to the 9-point scale.</li>
+        <li>Project data are read from the browser (key <code>ffp-sensory-v1</code>, hedonic responses {panellist, sample, score}).</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Peryam, D. R., &amp; Pilgrim, F. J. (1957). Hedonic scale method of measuring food preferences. <em>Food Technology</em>, 11(9), 9–14.</li>
+        <li>Næs, T., Brockhoff, P. B., &amp; Tomic, O. (2010). <em>Statistics for sensory and consumer science</em>. Wiley. <a href="https://doi.org/10.1002/9780470669181" target="_blank" rel="noopener">doi:10.1002/9780470669181</a></li>
+        <li>Lawless, H. T., &amp; Heymann, H. (2010). <em>Sensory evaluation of food: Principles and practices</em> (2nd ed.). Springer. <a href="https://doi.org/10.1007/978-1-4419-6488-5" target="_blank" rel="noopener">doi:10.1007/978-1-4419-6488-5</a></li>
+        <li>Montgomery, D. C. (2017). <em>Design and analysis of experiments</em> (9th ed.). Wiley.</li>
+        <li>Lakens, D. (2013). Calculating and reporting effect sizes to facilitate cumulative science: A practical primer for t-tests and ANOVAs. <em>Frontiers in Psychology</em>, 4, 863. <a href="https://doi.org/10.3389/fpsyg.2013.00863" target="_blank" rel="noopener">doi:10.3389/fpsyg.2013.00863</a></li>
+        <li>Friedman, M. (1937). The use of ranks to avoid the assumption of normality implicit in the analysis of variance. <em>Journal of the American Statistical Association</em>, 32(200), 675–701. <a href="https://doi.org/10.1080/01621459.1937.10503522" target="_blank" rel="noopener">doi:10.1080/01621459.1937.10503522</a></li>
+        <li>Lloyd, S. (1982). Least squares quantization in PCM. <em>IEEE Transactions on Information Theory</em>, 28(2), 129–137. <a href="https://doi.org/10.1109/TIT.1982.1056489" target="_blank" rel="noopener">doi:10.1109/TIT.1982.1056489</a></li>
+        <li>Wichchukit, S., &amp; O'Mahony, M. (2015). The 9-point hedonic scale and hedonic ranking in food science: Some reappraisals and alternatives. <em>Journal of the Science of Food and Agriculture</em>, 95(11), 2167–2178. <a href="https://doi.org/10.1002/jsfa.6993" target="_blank" rel="noopener">doi:10.1002/jsfa.6993</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

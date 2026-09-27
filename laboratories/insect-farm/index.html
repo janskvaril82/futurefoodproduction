@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Insect farm · Future Food Production</title>
+<meta name="description" content="Run a 3D vertical insect farm for mealworms and black soldier fly larvae: growth and temperature, feed conversion, frass, respired CO₂, metabolic heat, self-heating of crates, ventilation design, EU substrate rules and comparison with livestock.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .cmp-bar { display: flex; gap: 8px; align-items: center; margin: 2px 0 6px; flex-wrap: wrap; }
+  .cmp-bar select { font: inherit; font-size: .82rem; padding: 3px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-elev); color: var(--ink); }
+  .cmp-note, #sankey-note { font-size: .76rem; color: var(--muted); margin-top: 4px; }
+  #lifecycle { width: 100%; }
+  #lifecycle svg { width: 100%; height: auto; display: block; }
+</style>
+</head>
+<body data-page="lab" data-slug="insect-farm">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Insect farm</h1>
+    <p class="lead">Walk through a vertical insect farm: stacks of crates with yellow mealworms wriggling in wheat bran, racks of black soldier fly larvae turning moist substrate into biomass, a cage of adult flies laying eggs, a climate unit and a sieving station that separates larvae from frass. Choose the species, the substrate — and whether EU law allows it — the air temperature, humidity, airflow and stocking density. The simulator grows a batch of larvae day by day, closes the carbon balance of feed, larvae, CO₂ and frass, computes the metabolic heat that makes every crate a small heater, sizes the ventilation and compares your farm with chicken, pork and beef.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Larval growth over the batch</h3>
+      <div class="chart-sub">Mean fresh mass per larva at the set air temperature (solid) and 4 °C colder or warmer (dashed); survival on the right axis. The magenta line is today in the 3-D farm. Growth uses the temperature of the larval mass, which self-heats (Eqs. I1, I2, I7).</div>
+      <div class="chart tall" id="chart-growth"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Self-heating: stocking density × air temperature</h3>
+      <div class="chart-sub">Peak temperature of the larval mass during a batch, for four room temperatures, at your airflow and humidity. Where a curve enters the red band, heat stress and mortality set the practical density limit.</div>
+      <div class="chart tall" id="chart-heat"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Insects versus livestock</h3>
+      <div class="cmp-bar"><label for="cmp-metric" class="chart-sub" style="margin:0">Compare</label>
+        <select id="cmp-metric">
+          <option value="feed">feed per kg edible weight</option>
+          <option value="ghg">greenhouse gases per kg protein</option>
+          <option value="land">land per kg protein</option>
+          <option value="energy">energy per kg protein</option>
+          <option value="water">water per g protein</option>
+        </select></div>
+      <div class="chart" id="chart-compare" style="height:270px"></div>
+      <div class="cmp-note" id="cmp-note"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Life cycle at the set temperature</h3>
+      <div class="chart-sub">Egg → larva → pupa → adult. Larval days come from the growth model; the other stages from measured development times (mealworm) or the degree-day model of Chia et al. (2018) (black soldier fly). The bar shows how far the current batch has progressed.</div>
+      <div id="lifecycle" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the farm</h2>
+      <ol>
+        <li><strong>Meet the larvae.</strong> Click <em>Mealworms</em>. On the inspection table an open crate shows golden, segmented mealworm larvae crawling through wheat bran; behind it stand the crate stacks on dollies. Press play and watch the larvae grow from a few millimetres to about 28 mm while the bran slowly turns into grey frass.</li>
+        <li><strong>Switch species.</strong> Choose <em>Black soldier fly</em>. The camera moves to the BSF racks: black crates of dark, moist substrate. BSF larvae grow about five times faster (≈ 18 days instead of ≈ 90), and turn dark brown when they become prepupae. In the corner, adult flies mate under the lamp in the net cage and lay eggs into cardboard flutes.</li>
+        <li><strong>Look at the heat.</strong> Tick <em>Thermal view</em>: the crates are coloured by the temperature of the larval mass. Then apply the preset <em>BSF, no airflow</em>: dense crates without forced air heat up above 40 °C, survival collapses and the feed conversion ratio doubles. Compare the self-heating chart.</li>
+        <li><strong>Follow the air.</strong> The air-handling unit blows conditioned air through the ceiling duct (blue particles) down between the stacks. Its display shows air temperature, humidity, CO₂ and airflow. Read the <em>Ventilation required</em> readout: for mealworms heat sets the airflow, for black soldier flies the water evaporating from the wet substrate does.</li>
+        <li><strong>Choose the menu.</strong> Try the substrates. Food waste and pig manure are converted by BSF larvae — food waste very efficiently — yet the readout turns red: in the EU they may not be fed to farmed insects. Look at the carbon flows in the <em>Explain</em> tab.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>An insect farm is a <strong>bioreactor made of crates</strong>. Feed carbon is split three ways — into larval biomass, into CO₂ (with the metabolic heat that comes with it) and into frass. Temperature controls how fast larvae grow and how much they respire; stocking density controls how much heat each crate makes; ventilation must remove that heat, the CO₂ and the evaporated water. Good farms operate where growth is fast but the larval mass does not overheat.</p></div>
+      <div class="callout note"><div class="callout-title">What the numbers mean</div><p>FCR in this lab is <em>kg feed dry matter per kg fresh larval gain</em>; ECI is <em>dry gain per dry feed</em>. Literature values use different bases (feed as fed or dry, feed offered or eaten), so always check the basis before comparing — the lesson on the <a href="/lessons/protein-transition/">protein transition</a> explains why.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Two insects, two production systems</h2>
+      <p>The <strong>yellow mealworm</strong> (<em>Tenebrio molitor</em>) is the larva of a darkling beetle. It is reared on dry cereal by-products such as wheat bran, with carrots or other fresh vegetables as a source of water, and is authorised as a novel food in the EU. Its larval phase is long: 76–183 days depending on diet at 28 °C (Oonincx et al., 2015) and about 125–140 days to pupation at 25–30 °C on a bran-based feed (Eberle et al., 2022). The <strong>black soldier fly</strong> (<em>Hermetia illucens</em>) is a fly whose larvae devour moist organic material; they are reared mainly as feed (meal and oil for fish, pigs and poultry) and to convert by-products. The larval phase lasts 2–3 weeks at 27–30 °C (Chia et al., 2018; Tomberlin et al., 2009).</p>
+      <table>
+        <caption>Table 1. The two species as parameterised in the simulator (sources in the Derive and Sources tabs).</caption>
+        <thead><tr><th></th><th>Mealworm</th><th>Black soldier fly</th></tr></thead>
+        <tbody>
+          <tr><td>Growth model</td><td>Gompertz, from 1 mg larvae</td><td>logistic, from 0.1 mg neonates</td></tr>
+          <tr><td>Temperature response (Brière-1)</td><td>\(T_{\min}\) 10 °C, optimum 29.6 °C, \(T_{\max}\) 35.5 °C</td><td>\(T_{\min}\) 11.7 °C, optimum 36 °C, \(T_{\max}\) 43.2 °C</td></tr>
+          <tr><td>Maintenance respiration (Q10 = 2)</td><td>0.05 d⁻¹ at 27 °C</td><td>0.08 d⁻¹ at 28 °C</td></tr>
+          <tr class="num"><td>Dry matter; protein in DM</td><td>39 %; 50 %</td><td>35 %; 42 %</td></tr>
+          <tr><td>Typical ECI (dry/dry)</td><td>8–21 %</td><td>23–27 %</td></tr>
+          <tr><td>Substrate</td><td>dry (bran), little evaporation</td><td>wet (60–80 % water), strong evaporation</td></tr>
+        </tbody>
+      </table>
+      <h3>Growth and temperature</h3>
+      <p>Insects are ectotherms: their body temperature, and with it every metabolic rate, follows the temperature around them. Development rate rises almost linearly above a lower threshold, peaks, and collapses a few degrees above the optimum — the asymmetric shape captured by the Brière model (Eq. I2). Mealworms grew fastest at 31 °C in Bjørge et al. (2018), but development and fecundity were best at 27 °C (Morales-Ramos et al., 2025) and survival falls above about 35 °C. Black soldier fly larvae develop fastest at 31–36 °C, yet only 0.1 % of larvae reared at 36 °C became adults in Tomberlin et al. (2009): <em>fastest</em> is not the same as <em>best</em>.</p>
+      <h3>Where does the feed go?</h3>
+      <p>Follow the carbon. Of every kilogram of carbon a larva eats, a fraction is not digested and leaves as <strong>frass</strong>; the digested (assimilated) carbon either builds <strong>body mass</strong> or is <strong>respired</strong> to CO₂ to pay for growth and for maintenance (Eq. I3). The slower the larvae grow, the longer they pay maintenance, and the more carbon ends as CO₂ — which is why mealworms, with their long larval phase, convert feed less efficiently than black soldier fly larvae (Nielsen et al., 2025, found average carbon net growth efficiencies of 0.16–0.40 for mealworms and 0.33–0.56 for BSF larvae).</p>
+      <figure class="figure wide">
+        <div class="fig-body"><div id="sankey-carbon"></div><div id="sankey-note"></div></div>
+        <figcaption><b>Figure 1.</b> Live carbon balance of the current batch per kg of harvested fresh larvae (Eqs. I3, I5, I6). Change the species, the substrate, the temperature or the density and watch the split change.</figcaption>
+      </figure>
+      <h3>A crate is a heater</h3>
+      <p>Every gram of CO₂ a larva breathes out releases about 11.4 kJ of heat (Eq. I6). Oonincx et al. (2010) measured 61 g CO₂ per kg of mealworm larvae per day at 25 °C — about 8 W per kilogram, the power of a small light bulb for every few kilograms of larvae. In a crate, that heat must cross the substrate by conduction and leave the surface by convection and by evaporation of water (Figure 2). If it cannot, the larval mass warms up, respires faster and warms up further. Black soldier fly larvae at high density raise their substrate at least 10 °C above the air (Li et al., 2023), and doubling the density in lab trials raised temperatures by 0.6–2.4 °C (Klammsteiner et al., 2025).</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 640 250" role="img" aria-label="Heat balance of a crate: metabolic heat generated in the larval layer is conducted to the surface and removed by convection and evaporation">
+          <defs><marker id="if-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+          <rect x="120" y="120" width="400" height="70" rx="4" class="fill-sunk" stroke="currentColor" stroke-width="1.4"/>
+          <rect x="126" y="140" width="388" height="46" class="fill-amber-soft"/>
+          <text x="320" y="170" text-anchor="middle" class="t-small">larvae + substrate, thickness d, conductivity k, heat q''' generated</text>
+          <text x="530" y="176" class="t-small">crate</text>
+          <line x1="220" y1="136" x2="220" y2="80" class="stroke-danger" stroke-width="2.4" marker-end="url(#if-ar)"/>
+          <text x="226" y="98" class="t-small" style="fill:var(--danger)">convection h(Tₛ − Tₐ)</text>
+          <line x1="420" y1="136" x2="420" y2="80" class="stroke-water" stroke-width="2.4" marker-end="url(#if-ar)"/>
+          <text x="426" y="98" class="t-small" style="fill:var(--water)">evaporation λE</text>
+          <path d="M140 60 C 240 40, 400 40, 500 60" class="stroke-muted" stroke-width="1.5" fill="none" marker-end="url(#if-ar)"/>
+          <text x="320" y="36" text-anchor="middle" class="t-small t-muted">air: Tₐ, RH, speed v</text>
+          <text x="320" y="216" text-anchor="middle" class="t-small">T(larvae) ≈ Tₛ + q″ d / (3k),  with  q″ = h (Tₛ − Tₐ) + λE</text>
+          <text x="320" y="238" text-anchor="middle" class="t-small t-muted">(Eq. I7; bottom and walls are included in the effective h)</text>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> Heat balance of one rearing crate. The metabolic heat flux \(q''\) (W per m² of crate) leaves the surface as sensible heat and as latent heat of evaporation. Dry mealworm bran evaporates little; wet BSF substrate evaporates a lot, which cools it but loads the room with water vapour.</figcaption>
+      </figure>
+      <h3>Designing the climate</h3>
+      <p>Ventilation must satisfy three demands at once (Eq. I8): remove the <strong>sensible heat</strong> with supply air a few kelvin cooler than the room; keep <strong>CO₂</strong> below the chosen limit (5000 ppm is the 8-hour occupational exposure limit value for workers in the EU); and remove the <strong>water vapour</strong> evaporated from the substrate. Whichever needs the most air sets the design. Try it: for mealworms the heat usually governs; for black soldier flies the moisture does — a BSF room is as much a drying plant as a farm.</p>
+      <h3>What may insects eat? EU rules as of 2026</h3>
+      <p>Since Commission Regulation (EU) 2017/893, insects reared to produce processed animal protein are <em>farmed animals</em> under the animal by-products regulation (EC) No 1069/2009. They are therefore subject to the same feed bans as pigs or chickens: they may be fed materials of vegetal origin and a short list of animal-derived materials (for example milk and eggs and their products, honey and rendered fat), but <strong>not manure, catering (kitchen) waste, or former foodstuffs containing meat or fish</strong> (EFSA, 2015 discusses the hazards behind these rules). Insect frass may be placed on the market as a fertiliser after heat treatment at 70 °C for 60 minutes (Commission Regulation (EU) 2021/1925). For human food, the EU has authorised four insect species as novel foods — <em>Tenebrio molitor</em> (dried, frozen and powder forms, and since January 2025 a UV-treated powder), <em>Locusta migratoria</em>, <em>Acheta domesticus</em> and <em>Alphitobius diaperinus</em>; the black soldier fly is authorised for feed but not as a novel food.</p>
+      <table>
+        <caption>Table 2. Substrates in the simulator and their status as feed for farmed insects in the EU (2026).</caption>
+        <thead><tr><th>Substrate</th><th>Species in lab</th><th>EU status</th><th>Comment</th></tr></thead>
+        <tbody>
+          <tr><td>Wheat bran (+ carrots)</td><td>mealworm</td><td>permitted</td><td>standard; carrots provide water</td></tr>
+          <tr><td>Brewers' spent grain, yeast</td><td>both</td><td>permitted</td><td>vegetal by-products of brewing</td></tr>
+          <tr><td>Fruit and vegetable residues</td><td>BSF</td><td>permitted</td><td>former foodstuffs without meat or fish, unpacked</td></tr>
+          <tr><td>Chicken feed</td><td>BSF</td><td>permitted</td><td>laboratory control substrate</td></tr>
+          <tr><td>Catering / food waste</td><td>both</td><td><strong>not permitted</strong></td><td>high conversion, but risk of animal proteins and pathogens</td></tr>
+          <tr><td>Pig manure</td><td>BSF</td><td><strong>not permitted</strong></td><td>BSF larvae store about 13 % of manure carbon and 25 % of its nitrogen (Parodi et al., 2021)</td></tr>
+        </tbody>
+      </table>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“Insects are always more sustainable than meat.” Per kilogram of edible protein, mealworms need far less land and emit fewer greenhouse gases than chicken, pork or beef — but they used more energy than chicken and about as much as pork in the first life-cycle assessment (173 MJ kg⁻¹, of which gas for heating the rearing rooms was the largest single share, 35 %; Oonincx &amp; de Boer, 2012), and 85 % of their land use was for feed grains. The advantage depends on the feed: larvae fed on food-grade grain compete with people; larvae fed on legal by-products do not.</p></div>
+      <div class="callout history"><div class="callout-title">History</div><p>The FAO report <em>Edible insects: future prospects for food and feed security</em> (van Huis et al., 2013) put insect farming on the global agenda. It compiled the figure that crickets need about 2.1 kg of feed per kg of edible weight, compared with 4.5 kg for chicken, 9.1 kg for pork and 25 kg for beef.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier (2024–2026)</div><p>Current research combines climate engineering (using larval heat, heat recovery), automation of feeding and sieving, genetics and breeding of insect strains, and the search for legal, low-value side streams — at the Swedish University of Agricultural Sciences in Uppsala, for example, Lalander et al. (2019) showed that the volatile-solids and protein content of urban waste fractions largely decide how well BSF larvae convert them.</p></div>
+      <a class="lab-link" data-lab="protein-quality" data-why="Find out how good insect protein is for people: amino-acid scores and DIAAS of mealworm and cricket protein compared with soy, pea and meat."></a>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>For each batch the simulator integrates, day by day (Euler steps of 0.1 d for mealworms and 0.02 d for BSF), the mean fresh mass \(m\) of a larva and the number of survivors \(N\) in one 60 × 40 cm crate, together with the temperature of the larval mass. Feed, frass, CO₂, heat and evaporation are accumulated along the way.</p>
+
+      <div class="eq-box" id="eq-if-growth">
+        <div class="eq-head"><span class="eq-label">Larval growth: logistic (BSF) and Gompertz (mealworm)</span><span class="eq-num">(I1)</span></div>
+        <div class="eq-main">\[ \frac{\mathrm{d}m}{\mathrm{d}t} = r(T_{\text{l}})\,m\left(1-\frac{m}{m_{\max}}\right)\ \ \text{(BSF)},\qquad \frac{\mathrm{d}m}{\mathrm{d}t} = r(T_{\text{l}})\,m\,\ln\frac{m_{\max}}{m}\ \ \text{(mealworm)} \]</div>
+        <p class="eq-read">a larva grows at a rate proportional to its own mass times a braking term: in the logistic model the brake is the fraction of the maximum mass still to go; in the Gompertz model it is the logarithm of the ratio between maximum and current mass, which slows growth earlier and more gradually.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(m\)</td><td>mean fresh mass of a larva</td><td>mg</td><td>start: 1 (mealworm), 0.1 (BSF neonate)</td></tr>
+          <tr><td>\(m_{\max}\)</td><td>asymptotic mass × diet factor × crowding factor</td><td>mg</td><td>160 (mealworm), 210 (BSF)</td></tr>
+          <tr><td>\(r\)</td><td>rate constant at the larval temperature \(T_{\text{l}}\): \(r_{\text{ref}}\,f(T_{\text{l}})\,q_{\text{diet}}\,f_\rho\)</td><td>d⁻¹</td><td>\(r_{\text{ref}}\) = 0.0382 at 27 °C (Gompertz); 0.60 at 28 °C (logistic)</td></tr>
+          <tr><td>\(f_\rho\)</td><td>crowding penalty \(1/(1 + 0.25\,\rho_B/\rho_{50})\), \(\rho_B\) = larval kg per m² of crate</td><td>–</td><td>illustrative</td></tr>
+        </table>
+        <details><summary>Why these two curves, and how were they calibrated?</summary><ol class="steps">
+          <li>BSF larvae grow almost exponentially through the first instars and then level off as they approach the prepupal stage — well described by the logistic (Verhulst) model, which Eriksen (2022) used as the kinetic backbone of a dynamic energy-budget model for BSF larvae.</li>
+          <li>With \(r = 0.60\) d⁻¹ at 28 °C a neonate reaches 90 % of its maximum in about 16 days, matching the 250 degree-days above 12.3 °C that Chia et al. (2018) measured for the larval stage (\(250/15.7 = 15.9\) days). Nielsen et al. (2025) measured maximal specific growth rates of 0.50–0.77 d⁻¹.</li>
+          <li>Mealworm growth decelerates over a long larval life. The Gompertz form (in the parameterisation of Zwietering et al., 1990) starts with a high specific rate — 19 % per day for 1 mg larvae here, close to the 16.6 % d⁻¹ maximum of Bjørge et al. (2018) — which falls to about 4–5 % d⁻¹ at 50 mg, as in Eberle et al. (2022).</li>
+          <li>Harvest is triggered at 85 % (mealworm) or 90 % (BSF, prepupae) of \(m_{\max}\); at 27 °C this takes ≈ 90 days for mealworms, within the 76–183 days reported by Oonincx et al. (2015).</li>
+        </ol></details>
+        <details><summary>Solutions for constant temperature</summary><p>Logistic: \(m(t) = m_{\max}/[1 + (m_{\max}/m_0 - 1)e^{-rt}]\). Gompertz: \(m(t) = m_{\max}\exp[\ln(m_0/m_{\max})\,e^{-rt}]\). The simulator integrates the ODEs instead, because \(T_{\text{l}}\) changes as the crate warms up.</p></details>
+        <div class="eq-units">mg d⁻¹ = d⁻¹ × mg × (dimensionless) ✓</div>
+        <div class="mini-calc" data-formula="M*exp(log(m0/M)*exp(-r*t))" data-output="Mealworm mass (Gompertz)" data-unit="mg" data-digits="1" data-plot="t">
+          <div data-var="M" data-label="m<sub>max</sub>" data-min="80" data-max="220" data-step="5" data-value="160" data-unit="mg"></div>
+          <div data-var="m0" data-label="Initial mass" data-min="0.2" data-max="10" data-step="0.1" data-value="1" data-unit="mg"></div>
+          <div data-var="r" data-label="Rate r" data-min="0.01" data-max="0.08" data-step="0.001" data-value="0.038" data-unit="d⁻¹"></div>
+          <div data-var="t" data-label="Day" data-min="0" data-max="200" data-step="1" data-value="60" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-if-briere">
+        <div class="eq-head"><span class="eq-label">Temperature response of growth (Brière-1)</span><span class="eq-num">(I2)</span></div>
+        <div class="eq-main">\[ f(T) = \frac{T\,(T - T_{\min})\,\sqrt{T_{\max} - T}}{T_{\text{ref}}\,(T_{\text{ref}} - T_{\min})\,\sqrt{T_{\max} - T_{\text{ref}}}},\qquad T_{\text{opt}} = \frac{4T_{\max} + 3T_{\min} + \sqrt{16T_{\max}^2 + 9T_{\min}^2 - 16T_{\max}T_{\min}}}{10} \]</div>
+        <p class="eq-read">relative to the reference temperature, the growth rate rises with temperature above a lower threshold, peaks at an optimum and falls steeply to zero at an upper threshold; outside the two thresholds there is no development.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Mealworm</th><th>BSF</th></tr>
+          <tr><td>\(T_{\min}\)</td><td>lower threshold</td><td>10 °C</td><td>11.74 °C (Chia et al., 2018)</td></tr>
+          <tr><td>\(T_{\max}\)</td><td>upper threshold</td><td>35.5 °C</td><td>43.23 °C (Chia et al., 2018)</td></tr>
+          <tr><td>\(T_{\text{ref}}\)</td><td>calibration temperature (\(f = 1\))</td><td>27 °C</td><td>28 °C</td></tr>
+          <tr><td>\(T_{\text{opt}}\)</td><td>optimum of \(f\)</td><td>29.6 °C</td><td>36.0 °C</td></tr>
+        </table>
+        <details><summary>How were the mealworm thresholds chosen?</summary><ol class="steps">
+          <li>The BSF parameters are the Brière-1 fit for larvae on diet D1 in Chia et al. (2018).</li>
+          <li>For mealworms the optimum was placed between the growth optimum of 31 °C (Bjørge et al., 2018) and the development and fecundity optimum of 27 °C (Morales-Ramos et al., 2025); the upper threshold of 35.5 °C is below the lethal 39 °C.</li>
+          <li>Check: \(f(20)/f(30) = 0.56\), close to the development-rate ratio of 0.55–0.74 found between 20 and 25–30 °C by Heidari Parsa et al. (2023) and Eberle et al. (2022).</li>
+        </ol></details>
+        <div class="eq-units">(°C × °C × °C<sup>½</sup>)/(°C × °C × °C<sup>½</sup>) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="max(0,T*(T-Tmin)*sqrt(max(0,Tmax-T)))/(Tr*(Tr-Tmin)*sqrt(Tmax-Tr))" data-output="Relative growth rate f(T)" data-unit="" data-digits="2" data-plot="T">
+          <div data-var="T" data-label="Temperature T" data-min="5" data-max="45" data-step="0.5" data-value="30" data-unit="°C"></div>
+          <div data-var="Tmin" data-label="T<sub>min</sub>" data-min="5" data-max="15" data-step="0.1" data-value="11.7" data-unit="°C"></div>
+          <div data-var="Tmax" data-label="T<sub>max</sub>" data-min="32" data-max="46" data-step="0.1" data-value="43.2" data-unit="°C"></div>
+          <div data-var="Tr" data-label="T<sub>ref</sub>" data-min="20" data-max="30" data-step="0.5" data-value="28" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-if-carbon">
+        <div class="eq-head"><span class="eq-label">Carbon balance of a growing larva</span><span class="eq-num">(I3)</span></div>
+        <div class="eq-main">\[ a = \mu + q,\qquad q = Y\mu + m_T,\qquad \Rightarrow\ a = (1+Y)\,\mu + m_T,\qquad \text{NGE} = \frac{\mu}{a} \]</div>
+        <p class="eq-read">the carbon a larva assimilates per unit of body carbon and day is spent on growth plus respiration; respiration pays a cost proportional to growth plus a maintenance cost; the net growth efficiency is the fraction of assimilated carbon that stays in the body.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\mu\)</td><td>specific growth rate \((\mathrm{d}m/\mathrm{d}t)/m\) (Eq. I1)</td><td>d⁻¹</td><td>0–0.8</td></tr>
+          <tr><td>\(a\)</td><td>specific assimilation rate (carbon)</td><td>d⁻¹</td><td>–</td></tr>
+          <tr><td>\(q\)</td><td>specific respiration rate (CO₂-carbon per body carbon)</td><td>d⁻¹</td><td>–</td></tr>
+          <tr><td>\(Y\)</td><td>cost of growth: carbon respired per carbon built into biomass</td><td>–</td><td>0.44 (Eriksen, 2022)</td></tr>
+          <tr><td>\(m_T\)</td><td>maintenance respiration at the larval temperature (Eq. I4)</td><td>d⁻¹</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary><ol class="steps">
+          <li>Carbon conservation in the larva: whatever is assimilated from the gut either becomes body carbon or leaves as CO₂ (the assimilate pool is small and at steady state, as in Eriksen, 2022).</li>
+          <li>Pirt's classic partition of respiration: a growth-proportional part (synthesis costs) and a mass-proportional maintenance part.</li>
+          <li>Substitute to get \(a = (1+Y)\mu + m_T\). At high growth rates NGE approaches \(1/(1+Y) = 0.69\); when growth slows, maintenance dominates and NGE falls — the reason slow-growing, long-lived mealworms convert feed less efficiently.</li>
+          <li>Rates are on a carbon basis; the model assumes constant composition (dry matter and carbon fraction of 0.50 in larval DM), so they can be applied to fresh mass.</li>
+        </ol></details>
+        <div class="eq-units">all terms d⁻¹ ✓; NGE dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*mu/((1+Y)*mu+m)" data-output="Net growth efficiency" data-unit="%" data-digits="1" data-plot="mu">
+          <div data-var="mu" data-label="Specific growth rate μ" data-min="0.005" data-max="0.8" data-step="0.005" data-value="0.1" data-unit="d⁻¹"></div>
+          <div data-var="Y" data-label="Cost of growth Y" data-min="0.2" data-max="0.8" data-step="0.01" data-value="0.44"></div>
+          <div data-var="m" data-label="Maintenance m<sub>T</sub>" data-min="0.01" data-max="0.25" data-step="0.005" data-value="0.05" data-unit="d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-if-maint">
+        <div class="eq-head"><span class="eq-label">Maintenance respiration and temperature</span><span class="eq-num">(I4)</span></div>
+        <div class="eq-main">\[ m_T = m_{\text{ref}}\,Q_{10}^{\,(T_{\text{l}}-T_{\text{ref}})/10} \]</div>
+        <p class="eq-read">maintenance respiration doubles for every 10 °C rise when Q10 equals two.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(m_{\text{ref}}\)</td><td>maintenance at \(T_{\text{ref}}\)</td><td>d⁻¹</td><td>0.05 (mealworm, 27 °C); 0.08 (BSF, 28 °C)</td></tr>
+          <tr><td>\(Q_{10}\)</td><td>rate ratio per 10 K</td><td>–</td><td>2 (“a difference of 10 °C is expected to double CO₂ production”, Oonincx et al., 2010)</td></tr>
+        </table>
+        <details><summary>Where do the values come from?</summary><p>Nielsen et al. (2025) measured maintenance of 0.02–0.05 d⁻¹ in mealworms and 0.07–0.21 d⁻¹ in BSF larvae; Eriksen (2022) used 0.08 d⁻¹ for BSF on chicken feed. With \(m_{\text{ref}} = 0.05\) d⁻¹ and a growth rate of 7.3 % d⁻¹, Eqs. I3 and I6 give 54 g CO₂ per kg of mealworms per day at 25 °C — within the 61 ± 9 g kg⁻¹ d⁻¹ measured by Oonincx et al. (2010).</p></details>
+        <div class="eq-units">d⁻¹ × dimensionless = d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="m0*pow(Q,(T-Tr)/10)" data-output="Maintenance m<sub>T</sub>" data-unit="d⁻¹" data-digits="3" data-plot="T">
+          <div data-var="m0" data-label="m<sub>ref</sub>" data-min="0.01" data-max="0.2" data-step="0.005" data-value="0.08" data-unit="d⁻¹"></div>
+          <div data-var="Q" data-label="Q<sub>10</sub>" data-min="1.5" data-max="3" data-step="0.1" data-value="2"></div>
+          <div data-var="T" data-label="Larval temperature" data-min="15" data-max="42" data-step="0.5" data-value="36" data-unit="°C"></div>
+          <div data-var="Tr" data-label="T<sub>ref</sub>" data-min="20" data-max="30" data-step="0.5" data-value="28" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-if-feed">
+        <div class="eq-head"><span class="eq-label">Feed intake, frass, FCR and ECI</span><span class="eq-num">(I5)</span></div>
+        <div class="eq-main">\[ I = \frac{a\,B_{\text{C}}}{\text{AD}\;c_{\text{F}}},\qquad F_{\text{frass}} = (1-\text{AD})\,I,\qquad \text{FCR} = \frac{\int I\,\mathrm{d}t}{\Delta m_{\text{fresh}}},\qquad \text{ECI} = \frac{\Delta m_{\text{dry}}}{\int I\,\mathrm{d}t} \]</div>
+        <p class="eq-read">the feed dry matter eaten per day equals the assimilated carbon divided by the digestibility and by the carbon content of the feed; the undigested part becomes frass; FCR divides the feed eaten over the batch by the fresh mass gained, ECI divides the dry mass gained by the feed eaten.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(B_{\text{C}}\)</td><td>body carbon of a larva: \(m \times \text{DM} \times 0.50\)</td><td>mg C</td><td>–</td></tr>
+          <tr><td>AD</td><td>approximate digestibility of the substrate (dry matter)</td><td>–</td><td>0.30–0.62 by substrate (calibrated)</td></tr>
+          <tr><td>\(c_{\text{F}}\)</td><td>carbon fraction of feed dry matter</td><td>kg C kg⁻¹</td><td>0.45 (assumed)</td></tr>
+          <tr><td>FCR</td><td>feed conversion ratio, feed DM per fresh gain</td><td>kg kg⁻¹</td><td>–</td></tr>
+          <tr><td>ECI</td><td>efficiency of conversion of ingested food, dry basis</td><td>–</td><td>8–21 % mealworm; 23–27 % BSF (Oonincx et al., 2015)</td></tr>
+        </table>
+        <details><summary>Follow the derivation and the conversion between FCR and ECI</summary><ol class="steps">
+          <li>Carbon assimilated per day: \(aB_{\text{C}}\). Only the fraction AD of the ingested dry matter is assimilated, and each kg of feed dry matter contains \(c_{\text{F}}\) kg C, so \(I = aB_{\text{C}}/(\text{AD}\,c_{\text{F}})\).</li>
+          <li>Feed carbon = body carbon gained + respired carbon + frass carbon, exactly: this is the carbon Sankey diagram in the Explain tab.</li>
+          <li>Because gain is measured fresh for FCR but dry for ECI, \(\text{FCR} = \text{DM}/\text{ECI}\): with 39 % dry matter and ECI = 12 %, FCR = 3.3 kg kg⁻¹.</li>
+          <li>AD values were calibrated so that the simulated ECI falls in the ranges of Oonincx et al. (2015) and Naser El Deen et al. (2023) for each substrate.</li>
+        </ol></details>
+        <div class="eq-units">(d⁻¹ × mg C)/(kg C kg⁻¹) = mg DM d⁻¹ ✓; FCR and ECI: kg kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="DM/(ECI/100)" data-output="FCR (feed DM per fresh gain)" data-unit="kg kg⁻¹" data-digits="2" data-plot="ECI">
+          <div data-var="ECI" data-label="ECI (dry/dry)" data-min="3" data-max="35" data-step="0.5" data-value="12" data-unit="%"></div>
+          <div data-var="DM" data-label="Larval dry matter" data-min="0.25" data-max="0.45" data-step="0.01" data-value="0.39"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-if-heat">
+        <div class="eq-head"><span class="eq-label">Respired CO₂ and metabolic heat</span><span class="eq-num">(I6)</span></div>
+        <div class="eq-main">\[ \dot G_{\text{CO}_2} = q\,B_{\text{C}}\,\frac{44.01}{12.01},\qquad P = \frac{\dot G_{\text{CO}_2}}{M_{\text{CO}_2}}\cdot\frac{\Delta H_{\text{O}_2}}{\text{RQ}} \]</div>
+        <p class="eq-read">the CO₂ breathed out is the respired carbon converted to CO₂ mass; the heat released is the number of moles of CO₂ times the oxycaloric equivalent divided by the respiratory quotient.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\Delta H_{\text{O}_2}\)</td><td>oxycaloric equivalent: heat per mol O₂ consumed</td><td>kJ mol⁻¹</td><td>450 (Gnaiger, 1983)</td></tr>
+          <tr><td>RQ</td><td>respiratory quotient, mol CO₂ per mol O₂</td><td>–</td><td>0.9 (mixed carbohydrate/lipid)</td></tr>
+          <tr><td>\(M_{\text{CO}_2}\)</td><td>molar mass</td><td>g mol⁻¹</td><td>44.01</td></tr>
+          <tr><td>\(P\)</td><td>metabolic heat</td><td>W</td><td>≈ 11.4 kJ per g CO₂</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Aerobic metabolism releases an almost constant amount of heat per mole of oxygen consumed, whatever is oxidised (Thornton's rule; ≈ 20 J per mL O₂).</li>
+          <li>Moles of O₂ = moles of CO₂ / RQ. Heat per mol CO₂ = 450/0.9 = 500 kJ; per gram: 500/44.01 = 11.4 kJ g⁻¹.</li>
+          <li>Example: 61 g CO₂ kg⁻¹ d⁻¹ (mealworms, Oonincx et al., 2010) × 11.4 kJ g⁻¹ = 693 kJ kg⁻¹ d⁻¹ = 8.0 W kg⁻¹.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>CO₂ from microbial decomposition of the substrate is not included (Oonincx et al., 2010 found it to be only 3.6 % of the total for mealworms, but it can be larger in wet BSF substrates). Methane and nitrous oxide from mealworms and BSF are small and not modelled.</p></details>
+        <div class="eq-units">(g d⁻¹)/(g mol⁻¹) × J mol⁻¹ = J d⁻¹; ÷ 86 400 s d⁻¹ = W ✓</div>
+        <div class="mini-calc" data-formula="G/44.01*450000/RQ/86400" data-output="Metabolic heat" data-unit="W kg⁻¹" data-digits="2" data-plot="G">
+          <div data-var="G" data-label="CO₂ production" data-min="5" data-max="250" data-step="1" data-value="61" data-unit="g kg⁻¹ d⁻¹"></div>
+          <div data-var="RQ" data-label="Respiratory quotient" data-min="0.7" data-max="1.0" data-step="0.01" data-value="0.9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-if-crate">
+        <div class="eq-head"><span class="eq-label">Self-heating of the larval mass in a crate</span><span class="eq-num">(I7)</span></div>
+        <div class="eq-main">\[ q'' = h\,(T_{\text{s}} - T_{\text{a}}) + \varepsilon\,h\,\frac{0.622\,L_v}{c_p\,P}\,\big(e_{\text{s}}(T_{\text{s}}) - \text{RH}\,e_{\text{s}}(T_{\text{a}})\big),\qquad T_{\text{l}} = T_{\text{s}} + \frac{q''\,d}{3k},\qquad h = 5.7 + 3.8\,v \]</div>
+        <p class="eq-read">the metabolic heat flux per square metre of crate leaves the substrate surface by convection and by evaporation of water; the evaporative part uses the same transfer coefficient (Lewis analogy) and the vapour-pressure difference between the wet surface and the room air; the larvae inside are warmer than the surface by the conduction term.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(q''\)</td><td>metabolic heat per m² of crate (Eq. I6 × larvae per m²)</td><td>W m⁻²</td><td>5–250</td></tr>
+          <tr><td>\(h\)</td><td>effective heat-transfer coefficient per m² of crate, a flat-plate wind correlation (the shielding of stacked surfaces is assumed to be offset by heat loss through walls and bottom)</td><td>W m⁻² K⁻¹</td><td>6–15</td></tr>
+          <tr><td>\(\varepsilon\)</td><td>surface wetness (fraction of the evaporation of a free water surface)</td><td>–</td><td>0.003–0.03 dry bran; 0.20–0.28 wet BSF substrates (assumed)</td></tr>
+          <tr><td>\(e_{\text{s}}\)</td><td>saturation vapour pressure (Tetens, as in the psychrometrics lesson)</td><td>kPa</td><td>–</td></tr>
+          <tr><td>\(d,\ k\)</td><td>layer thickness; conductivity of larvae + substrate</td><td>m; W m⁻¹ K⁻¹</td><td>0.04, 0.25 (mealworm); 0.06, 0.40 (BSF)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Steady state at the surface: heat arriving from below = sensible loss + latent loss.</li>
+          <li>Sensible: \(h(T_{\text{s}} - T_{\text{a}})\). Latent: evaporation rate \(E = (h/c_p)\,(\omega_{\text{s}} - \omega_{\text{a}})\) (Lewis number ≈ 1), with humidity ratio \(\omega \approx 0.622\,e/P\), times \(L_v\), reduced by the wetness \(\varepsilon\).</li>
+          <li>Solve for \(T_{\text{s}}\) by Newton iteration (the saturation curve is non-linear).</li>
+          <li>Inside the layer, uniform heat generation in a slab insulated below gives a parabolic temperature profile; its mean lies \(q''d/(3k)\) above the surface temperature.</li>
+          <li>Feedback: \(T_{\text{l}}\) raises maintenance (Eq. I4) and mortality (Eq. I9), which the model follows step by step.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>One crate, one-dimensional, uniform larvae; larvae in reality move towards comfortable zones and churn the substrate, and microbial heat is ignored. The wetness values are assumptions chosen to reproduce the observation that dense BSF substrates run about 10 °C above the air (Li et al., 2023) and that the water evaporated per kg of BSF larvae (≈ 2.7 kg) matches the drying of a wet substrate into frass.</p></details>
+        <div class="eq-units">W m⁻² K⁻¹ × K = W m⁻²; W m⁻² × m /(W m⁻¹ K⁻¹) = K ✓</div>
+        <div class="mini-calc" data-formula="q*(1/(5.7+3.8*v)+d/(3*k))" data-output="Temperature rise without evaporation" data-unit="K" data-digits="1" data-plot="q">
+          <div data-var="q" data-label="Heat flux q''" data-min="0" data-max="250" data-step="1" data-value="60" data-unit="W m⁻²"></div>
+          <div data-var="v" data-label="Air speed v" data-min="0.1" data-max="2.5" data-step="0.05" data-value="1" data-unit="m s⁻¹"></div>
+          <div data-var="d" data-label="Layer thickness d" data-min="0.02" data-max="0.12" data-step="0.005" data-value="0.06" data-unit="m"></div>
+          <div data-var="k" data-label="Conductivity k" data-min="0.1" data-max="0.6" data-step="0.01" data-value="0.4" data-unit="W m⁻¹ K⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-if-vent">
+        <div class="eq-head"><span class="eq-label">Ventilation: heat, CO₂ and moisture</span><span class="eq-num">(I8)</span></div>
+        <div class="eq-main">\[ \dot V_{\text{heat}} = \frac{Q_{\text{sens}}}{\rho\,c_p\,\Delta T_{\text{s}}},\qquad \dot V_{\text{CO}_2} = \frac{\dot G_{\text{CO}_2}/\rho_{\text{CO}_2}}{C_{\max} - C_{\text{out}}},\qquad \dot V_{\text{H}_2\text{O}} = \frac{\dot m_{\text{evap}}}{\rho\,(\omega_{\text{room}} - \omega_{\text{supply}})},\qquad \dot V = \max(\dots) \]</div>
+        <p class="eq-read">the airflow must be large enough to carry away the sensible heat with supply air a few kelvin cooler than the room, to dilute the CO₂ below the limit, and to carry away the evaporated water; the largest of the three sets the design.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(Q_{\text{sens}}\)</td><td>metabolic heat minus the latent heat of evaporation (batch average of all crates)</td><td>W</td><td>–</td></tr>
+          <tr><td>\(\Delta T_{\text{s}}\)</td><td>supply air below room temperature</td><td>K</td><td>2–10</td></tr>
+          <tr><td>\(\rho,\ c_p\)</td><td>density and specific heat of air</td><td>kg m⁻³; J kg⁻¹ K⁻¹</td><td>1.18; 1006</td></tr>
+          <tr><td>\(C_{\max},\ C_{\text{out}}\)</td><td>CO₂ limit and outdoor concentration (as volume fractions)</td><td>ppm</td><td>1000–5000; 420</td></tr>
+          <tr><td>\(\rho_{\text{CO}_2}\)</td><td>density of CO₂ at 25 °C</td><td>g m⁻³</td><td>1808</td></tr>
+          <tr><td>\(\omega\)</td><td>humidity ratio; supply conditioned to 60 % RH at \(T - \Delta T_{\text{s}}\)</td><td>kg kg⁻¹</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Sensible heat balance of the room air: \(Q = \dot m_{\text{air}}c_p(T_{\text{room}} - T_{\text{supply}})\), with \(\dot m_{\text{air}} = \rho\dot V\).</li>
+          <li>CO₂ balance at steady state: production = \(\dot V(C_{\text{room}} - C_{\text{out}})\) in volume units.</li>
+          <li>Water balance: evaporation = \(\rho\dot V(\omega_{\text{room}} - \omega_{\text{supply}})\).</li>
+          <li>Because crates are at different stages of their batch, the room sees the batch-average load; the peak load of a single crate is higher.</li>
+        </ol></details>
+        <div class="eq-units">W/(kg m⁻³ × J kg⁻¹ K⁻¹ × K) = m³ s⁻¹ ✓; (m³ s⁻¹)/(dimensionless) = m³ s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="Q*1000/(1.18*1006*dT)*3600" data-output="Airflow for sensible heat" data-unit="m³ h⁻¹" data-digits="0" data-plot="dT">
+          <div data-var="Q" data-label="Sensible heat" data-min="0.5" data-max="100" data-step="0.5" data-value="6" data-unit="kW"></div>
+          <div data-var="dT" data-label="ΔT supply" data-min="2" data-max="10" data-step="0.5" data-value="5" data-unit="K"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-if-mort">
+        <div class="eq-head"><span class="eq-label">Mortality and survival</span><span class="eq-num">(I9)</span></div>
+        <div class="eq-main">\[ \frac{\mathrm{d}N}{\mathrm{d}t} = -\,\delta\,N,\qquad \delta = \delta_0\,k_{\text{diet}} + 0.02\,e^{(T_{\text{l}} - T_{\text{crit}})/\Delta T} + \delta_{\text{cold}} + \delta_{\rho},\qquad S = \frac{N}{N_0} = e^{-\int\delta\,\mathrm{d}t} \]</div>
+        <p class="eq-read">larvae die at a background rate that depends on the diet, plus a rate that rises exponentially as the larval mass approaches the critical temperature, plus small terms for cold and crowding; survival is the exponential of the accumulated mortality.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Mealworm</th><th>BSF</th></tr>
+          <tr><td>\(\delta_0\)</td><td>background daily mortality</td><td>0.0008 d⁻¹</td><td>0.005 d⁻¹</td></tr>
+          <tr><td>\(T_{\text{crit}},\ \Delta T\)</td><td>temperature where heat mortality reaches 0.02 d⁻¹; e-folding width</td><td>35.5 °C; 1.2 K</td><td>38 °C; 1.25 K</td></tr>
+          <tr><td>\(k_{\text{diet}}\)</td><td>diet multiplier (8 for the low-protein diet)</td><td colspan="2">calibrated to Oonincx et al. (2015)</td></tr>
+        </table>
+        <details><summary>Calibration checks</summary><p>BSF at a constant 40 °C: \(\delta \approx 0.10\) d⁻¹, so about 30 % survive a 12-day larval period — Chia et al. (2018) found 28–34 %. At 37 °C \(\delta \approx 0.014\) d⁻¹ including the background, so about 85 % survive 12 days (larval survival 84–89 % in Chia et al.). Mealworms at 25–27 °C: about 93 % survive a 90-day batch, compared with 86–97 % in Oonincx et al. (2015), Eberle et al. (2022) and Heidari Parsa et al. (2023).</p></details>
+        <div class="eq-units">d⁻¹ × d = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*exp(-(d0+0.02*exp((T-Tc)/1.25))*t)" data-output="Survival" data-unit="%" data-digits="1" data-plot="T">
+          <div data-var="T" data-label="Larval temperature" data-min="20" data-max="44" data-step="0.5" data-value="37" data-unit="°C"></div>
+          <div data-var="Tc" data-label="T<sub>crit</sub>" data-min="30" data-max="42" data-step="0.5" data-value="38" data-unit="°C"></div>
+          <div data-var="d0" data-label="Background δ<sub>0</sub>" data-min="0" data-max="0.02" data-step="0.0005" data-value="0.005" data-unit="d⁻¹"></div>
+          <div data-var="t" data-label="Duration" data-min="1" data-max="150" data-step="1" data-value="16" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-if-prod">
+        <div class="eq-head"><span class="eq-label">Protein output per square metre of floor</span><span class="eq-num">(I10)</span></div>
+        <div class="eq-main">\[ P_A = \frac{n_{\text{lev}}}{A_{\text{stack}}}\;B_{\text{h}}\;\text{DM}\;x_{\text{p}}\;\frac{365}{t_{\text{h}} + t_{\text{turn}}} \]</div>
+        <p class="eq-read">protein harvested per square metre of floor per year equals the number of crates per square metre times the larval biomass harvested per crate, its dry-matter and protein fractions, and the number of batches per year.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(n_{\text{lev}}\)</td><td>crates per stack</td><td>–</td><td>4–20</td></tr>
+          <tr><td>\(A_{\text{stack}}\)</td><td>floor per stack incl. aisles: 2 × 0.24 m² (assumed)</td><td>m²</td><td>0.48</td></tr>
+          <tr><td>\(B_{\text{h}}\)</td><td>fresh larvae harvested per crate</td><td>kg</td><td>–</td></tr>
+          <tr><td>\(x_{\text{p}}\)</td><td>protein fraction of dry matter</td><td>–</td><td>0.50 mealworm (Oonincx &amp; de Boer, 2012: 53 %); 0.42 BSF (Oonincx et al., 2015)</td></tr>
+          <tr><td>\(t_{\text{h}},\ t_{\text{turn}}\)</td><td>days to harvest; days for sieving, cleaning, restocking</td><td>d</td><td>turnaround 7 (mealworm), 3 (BSF)</td></tr>
+        </table>
+        <details><summary>Put the number in perspective</summary><p>A soybean field yielding 3 t ha⁻¹ with 36 % protein produces about 0.1 kg protein per m² per year. A mealworm room can produce tens of times more per m² of <em>floor</em> — but the feed must come from somewhere: in the life-cycle assessment of Oonincx &amp; de Boer (2012), 85 % of the land use of mealworm protein was for feed grains.</p></details>
+        <div class="eq-units">m⁻² × kg × (kg kg⁻¹)² × yr⁻¹ = kg m⁻² yr⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="lev/0.48*B*DM*xp*365/tc" data-output="Protein output" data-unit="kg m⁻² yr⁻¹" data-digits="1" data-plot="lev">
+          <div data-var="lev" data-label="Crates per stack" data-min="4" data-max="20" data-step="1" data-value="12"></div>
+          <div data-var="B" data-label="Larvae per crate" data-min="0.1" data-max="3" data-step="0.05" data-value="0.45" data-unit="kg"></div>
+          <div data-var="DM" data-label="Dry matter" data-min="0.25" data-max="0.45" data-step="0.01" data-value="0.39"></div>
+          <div data-var="xp" data-label="Protein in DM" data-min="0.3" data-max="0.65" data-step="0.01" data-value="0.5"></div>
+          <div data-var="tc" data-label="Cycle length" data-min="10" data-max="200" data-step="1" data-value="98" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-if-dd">
+        <div class="eq-head"><span class="eq-label">Development time of the other life stages (degree-days)</span><span class="eq-num">(I11)</span></div>
+        <div class="eq-main">\[ D = \frac{K}{T - T_0}\quad (T &gt; T_0) \]</div>
+        <p class="eq-read">above a lower threshold, a life stage is completed when the accumulated temperature excess reaches a fixed thermal constant, so the duration is the thermal constant divided by the temperature excess.</p>
+        <table class="symbols">
+          <tr><th>Stage (BSF, Chia et al., 2018, diet D1)</th><th>\(K\) (°C d)</th><th>\(T_0\) (°C)</th></tr>
+          <tr><td>Egg</td><td>69.2</td><td>13.6</td></tr>
+          <tr><td>Larva (for comparison; the simulator uses Eq. I1)</td><td>250.2</td><td>12.3</td></tr>
+          <tr><td>Prepupa; pupa</td><td>142.9 each</td><td>13.3</td></tr>
+        </table>
+        <details><summary>And the mealworm?</summary><p>For mealworms the diagram interpolates the stage durations measured at 20, 23, 25, 27 and 30 °C by Heidari Parsa et al. (2023): at 27 °C eggs took 6.8 days, pupae 12.6 days and adults lived 31.6 days. Their linear model gave a lower threshold of 11.9 °C and 1768 °C d for the whole immature development. Outside 20–30 °C the nearest measured value is shown.</p></details>
+        <div class="eq-units">°C d / °C = d ✓</div>
+        <div class="mini-calc" data-formula="K/max(0.1,T-T0)" data-output="Stage duration" data-unit="d" data-digits="1" data-plot="T">
+          <div data-var="K" data-label="Thermal constant K" data-min="20" data-max="400" data-step="0.1" data-value="69.2" data-unit="°C d"></div>
+          <div data-var="T0" data-label="Threshold T<sub>0</sub>" data-min="8" data-max="16" data-step="0.05" data-value="13.65" data-unit="°C"></div>
+          <div data-var="T" data-label="Temperature" data-min="15" data-max="36" data-step="0.5" data-value="25" data-unit="°C"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the presets as starting points. Remember that every change restarts the prediction; the 3-D farm keeps its batch clock. Use <em>Save investigation</em> to store settings and results in your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Find the best temperature</h4><p>For mealworms on bran and carrots, vary the air temperature from 18 to 34 °C in steps of 2 °C. Tabulate harvest time, survival, FCR, peak larval temperature and protein output per m² and year. Which temperature maximises protein output, and which minimises feed per kg protein? Compare with the optima reported by Bjørge et al. (2018) and Morales-Ramos et al. (2025) and explain the difference with Eqs. I2–I4.</p></li>
+        <li><h4>How dense can you stock?</h4><p>For black soldier flies at 27 °C, find the highest stocking density at which the peak larval temperature stays below 36 °C, for air speeds of 0.3, 1.0 and 2.0 m s⁻¹. Plot the maximum density against air speed and explain the shape with Eq. I7. Why does the harvested biomass per crate stop increasing at high density?</p></li>
+        <li><h4>Size the ventilation</h4><p>Design a 500 m² BSF room with 12 crates per stack. What are the metabolic heat load, the water evaporated per day and the required airflow? Which criterion governs? Repeat for mealworms. How does lowering the CO₂ limit from 3000 to 1500 ppm, or raising the relative humidity to 80 %, change the result?</p></li>
+        <li><h4>Menu and law</h4><p>For black soldier flies compare chicken feed, spent grain, fruit and vegetable residues, food waste and pig manure: ECI, FCR, frass per kg larvae and harvest time. Which substrates are permitted in the EU and why? Using EFSA (2015), write a short argument for or against allowing a pre-treated food waste stream.</p></li>
+        <li><h4>Insects versus livestock</h4><p>With the comparison chart, compute how many kg of feed produce 1 kg of edible protein from your best mealworm farm and from chicken (assume 20 % protein in chicken meat). Then switch the chart to energy use and discuss why the conclusion changes. What would change with Swedish low-carbon electricity and heat recovered from the larvae themselves?</p></li>
+        <li><h4>Follow the carbon</h4><p>In the Explain tab, read the carbon Sankey for mealworms at 27 °C and for BSF on chicken feed. What fraction of feed carbon ends up in larvae, in CO₂ and in frass? Relate the difference to the net growth efficiency of Eq. I3 and to the measured values of Nielsen et al. (2025).</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-insect-farm-main">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Mealworm larvae respire 61 g CO₂ per kg of larvae per day (Oonincx et al., 2010). With an oxycaloric equivalent of 450 kJ per mol O₂ and a respiratory quotient of 0.9, what is their metabolic heat production in W per kg? (Eq. I6)","answer":8.02,"tol":0.03,"unit":"W kg⁻¹","hint":"mol CO₂ per day = 61/44.01; heat per mol CO₂ = 450/0.9 kJ; divide by 86 400 s.","explain":"<p>\\(61/44.01 = 1.386\\) mol d⁻¹; × 500 kJ mol⁻¹ = 693 kJ d⁻¹; ÷ 86 400 s = 8.0 W kg⁻¹.</p>"},
+          {"type":"numeric","q":"A rearing room produces 6.0 kW of sensible heat. Supply air enters 5 K below room temperature (ρ = 1.18 kg m⁻³, c_p = 1006 J kg⁻¹ K⁻¹). What airflow in m³ h⁻¹ is needed to remove the heat? (Eq. I8)","answer":3640,"tol":0.02,"unit":"m³ h⁻¹","hint":"V = Q/(ρ c_p ΔT), then × 3600.","explain":"<p>\\(6000/(1.18\\times1006\\times5) = 1.011\\) m³ s⁻¹ = 3640 m³ h⁻¹.</p>"},
+          {"type":"mcq","q":"Apply the preset “BSF on chicken feed” and raise the stocking density from 4 to 8 larvae cm⁻². What does the simulator predict?","options":["The larval mass heats above 40 °C, survival falls to about half and the harvested biomass per crate hardly increases, while FCR gets much worse","Biomass per crate doubles because there are twice as many larvae","Nothing changes, because each larva still gets enough feed","The larvae grow faster because the substrate is warmer"],"answer":0,"feedback":["","The larvae do not all survive: self-heating raises mortality (Eq. I9).","Feed is not limiting in the model; heat is.","Growth is faster up to the optimum, but above ≈ 38 °C mortality and maintenance costs dominate."],"explain":"<p>Doubling the density doubles the heat flux per m² of crate (Eq. I6 × larvae m⁻²). The larval mass climbs to ≈ 41 °C (Eq. I7), mortality rises steeply (Eq. I9) and maintenance respiration doubles every 10 K (Eq. I4), so more feed carbon is lost as CO₂.</p>"},
+          {"type":"multi","q":"Which substrates may be fed to insects farmed for feed or food in the EU (2026)? (Select all that apply.)","options":["Wheat bran","Fruit and vegetable residues without meat or fish","Catering waste from restaurants","Pig manure","Brewers' spent grain"],"answer":[0,1,4],"explain":"<p>Farmed insects are farmed animals (Regulation (EU) 2017/893, Regulation (EC) No 1069/2009): feed of vegetal origin is allowed, but manure and catering waste are prohibited.</p>"},
+          {"type":"numeric","q":"Using the degree-day model of Chia et al. (2018) — 69.2 °C d above 13.65 °C — how many days do black soldier fly eggs need to hatch at 25 °C? (Eq. I11)","answer":6.1,"tol":0.03,"unit":"d","hint":"D = K/(T − T₀).","explain":"<p>\\(69.2/(25-13.65) = 6.1\\) days.</p>"},
+          {"type":"tf","q":"In the simulator, lowering the room temperature from 28 to 24 °C at 8 BSF larvae cm⁻² increases the harvested biomass per crate.","answer":true,"explain":"<p>True: at high density the larvae make their own heat; cooler air keeps the larval mass closer to the optimum and reduces heat mortality. Li et al. (2023) likewise found that low air temperature favoured growth in large populations.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>One representative crate</strong> (60 × 40 cm) per species, with uniform larvae; the room holds many such crates at staggered stages, so room loads use batch averages. Feed is offered ad libitum; the model computes what is eaten.</li>
+        <li><strong>Growth</strong> follows Gompertz (mealworm) or logistic (BSF) kinetics with a Brière-1 temperature response evaluated at the temperature of the larval mass; diets change the rate, the maximum mass, digestibility and background mortality (calibrated factors).</li>
+        <li><strong>Carbon balance</strong> with a constant cost of growth (Y = 0.44) and Q10 = 2 maintenance; constant body composition; feed carbon fraction 0.45 and larval carbon fraction 0.50 are assumptions.</li>
+        <li><strong>Heat</strong> from respiration via the oxycaloric equivalent; microbial heat and CO₂ of the substrate are not included; the crate heat balance is one-dimensional, with an assumed surface wetness and an empirical convection coefficient; larvae do not move to cooler zones.</li>
+        <li><strong>Climate</strong>: supply air conditioned to 60 % RH at a fixed temperature below the room; outdoor CO₂ 420 ppm; no infiltration, no lighting or equipment loads; floor area per stack 0.48 m² including aisles.</li>
+        <li><strong>Life cycle</strong>: mealworm stage durations interpolated from one laboratory study; BSF from a linear degree-day model (valid roughly 15–35 °C).</li>
+        <li>Numbers in the comparison chart are literature values with their own system boundaries; ranges for chicken, pork and beef in the GHG, land and energy views were derived from the ratios reported by Oonincx &amp; de Boer (2012).</li>
+        <li>The 3-D facility, the larvae and their movement are visualisations; sizes, numbers visible, colours and substrate appearance follow the model.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Bjørge, J. D., Overgaard, J., Malte, H., Gianotten, N., &amp; Heckmann, L.-H. (2018). Role of temperature on growth and metabolic rate in the tenebrionid beetles <em>Alphitobius diaperinus</em> and <em>Tenebrio molitor</em>. <em>Journal of Insect Physiology</em>, 107, 89–96. <a href="https://doi.org/10.1016/j.jinsphys.2018.02.010" target="_blank" rel="noopener">doi:10.1016/j.jinsphys.2018.02.010</a></li>
+        <li>Brière, J.-F., Pracros, P., Le Roux, A.-Y., &amp; Pierre, J.-S. (1999). A novel rate model of temperature-dependent development for arthropods. <em>Environmental Entomology</em>, 28(1), 22–29. <a href="https://doi.org/10.1093/ee/28.1.22" target="_blank" rel="noopener">doi:10.1093/ee/28.1.22</a></li>
+        <li>Chia, S. Y., Tanga, C. M., Khamis, F. M., Mohamed, S. A., Salifu, D., Sevgan, S., Fiaboe, K. K. M., Niassy, S., van Loon, J. J. A., Dicke, M., &amp; Ekesi, S. (2018). Threshold temperatures and thermal requirements of black soldier fly <em>Hermetia illucens</em>: Implications for mass production. <em>PLOS ONE</em>, 13(11), e0206097. <a href="https://doi.org/10.1371/journal.pone.0206097" target="_blank" rel="noopener">doi:10.1371/journal.pone.0206097</a></li>
+        <li>Eberle, S., Schaden, L.-M., Tintner, J., Stauffer, C., &amp; Schebeck, M. (2022). Effect of temperature and photoperiod on development, survival, and growth rate of mealworms, <em>Tenebrio molitor</em>. <em>Insects</em>, 13(4), 321. <a href="https://doi.org/10.3390/insects13040321" target="_blank" rel="noopener">doi:10.3390/insects13040321</a></li>
+        <li>EFSA Scientific Committee. (2015). Risk profile related to production and consumption of insects as food and feed. <em>EFSA Journal</em>, 13(10), 4257. <a href="https://doi.org/10.2903/j.efsa.2015.4257" target="_blank" rel="noopener">doi:10.2903/j.efsa.2015.4257</a></li>
+        <li>Eriksen, N. T. (2022). Dynamic modelling of feed assimilation, growth, lipid accumulation, and CO<sub>2</sub> production in black soldier fly larvae. <em>PLOS ONE</em>, 17(10), e0276605. <a href="https://doi.org/10.1371/journal.pone.0276605" target="_blank" rel="noopener">doi:10.1371/journal.pone.0276605</a></li>
+        <li>European Commission. (2017). Commission Regulation (EU) 2017/893 of 24 May 2017 amending Annexes I and IV to Regulation (EC) No 999/2001 and Annexes X, XIV and XV to Commission Regulation (EU) No 142/2011 as regards the provisions on processed animal protein. <a href="https://eur-lex.europa.eu/eli/reg/2017/893/oj" target="_blank" rel="noopener">eur-lex.europa.eu/eli/reg/2017/893/oj</a></li>
+        <li>European Commission. (2021). Commission Regulation (EU) 2021/1925 as regards the requirements for placing on the market of certain insect products (frass). <a href="https://eur-lex.europa.eu/eli/reg/2021/1925/oj" target="_blank" rel="noopener">eur-lex.europa.eu/eli/reg/2021/1925/oj</a>; list of authorised insect novel foods: <a href="https://food.ec.europa.eu/food-safety/novel-food/authorisations/approval-insect-novel-food_en" target="_blank" rel="noopener">food.ec.europa.eu</a> (accessed September 2026).</li>
+        <li>Gnaiger, E. (1983). Calculation of energetic and biochemical equivalents of respiratory oxygen consumption. In E. Gnaiger &amp; H. Forstner (Eds.), <em>Polarographic Oxygen Sensors</em> (pp. 337–345). Springer. <a href="https://doi.org/10.1007/978-3-642-81863-9_30" target="_blank" rel="noopener">doi:10.1007/978-3-642-81863-9_30</a></li>
+        <li>Heidari Parsa, S., Kheiri, F., Fathipour, Y., Imani, S., &amp; Chamani, M. (2023). Yellow meal worm (<em>Tenebrio molitor</em> L.) development time of life stages duration and survival rate at different temperatures in laboratory conditions. <em>Arthropods</em>, 12(1), 16–26.</li>
+        <li>Klammsteiner, T., Heussler, C. D., Insam, H., Schlick-Steiner, B. C., &amp; Steiner, F. M. (2025). Larval density drives thermogenesis and affects microbiota and substrate properties in black soldier fly trials. <em>iScience</em>, 28(7), 112794. <a href="https://doi.org/10.1016/j.isci.2025.112794" target="_blank" rel="noopener">doi:10.1016/j.isci.2025.112794</a></li>
+        <li>Lalander, C., Diener, S., Zurbrügg, C., &amp; Vinnerås, B. (2019). Effects of feedstock on larval development and process efficiency in waste treatment with black soldier fly (<em>Hermetia illucens</em>). <em>Journal of Cleaner Production</em>, 208, 211–219. <a href="https://doi.org/10.1016/j.jclepro.2018.10.017" target="_blank" rel="noopener">doi:10.1016/j.jclepro.2018.10.017</a></li>
+        <li>Li, C., Addeo, N. F., Rusch, T. W., Tarone, A. M., &amp; Tomberlin, J. K. (2023). Black soldier fly (Diptera: Stratiomyidae) larval heat generation and management. <em>Insect Science</em>, 30(4), 964–974. <a href="https://doi.org/10.1111/1744-7917.13198" target="_blank" rel="noopener">doi:10.1111/1744-7917.13198</a></li>
+        <li>Mekonnen, M. M., &amp; Hoekstra, A. Y. (2012). A global assessment of the water footprint of farm animal products. <em>Ecosystems</em>, 15(3), 401–415. <a href="https://doi.org/10.1007/s10021-011-9517-8" target="_blank" rel="noopener">doi:10.1007/s10021-011-9517-8</a></li>
+        <li>Miglietta, P. P., De Leo, F., Ruberti, M., &amp; Massari, S. (2015). Mealworms for food: A water footprint perspective. <em>Water</em>, 7(11), 6190–6203. <a href="https://doi.org/10.3390/w7116190" target="_blank" rel="noopener">doi:10.3390/w7116190</a></li>
+        <li>Morales-Ramos, J. A., Macchiano, A., &amp; Rojas, M. G. (2025). Estimating optimal temperature conditions for growth, development, and reproduction of <em>Tenebrio molitor</em> (Coleoptera: Tenebrionidae). <em>Journal of Economic Entomology</em>, 118(1), 71–82. <a href="https://doi.org/10.1093/jee/toae298" target="_blank" rel="noopener">doi:10.1093/jee/toae298</a></li>
+        <li>Morales-Ramos, J. A., &amp; Rojas, M. G. (2015). Effect of larval density on food utilization efficiency of <em>Tenebrio molitor</em> (Coleoptera: Tenebrionidae). <em>Journal of Economic Entomology</em>, 108(5), 2259–2267. <a href="https://doi.org/10.1093/jee/tov208" target="_blank" rel="noopener">doi:10.1093/jee/tov208</a></li>
+        <li>Naser El Deen, S., van Rozen, K., Elissen, H., van Wikselaar, P., Fodor, I., van der Weide, R., Hoek-van den Hil, E. F., Rezaei Far, A., &amp; Veldkamp, T. (2023). Bioconversion of different waste streams of animal and vegetal origin and manure by black soldier fly larvae <em>Hermetia illucens</em> L. (Diptera: Stratiomyidae). <em>Insects</em>, 14(2), 204. <a href="https://doi.org/10.3390/insects14020204" target="_blank" rel="noopener">doi:10.3390/insects14020204</a></li>
+        <li>Nielsen, F. K., Hansen, R. J., Muurmann, A. T., Bahrndorff, S., &amp; Eriksen, N. T. (2025). Metabolic performance of mealworms and black soldier fly larvae reared on food and agricultural waste and by-products. <em>Animals</em>, 15(2), 233. <a href="https://doi.org/10.3390/ani15020233" target="_blank" rel="noopener">doi:10.3390/ani15020233</a></li>
+        <li>Oonincx, D. G. A. B., &amp; de Boer, I. J. M. (2012). Environmental impact of the production of mealworms as a protein source for humans – A life cycle assessment. <em>PLOS ONE</em>, 7(12), e51145. <a href="https://doi.org/10.1371/journal.pone.0051145" target="_blank" rel="noopener">doi:10.1371/journal.pone.0051145</a></li>
+        <li>Oonincx, D. G. A. B., van Broekhoven, S., van Huis, A., &amp; van Loon, J. J. A. (2015). Feed conversion, survival and development, and composition of four insect species on diets composed of food by-products. <em>PLOS ONE</em>, 10(12), e0144601. <a href="https://doi.org/10.1371/journal.pone.0144601" target="_blank" rel="noopener">doi:10.1371/journal.pone.0144601</a></li>
+        <li>Oonincx, D. G. A. B., van Itterbeeck, J., Heetkamp, M. J. W., van den Brand, H., van Loon, J. J. A., &amp; van Huis, A. (2010). An exploration on greenhouse gas and ammonia production by insect species suitable for animal or human consumption. <em>PLOS ONE</em>, 5(12), e14445. <a href="https://doi.org/10.1371/journal.pone.0014445" target="_blank" rel="noopener">doi:10.1371/journal.pone.0014445</a></li>
+        <li>Parodi, A., Gerrits, W. J. J., Van Loon, J. J. A., De Boer, I. J. M., Aarnink, A. J. A., &amp; Van Zanten, H. H. E. (2021). Black soldier fly reared on pig manure: Bioconversion efficiencies, nutrients in the residual material, greenhouse gas and ammonia emissions. <em>Waste Management</em>, 126, 674–683. <a href="https://doi.org/10.1016/j.wasman.2021.04.001" target="_blank" rel="noopener">doi:10.1016/j.wasman.2021.04.001</a></li>
+        <li>Tomberlin, J. K., Adler, P. H., &amp; Myers, H. M. (2009). Development of the black soldier fly (Diptera: Stratiomyidae) in relation to temperature. <em>Environmental Entomology</em>, 38(3), 930–934. <a href="https://doi.org/10.1603/022.038.0347" target="_blank" rel="noopener">doi:10.1603/022.038.0347</a></li>
+        <li>van Huis, A., Van Itterbeeck, J., Klunder, H., Mertens, E., Halloran, A., Muir, G., &amp; Vantomme, P. (2013). <em>Edible insects: Future prospects for food and feed security</em> (FAO Forestry Paper 171). FAO. <a href="https://www.fao.org/3/i3253e/i3253e.pdf" target="_blank" rel="noopener">fao.org/3/i3253e</a></li>
+        <li>Zwietering, M. H., Jongenburger, I., Rombouts, F. M., &amp; van 't Riet, K. (1990). Modeling of the bacterial growth curve. <em>Applied and Environmental Microbiology</em>, 56(6), 1875–1881. <a href="https://doi.org/10.1128/aem.56.6.1875-1881.1990" target="_blank" rel="noopener">doi:10.1128/aem.56.6.1875-1881.1990</a></li>
+      </ol>
+      <p>Related: lesson <a href="/lessons/protein-transition/">The protein transition</a> (FCR, protein-conversion efficiency and footprints) and lesson <a href="/lessons/psychrometrics/">Psychrometrics</a> (humidity ratio, the Lewis analogy behind Eq. I7).</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

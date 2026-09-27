@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Greenhouse climate simulator · Future Food Production</title>
+<meta name="description" content="A 3D Venlo glasshouse through a full day in Västerås or Almería: a dynamic model of temperature, humidity and CO₂ with sun, vents, energy screen, heating pipes, condensation, transpiration and a climate computer.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live calculators for the Derive tab (AUTHORING §4.3). Same equations and parameters as model.js. */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  var SIG = 5.670374419e-8, K0 = 273.15;
+  function es(t) { return 0.6108 * Math.exp(17.27 * t / (t + 237.3)); }
+  /* Eq. G2 — effective U-value of single glass from the cover energy balance (dry glass, no screen, LAI 3) */
+  FFP_CALC.gcU = function (v) {
+    var Ti = v.Ti, To = v.To, Ts = v.To - v.dSky, w = v.w, cov = 1.25, eps = 0.85;
+    function g(Tc) {
+      var hci = 1.86 * Math.pow(Math.abs(Ti - Tc), 0.33);
+      var qin = cov * hci * (Ti - Tc) + eps * SIG * (Math.pow(Ti + K0, 4) - Math.pow(Tc + K0, 4));
+      var qout = cov * ((2.8 + 1.2 * w) * (Tc - To) + eps * SIG * (Math.pow(Tc + K0, 4) - Math.pow(Ts + K0, 4)));
+      return [qin - qout, qout];
+    }
+    var lo = Ts - 10, hi = Ti + 5;
+    for (var i = 0; i < 60; i++) { var m = (lo + hi) / 2; if (g(m)[0] > 0) lo = m; else hi = m; }
+    return g((lo + hi) / 2)[1] / (cov * (Ti - To));
+  };
+  /* Eq. G6 — transpiration (Stanghellini form of Penman–Monteith), L m-2 h-1, CO2 = 400 ppm */
+  FFP_CALC.gcE = function (v) {
+    var T = v.T, L = v.lai, I = v.I, e = es(T) * v.RH / 100, D = es(T) - e;
+    var Delta = 4098 * es(T) / Math.pow(T + 237.3, 2), gam = 0.000665 * 101.3, gH = 2 * L * 1.2 * 1005 / 275;
+    var ac = 0.5 * 0.93 * (1 - Math.exp(-0.7 * L)) + 0.5 * 0.65 * (1 - Math.exp(-0.27 * L)), tc = 0.5 * Math.exp(-0.7 * L) + 0.5 * Math.exp(-0.27 * L);
+    var Rn = I * ac * (1 + tc * 0.575);
+    var sR = 1 / (1 + Math.exp(-(I - 5))), c3 = 1.1e-11 * (1 - sR) + 6.1e-7 * sR, c4 = 5.2e-6 * (1 - sR) + 4.3e-6 * sR;
+    var fR = (I + 4.3) / (I + 0.54), fC = Math.min(1.5, 1 + c3 * 200 * 200), Dl = D, lamE = 0;
+    for (var k = 0; k < 2; k++) { var rs = 82 * fR * fC * Math.min(5.8, 1 + c4 * Math.pow(1000 * Dl, 2)); lamE = (Delta * Rn + gH * D) / (Delta + gam * (1 + rs / 275)); Dl = es(T + (Rn - lamE) / gH) - e; }
+    return lamE / (2.501e6 - 2361 * T) * 3600;
+  };
+  /* Eq. G9 — canopy net photosynthesis (gross minus photorespiration), µmol m-2 s-1 */
+  FFP_CALC.gcP = function (v) {
+    var L = v.lai, TK = v.T + K0, T25 = 298.15, R = 8.314;
+    var jPot = L * 210 * Math.exp(37000 * (TK - T25) / (R * TK * T25)) * (1 + Math.exp((710 * T25 - 220000) / (R * T25))) / (1 + Math.exp((710 * TK - 220000) / (R * TK)));
+    var Ia = v.par * 0.93 * (1 - Math.exp(-0.7 * L)) * (1 + 0.65 * Math.exp(-0.7 * L));
+    var aP = 0.385 * Ia, J = (jPot + aP - Math.sqrt(Math.max(0, Math.pow(jPot + aP, 2) - 4 * 0.7 * jPot * aP))) / 1.4;
+    var r = Math.min(1, 1 / L), G = r * 1.7 * v.T + 34 * (1 - r), Cs = 0.67 * v.C, P = J * (Cs - G) / (4 * (Cs + 2 * G));
+    return P - P * G / Cs;
+  };
+  /* Eq. G12 — Parton & Logan (1981) diurnal air temperature */
+  FFP_CALC.gcPL = function (v) {
+    var Y = v.Y, a = 1.86, b = 2.2, c = -0.17, tsr = 12 - Y / 2, tss = 12 + Y / 2, Z = 24 - Y, h = v.t;
+    var Tsn = v.Tmin + (v.Tmax - v.Tmin) * Math.sin(Math.PI * (Y - c) / (Y + 2 * a));
+    if (h >= tsr + c && h <= tss) return v.Tmin + (v.Tmax - v.Tmin) * Math.sin(Math.PI * (h - tsr - c) / (Y + 2 * a));
+    var n = h > tss ? h - tss : h + 24 - tss, eb = Math.exp(-b);
+    return (v.Tmin - Tsn * eb + (Tsn - v.Tmin) * Math.exp(-b * n / (Z + c))) / (1 - eb);
+  };
+})();
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+</head>
+<body data-page="lab" data-slug="greenhouse-climate">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Greenhouse climate simulator</h1>
+    <p class="lead">Run a Venlo glasshouse full of tomatoes through a whole day, as its climate computer does. The sun climbs and sets, the roof vents open when the air gets too warm, the energy screen slides shut on a cold night, hot water flows through the heating pipes, water droplets form on the glass and liquid CO₂ is dosed into the crop. Behind every movement is a dynamic model of heat, water vapour and CO₂ built from the same equations that greenhouse engineers use, fed with real climatological days for Västerås and Almería. Change a set-point and the whole day is recomputed in a fraction of a second.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Temperatures over 24 h</h3>
+      <div class="chart-sub">Inside air against the heating set-point and the ventilation line; outside air; the glass; and the dew point of the inside air. Where the glass line falls below the dew point, water condenses on the cover. Grey bands are night.</div>
+      <div class="chart tall" id="chart-temp"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Humidity: relative humidity and VPD</h3>
+      <div class="chart-sub">Relative humidity (left axis) with the grey-mould risk zone, and the leaf-to-air vapour pressure deficit (right axis) with a common target band of 0.5–1.2 kPa shaded green.</div>
+      <div class="chart tall" id="chart-hum"></div>
+    </div>
+    <div class="chart-card">
+      <h3>CO₂ concentration and dosing</h3>
+      <div class="chart-sub">Inside CO₂ (left) against the outside level, and the dosing rate of pure CO₂ (right). Without dosing, a photosynthesising crop behind closed vents pulls CO₂ below the outside level.</div>
+      <div class="chart tall" id="chart-co2"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Heating power and cumulative energy</h3>
+      <div class="chart-sub">Heat delivered by the pipes (left, W per m² of floor) and the heat used since midnight (right, kWh m⁻²). The dashed line is the capacity of the pipes at 90 °C.</div>
+      <div class="chart tall" id="chart-heat"></div>
+    </div>
+    <div class="chart-card">
+      <h3>What the climate computer does</h3>
+      <div class="chart-sub">Roof-vent opening and energy-screen closure (left, %) and the heating-pipe temperature (right). Actuators move with a delay, just as real motors do.</div>
+      <div class="chart tall" id="chart-act"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Energy balance right now</h3>
+      <div class="chart-sub">The terms of the energy balance of the air, crop and floor (Eq. G1) at the playback time, in W m⁻². Gains are positive, losses negative; they always sum to zero.</div>
+      <div class="chart tall" id="chart-bal"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ================================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour through five days</h2>
+      <p>Each preset loads a climatological day (the 15th of the month) and a set of climate-computer settings. Press <strong>▶ Play the day</strong> (or the space bar with the scene selected) and watch the 3D greenhouse, the readouts and the moving cursor on the charts. Click any component in the scene to see what it does and its live value.</p>
+      <ol>
+        <li><strong>Swedish winter night, no screen.</strong> Load the first preset. At 02:00 it is −3.9 °C outside and the pipes, at about 60 °C, deliver roughly 157 W m⁻² to hold 18 °C. Look up from inside (the view is set for you): the glass is fogged with droplets. Its temperature (about 6 °C, violet line in the temperature chart) is far below the dew point of the greenhouse air (about 10 °C), so the roof is condensing water all night. The relative humidity settles near 60 %: the cold glass is an excellent, free dehumidifier.</li>
+        <li><strong>Now close the energy screen.</strong> Load the second preset. The fabric slides shut across every trellis bay, the heating power at 02:00 falls to about 100 W m⁻² and the pipes cool to 47 °C — a third less heat. But the relative humidity climbs to almost 80 %, because the humid air below the screen can no longer reach the cold glass. Watch the screen open briefly around noon, when there is enough daylight to be worth letting in.</li>
+        <li><strong>A sunny spring day.</strong> By mid-morning the sun has warmed the air past the ventilation line (heating set-point + 2 K); the vents start to open, in proportion to how far the temperature is above that line. The crop transpires up to 0.3 L m⁻² h⁻¹ and its photosynthesis pulls CO₂ down. While the vents are nearly closed the doser keeps 800 ppm; once they open more than 10 % the computer stops enriching and only holds the outside level.</li>
+        <li><strong>Summer heat in Almería.</strong> The vents are wide open from mid-morning until well after sunset and yet at 13:00 the air is 2 K warmer than outside; the leaf-to-air VPD reaches about 2.7 kPa, far above the comfortable band. A Dutch-style Venlo greenhouse with 10 % roof vents simply cannot ventilate enough here. Try the whitewash slider: chalk on the roof is how Almería growers cope.</li>
+        <li><strong>CO₂ with the vents open.</strong> This preset chases 1000 ppm on a Swedish July day with the vent interlock switched off. The doser runs at full capacity for most of the day, yet the concentration struggles to reach 550–650 ppm. The readout <em>CO₂ dosed today</em> shows where the gas went: about four-fifths of it left through the vents.</li>
+        <li><strong>A winter crop under LEDs.</strong> Without lamps, the dark January day gives the crop a negative carbon balance: it respires more CO₂ than it fixes. With 70 W m⁻² of LED top-lighting (about 200 µmol m⁻² s⁻¹) the crop fixes over 25 g of CO₂ per m² per day — and the lamps' heat cuts the boiler's heat by a third.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A greenhouse climate is the running balance of three quantities — <strong>heat, water vapour and CO₂</strong> — each with its own sources and sinks, all linked through the crop and the air exchange. Every control action trades one against the others: closing a screen saves heat but traps vapour; opening vents removes heat and vapour but also the CO₂ you paid for; heating dries the air but costs energy.</p></div>
+      <a class="lab-link" data-lab="psychrometric-chart" data-why="Plot the inside and outside air of any hour of this simulation on a psychrometric chart and trace what ventilation, heating and condensation do to it."></a>
+    </section>
+
+    <!-- ================================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>What the simulator computes</h2>
+      <p>The steady-state balance of <a href="/lessons/energy-balance/">Lesson 8.1</a> (Eq. 8.1.6) tells you how much heat a greenhouse needs <em>on average</em>. A real greenhouse is never in steady state: the sun rises in minutes, the air holds only a few kilojoules per kelvin, the floor stores heat by day and releases it at night, and the climate computer reacts continuously. The simulator therefore solves the balances as <strong>differential equations in time</strong>: every minute of simulated time it computes all the fluxes of heat, water vapour and CO₂, and updates the state of the greenhouse. It uses the structure and the parameters of the greenhouse climate model of Vanthoor et al. (2011a), in the open-source form of Katzin et al. (2020), simplified to the pieces that matter most for one day.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 400" role="img" aria-label="Structure of the lumped greenhouse climate model: sky, outside air, glass cover, screen, greenhouse air with crop, floor and heating pipes, with arrows for heat, vapour and CO2 fluxes">
+            <defs>
+              <marker id="gcA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-amber"/></marker>
+              <marker id="gcW" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-water"/></marker>
+              <marker id="gcM" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-magenta"/></marker>
+              <marker id="gcG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-accent"/></marker>
+            </defs>
+            <!-- sky and outside -->
+            <rect x="10" y="10" width="740" height="62" rx="10" class="fill-water-soft"/>
+            <text x="24" y="34" style="font-weight:600">Sky</text><text x="24" y="52" class="t-small t-muted">T<tspan baseline-shift="sub" font-size="9">sky</tspan> (long-wave sink)</text>
+            <text x="520" y="34" style="font-weight:600">Outside air</text><text x="520" y="52" class="t-small t-muted">T<tspan baseline-shift="sub" font-size="9">o</tspan>, e<tspan baseline-shift="sub" font-size="9">o</tspan>, CO₂ 426 ppm, wind v</text>
+            <circle cx="300" cy="40" r="18" class="fill-amber"/><text x="326" y="45" class="t-small">sun I<tspan baseline-shift="sub" font-size="9">o</tspan></text>
+            <!-- cover -->
+            <path d="M60 128 L150 98 L240 128 L330 98 L420 128 L510 98 L600 128 L690 98 L700 102" class="stroke-water" stroke-width="3" fill="none"/>
+            <text x="706" y="112" class="t-small">glass cover T<tspan baseline-shift="sub" font-size="9">c</tspan></text>
+            <path d="M540 101 L566 84" class="stroke" stroke-width="3"/><text x="560" y="98" class="t-small t-muted">vent u</text>
+            <!-- screen -->
+            <line x1="60" y1="150" x2="700" y2="150" class="stroke-muted" stroke-width="2" stroke-dasharray="10 4"/>
+            <text x="706" y="154" class="t-small t-muted">screen s</text>
+            <!-- air + crop box -->
+            <rect x="60" y="162" width="640" height="170" rx="8" class="fill-accent-soft" opacity=".55"/>
+            <text x="74" y="184" style="font-weight:600">Greenhouse air + crop</text>
+            <text x="74" y="202" class="t-small t-muted">states T, W (humidity ratio), C (CO₂)</text>
+            <g class="fill-accent"><rect x="250" y="230" width="16" height="92" rx="6"/><rect x="330" y="224" width="16" height="98" rx="6"/><rect x="410" y="230" width="16" height="92" rx="6"/><rect x="490" y="224" width="16" height="98" rx="6"/></g>
+            <text x="520" y="250" class="t-small">canopy T<tspan baseline-shift="sub" font-size="9">can</tspan> (Penman–Monteith)</text>
+            <g class="fill-amber"><circle cx="290" cy="326" r="5"/><circle cx="300" cy="326" r="5"/><circle cx="370" cy="326" r="5"/><circle cx="380" cy="326" r="5"/><circle cx="450" cy="326" r="5"/><circle cx="460" cy="326" r="5"/></g>
+            <text x="120" y="318" class="t-small">heating pipes T<tspan baseline-shift="sub" font-size="9">p</tspan></text>
+            <!-- floor -->
+            <rect x="60" y="334" width="640" height="26" class="fill-sunk"/>
+            <text x="74" y="352" class="t-small">floor T<tspan baseline-shift="sub" font-size="9">f</tspan> (heat store)</text>
+            <!-- fluxes -->
+            <line x1="296" y1="58" x2="360" y2="236" class="stroke-amber" stroke-width="3" marker-end="url(#gcA)"/>
+            <text x="336" y="160" class="t-small" style="fill:var(--amber)">τ I<tspan baseline-shift="sub" font-size="9">o</tspan></text>
+            <path d="M150 104 Q 130 80 110 64" class="stroke-magenta" stroke-width="2.4" fill="none" marker-end="url(#gcM)"/>
+            <text x="64" y="92" class="t-small" style="fill:var(--magenta)">long-wave</text>
+            <path d="M455 110 L505 80" class="stroke-amber" stroke-width="2" marker-end="url(#gcA)"/>
+            <text x="440" y="86" class="t-small" style="fill:var(--amber)">wind convection</text>
+            <path d="M600 200 C 610 150, 600 120, 560 88" class="stroke-water" stroke-width="2.6" fill="none" marker-end="url(#gcW)"/>
+            <text x="612" y="186" class="t-small" style="fill:var(--water)">ventilation G:</text>
+            <text x="612" y="200" class="t-small" style="fill:var(--water)">heat, vapour, CO₂</text>
+            <line x1="338" y1="222" x2="338" y2="186" class="stroke-water" stroke-width="1.6" stroke-dasharray="3 3" marker-end="url(#gcW)"/>
+            <text x="346" y="216" class="t-small" style="fill:var(--water)">transpiration E</text>
+            <line x1="200" y1="176" x2="176" y2="124" class="stroke-water" stroke-width="2" marker-end="url(#gcW)"/>
+            <text x="120" y="232" class="t-small" style="fill:var(--water)">condensation M</text><text x="120" y="246" class="t-small" style="fill:var(--water)">on the cold glass</text>
+            <line x1="420" y1="186" x2="420" y2="226" class="stroke-accent" stroke-width="2" marker-end="url(#gcG)"/>
+            <text x="428" y="212" class="t-small" style="fill:var(--accent)">CO₂ uptake</text>
+            <path d="M40 300 L 250 300" class="stroke-magenta" stroke-width="2" marker-end="url(#gcM)"/>
+            <text x="12" y="292" class="t-small" style="fill:var(--magenta)">CO₂ dosing</text>
+            <line x1="296" y1="318" x2="296" y2="276" class="stroke-amber" stroke-width="2" marker-end="url(#gcA)"/>
+            <text x="304" y="296" class="t-small" style="fill:var(--amber)">Q<tspan baseline-shift="sub" font-size="9">heat</tspan></text>
+            <line x1="590" y1="344" x2="590" y2="300" class="stroke-amber" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#gcA)"/>
+            <text x="598" y="322" class="t-small" style="fill:var(--amber)">floor ⇄ air</text>
+            <text x="380" y="392" text-anchor="middle" class="t-small t-muted">all fluxes per m² of floor · states integrated every 60 s · 2 spin-up days, then the day you see</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Structure of the simulator. Three state variables of the greenhouse air (temperature \(T\), humidity ratio \(W\), CO₂ concentration \(C\)) and the floor temperature \(T_f\) change in time; the glass temperature \(T_c\), the canopy temperature and the pipe temperature adjust instantly to the fluxes around them. Heat (amber), water vapour (blue) and CO₂ (green/magenta) are exchanged with the crop, the cover, the sky and the outside air.</figcaption>
+      </figure>
+
+      <h3>Heat: where the watts go</h3>
+      <p>By day the dominant input is the sun: about 72 % of the global radiation on the roof is transmitted (Eq. G5), and a dense tomato canopy absorbs most of it. The absorbed energy has three destinations. Part evaporates water in the leaves (<strong>transpiration</strong>, a latent-heat flux that does not warm the air); part warms the leaves, which pass it to the air as <strong>sensible heat</strong>; and a little warms the floor, which stores it and gives it back at night. The air loses heat through the <strong>cover</strong> (convection to the glass and long-wave radiation from the crop to the glass, which in turn loses heat to the wind and radiates to the cold sky) and by <strong>ventilation</strong>. At night only the heating pipes (and the floor's stored heat) replace these losses.</p>
+      <p>The cover is modelled physically (Eq. G2), not with a fixed U-value, so you can watch the <em>effective</em> U-value change: about 5.4 W m⁻² K⁻¹ on an overcast Swedish January night with a light wind, 6.3 with 8 m s⁻¹ of wind and 6.6 under a clear sky, when the glass radiates to a sky at about −28 °C. These are the values quoted as “6–7.5” for single glass in Lesson 8.1 — and they show why the U-value is not a property of the glass alone.</p>
+
+      <h3>Water vapour: the crop as a humidifier, the glass as a dehumidifier</h3>
+      <p>A mature tomato crop transpires 1–1.5 L m⁻² on a dark January day and 3–5 L m⁻² on a bright summer day. That vapour must leave the air, or the humidity would rise until transpiration stopped. It leaves in two ways: carried out by <strong>ventilation</strong> (Eq. G3, G7), or <strong>condensed</strong> on any surface colder than the dew point of the air — above all the glass on a cold night. Condensation is free dehumidification, but it has a price: its latent heat is released into the glass and lost to the outside, so a humid greenhouse needs more heating. When the screen is closed, the humid air can reach only the underside of the screen, which is much warmer than the glass, and the small air flux through the fabric (Eq. G8); humidity rises. That is why growers open a <em>screen gap</em> or run a <em>minimum pipe temperature</em> when the relative humidity climbs.</p>
+      <div class="callout warn"><div class="callout-title">Humidity and grey mould</div><p><em>Botrytis cinerea</em> infects mainly when plant surfaces are wet or the air is close to saturation; limiting the daily wetting period by ventilation and heating reduces epidemics (Yunis et al., 1994; Elad et al., 2016). Climate computers therefore work with a humidity limit — typically 85–90 % RH — and with the margin between leaf temperature and dew point. The simulator shades RH &gt; 85 % amber and &gt; 90 % red — a risk indicator, not a disease model.</p></div>
+
+      <h3>CO₂: the crop as a sink, the vents as a leak</h3>
+      <p>In daylight a full crop fixes 20–40 µmol of CO₂ per m² of floor per second. The air above a square metre of floor contains only about 230 mol of air, so behind closed vents an uptake of 25 µmol m⁻² s⁻¹ would lower the concentration by almost 400 ppm in an hour — in practice photosynthesis slows down first — unless CO₂ is supplied. At night the crop respires and the concentration rises. Enrichment to 800–1000 ppm raises photosynthesis by a quarter to a third (Eq. G9), but only while the vents are nearly closed: with the vents open, most of the dosed gas simply blows away. The CO₂ balance (Eq. G10) makes the arithmetic explicit, and the <em>vent interlock</em> of the climate computer — stop enriching above a small vent opening — is the standard remedy (see <a href="/lessons/co2-enrichment/">Lesson 8.3</a>).</p>
+
+      <h3>The climate computer</h3>
+      <p>Commercial climate computers work with <strong>set-points and proportional bands</strong>. The heating line is the temperature below which heat is supplied; the ventilation line lies a few kelvin higher; between them is a dead zone in which neither heating nor ventilation is active, so that the two never fight each other. Above the ventilation line the vents open in proportion to the temperature excess (Figure 2). Humidity, light and CO₂ rules are layered on top.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 640 270" role="img" aria-label="Heating power and vent opening as functions of the greenhouse air temperature, with heating line, dead zone, ventilation line and proportional band">
+            <line x1="70" y1="220" x2="610" y2="220" class="stroke" stroke-width="1.5"/>
+            <line x1="70" y1="220" x2="70" y2="30" class="stroke" stroke-width="1.5"/>
+            <text x="340" y="258" text-anchor="middle" class="t-small">greenhouse air temperature →</text>
+            <text x="20" y="130" class="t-small" transform="rotate(-90 20 130)" text-anchor="middle">actuator output</text>
+            <!-- heating -->
+            <path d="M70 60 L230 60 L270 220" class="stroke-amber" stroke-width="3" fill="none"/>
+            <text x="90" y="52" class="t-small" style="fill:var(--amber)">heating (PI → up to pipe capacity)</text>
+            <!-- vents -->
+            <path d="M330 220 L470 60 L610 60" class="stroke-water" stroke-width="3" fill="none"/>
+            <text x="480" y="52" class="t-small" style="fill:var(--water)">vents 100 %</text>
+            <!-- markers -->
+            <line x1="270" y1="30" x2="270" y2="230" class="stroke-muted" stroke-dasharray="4 4"/>
+            <text x="270" y="244" text-anchor="middle" class="t-small">T<tspan baseline-shift="sub" font-size="9">h</tspan></text>
+            <line x1="330" y1="30" x2="330" y2="230" class="stroke-muted" stroke-dasharray="4 4"/>
+            <text x="330" y="244" text-anchor="middle" class="t-small">T<tspan baseline-shift="sub" font-size="9">v</tspan> = T<tspan baseline-shift="sub" font-size="9">h</tspan> + ΔT<tspan baseline-shift="sub" font-size="9">v</tspan></text>
+            <line x1="470" y1="30" x2="470" y2="230" class="stroke-muted" stroke-dasharray="4 4"/>
+            <text x="470" y="244" text-anchor="middle" class="t-small">T<tspan baseline-shift="sub" font-size="9">v</tspan> + P<tspan baseline-shift="sub" font-size="9">b</tspan></text>
+            <rect x="270" y="30" width="60" height="190" class="fill-accent-soft" opacity=".5"/>
+            <text x="300" y="120" text-anchor="middle" class="t-small" transform="rotate(-90 300 120)">dead zone</text>
+            <text x="400" y="200" class="t-small t-muted">P-band</text>
+            <path d="M335 206 L465 206" class="stroke-muted" stroke-width="1" marker-end="url(#gcW)"/>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> The two main control loops. Below the heating line \(T_h\) a PI controller raises the pipe heat; above the ventilation line \(T_v\) the vents open linearly over the proportional band \(P_b\). In the dead zone between, neither is active. A humidity limit adds a small vent opening and a screen gap; a minimum pipe temperature adds heat regardless of temperature.</figcaption>
+      </figure>
+      <table>
+        <caption>Table 1. Rules of the simulated climate computer (defaults in brackets; all adjustable in the panel).</caption>
+        <thead><tr><th>Actuator</th><th>Rule</th><th>Typical purpose</th></tr></thead>
+        <tbody>
+          <tr><td>Heating pipes</td><td>PI control on \(T_h\) (20 °C day / 18 °C night, 1-h ramps at sunrise and sunset); limited by 90 °C pipe temperature; optional minimum pipe temperature</td><td>temperature; minimum pipe also humidity and an “active” crop</td></tr>
+          <tr><td>Roof vents</td><td>P-band above \(T_v = T_h + 2\) K (band 4 K); plus up to 30 % opening when RH exceeds the limit (85 %)</td><td>cooling; dehumidification</td></tr>
+          <tr><td>Energy screen</td><td>closed when outside global radiation &lt; 50 W m⁻² and outside air &lt; 12 °C; gap up to 10 % when RH exceeds the limit; opened when cooling is needed</td><td>energy saving at night and on dark days</td></tr>
+          <tr><td>CO₂ doser</td><td>by day (radiation &gt; 20 W m⁻² or lamps on) dose towards the set-point (800 ppm) with a 50-ppm P-band, up to 185 kg ha⁻¹ h⁻¹; if vents &gt; 10 % open and the interlock is on, only hold the outside level</td><td>photosynthesis at low cost</td></tr>
+          <tr><td>LED top-lights</td><td>on 04:00–22:00 (solar time) when outside radiation &lt; 250 W m⁻²</td><td>light (and heat) in winter</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Representative days</h3>
+      <p>The weather is a <em>climatological</em> day, not a measured one: the mean daily maximum and minimum temperature, dew point, cloudiness, wind and sky radiation of the month, shaped into a smooth daily course (Eq. G12). Real days scatter widely around these means — use the temperature offset, the wind slider and the clear-sky option to explore that spread.</p>
+      <table>
+        <caption>Table 2. Climatology behind the six representative days. Västerås mean temperature: SMHI normals 1991–2020 (as Lesson 8.1). Almería temperatures and humidity: AEMET normals 1981–2010, Almería Aeropuerto. Diurnal range (Västerås), dew point (Västerås), clearness index K<sub>t</sub>, wind at 10 m and the sky-temperature depression from downward long-wave radiation: NASA POWER climatology 2001–2020.</caption>
+        <thead><tr><th>Day</th><th class="num">T<sub>min</sub> (°C)</th><th class="num">T<sub>max</sub> (°C)</th><th class="num">Dew point (°C)</th><th class="num">K<sub>t</sub></th><th class="num">Wind (m s⁻¹)</th><th class="num">T<sub>air</sub> − T<sub>sky</sub> (K)</th></tr></thead>
+        <tbody>
+          <tr><td>Västerås, 15 January</td><td class="num">−4.6</td><td class="num">0.2</td><td class="num">−5.1</td><td class="num">0.28</td><td class="num">2.4</td><td class="num">6.8</td></tr>
+          <tr><td>Västerås, 15 April</td><td class="num">1.5</td><td class="num">10.3</td><td class="num">2.4</td><td class="num">0.50</td><td class="num">2.5</td><td class="num">11.2</td></tr>
+          <tr><td>Västerås, 15 July</td><td class="num">13.6</td><td class="num">22.4</td><td class="num">13.2</td><td class="num">0.49</td><td class="num">2.2</td><td class="num">9.8</td></tr>
+          <tr><td>Almería, 15 January</td><td class="num">8.3</td><td class="num">16.9</td><td class="num">6.6</td><td class="num">0.57</td><td class="num">3.8</td><td class="num">9.4</td></tr>
+          <tr><td>Almería, 15 April</td><td class="num">12.5</td><td class="num">21.4</td><td class="num">9.7</td><td class="num">0.60</td><td class="num">4.1</td><td class="num">11.9</td></tr>
+          <tr><td>Almería, 15 July</td><td class="num">21.7</td><td class="num">30.5</td><td class="num">17.7</td><td class="num">0.65</td><td class="num">3.6</td><td class="num">14.7</td></tr>
+        </tbody>
+      </table>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“Opening the vents lets the heat out, so vents are for temperature.” On a winter night the vents are often opened a crack <em>for humidity</em>, even though every cubic metre of cold air must then be heated: in the simulator, a humidity limit of 75 % instead of 95 % on the screened January day opens the screen gap and the vents and raises the daily heat use by about 18 %; under LED lighting, 80 % instead of 95 % raises it by about half. Ventilation is the greenhouse's only large-scale exchange of heat, water vapour <em>and</em> CO₂ with the outside — all three at once.</p></div>
+      <div class="callout frontier"><div class="callout-title">Research frontier</div><p>Climate computers are moving from fixed set-points to optimisation. Wageningen University &amp; Research's Autonomous Greenhouse Challenge let teams of data scientists and growers control real greenhouse compartments remotely with artificial intelligence; several AI teams produced more cucumbers or cherry tomatoes per unit of resources than the reference growers (Hemming et al., 2019, 2020). Models such as the one in this laboratory are the “digital twins” those algorithms learn from and plan with.</p></div>
+    </section>
+
+    <!-- ================================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>All fluxes are expressed per square metre of <em>floor</em> (W m⁻², kg m⁻² s⁻¹, µmol m⁻² s⁻¹). Temperatures appear in °C except inside fourth powers, where they are absolute (K). Parameter values are those of the Dutch reference Venlo greenhouse and tomato crop of Vanthoor et al. (2011a, 2011b) unless the symbol table says otherwise.</p>
+
+      <div class="eq-box" id="eq-gc-energy">
+        <div class="eq-head"><span class="eq-label">Energy balances of the air (with crop) and of the floor</span><span class="eq-num">(G1)</span></div>
+        <div class="eq-main">\[ C_a\frac{\mathrm{d}T}{\mathrm{d}t} = Q_{\text{str}} + H_{\text{can}} + Q_{p,\text{conv}} + Q_{L} + H_{fa} - Q_{a,\text{cov}} - Q_{\text{vent}}, \qquad C_f\frac{\mathrm{d}T_f}{\mathrm{d}t} = S_f + \tfrac{1}{2}Q_{p,\text{rad}} - H_{fa} - R_{f,\text{cov}} \]</div>
+        <p class="eq-read">the heat capacity of the air and crop times their rate of warming equals the sum of all heat flows into the air — sun absorbed by the construction, sensible heat from the leaves, convection from the pipes, heat from the lamps and heat from the floor — minus the heat that goes to the cover and the sensible heat carried away by ventilation. The floor warms by absorbed sunlight and pipe radiation and cools by giving heat to the air and radiating to the cover.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(C_a = \rho_a c_p \bar h + c_{\ell}\,\text{LAI}\)</td><td>heat capacity of air + canopy per floor area</td><td>J K⁻¹ m⁻²</td><td>≈ 6 600 + 1 200 × LAI</td></tr>
+          <tr><td>\(C_f\)</td><td>heat capacity of 2 cm concrete + 10 cm soil</td><td>J K⁻¹ m⁻²</td><td>2.14 × 10⁵</td></tr>
+          <tr><td>\(\bar h\)</td><td>mean greenhouse height (volume per floor area)</td><td>m</td><td>5.5 (Lesson 8.1)</td></tr>
+          <tr><td>\(Q_{\text{str}}\)</td><td>sun absorbed by the construction and passed to the air</td><td>W m⁻²</td><td>0.1 \(I_o\)</td></tr>
+          <tr><td>\(H_{\text{can}}\)</td><td>sensible heat from the canopy \(= R_n - \lambda E\) (Eq. G6)</td><td>W m⁻²</td><td>—</td></tr>
+          <tr><td>\(Q_{p,\text{conv}}, Q_{p,\text{rad}}\)</td><td>convective and radiative parts of the pipe heat (Eq. G4)</td><td>W m⁻²</td><td>—</td></tr>
+          <tr><td>\(Q_{L}\)</td><td>lamp input not emitted as light (43 % for LEDs)</td><td>W m⁻²</td><td>—</td></tr>
+          <tr><td>\(H_{fa}\)</td><td>floor-to-air exchange \(h_{fa}(T_f - T)\), convection + radiation to the canopy</td><td>W m⁻²</td><td>\(h_{fa}\) ≈ 5–7 W m⁻² K⁻¹</td></tr>
+          <tr><td>\(Q_{a,\text{cov}}, R_{f,\text{cov}}\)</td><td>convection from air and radiation from floor to the cover (Eq. G2)</td><td>W m⁻²</td><td>—</td></tr>
+          <tr><td>\(Q_{\text{vent}}\)</td><td>sensible ventilation loss (Eq. G3)</td><td>W m⁻²</td><td>—</td></tr>
+          <tr><td>\(S_f\)</td><td>solar (and lamp) radiation absorbed by the floor (Eq. G5)</td><td>W m⁻²</td><td>—</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Draw a control volume around the greenhouse air and the leaves. The first law says: rate of change of stored energy = inflows − outflows. The stored energy per m² floor is \(C_a T\) (air plus leaves, both at nearly the same temperature).</li>
+            <li>The canopy is treated as a zero-capacity surface: the radiation it absorbs, \(R_n\), is split instantly into latent heat \(\lambda E\) (transpiration) and sensible heat \(H_{\text{can}}\) given to the air (Eq. G6). Only \(H_{\text{can}}\) appears in the air balance; \(\lambda E\) appears in the vapour balance (Eq. G7).</li>
+            <li>The floor is a second store, one layer thick, exchanging heat with the air and radiating to the cover; the slow seasonal heat flux to the deep soil is neglected.</li>
+            <li>Adding the air and floor balances and the canopy balance gives the whole-greenhouse balance shown in the <em>Energy balance right now</em> chart: sun + heating + lamps = cover + ventilation + transpiration + storage. In steady state (no storage) it is exactly Eq. 8.1.6 of Lesson 8.1.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>One well-mixed air volume (no vertical temperature gradient, no separate compartment above the screen); canopy and pipe temperatures quasi-steady; the heat capacity of the glass (about 8 kJ K⁻¹ m⁻²) is neglected. Vanthoor's full model has 16 states including five soil layers, the top compartment and the pipe water; the lumped version reproduces the daily course and the energy totals but not, for example, the thermal stratification under a closed screen.</p></details>
+        <div class="eq-units">J K⁻¹ m⁻² × K s⁻¹ = J s⁻¹ m⁻² = W m⁻² on the left; every term on the right is W m⁻² ✓</div>
+        <div class="mini-calc" data-formula="(1.2*1005*5.5 + 1200*lai)/(U*1.25 + 1.2*1005*N*5.5/3600)/60" data-output="Thermal time constant of the air + crop" data-unit="min" data-digits="1" data-plot="N" data-title="Try it — how fast does the greenhouse air respond?">
+          <div data-var="lai" data-label="Leaf area index" data-min="0.5" data-max="4" data-step="0.1" data-value="3"></div>
+          <div data-var="U" data-label="Effective U-value" data-min="2" data-max="8" data-step="0.1" data-value="6" data-unit="W m⁻² K⁻¹"></div>
+          <div data-var="N" data-label="Air exchange rate" data-min="0.2" data-max="30" data-step="0.1" data-value="1" data-unit="h⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-cover">
+        <div class="eq-head"><span class="eq-label">Energy balance of the glass cover and the effective U-value</span><span class="eq-num">(G2)</span></div>
+        <div class="eq-main">\[ \varphi_s\!\left[\frac{A_c}{A_f}h_{ci}(T-T_c) + F_c\,\varepsilon\sigma\!\left(T^4-T_c^4\right) + F_f\,\varepsilon\sigma\!\left(T_f^4-T_c^4\right)\right] + Q_{p,c} + \lambda M_{\text{cond}} = \frac{A_c}{A_f}\!\left[h_{co}(T_c-T_o) + \varepsilon\sigma\!\left(T_c^4-T_{\text{sky}}^4\right)\right] \]</div>
+        <p class="eq-read">the glass gains heat from the inside by convection from the air, long-wave radiation from the crop and the floor, radiation from the pipes and the latent heat of water condensing on it; it loses the same amount by convection to the wind and long-wave radiation to the sky. The glass temperature is the one value of \(T_c\) that balances the two sides.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(A_c/A_f\)</td><td>cover area per floor area</td><td>–</td><td>1.25</td></tr>
+          <tr><td>\(h_{ci} = 1.86\,|T-T_c|^{0.33}\)</td><td>inside convective coefficient (free convection)</td><td>W m⁻² K⁻¹</td><td>3–5</td></tr>
+          <tr><td>\(h_{co} = 2.8 + 1.2\,v\)</td><td>outside convective coefficient, wind speed \(v\)</td><td>W m⁻² K⁻¹</td><td>5.8 at 2.5 m s⁻¹</td></tr>
+          <tr><td>\(F_c = 1-e^{-0.94\,\text{LAI}},\ F_f = 1-F_c\)</td><td>shares of the long-wave view of the cover taken by canopy and floor</td><td>–</td><td>0.94 / 0.06 at LAI 3</td></tr>
+          <tr><td>\(\varepsilon\)</td><td>long-wave emissivity of glass</td><td>–</td><td>0.85</td></tr>
+          <tr><td>\(\sigma\)</td><td>Stefan–Boltzmann constant</td><td>W m⁻² K⁻⁴</td><td>5.67 × 10⁻⁸</td></tr>
+          <tr><td>\(\varphi_s\)</td><td>screen factor, 1 when open (Eq. G8)</td><td>–</td><td>0.41–1</td></tr>
+          <tr><td>\(T_{\text{sky}}\)</td><td>effective sky temperature (Eq. G12)</td><td>°C</td><td>7–25 K below \(T_o\)</td></tr>
+          <tr><td>\(\lambda M_{\text{cond}}\)</td><td>latent heat released by condensation (Eq. G7)</td><td>W m⁻²</td><td>0–100</td></tr>
+          <tr><td>\(U_{\text{eff}}\)</td><td>effective U-value = right-hand side ÷ \([(A_c/A_f)(T-T_o)]\)</td><td>W m⁻² K⁻¹</td><td>3–7</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Glass is thin (4 mm) and conductive: its two faces differ by only about 0.5 K, so one temperature \(T_c\) describes it. Its heat capacity is small, so at every moment inflow = outflow (quasi-steady state).</li>
+            <li>Inflows per m² of floor: Newton's law of cooling for the air (\(h_{ci}\), Eq. 8.1.2 of Lesson 8.1, times the cover-to-floor ratio), the Stefan–Boltzmann law for the canopy and floor (Eq. 8.1.3, with the view factors \(F_c\) and \(F_f\)), and the latent heat of any condensate.</li>
+            <li>Outflows: Newton's law for the wind-cooled outer surface and Stefan–Boltzmann radiation to a sky at \(T_{\text{sky}}\).</li>
+            <li>The equation is non-linear in \(T_c\) (fourth powers, the 0.33 exponent, condensation), so the simulator solves it by Newton iteration every time step. Dividing the heat actually leaving the cover by \((A_c/A_f)(T - T_o)\) gives the effective U-value of Lesson 8.1 — now an <em>output</em> that depends on wind, sky and condensation.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The whole cover (roof and walls) is treated as one surface; the roof's view of the sky (≈ 1 for a low-pitched roof) is also used for the walls. The coefficients are those of Vanthoor et al. (2011a) for a Venlo glasshouse; the outside coefficient in particular varies between studies by a factor of two.</p></details>
+        <div class="eq-units">Every term: W m⁻² K⁻¹ × K or W m⁻² K⁻⁴ × K⁴ or J kg⁻¹ × kg m⁻² s⁻¹ = W m⁻² ✓</div>
+        <div class="mini-calc" data-fn="gcU" data-output="Effective U-value of single glass" data-unit="W m⁻² K⁻¹" data-digits="2" data-plot="w" data-title="Try it — wind and a clear sky raise the U-value (dry glass, no screen)">
+          <div data-var="Ti" data-label="Inside air" data-min="10" data-max="25" data-step="0.5" data-value="18" data-unit="°C"></div>
+          <div data-var="To" data-label="Outside air" data-min="-25" data-max="10" data-step="0.5" data-value="-4" data-unit="°C"></div>
+          <div data-var="w" data-label="Wind speed" data-min="0" data-max="12" data-step="0.1" data-value="2.5" data-unit="m s⁻¹"></div>
+          <div data-var="dSky" data-label="Sky depression T<sub>o</sub> − T<sub>sky</sub>" data-min="0" data-max="30" data-step="0.5" data-value="7" data-unit="K"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-vent">
+        <div class="eq-head"><span class="eq-label">Natural ventilation through roof vents, and leakage</span><span class="eq-num">(G3)</span></div>
+        <div class="eq-main">\[ G = \frac{C_d\,u\,A_R}{2\,A_f}\sqrt{\frac{g\,h_v\,|T-T_o|}{2\,\bar T} + C_w\,v^2} \; + \; c_{\text{leak}}\max(0.25,\,v), \qquad Q_{\text{vent}} = \rho_a c_p\,G\,(T-T_o), \qquad N = \frac{3600\,G}{\bar h} \]</div>
+        <p class="eq-read">the volume of air exchanged per second and per square metre of floor equals the discharge coefficient times the open vent area per floor area, halved because half of each opening carries inflow and half outflow, times a velocity that combines the buoyancy (stack) effect of warm air and the wind pressure; a small leakage through cracks grows with wind speed. Each cubic metre exchanged carries away the sensible heat \(\rho_a c_p (T-T_o)\).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(G\)</td><td>ventilation flux per floor area</td><td>m³ m⁻² s⁻¹</td><td>0.0002–0.07</td></tr>
+          <tr><td>\(u\)</td><td>vent opening (0–1)</td><td>–</td><td>controlled</td></tr>
+          <tr><td>\(A_R/A_f\)</td><td>maximum vent area per floor area</td><td>–</td><td>0.10</td></tr>
+          <tr><td>\(C_d, C_w\)</td><td>discharge coefficient; global wind-pressure coefficient</td><td>–</td><td>0.75; 0.09</td></tr>
+          <tr><td>\(h_v\)</td><td>vertical size of one vent opening</td><td>m</td><td>0.68</td></tr>
+          <tr><td>\(\bar T\)</td><td>mean of inside and outside absolute temperature</td><td>K</td><td>≈ 290</td></tr>
+          <tr><td>\(v\)</td><td>outside wind speed</td><td>m s⁻¹</td><td>2–4 (climatology)</td></tr>
+          <tr><td>\(c_{\text{leak}}\)</td><td>leakage coefficient</td><td>m</td><td>10⁻⁴</td></tr>
+          <tr><td>\(N\)</td><td>air exchange rate</td><td>h⁻¹</td><td>0.2 (closed) to ≈ 30</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Bernoulli: air flows through an opening of area \(A\) with velocity \(\sqrt{2\Delta p/\rho}\) and volume flow \(C_d A\sqrt{2\Delta p/\rho}\), where the discharge coefficient \(C_d\) accounts for contraction and friction.</li>
+            <li>Stack effect: warm inside air is lighter; over an opening of height \(h_v\) the pressure difference is \(\Delta p \approx \rho g h_v \Delta T/(4\bar T)\) averaged over the half of the opening that carries each direction.</li>
+            <li>Wind effect: a wind of speed \(v\) creates pressure differences \(\Delta p = C_w \rho v^2/2\) across the openings.</li>
+            <li>The two effects are combined in quadrature under the square root, and half the opening area is used for inflow (Boulard &amp; Baille, 1995). The coefficients \(C_d\) and \(C_w\) are fitted to measurements on Venlo greenhouses and taken from Vanthoor et al. (2011a).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Roof vents on one side only, no insect screens (these can halve the flow), no side vents, no wind-direction effect. The opening fraction \(u\) is taken as proportional to the effective area, which is only approximately true for flap windows. Air exchange rates measured in Venlo greenhouses span 0.2–1 h⁻¹ when closed and up to 30–60 h⁻¹ with wide-open vents in strong wind.</p></details>
+        <div class="eq-units">\(\sqrt{\text{m s}^{-2}\cdot\text{m} + \text{m}^2\text{s}^{-2}} = \text{m s}^{-1}\); × m² m⁻² = m³ m⁻² s⁻¹ ✓ · \(Q_{\text{vent}}\): kg m⁻³ × J kg⁻¹ K⁻¹ × m³ m⁻² s⁻¹ × K = W m⁻² ✓</div>
+        <div class="mini-calc" data-formula="3600/5.5*(0.75*u/100*0.10/2*sqrt(9.81*0.68*dT/(2*293.15) + 0.09*v*v) + 1e-4*max(0.25,v))" data-output="Air exchange rate N" data-unit="h⁻¹" data-digits="1" data-plot="v" data-title="Try it — wind matters more than buoyancy">
+          <div data-var="u" data-label="Vent opening" data-min="0" data-max="100" data-step="1" data-value="30" data-unit="%"></div>
+          <div data-var="v" data-label="Wind speed" data-min="0" data-max="12" data-step="0.1" data-value="2.5" data-unit="m s⁻¹"></div>
+          <div data-var="dT" data-label="Inside − outside temperature" data-min="0" data-max="25" data-step="0.5" data-value="12" data-unit="K"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-pipe">
+        <div class="eq-head"><span class="eq-label">Heat output of the heating pipes</span><span class="eq-num">(G4)</span></div>
+        <div class="eq-main">\[ Q_{\text{heat}} = l_p\,\pi d\left[\,1.99\,\left|T_p-T\right|^{0.32}\left(T_p-T\right) + \varepsilon_p\,\sigma\left(T_p^4-T^4\right)\right] \]</div>
+        <p class="eq-read">the heat delivered per square metre of floor equals the pipe length per floor area times the pipe circumference times the sum of a free-convection flux, which grows slightly faster than linearly with the temperature difference, and a long-wave radiation flux.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(l_p\)</td><td>pipe length per floor area</td><td>m m⁻²</td><td>1.875</td></tr>
+          <tr><td>\(d\)</td><td>outer pipe diameter</td><td>m</td><td>0.051</td></tr>
+          <tr><td>\(T_p\)</td><td>pipe surface temperature</td><td>°C</td><td>up to 90</td></tr>
+          <tr><td>\(\varepsilon_p\)</td><td>emissivity of the painted pipe</td><td>–</td><td>0.88</td></tr>
+          <tr><td>1.99</td><td>free-convection coefficient for horizontal cylinders</td><td>W m⁻² K⁻¹·³²</td><td>—</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A hot horizontal cylinder in still air loses heat by free convection with a coefficient that grows with the temperature difference, \(h \propto \Delta T^{0.32}\) for these pipe sizes (Bot, 1983, used by Vanthoor et al., 2011a).</li>
+            <li>It also radiates; with surroundings (crop, floor, cover) close to air temperature, the net flux is \(\varepsilon_p\sigma(T_p^4 - T^4)\) per m² of pipe surface.</li>
+            <li>Multiply by the pipe surface per floor area, \(\pi d\,l_p = 0.30\) m² m⁻². At 60 °C in 18 °C air: convection 1.99 × 42<sup>1.32</sup> ≈ 275 W m⁻² of pipe, radiation ≈ 250 W m⁻² of pipe, total ≈ 157 W m⁻² of floor.</li>
+            <li>The climate computer decides the heat \(Q_{\text{heat}}\) (Eq. G11); the simulator then solves this equation for \(T_p\) — the temperature shown in false colour on the 3D pipes.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>All pipes are 51-mm pipe-rail tubes at one uniform temperature (in reality the water cools along the loop); the radiative share is split half to the floor, the rest to the canopy and cover. At 90 °C the pipes deliver about 320 W m⁻², the design capacity used here.</p></details>
+        <div class="eq-units">m m⁻² × m × W m⁻² (per m² pipe surface) = W m⁻² of floor ✓</div>
+        <div class="mini-calc" data-formula="1.875*PI*0.051*(1.99*pow(abs(Tp-Ta),0.32)*(Tp-Ta) + 0.88*5.670374e-8*(pow(Tp+273.15,4)-pow(Ta+273.15,4)))" data-output="Heat output of the pipe rail" data-unit="W m⁻²" data-digits="0" data-plot="Tp" data-title="Try it — what pipe temperature holds your greenhouse?">
+          <div data-var="Tp" data-label="Pipe temperature" data-min="20" data-max="95" data-step="0.5" data-value="60" data-unit="°C"></div>
+          <div data-var="Ta" data-label="Air temperature" data-min="10" data-max="25" data-step="0.5" data-value="18" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-solar">
+        <div class="eq-head"><span class="eq-label">Sunlight through the cover and into the crop</span><span class="eq-num">(G5)</span></div>
+        <div class="eq-main">\[ I_{\text{in}} = \tau\,(1-f_{\text{sh}})\,\big[1-s\,(1-\tau_s)\big]\,I_o, \quad a_c = \tfrac12(1-\rho_{P})\big(1-e^{-k_P\,\text{LAI}}\big) + \tfrac12(1-\rho_{N})\big(1-e^{-k_N\,\text{LAI}}\big), \quad S_c = I_{\text{in}}\,a_c\,(1+t_c\rho_f), \quad S_f = I_{\text{in}}\,t_c\,(1-\rho_f) \]</div>
+        <p class="eq-read">the global radiation inside equals the outside radiation times the greenhouse transmissivity, reduced by whitewash and by the screen when it is closed. Half of sunlight is photosynthetically active and half near-infrared; each half is absorbed by the canopy according to Beer's law with its own extinction and reflection coefficients. What passes the canopy reaches the white floor, which absorbs part and reflects the rest back into the canopy.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(I_o, I_{\text{in}}\)</td><td>global radiation outside and above the crop</td><td>W m⁻²</td><td>0–900</td></tr>
+          <tr><td>\(\tau\)</td><td>whole-greenhouse transmissivity, single glass</td><td>–</td><td>0.72 (Lesson 8.1)</td></tr>
+          <tr><td>\(f_{\text{sh}}\)</td><td>whitewash / shading fraction</td><td>–</td><td>0–0.6</td></tr>
+          <tr><td>\(s, \tau_s\)</td><td>screen closure; light transmission of the closed screen</td><td>–</td><td>0–1; 0.6</td></tr>
+          <tr><td>\(\rho_P, \rho_N\)</td><td>canopy reflection of PAR and NIR</td><td>–</td><td>0.07; 0.35</td></tr>
+          <tr><td>\(k_P, k_N\)</td><td>extinction coefficients for PAR and NIR</td><td>–</td><td>0.7; 0.27</td></tr>
+          <tr><td>\(t_c\)</td><td>fraction transmitted to the floor \(\tfrac12 e^{-k_P L}+\tfrac12 e^{-k_N L}\)</td><td>–</td><td>0.28 at LAI 3</td></tr>
+          <tr><td>\(\rho_f\)</td><td>reflection of the white floor foil (mean of PAR 0.65 and NIR 0.5)</td><td>–</td><td>0.575</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Beer–Lambert (Monsi–Saeki) extinction: the fraction of radiation passing a canopy of leaf area index \(L\) is \(e^{-kL}\) (see <code>canopyInterception</code> in <code>physics.js</code>).</li>
+            <li>Leaves absorb most PAR (they reflect about 7 %) but reflect and transmit much of the NIR, so the NIR extinction coefficient is small (0.27) and its reflection large (0.35).</li>
+            <li>Light reaching the floor is reflected once back up into the canopy, adding the factor \((1 + t_c\rho_f)\).</li>
+            <li>At LAI = 3 the canopy absorbs 59 % of the transmitted sunlight on the first pass and ≈ 68 % including the floor reflection; the floor absorbs 12 %; the rest is reflected out of the greenhouse. The 10 % of outside radiation absorbed by the construction is added to the air (\(Q_{\text{str}}\)).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Constant transmissivity regardless of the sun angle (real glasshouses transmit less at low sun, which matters in a Swedish winter); no distinction between direct and diffuse light; the global-to-PPFD conversion 2.02 µmol J⁻¹ of <code>physics.js</code> is used for photosynthesis, as elsewhere in the course.</p></details>
+        <div class="eq-units">All fractions dimensionless; \(S_c, S_f\): W m⁻² ✓</div>
+        <div class="mini-calc" data-formula="100*(0.5*0.93*(1-exp(-0.7*L)) + 0.5*0.65*(1-exp(-0.27*L)))" data-output="Share of the transmitted sunlight absorbed by the canopy (first pass)" data-unit="%" data-digits="0" data-plot="L" data-title="Try it — how much light does the crop catch?">
+          <div data-var="L" data-label="Leaf area index" data-min="0.1" data-max="6" data-step="0.1" data-value="3"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-transp">
+        <div class="eq-head"><span class="eq-label">Crop transpiration (Stanghellini's form of Penman–Monteith)</span><span class="eq-num">(G6)</span></div>
+        <div class="eq-main">\[ \lambda E = \frac{\Delta\,R_n + \dfrac{2\,\text{LAI}\,\rho_a c_p}{r_b}\,D}{\Delta + \gamma\left(1+\dfrac{r_s}{r_b}\right)}, \qquad r_s = r_{s,\min}\,f_R\,f_{\text{CO}_2}\,f_D, \qquad T_{\text{can}} = T + \frac{(R_n-\lambda E)\,r_b}{2\,\text{LAI}\,\rho_a c_p} \]</div>
+        <p class="eq-read">the latent heat used by transpiration is a weighted combination of the net radiation absorbed by the crop and the drying power of the air (its vapour pressure deficit), divided by a term that grows with the stomatal resistance. The stomatal resistance is a minimum value multiplied by factors for low light, high CO₂ and dry air. The leaves are warmer than the air when they absorb more energy than they transpire.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(R_n\)</td><td>net radiation of the canopy: absorbed sun and lamps + pipe radiation − long-wave loss to the cover</td><td>W m⁻²</td><td>−70 to 450</td></tr>
+          <tr><td>\(D\)</td><td>vapour pressure deficit of the greenhouse air</td><td>kPa</td><td>0.2–3</td></tr>
+          <tr><td>\(\Delta\), \(\gamma\)</td><td>slope of \(e_s(T)\); psychrometric constant (<code>physics.js</code>)</td><td>kPa K⁻¹</td><td>0.15; 0.067</td></tr>
+          <tr><td>\(r_b\)</td><td>leaf boundary-layer resistance</td><td>s m⁻¹</td><td>275</td></tr>
+          <tr><td>\(r_{s,\min}\)</td><td>minimum stomatal resistance</td><td>s m⁻¹</td><td>82</td></tr>
+          <tr><td>\(f_R = \dfrac{R+4.3}{R+0.54}\)</td><td>light factor, \(R\) = radiation above the canopy (W m⁻²)</td><td>–</td><td>8 at night, 1 in sun</td></tr>
+          <tr><td>\(f_{\text{CO}_2} = \min\!\big(1.5,\ 1 + c_3 (C-200)^2\big)\)</td><td>CO₂ factor, \(c_3 = 6.1\times10^{-7}\) ppm⁻² by day</td><td>–</td><td>1.2 at 800 ppm</td></tr>
+          <tr><td>\(f_D = \min\!\big(5.8,\ 1 + c_4 D_\ell^2\big)\)</td><td>dry-air factor, \(D_\ell\) = leaf-to-air VPD in Pa, \(c_4 = 4.3\times10^{-6}\) Pa⁻² by day</td><td>–</td><td>1–5.8</td></tr>
+          <tr><td>\(E\)</td><td>transpiration</td><td>kg m⁻² s⁻¹</td><td>0–1.6 × 10⁻⁴</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Vapour leaves the leaves through stomata and boundary layer in series: \(\lambda E = \dfrac{2\,\text{LAI}\,\rho_a c_p}{\gamma (r_b + r_s)}\,\big(e_s(T_{\text{can}}) - e\big)\). The factor 2 LAI is the leaf surface (both sides) per floor area.</li>
+            <li>Sensible heat leaves through the boundary layer: \(H = \dfrac{2\,\text{LAI}\,\rho_a c_p}{r_b}(T_{\text{can}} - T)\).</li>
+            <li>The canopy stores no energy: \(R_n = \lambda E + H\).</li>
+            <li>Linearise \(e_s(T_{\text{can}}) \approx e_s(T) + \Delta(T_{\text{can}}-T)\), so \(e_s(T_{\text{can}}) - e = D + \Delta(T_{\text{can}}-T)\).</li>
+            <li>Eliminate \(T_{\text{can}}\) between the three equations — Penman's trick — to obtain the boxed formula. The canopy temperature then follows from \(H = R_n - \lambda E\).</li>
+            <li>Example: \(R_n\) = 180 W m⁻², \(D\) = 0.8 kPa, 22 °C, LAI 3, \(r_s\) = 318 s m⁻¹. Then \(2\,\text{LAI}\,\rho_a c_p/r_b\) = 26.3 W m⁻² K⁻¹ and \(\lambda E\) = (0.161 × 180 + 26.3 × 0.8)/(0.161 + 0.145) = 163 W m⁻², i.e. 0.24 L m⁻² h⁻¹.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The whole canopy is one “big leaf” with one temperature; the stomatal response functions were fitted for tomato by Stanghellini (1987) and are used as in Vanthoor et al. (2011a). The VPD factor makes stomata close strongly in dry air, which is why transpiration rises less than proportionally with VPD. Negative values (dew on the leaves) are allowed.</p></details>
+        <div class="eq-units">\(\dfrac{\text{kPa K}^{-1}\,\text{W m}^{-2} + \text{kg m}^{-3}\,\text{J kg}^{-1}\text{K}^{-1}\,\text{kPa}\,/(\text{s m}^{-1})}{\text{kPa K}^{-1}} = \text{W m}^{-2}\) ✓</div>
+        <div class="mini-calc" data-fn="gcE" data-output="Transpiration" data-unit="L m⁻² h⁻¹" data-digits="3" data-plot="I" data-title="Try it — transpiration responds to light first, dry air second">
+          <div data-var="I" data-label="Radiation above the crop" data-min="0" data-max="700" data-step="5" data-value="350" data-unit="W m⁻²"></div>
+          <div data-var="T" data-label="Air temperature" data-min="12" data-max="35" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="RH" data-label="Relative humidity" data-min="30" data-max="95" data-step="1" data-value="75" data-unit="%"></div>
+          <div data-var="lai" data-label="Leaf area index" data-min="0.5" data-max="4" data-step="0.1" data-value="3"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-vapour">
+        <div class="eq-head"><span class="eq-label">Water-vapour balance and condensation</span><span class="eq-num">(G7)</span></div>
+        <div class="eq-main">\[ \rho_a\,\bar h\,\frac{\mathrm{d}W}{\mathrm{d}t} = E - M_{\text{cond}} - \rho_a\,G\,(W-W_o), \qquad M = 6.4\times10^{-9}\,h\,\big(e - e_s(T_s)\big) \quad \text{when } e > e_s(T_s) \]</div>
+        <p class="eq-read">the mass of dry air above a square metre of floor times the rate of change of its humidity ratio equals transpiration minus condensation minus the vapour carried out by ventilation. Water condenses on a surface at temperature \(T_s\) at a rate proportional to its convective heat-transfer coefficient and to the excess of the air's vapour pressure over the saturation vapour pressure at the surface.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(W, W_o\)</td><td>humidity ratio inside and outside (Eq. 8.2.2)</td><td>kg kg⁻¹</td><td>0.003–0.02</td></tr>
+          <tr><td>\(\rho_a\)</td><td>density of dry air</td><td>kg m⁻³</td><td>≈ 1.2</td></tr>
+          <tr><td>\(E\)</td><td>transpiration (Eq. G6)</td><td>kg m⁻² s⁻¹</td><td>—</td></tr>
+          <tr><td>\(M_{\text{cond}}\)</td><td>condensation on glass (screen open) or on / through the screen (Eq. G8)</td><td>kg m⁻² s⁻¹</td><td>0–4 × 10⁻⁵</td></tr>
+          <tr><td>\(h\)</td><td>convective coefficient of the condensing surface (\(A_c/A_f\,h_{ci}\) for the glass)</td><td>W m⁻² K⁻¹</td><td>3–6</td></tr>
+          <tr><td>\(e, e_s(T_s)\)</td><td>vapour pressure of the air; saturation vapour pressure at the surface</td><td>Pa</td><td>—</td></tr>
+          <tr><td>\(6.4\times10^{-9}\)</td><td>heat–mass transfer analogy factor</td><td>kg K J⁻¹ Pa⁻¹</td><td>—</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Mass conservation for water vapour in the greenhouse air (Eq. 8.2.10 of Lesson 8.2), written dynamically: storage = sources − sinks.</li>
+            <li>Heat and mass cross the same boundary layer, so the mass-transfer coefficient follows from the heat-transfer coefficient (Lewis analogy): \(g_m = h/(c_p\,Le^{2/3})\) in kg m⁻² s⁻¹ per unit of humidity ratio.</li>
+            <li>Convert humidity ratio to vapour pressure with \(W \approx 0.622\,e/P\): \(M = h\,\dfrac{0.622}{P\,c_p\,Le^{2/3}}\,(e - e_s(T_s))\). With \(P\) = 101 325 Pa, \(c_p\) = 1005 J kg⁻¹ K⁻¹ and \(Le \approx 0.9\) the factor is ≈ 6.5 × 10⁻⁹ kg K J⁻¹ Pa⁻¹ — the 6.4 × 10⁻⁹ of Vanthoor et al. (2011a).</li>
+            <li>Example (night, no screen): \(h\) = 1.25 × 4.2 W m⁻² K⁻¹, air 18 °C and 59 % (\(e\) = 1217 Pa), glass 5.7 °C (\(e_s\) = 916 Pa): \(M\) = 6.4 × 10⁻⁹ × 5.25 × 301 = 1.0 × 10⁻⁵ kg m⁻² s⁻¹ = 36 g m⁻² h⁻¹ — exactly the crop's night transpiration, which is why RH settles there.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Condensate is assumed to drain away (no re-evaporation); fog forming in supersaturated air is removed within minutes; evaporation from the substrate and floor is neglected.</p></details>
+        <div class="eq-units">kg m⁻³ × m × kg kg⁻¹ s⁻¹ = kg m⁻² s⁻¹ ✓ · condensation: kg K J⁻¹ Pa⁻¹ × J s⁻¹ m⁻² K⁻¹ × Pa = kg m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="3.6e6*1.25*6.4e-9*1.86*pow(abs(Ti-Tc),0.33)*max(0, 610.8*exp(17.27*Td/(Td+237.3)) - 610.8*exp(17.27*Tc/(Tc+237.3)))" data-output="Condensation on the glass" data-unit="g m⁻² h⁻¹" data-digits="0" data-plot="Tc" data-title="Try it — the colder the glass below the dew point, the faster it dehumidifies">
+          <div data-var="Ti" data-label="Air temperature" data-min="10" data-max="25" data-step="0.5" data-value="18" data-unit="°C"></div>
+          <div data-var="Td" data-label="Dew point of the air" data-min="0" data-max="20" data-step="0.1" data-value="10" data-unit="°C"></div>
+          <div data-var="Tc" data-label="Glass temperature" data-min="-10" data-max="18" data-step="0.1" data-value="5.7" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-screen">
+        <div class="eq-head"><span class="eq-label">The energy screen: less heat loss, more humidity</span><span class="eq-num">(G8)</span></div>
+        <div class="eq-main">\[ \varphi_s = 1 - s\,(1-f_s), \quad \frac{Q_{\text{cov}}(f_s)}{Q_{\text{cov}}(1)} = 1-\text{ES}, \quad T_{su} = T - f_s\,(T-T_c), \quad M_{\text{scr}} = 6.4\times10^{-9}\,h_{su}\big(e-e_s(T_{su})\big) + \rho_a K_s |T-T_c|^{0.66}\big(W-W_{\text{sat}}(T_c)\big) \]</div>
+        <p class="eq-read">a closed screen multiplies all heat transfer from the inside to the cover by a factor \(f_s\) chosen so that the cover heat loss falls by the screen's energy saving ES. The underside of the screen then sits between air and glass temperature; with the screen closed, vapour is removed only by condensation on that warmer underside and by the small air flux through the fabric.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(s\)</td><td>screen closure (1 = closed; 0.9 = 10 % gap)</td><td>–</td><td>controlled</td></tr>
+          <tr><td>ES</td><td>energy saving of the closed screen at reference conditions</td><td>–</td><td>0.45 (Lesson 8.1)</td></tr>
+          <tr><td>\(f_s\)</td><td>conductance factor of the closed screen, from ES</td><td>–</td><td>0.41 for ES = 0.45</td></tr>
+          <tr><td>\(T_{su}\)</td><td>temperature of the screen's underside</td><td>°C</td><td>—</td></tr>
+          <tr><td>\(h_{su} = 1.7\,|T-T_{su}|^{0.33}\)</td><td>convective coefficient air–screen</td><td>W m⁻² K⁻¹</td><td>2–4</td></tr>
+          <tr><td>\(K_s\)</td><td>screen air-flux coefficient</td><td>m³ m⁻² K⁻⁰·⁶⁶ s⁻¹</td><td>5 × 10⁻⁵</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A screen adds a thermal resistance between the crop compartment and the glass. Scaling the inside-to-cover conductances by \(f_s\) is equivalent to adding a series resistance \(R_s = (1/f_s - 1)/K_{\text{in}}\).</li>
+            <li>At reference conditions (18 °C inside, 0 °C outside, 4 m s⁻¹ wind, sky 10 K below air) the simulator finds by bisection the \(f_s\) that reduces the cover heat loss by ES.</li>
+            <li>The temperature drop across the inside film is then a fraction \(f_s\) of the total \(T - T_c\), giving \(T_{su}\).</li>
+            <li>Vapour: condensation on the underside (Eq. G7 with \(T_{su}\)) plus the air flux through the fabric \(K_s|\Delta T|^{0.66}\) of Vanthoor et al. (2011a), which carries vapour up to the cold glass above. A 10 % gap restores 10 % of the glass for direct condensation — very effective.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>No separate compartment above the screen (Vanthoor's model has one); the same ES applies to convection and radiation; screen light transmission 0.6 when closed. Real screens differ in porosity, which strongly affects the humidity below them.</p></details>
+        <div class="eq-units">\(f_s\), ES dimensionless; \(M_{\text{scr}}\): kg m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="es/100*U*1.25*(Ti-To)*h/1000" data-output="Heat saved by the screen in one night" data-unit="kWh m⁻²" data-digits="2" data-plot="To" data-title="Try it — what is a night with the screen closed worth?">
+          <div data-var="es" data-label="Screen energy saving ES" data-min="20" data-max="75" data-step="1" data-value="45" data-unit="%"></div>
+          <div data-var="U" data-label="U-value without screen" data-min="4" data-max="8" data-step="0.1" data-value="5.4" data-unit="W m⁻² K⁻¹"></div>
+          <div data-var="Ti" data-label="Inside" data-min="12" data-max="22" data-step="0.5" data-value="18" data-unit="°C"></div>
+          <div data-var="To" data-label="Outside" data-min="-25" data-max="12" data-step="0.5" data-value="-4" data-unit="°C"></div>
+          <div data-var="h" data-label="Hours closed" data-min="4" data-max="20" data-step="0.5" data-value="15" data-unit="h"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-photo">
+        <div class="eq-head"><span class="eq-label">Canopy photosynthesis and CO₂ uptake</span><span class="eq-num">(G9)</span></div>
+        <div class="eq-main">\[ J = \frac{J_{\text{pot}} + \alpha I_a - \sqrt{(J_{\text{pot}} + \alpha I_a)^2 - 4\Theta J_{\text{pot}}\,\alpha I_a}}{2\Theta}, \qquad P = \frac{J\,(C_s-\Gamma)}{4\,(C_s+2\Gamma)}, \qquad U = P\left(1-\frac{\Gamma}{C_s}\right) - R_m - R_g \]</div>
+        <p class="eq-read">the electron transport rate of the canopy is a smooth minimum of the light-limited rate and its temperature-dependent capacity; gross photosynthesis is electron transport divided by four, reduced by photorespiration through the ratio of the CO₂ compensation point to the CO₂ concentration in the leaf. The crop's net CO₂ uptake is gross photosynthesis minus photorespiration, maintenance respiration and growth respiration.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(I_a\)</td><td>PAR absorbed by the canopy (sun × 2.02 µmol J⁻¹, plus lamps)</td><td>µmol m⁻² s⁻¹</td><td>0–1400</td></tr>
+          <tr><td>\(\alpha\)</td><td>electrons per absorbed photon (incl. efficiency)</td><td>–</td><td>0.385</td></tr>
+          <tr><td>\(\Theta\)</td><td>curvature of the light response</td><td>–</td><td>0.7</td></tr>
+          <tr><td>\(J_{\text{pot}}\)</td><td>canopy electron-transport capacity: LAI × 210 µmol m⁻² s⁻¹ at 25 °C, Arrhenius with deactivation (\(E_j\) 37 kJ mol⁻¹, \(H\) 220 kJ mol⁻¹, \(S\) 710 J mol⁻¹ K⁻¹)</td><td>µmol e⁻ m⁻² s⁻¹</td><td>≈ 550 at LAI 3</td></tr>
+          <tr><td>\(C_s = 0.67\,C\)</td><td>CO₂ in the stomata</td><td>ppm</td><td>—</td></tr>
+          <tr><td>\(\Gamma\)</td><td>CO₂ compensation point, \(1.7\,T_{\text{can}}/\text{LAI} + 34(1-1/\text{LAI})\)</td><td>ppm</td><td>≈ 35</td></tr>
+          <tr><td>\(R_m\)</td><td>maintenance respiration, coefficients 0.03 (leaf), 0.013 (stem), 0.01 (fruit) d⁻¹ at 25 °C, Q₁₀ = 2</td><td>µmol m⁻² s⁻¹</td><td>1.5–2.5</td></tr>
+          <tr><td>\(R_g\)</td><td>growth respiration, 0.28/1.28 of the surplus</td><td>µmol m⁻² s⁻¹</td><td>—</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>In the model of Farquhar et al. (1980), photosynthesis at high CO₂ and in the usual greenhouse conditions is limited by the regeneration of RuBP, i.e. by electron transport \(J\): four electrons per CO₂ fixed.</li>
+            <li>The non-rectangular hyperbola combines the light limit \(\alpha I_a\) and the capacity \(J_{\text{pot}}\) with curvature \(\Theta\) (compare <code>nonRectHyperbola</code> in <code>physics.js</code>).</li>
+            <li>Photorespiration releases one CO₂ for every two oxygenations; with \(\Gamma\) the compensation point, the net fixation of the leaf is \(P(1-\Gamma/C_s)\).</li>
+            <li>Vanthoor et al. (2011b) scale the leaf parameters to the canopy with the LAI. Respiration uses their tomato coefficients with organ masses assumed from the LAI (stems 0.75 and fruits 1.5 × the leaf mass).</li>
+            <li>Example: LAI 3, 22 °C, 400 ppm, 640 µmol m⁻² s⁻¹ absorbed: \(J\) = 208, \(P\) = 35.8, photorespiration 4.7 µmol m⁻² s⁻¹. At 1000 ppm \(P(1-\Gamma/C_s)\) rises by 36 %.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Only the electron-transport limitation is modelled (Rubisco limitation matters at low CO₂ and high light, i.e. rarely in an enriched greenhouse); no carbohydrate buffer, so growth respiration follows photosynthesis instantly; the assumed organ masses make maintenance respiration an estimate within about ±30 %.</p></details>
+        <div class="eq-units">µmol e⁻ m⁻² s⁻¹ × ppm/ppm ÷ (e⁻ per CO₂) = µmol CO₂ m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="gcP" data-output="Canopy net photosynthesis (before respiration)" data-unit="µmol m⁻² s⁻¹" data-digits="1" data-plot="C" data-title="Try it — the CO₂ fertilisation effect">
+          <div data-var="par" data-label="PPFD above the crop" data-min="0" data-max="1500" data-step="10" data-value="700" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="C" data-label="CO₂ concentration" data-min="150" data-max="1500" data-step="10" data-value="400" data-unit="ppm"></div>
+          <div data-var="T" data-label="Leaf temperature" data-min="10" data-max="38" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="lai" data-label="Leaf area index" data-min="0.5" data-max="4" data-step="0.1" data-value="3"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-co2">
+        <div class="eq-head"><span class="eq-label">CO₂ balance of the greenhouse air</span><span class="eq-num">(G10)</span></div>
+        <div class="eq-main">\[ n_a\,\bar h\,\frac{\mathrm{d}C}{\mathrm{d}t} = \frac{\phi_{\text{CO}_2}}{M_{\text{CO}_2}} - U - n_a\,G\,(C-C_o) \qquad\Longrightarrow\qquad C_{\text{ss}} = C_o + \frac{\phi_{\text{CO}_2}/M_{\text{CO}_2} - U}{n_a\,G} \]</div>
+        <p class="eq-read">the moles of air above a square metre of floor times the rate of change of the CO₂ mole fraction equal the moles of CO₂ dosed, minus the crop's net uptake, minus the CO₂ carried out by ventilation. In steady state the inside concentration exceeds the outside by the net supply divided by the ventilation flux.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(C, C_o\)</td><td>CO₂ inside and outside</td><td>ppm (µmol mol⁻¹)</td><td>\(C_o\) = 426 (NOAA global mean 2025: 425.6)</td></tr>
+          <tr><td>\(n_a = P/(RT)\)</td><td>molar density of air</td><td>mol m⁻³</td><td>≈ 41.6 at 20 °C</td></tr>
+          <tr><td>\(\phi_{\text{CO}_2}\)</td><td>dosing rate, maximum 5.14 mg m⁻² s⁻¹</td><td>mg m⁻² s⁻¹</td><td>= 185 kg ha⁻¹ h⁻¹</td></tr>
+          <tr><td>\(M_{\text{CO}_2}\)</td><td>molar mass of CO₂</td><td>mg µmol⁻¹</td><td>0.044</td></tr>
+          <tr><td>\(U\)</td><td>net uptake by the crop (Eq. G9)</td><td>µmol m⁻² s⁻¹</td><td>−2 to 40</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The air above 1 m² of floor contains \(n_a\bar h\) ≈ 230 mol; a change of 1 ppm is 230 µmol of CO₂.</li>
+            <li>Dosing adds \(\phi/M\) µmol s⁻¹; the crop removes \(U\); ventilation replaces inside air (\(C\)) with outside air (\(C_o\)) at \(n_a G\) mol s⁻¹.</li>
+            <li>Setting d\(C\)/d\(t\) = 0 gives the steady-state concentration. With a crop taking up 25 µmol m⁻² s⁻¹ behind closed vents (\(N\) = 0.2 h⁻¹) and no dosing, \(C\) would fall until photosynthesis itself slows down — hence the need to dose.</li>
+            <li>With vents open (\(N\) = 13 h⁻¹, \(n_aG\) = 0.83 mol m⁻² s⁻¹), full-capacity dosing (117 µmol m⁻² s⁻¹) minus uptake (29) raises \(C\) by only ≈ 106 ppm: most of the gas is vented.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>CO₂ is perfectly mixed (in reality it is higher near the tubes and lower in the upper canopy); the crop is the only sink and source (substrate respiration neglected); outside CO₂ is constant.</p></details>
+        <div class="eq-units">mol m⁻³ × m × ppm s⁻¹ = µmol m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="426 + (0.631*D - U)/(41.6*N*5.5/3600)" data-output="Steady-state CO₂ inside" data-unit="ppm" data-digits="0" data-plot="N" data-title="Try it — dosing through open vents (0.631 µmol m⁻² s⁻¹ per kg ha⁻¹ h⁻¹)">
+          <div data-var="D" data-label="Dosing rate" data-min="0" data-max="185" data-step="1" data-value="185" data-unit="kg ha⁻¹ h⁻¹"></div>
+          <div data-var="U" data-label="Net crop uptake" data-min="0" data-max="40" data-step="0.5" data-value="28" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="N" data-label="Air exchange rate" data-min="0.5" data-max="30" data-step="0.1" data-value="12" data-unit="h⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-control">
+        <div class="eq-head"><span class="eq-label">The climate computer: heating, vents, screen and CO₂</span><span class="eq-num">(G11)</span></div>
+        <div class="eq-main">\[ Q_{\text{heat}} = \operatorname{clip}_{[Q_{\min},\,Q_{\max}]}\!\left(K_p\left[e + \frac{1}{T_i}\int e\,\mathrm{d}t\right]\right),\ e = T_h - T; \quad u^{*} = \operatorname{clip}_{[0,1]}\!\left(\frac{T - T_v}{P_b}\right); \quad \frac{\mathrm{d}u}{\mathrm{d}t} = \frac{u^{*}-u}{\tau_u}; \quad \phi_{\text{CO}_2} = \phi_{\max}\operatorname{clip}_{[0,1]}\!\left(\frac{C_{sp}-C}{50}\right) \]</div>
+        <p class="eq-read">heat is supplied by a proportional–integral controller acting on the error between the heating set-point and the air temperature, limited between the minimum-pipe heat and the pipe capacity; the vents open linearly over a proportional band above the ventilation line and follow the command with a motor delay; CO₂ is dosed at a rate proportional to how far the concentration is below its set-point, up to the dosing capacity.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(K_p, T_i\)</td><td>proportional gain; integral time</td><td>W m⁻² K⁻¹; s</td><td>30; 900</td></tr>
+          <tr><td>\(T_h, T_v = T_h + \Delta T_v\)</td><td>heating set-point; ventilation line</td><td>°C</td><td>20/18; +2 K</td></tr>
+          <tr><td>\(P_b\)</td><td>proportional band of the vents</td><td>K</td><td>4</td></tr>
+          <tr><td>\(\tau_u, \tau_s\)</td><td>time constants of vent and screen motors</td><td>s</td><td>60; 180</td></tr>
+          <tr><td>\(Q_{\max}\)</td><td>pipe heat at 90 °C (Eq. G4)</td><td>W m⁻²</td><td>≈ 320</td></tr>
+          <tr><td>\(C_{sp}\)</td><td>CO₂ set-point (outside level when the vent interlock applies)</td><td>ppm</td><td>800</td></tr>
+        </table>
+        <details><summary>Why P and PI?</summary>
+          <ol class="steps">
+            <li>A purely proportional heating controller would leave a permanent offset below the set-point on a cold night; the integral term removes it by slowly accumulating the error.</li>
+            <li>For the vents a proportional band is deliberately kept: the air temperature rises above the ventilation line by an amount that tells the grower how hard the vents are working, and small temperature fluctuations do not make the vents hunt.</li>
+            <li>The integral is frozen while the output is saturated (anti-windup), so the heating does not overshoot when the vents close in the evening.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Real climate computers add many rules (wind-dependent vent limits, lee/windward vents, light-dependent temperature, pre-night temperature drops, screen opening in steps, CO₂ from boiler flue gas). The simulated computer keeps only the rules that shape the daily balances.</p></details>
+        <div class="eq-units">\(K_p e\): W m⁻² K⁻¹ × K = W m⁻² ✓ · \(u^{*}\): K/K dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*min(1,max(0,(T-(Th+dTv))/pb))" data-output="Vent opening commanded" data-unit="%" data-digits="0" data-plot="T" data-title="Try it — the proportional band">
+          <div data-var="T" data-label="Air temperature" data-min="15" data-max="32" data-step="0.1" data-value="23" data-unit="°C"></div>
+          <div data-var="Th" data-label="Heating set-point" data-min="14" data-max="24" data-step="0.5" data-value="20" data-unit="°C"></div>
+          <div data-var="dTv" data-label="Ventilation line offset" data-min="0.5" data-max="6" data-step="0.5" data-value="2" data-unit="K"></div>
+          <div data-var="pb" data-label="P-band" data-min="1" data-max="10" data-step="0.5" data-value="4" data-unit="K"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-gc-weather">
+        <div class="eq-head"><span class="eq-label">A representative day: temperature, radiation and sky</span><span class="eq-num">(G12)</span></div>
+        <div class="eq-main">\[ T_o = T_{\min} + (T_{\max}-T_{\min})\sin\frac{\pi\,m}{Y+2a}\ \ (\text{day}), \quad T_o = \frac{T_{\min} - T_{sn}e^{-b} + (T_{sn}-T_{\min})\,e^{-bn/(Z+c)}}{1-e^{-b}}\ \ (\text{night}), \quad I_o(t) = K_t H_0\,\frac{g_{cs}(t)}{\int g_{cs}\,\mathrm{d}t} \]</div>
+        <p class="eq-read">during the day the outside temperature follows a sine from the minimum just before sunrise to the maximum in the early afternoon; at night it decays exponentially from the sunset value towards the next minimum. The hourly radiation has the shape of a clear-sky day, scaled so that the daily total equals the month's clearness index times the extraterrestrial radiation.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(Y, Z = 24-Y\)</td><td>day length and night length (<code>physics.js</code>)</td><td>h</td><td>6.5 h in Västerås on 15 January</td></tr>
+          <tr><td>\(m\), \(n\)</td><td>hours after (sunrise + \(c\)); hours after sunset</td><td>h</td><td>—</td></tr>
+          <tr><td>\(a, b, c\)</td><td>Parton &amp; Logan (1981) coefficients for air at 1.5 m</td><td>h, –, h</td><td>1.86, 2.20, −0.17</td></tr>
+          <tr><td>\(T_{sn}\)</td><td>temperature at sunset</td><td>°C</td><td>—</td></tr>
+          <tr><td>\(K_t\)</td><td>clearness index (monthly climatology or 0.75 for clear sky, FAO-56)</td><td>–</td><td>0.28–0.75</td></tr>
+          <tr><td>\(H_0\)</td><td>daily extraterrestrial radiation (FAO-56 eq. 21)</td><td>J m⁻² d⁻¹</td><td>—</td></tr>
+          <tr><td>\(g_{cs}(t)\)</td><td>clear-sky irradiance shape (<code>clearSkyIrradiance</code>)</td><td>W m⁻²</td><td>—</td></tr>
+          <tr><td>\(T_{\text{sky}}\)</td><td>\(T_o - \Delta T_{\text{sky}}\) with \(\Delta T_{\text{sky}}\) from NASA POWER long-wave radiation; clear sky: \(\varepsilon = 1.24\,(e_a/T)^{1/7}\) (Brutsaert, 1975)</td><td>°C</td><td>—</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Parton &amp; Logan (1981) fitted this sine–exponential model to measured diurnal courses; the lag \(a\) puts the maximum about 2 h after solar noon.</li>
+            <li>The vapour pressure is kept constant through the day (the dew point changes little), so the outside relative humidity is high at dawn and low in the afternoon.</li>
+            <li>The sky temperature follows from the downward long-wave flux \(L_\downarrow = \sigma T_{\text{sky}}^4\). NASA POWER's monthly mean \(L_\downarrow\) gives the mean depression; for a clear night the Brutsaert emissivity gives a sky about 25 K colder than the air in a Swedish winter.</li>
+          </ol>
+        </details>
+        <div class="eq-units">Radiation: dimensionless × J m⁻² d⁻¹ × W m⁻² ÷ (W m⁻² s) = W m⁻² ✓</div>
+        <div class="mini-calc" data-fn="gcPL" data-output="Outside air temperature" data-unit="°C" data-digits="1" data-plot="t" data-title="Try it — the Parton–Logan day">
+          <div data-var="t" data-label="Solar time" data-min="0" data-max="24" data-step="0.25" data-value="14" data-unit="h"></div>
+          <div data-var="Tmin" data-label="Daily minimum" data-min="-20" data-max="25" data-step="0.5" data-value="1.5" data-unit="°C"></div>
+          <div data-var="Tmax" data-label="Daily maximum" data-min="-10" data-max="40" data-step="0.5" data-value="10.3" data-unit="°C"></div>
+          <div data-var="Y" data-label="Day length" data-min="6" data-max="20" data-step="0.1" data-value="13.9" data-unit="h"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. After each task use <em>Save investigation</em> to store your settings and results in your notebook, and <em>Download the 24-h results</em> if you want to analyse the day in a spreadsheet.</p>
+      <ol class="task-list">
+        <li><h4>The price of a clear winter night</h4><p>Load <em>Swedish winter night — no screen</em>. Note the heating power, the glass temperature and the effective U-value at 02:00. Switch the sky to <em>Clear sky</em>, then set the wind to 8 m s⁻¹. Tabulate the three cases and explain each change with Eq. G2. Which weather factor would you put in a heating-cost forecast first?</p></li>
+        <li><h4>Screen: energy versus humidity</h4><p>Compare the two winter-night presets over the whole day: heat used, hours above 85 % RH and the night-time relative humidity. Then vary the screen energy saving from 30 to 70 % and plot, in your notebook, the daily heat use against the night-time RH. Where would you set the humidity limit, and what does it cost? Use Eq. G8 to explain why a small screen gap is so effective.</p></li>
+        <li><h4>How much ventilation does a spring day need?</h4><p>Load <em>Sunny spring day</em>. Read the air exchange rate and the vent opening at noon, and compare them with Worked example 3 of Lesson 8.1 (N ≈ 4 h⁻¹). Which assumptions of the lesson's steady-state calculation explain the difference? Halve and double the wind speed and explain the vent response with Eq. G3.</p></li>
+        <li><h4>Cooling Almería: whitewash, crop or wind?</h4><p>Load <em>Summer heat (Almería)</em>. At 13:00 record the air temperature, leaf-to-air VPD and transpiration. Then try, one at a time, whitewash 20 % and 40 %, a young crop (LAI 1) and a wind of 8 m s⁻¹. Rank the measures by their effect on VPD and on the daily light integral (Save investigation stores both). Why does a smaller crop make the climate worse?</p></li>
+        <li><h4>Where does the CO₂ go?</h4><p>Load <em>CO₂ with vents open (wasteful)</em> and note the CO₂ dosed per day and the share lost through the vents; then switch the interlock on. Convert the difference to kilograms per hectare per day. If liquid CO₂ costs <em>p</em> € per kg (find a current price), what does the wasteful strategy cost a 5-ha grower per summer month? What does the crop gain in net CO₂ uptake?</p></li>
+        <li><h4>Light, heat and carbon in a Swedish January</h4><p>Load <em>Winter crop under LEDs</em> and compare it with the same day without lamps (lamp power 0). Report the daily net CO₂ uptake, the boiler heat and the lamp electricity. How much of the lamp energy replaced boiler heat? Relate your answer to the energy balance of plant factories in <a href="/lessons/energy-balance/">Lesson 8.1</a>.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-greenhouse-climate">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Load “Swedish winter night — no screen” and read the heating power at 02:00. Then load “Swedish winter night — energy screen”. By how many per cent is the heating power at 02:00 lower with the screen closed?","answer":35,"abstol":4,"unit":"%","hint":"Read the readout “Heating power” at 02:00 in both presets and compute (without − with)/without.","explain":"<p>About 157 W m⁻² without and about 102 W m⁻² with the screen: (157 − 102)/157 ≈ 35 %. The screen's 45 % energy saving applies only to the cover loss; leakage ventilation and the latent heat of condensation are not reduced as much.</p>"},
+          {"type":"mcq","q":"In the same two presets, the night-time relative humidity is about 59 % without and about 78 % with the screen. What is the main reason?","options":["The screen stops the humid air from reaching the cold glass, which was condensing vapour","The screen makes the crop transpire more","Heating power is lower, and heating adds water vapour","The screen reflects long-wave radiation back to the air, which warms it"],"answer":0,"feedback":["","Transpiration actually falls slightly with the screen (37 against 41 g m⁻² h⁻¹).","Pipe heating adds heat, not water.","The air temperature is held at 18 °C in both cases; the difference is in the vapour sink."],"explain":"<p>Without the screen the glass at ≈ 6 °C is 4 K below the dew point and removes the night's transpiration by condensation (Eq. G7). With the screen closed the vapour must reach the much warmer screen underside or leak through the fabric (Eq. G8), so the humidity rises until the smaller sink balances transpiration.</p>"},
+          {"type":"numeric","q":"Load “CO₂ with vents open (wasteful)”. What share of the CO₂ dosed during the day is lost through the vents (readout “CO₂ dosed today”)?","answer":80,"abstol":6,"unit":"%","hint":"The note under the readout gives the share.","explain":"<p>About 80 % of roughly 270 g m⁻² d⁻¹ (2.7 t ha⁻¹ d⁻¹) leaves through the vents, against about 60 g m⁻² d⁻¹ in total with the interlock. The crop's net uptake rises only from ≈ 37 to ≈ 45 g m⁻² d⁻¹ (Eq. G10).</p>"},
+          {"type":"multi","q":"In “Summer heat (Almería)” the leaf-to-air VPD at 13:00 is about 2.7 kPa. Which single changes bring it below 2.5 kPa? (Select all that apply.)","options":["Whitewash 20 %","Whitewash 40 %","Raise the ventilation line from +2 K to +4 K","Switch CO₂ enrichment off","A young crop with LAI 1 instead of 3"],"answer":[0,1],"shuffle":false,"explain":"<p>Whitewash lowers the absorbed radiation and hence leaf and air temperature: VPD ≈ 2.3 kPa at 20 % and ≈ 1.9 kPa at 40 %. The vents are already fully open, so the ventilation line has no effect; CO₂ hardly changes transpiration; a small crop transpires less, so the air is hotter and drier and the VPD rises to ≈ 4.6 kPa.</p>"},
+          {"type":"tf","q":"On the climatological 15 January in Västerås without lamps, the tomato crop's net CO₂ uptake over the whole day is negative: it respires more carbon than it fixes.","answer":true,"explain":"<p>The daily light integral inside is only ≈ 1.3–1.4 mol m⁻² d⁻¹; net uptake is about −2 g CO₂ m⁻² d⁻¹. With 70 W m⁻² of LEDs it becomes ≈ +26 g m⁻² d⁻¹ — the physiological reason for supplementary lighting in Nordic winters.</p>"},
+          {"type":"numeric","q":"Load “Sunny spring day”. What air exchange rate does the greenhouse need at 12:00 (note under the vent readout)?","answer":5.1,"abstol":0.8,"unit":"h⁻¹","hint":"The note under “Roof vents open” gives the air changes per hour.","explain":"<p>About 5.1 h⁻¹ with the vents 24 % open. The lesson's steady-state estimate (4 h⁻¹) assumed a fixed 50 % latent share and a fixed U-value; the dynamic model also stores heat in the floor and lets the air rise above the ventilation line (P-band).</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ================================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>The model represents one square metre of a large multi-span Venlo glasshouse (1 ha or more); the 3D scene shows a 20 m × 20 m section. Side-wall effects of a small greenhouse are ignored.</li>
+        <li>One well-mixed air volume at one temperature, humidity and CO₂ concentration; no separate compartment above the screen and no vertical gradients.</li>
+        <li>Canopy, cover and pipe temperatures are quasi-steady (no heat capacity); the floor is a single layer and the seasonal heat flux into the deep soil is neglected.</li>
+        <li>Solar transmissivity is constant (0.72) regardless of sun angle, and sunlight is half PAR, half NIR; long-wave transmission of glass is zero.</li>
+        <li>The cover is a single surface with the convective and radiative coefficients of Vanthoor et al. (2011a); the sky temperature is a monthly mean depression below the air temperature (or the Brutsaert clear-sky value).</li>
+        <li>Ventilation through roof vents on one side only, no insect screens; leakage proportional to wind speed.</li>
+        <li>Transpiration uses Stanghellini's (1987) big-leaf Penman–Monteith form with Vanthoor's stomatal response functions; the canopy temperature follows from it.</li>
+        <li>Photosynthesis is electron-transport limited (Farquhar et al., 1980, as in Vanthoor et al., 2011b); respiration uses Vanthoor's coefficients with organ masses assumed from the LAI; growth respiration is instantaneous.</li>
+        <li>The screen is an extra resistance calibrated to its energy saving; vapour removal with the screen closed is limited to the screen underside and the air flux through the fabric.</li>
+        <li>The climate computer is simplified (Table 1 of the Explain tab); actuators are first-order lags.</li>
+        <li>Weather is a smooth climatological day, not a measured sequence; the same day is repeated three times and the third is shown, so the result is periodic.</li>
+        <li>Grey-mould “risk” is an indicator based on RH thresholds, not a disease model. The 3D plants, fruits and equipment are illustrative; the charts and readouts are the computed quantities.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Vanthoor, B. H. E., Stanghellini, C., van Henten, E. J., &amp; de Visser, P. H. B. (2011a). A methodology for model-based greenhouse design: Part 1, a greenhouse climate model for a broad range of designs and climates. <em>Biosystems Engineering</em>, 110(4), 363–377. <a href="https://doi.org/10.1016/j.biosystemseng.2011.06.001" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2011.06.001</a></li>
+        <li>Vanthoor, B. H. E., de Visser, P. H. B., Stanghellini, C., &amp; van Henten, E. J. (2011b). A methodology for model-based greenhouse design: Part 2, description and validation of a tomato yield model. <em>Biosystems Engineering</em>, 110(4), 378–395. <a href="https://doi.org/10.1016/j.biosystemseng.2011.08.005" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2011.08.005</a></li>
+        <li>Katzin, D., van Mourik, S., Kempkes, F., &amp; van Henten, E. J. (2020). GreenLight – An open source model for greenhouses with supplemental lighting: Evaluation of heat requirements under LED and HPS lamps. <em>Biosystems Engineering</em>, 194, 61–81. <a href="https://doi.org/10.1016/j.biosystemseng.2020.03.010" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2020.03.010</a> (parameters taken from the open-source code, <a href="https://github.com/davkat1/GreenLight" target="_blank" rel="noopener">github.com/davkat1/GreenLight</a>)</li>
+        <li>Katzin, D. (2021). <em>Energy saving by LED lighting in greenhouses: A process-based modelling approach</em> [PhD thesis, Wageningen University]. <a href="https://doi.org/10.18174/544434" target="_blank" rel="noopener">doi:10.18174/544434</a></li>
+        <li>Stanghellini, C. (1987). <em>Transpiration of greenhouse crops: An aid to climate management</em> [PhD thesis, Wageningen University]. <a href="https://doi.org/10.18174/202121" target="_blank" rel="noopener">doi:10.18174/202121</a></li>
+        <li>Stanghellini, C., &amp; de Jong, T. (1995). A model of humidity and its applications in a greenhouse. <em>Agricultural and Forest Meteorology</em>, 76(2), 129–148. <a href="https://doi.org/10.1016/0168-1923(95)02220-R" target="_blank" rel="noopener">doi:10.1016/0168-1923(95)02220-R</a></li>
+        <li>Boulard, T., &amp; Baille, A. (1995). Modelling of air exchange rate in a greenhouse equipped with continuous roof vents. <em>Journal of Agricultural Engineering Research</em>, 61(1), 37–47. <a href="https://doi.org/10.1006/jaer.1995.1028" target="_blank" rel="noopener">doi:10.1006/jaer.1995.1028</a></li>
+        <li>Bot, G. P. A. (1983). <em>Greenhouse climate: From physical processes to a dynamic model</em> [PhD thesis, Agricultural University Wageningen].</li>
+        <li>de Zwart, H. F. (1996). <em>Analyzing energy-saving options in greenhouse cultivation using a simulation model</em> [PhD thesis, Wageningen University]. <a href="https://doi.org/10.18174/195238" target="_blank" rel="noopener">doi:10.18174/195238</a></li>
+        <li>Farquhar, G. D., von Caemmerer, S., &amp; Berry, J. A. (1980). A biochemical model of photosynthetic CO₂ assimilation in leaves of C₃ species. <em>Planta</em>, 149(1), 78–90. <a href="https://doi.org/10.1007/BF00386231" target="_blank" rel="noopener">doi:10.1007/BF00386231</a></li>
+        <li>Parton, W. J., &amp; Logan, J. A. (1981). A model for diurnal variation in soil and air temperature. <em>Agricultural Meteorology</em>, 23, 205–216. <a href="https://doi.org/10.1016/0002-1571(81)90105-9" target="_blank" rel="noopener">doi:10.1016/0002-1571(81)90105-9</a></li>
+        <li>Brutsaert, W. (1975). On a derivable formula for long-wave radiation from clear skies. <em>Water Resources Research</em>, 11(5), 742–744. <a href="https://doi.org/10.1029/WR011i005p00742" target="_blank" rel="noopener">doi:10.1029/WR011i005p00742</a></li>
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56). FAO. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">fao.org</a></li>
+        <li>NASA Langley Research Center. (2026). <em>POWER Project Climatology API v2.10: monthly climatology January 2001 – December 2020</em> (parameters ALLSKY_KT, T2M_RANGE, T2MDEW, WS10M, ALLSKY_SFC_LW_DWN). Retrieved September 2026 from <a href="https://power.larc.nasa.gov/" target="_blank" rel="noopener">power.larc.nasa.gov</a></li>
+        <li>SMHI. (2021). <em>Dataserier med normalvärden för perioden 1991–2020</em> [Monthly normal temperatures, station Västerås 96350]. Swedish Meteorological and Hydrological Institute. <a href="https://www.smhi.se/data/temperatur-och-vind/temperatur/dataserier-med-normalvarden-for-perioden-1991-2020" target="_blank" rel="noopener">smhi.se</a></li>
+        <li>AEMET. (n.d.). <em>Valores climatológicos normales: Almería Aeropuerto (6325O), 1981–2010</em>. Agencia Estatal de Meteorología. <a href="https://www.aemet.es/en/serviciosclimaticos/datosclimatologicos/valoresclimatologicos?l=6325O&amp;k=and" target="_blank" rel="noopener">aemet.es</a></li>
+        <li>NOAA Global Monitoring Laboratory. (2026). <em>Trends in atmospheric carbon dioxide: global annual mean 2025 = 425.62 ppm</em>. Retrieved September 2026 from <a href="https://gml.noaa.gov/ccgg/trends/global.html" target="_blank" rel="noopener">gml.noaa.gov</a></li>
+        <li>Yunis, H., Shtienberg, D., Elad, Y., &amp; Mahrer, Y. (1994). Qualitative approach for modelling outbreaks of grey mould epidemics in non-heated cucumber greenhouses. <em>Crop Protection</em>, 13(2), 99–104. <a href="https://doi.org/10.1016/0261-2194(94)90158-9" target="_blank" rel="noopener">doi:10.1016/0261-2194(94)90158-9</a></li>
+        <li>Elad, Y., Vivier, M., &amp; Fillinger, S. (Eds.) (2016). <em>Botrytis – the fungus, the pathogen and its management in agricultural systems</em>. Springer. <a href="https://doi.org/10.1007/978-3-319-23371-0" target="_blank" rel="noopener">doi:10.1007/978-3-319-23371-0</a></li>
+        <li>Hemming, S., de Zwart, F., Elings, A., Righini, I., &amp; Petropoulou, A. (2019). Remote control of greenhouse vegetable production with artificial intelligence—greenhouse climate, irrigation, and crop production. <em>Sensors</em>, 19(8), 1807. <a href="https://doi.org/10.3390/s19081807" target="_blank" rel="noopener">doi:10.3390/s19081807</a></li>
+        <li>Hemming, S., de Zwart, F., Elings, A., Petropoulou, A., &amp; Righini, I. (2020). Cherry tomato production in intelligent greenhouses—Sensors and AI for control of climate, irrigation, crop yield, and quality. <em>Sensors</em>, 20(22), 6430. <a href="https://doi.org/10.3390/s20226430" target="_blank" rel="noopener">doi:10.3390/s20226430</a></li>
+        <li>Stanghellini, C., van 't Ooster, B., &amp; Heuvelink, E. (2019). <em>Greenhouse horticulture: Technology for optimal crop production</em>. Wageningen Academic Publishers. <a href="https://doi.org/10.3920/978-90-8686-879-7" target="_blank" rel="noopener">doi:10.3920/978-90-8686-879-7</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

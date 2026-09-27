@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lettuce digital twin · Future Food Production</title>
+<meta name="description" content="A 3D lettuce crop and its digital twin: the Van Henten (1994) growth model, daily camera or weighing data assimilated with an ensemble Kalman filter, a learned uncertain parameter and a harvest-date forecast whose uncertainty shrinks as data arrive.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live calculator for Eq. T2–T3: Van Henten (1994) gross canopy photosynthesis per m² of effective leaf surface. */
+window.FFP_CALC = window.FFP_CALC || {};
+FFP_CALC.vhPhot = function (v) {
+  var I = v.ppfd / 4.57, C = v.co2 * 1.83e-6, T = v.T;
+  var G = 7.32e-5 * Math.pow(2, (T - 20) / 10);
+  var eps = 17e-9 * Math.max(0, C - G) / (C + 2 * G);
+  var Tc = Math.min(39.5, Math.max(5.5, T));
+  var gcar = Math.max(1e-6, -1.32e-5 * Tc * Tc + 5.94e-4 * Tc - 2.64e-3);
+  var g = 1 / (1 / 0.004 + 1 / 0.007 + 1 / gcar);
+  var a = eps * I, b = g * Math.max(0, C - G);
+  return (a + b > 0 ? a * b / (a + b) : 0) / 44e-9;
+};
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+#stage { aspect-ratio: 16 / 10; }
+.tw-mask { padding: 8px 10px 6px; }
+.tw-mask canvas { display: block; width: 196px; height: 144px; border-radius: 6px; margin: 5px 0 4px; }
+.tw-mask-title { font: 650 .66rem var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: #9be7b6; }
+.tw-mask-note { font: 500 .7rem var(--font-mono); color: #e6eee9; max-width: 196px; }
+.tw-info { left: auto; right: 12px; bottom: 40px; max-width: min(400px, 60%); line-height: 1.45; font: 500 .75rem var(--font-sans); }
+.tw-info b { color: #9be7b6; }
+@media (max-width: 760px) { .tw-mask canvas { width: 140px; height: 103px; } .tw-mask-note { display: none; } }
+</style>
+</head>
+<body data-page="lab" data-slug="lettuce-digital-twin">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Lettuce digital twin</h1>
+    <p class="lead">A lettuce crop grows under LEDs — and beside it grows its digital twin: an ensemble of Eldert van Henten's classic lettuce growth model, each copy slightly different. Every day at noon a camera photographs the tray. An ensemble Kalman filter uses the picture to correct the twin's state and to learn a parameter nobody knows exactly, and the twin forecasts the day on which the heads reach their harvest weight. Watch the forecast uncertainty shrink as data arrive, discover when a camera stops being informative, and see what it takes for a digital model to become a digital shadow and, finally, a true digital twin.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Growth: physical crop, twin and measurements</h3>
+      <div class="chart-sub">Structural dry weight per plant on a logarithmic axis (fresh weight when the weighing gutter is selected): the hidden truth, the twin's ensemble mean with its 90 % band, the same model without data, and every noon measurement with its ±1σ error bar. Ticks along the bottom mark images that were rejected because the canopy had closed.</div>
+      <div class="chart" id="chart-growth" style="height:340px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Fresh weight and the harvest forecast</h3>
+      <div class="chart-sub">Up to now: the crop and the twin. From now on (blue): the ensemble forecast of fresh weight per head with 50 % and 90 % bands, assuming today's climate is kept. The forecast harvest day is where the median crosses the target.</div>
+      <div class="chart" id="chart-fw" style="height:340px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Learning the uncertain parameter</h3>
+      <div class="chart-sub">The twin's estimate of the chosen parameter as a multiple of Van Henten's value, with its 90 % band. Grey: the prior range before any data; green: the truth (teacher view).</div>
+      <div class="chart" id="chart-param" style="height:320px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>How the harvest forecast converges</h3>
+      <div class="chart-sub">Each day's forecast of the harvest day: the twin (magenta, 50 % and 90 % bands) and the same model without data (grey). The sideways histogram is today's ensemble distribution; the dotted diagonal is “today”.</div>
+      <div class="chart" id="chart-harvest" style="height:320px"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ============================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of one crop</h2>
+      <p>The simulation starts automatically at one day per second, with plants transplanted at 20 plants m⁻² under 200 µmol m⁻² s⁻¹ for 16 h (a daily light integral of 11.5 mol m⁻² d⁻¹), 20 °C and 600 µmol mol⁻¹ CO₂.</p>
+      <ol>
+        <li><strong>Two lettuces.</strong> On the left, the physical crop in a deep-water-culture tray. On the right, its digital twin: the cyan hologram is the ensemble's mean state, and each glowing dot on the glass gauge is one ensemble member, placed at its fresh weight as a fraction of the harvest target (amber ring). With the teacher view on, the green ring marks the truth.</li>
+        <li><strong>Noon.</strong> Every day at 12:00 the top camera flashes, a green stream of data flows to the twin, and the segmentation mask in the corner updates. The filter compares the measured and predicted structural dry weight and nudges every member towards the data.</li>
+        <li><strong>Learning.</strong> The physical crop's light-use efficiency differs from Van Henten's value by a hidden factor. Watch the magenta band in <em>Learning the uncertain parameter</em> close in on the green line during the first week, and the dots on the gauge bunch together.</li>
+        <li><strong>Forecasting.</strong> In <em>How the harvest forecast converges</em> the grey band (the model without data) stays wide, while the magenta band narrows around the true harvest day.</li>
+        <li><strong>Canopy closure.</strong> Around day 10–12 the heads touch: the projected area stops growing, and the pipeline rejects the images (ticks along the bottom of the growth chart, <em>canopy closed</em> in the mask). From now on the twin predicts without correction, and its uncertainty stops shrinking.</li>
+        <li><strong>A better sensor.</strong> Select the <em>Weighing gutter</em> and press <em>Reset</em> (the same physical twin is kept). Fresh weight stays informative until harvest, and the forecast band keeps narrowing.</li>
+        <li><strong>Model, shadow, twin.</strong> Choose <em>Model</em>: no data flow in and the twin's band equals the grey one. Choose <em>Twin</em> and a delivery day: now the twin also acts on the crop — a magenta stream flows from the twin to the lamps, the PPFD slider moves by itself every noon, and the crop is steered to its delivery date.</li>
+        <li><strong>Draw a new physical twin</strong> and repeat. Then try the other uncertain parameters: the leaf-area ratio (which also changes what the camera sees) and the maximum growth rate (which the camera reveals surprisingly well, although it hardly changes the harvest date).</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A mechanistic model tells you what <em>should</em> happen; measurements tell you what <em>is</em> happening, noisily and incompletely. Data assimilation combines the two, weighting each by its uncertainty. The result — a model that tracks one particular crop and knows how uncertain it is — is what makes a twin useful for decisions such as the harvest date.</p></div>
+    </section>
+
+    <!-- ============================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Model, shadow or twin?</h2>
+      <p>“Digital twin” is used loosely. Kritzinger et al. (2018) proposed a useful, strict classification based on how data flow between the physical object and its digital counterpart (Figure 1). A <strong>digital model</strong> exchanges no data automatically: it is set up by hand and run. A <strong>digital shadow</strong> receives data from the physical object automatically — its state follows reality — but acts on nothing. Only when data also flow back automatically, so that the digital object steers the physical one, do we speak of a <strong>digital twin</strong>. Reviews of agricultural “digital twins” find that many are, in this sense, models or shadows (Pylianidis et al., 2021), and that the added value lies in the combination of real-time data, a trustworthy model and the ability to act (Verdouw et al., 2021).</p>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 740 230" role="img" aria-label="Three panels comparing digital model, digital shadow and digital twin: in the model, data move manually in both directions; in the shadow, data move automatically from the physical crop to the digital object and manually back; in the twin, data move automatically in both directions">
+          <defs><marker id="tw-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <g font-size="12">
+            <text x="120" y="22" text-anchor="middle" class="t-small" font-weight="700">Digital model</text>
+            <text x="370" y="22" text-anchor="middle" class="t-small" font-weight="700">Digital shadow</text>
+            <text x="620" y="22" text-anchor="middle" class="t-small" font-weight="700">Digital twin</text>
+          </g>
+          <g>
+            <rect x="40" y="40" width="160" height="50" rx="10" class="fill-accent-soft" stroke="var(--accent)" stroke-width="1.5"/><text x="120" y="70" text-anchor="middle" class="t-small">physical crop</text>
+            <rect x="40" y="150" width="160" height="50" rx="10" class="fill-water-soft" stroke="var(--water)" stroke-width="1.5"/><text x="120" y="180" text-anchor="middle" class="t-small">digital object</text>
+            <line x1="95" y1="92" x2="95" y2="147" class="stroke-muted" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#tw-a)"/>
+            <line x1="145" y1="148" x2="145" y2="93" class="stroke-muted" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#tw-a)"/>
+            <text x="120" y="222" text-anchor="middle" class="t-small t-muted">manual ↓ · manual ↑</text>
+          </g>
+          <g>
+            <rect x="290" y="40" width="160" height="50" rx="10" class="fill-accent-soft" stroke="var(--accent)" stroke-width="1.5"/><text x="370" y="70" text-anchor="middle" class="t-small">physical crop</text>
+            <rect x="290" y="150" width="160" height="50" rx="10" class="fill-water-soft" stroke="var(--water)" stroke-width="1.5"/><text x="370" y="180" text-anchor="middle" class="t-small">digital object</text>
+            <line x1="345" y1="92" x2="345" y2="147" class="stroke-accent" stroke-width="2.4" marker-end="url(#tw-a)" color="var(--accent)"/>
+            <line x1="395" y1="148" x2="395" y2="93" class="stroke-muted" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#tw-a)"/>
+            <text x="370" y="222" text-anchor="middle" class="t-small t-muted">automatic ↓ · manual ↑</text>
+          </g>
+          <g>
+            <rect x="540" y="40" width="160" height="50" rx="10" class="fill-accent-soft" stroke="var(--accent)" stroke-width="1.5"/><text x="620" y="70" text-anchor="middle" class="t-small">physical crop</text>
+            <rect x="540" y="150" width="160" height="50" rx="10" class="fill-water-soft" stroke="var(--water)" stroke-width="1.5"/><text x="620" y="180" text-anchor="middle" class="t-small">digital object</text>
+            <line x1="595" y1="92" x2="595" y2="147" class="stroke-accent" stroke-width="2.4" marker-end="url(#tw-a)" color="var(--accent)"/>
+            <line x1="645" y1="148" x2="645" y2="93" class="stroke-magenta" stroke-width="2.4" marker-end="url(#tw-a)" color="var(--magenta)"/>
+            <text x="620" y="222" text-anchor="middle" class="t-small t-muted">automatic ↓ · automatic ↑</text>
+          </g>
+          <text x="352" y="124" class="t-small" style="fill:var(--accent)">images</text>
+          <text x="652" y="124" class="t-small" style="fill:var(--magenta)">PPFD</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> Digital model, shadow and twin (after Kritzinger et al., 2018). The <em>Model · shadow · twin</em> control of the laboratory switches between the three: no data, camera data flowing in, and camera data in plus light set-points flowing back out.</figcaption>
+      </figure>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“A digital twin is a detailed 3D model.” The hologram in this laboratory is decoration. What makes the twin a twin is invisible: a validated process model, a stream of measurements, an estimate of uncertainty, and a feedback path to the real system. A crude model that is continuously corrected by data can be far more useful than a beautiful one that is not.</p></div>
+
+      <h2 data-nonum>The crop model: structure and reserves</h2>
+      <p>The twin's engine is the two-state lettuce model that Eldert van Henten developed for the optimal control of greenhouse climate (Van Henten, 1994; Van Henten &amp; Van Straten, 1994). It divides the dry matter of the crop into two pools (Figure 2). Photosynthesis fills the <strong>non-structural pool</strong> \(X_n\) — sugars and starch. From it the plant builds the <strong>structural pool</strong> \(X_s\) — cell walls and cytoplasm — at a rate that grows with the reserve fraction and with temperature, and pays for maintenance and for the construction costs of new tissue. Leaf area, and thus light interception, is proportional to the structural pool. This feedback — more structure, more leaf area, more light caught, more sugar — produces the exponential early growth of a young crop; once the canopy closes, interception saturates and growth becomes nearly linear.</p>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 740 290" role="img" aria-label="Flow diagram of the Van Henten lettuce model: light, CO2 and temperature drive canopy photosynthesis into the non-structural pool; maintenance respiration and growth respiration leave it; growth transfers material into the structural pool; the structural pool sets leaf area, which feeds back to light interception; fresh weight is proportional to total dry weight">
+          <defs><marker id="tw-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <rect x="16" y="30" width="150" height="70" rx="10" class="fill-amber-soft" stroke="var(--amber)" stroke-width="1.4"/>
+          <text x="91" y="52" text-anchor="middle" class="t-small" font-weight="650">climate</text><text x="91" y="70" text-anchor="middle" class="t-small">PAR (from PPFD)</text><text x="91" y="86" text-anchor="middle" class="t-small">CO₂ · temperature</text>
+          <line x1="166" y1="65" x2="222" y2="65" class="stroke" stroke-width="1.6" marker-end="url(#tw-b)"/>
+          <rect x="224" y="36" width="150" height="58" rx="10" class="fill-accent-soft" stroke="var(--accent)" stroke-width="1.4"/>
+          <text x="299" y="60" text-anchor="middle" class="t-small" font-weight="650">canopy photosynthesis</text><text x="299" y="78" text-anchor="middle" class="t-small">c<tspan dy="3" font-size="9">α</tspan><tspan dy="-3"> φ</tspan><tspan dy="3" font-size="9">phot</tspan></text>
+          <line x1="374" y1="65" x2="440" y2="65" class="stroke" stroke-width="1.8" marker-end="url(#tw-b)"/>
+          <rect x="442" y="30" width="130" height="70" rx="12" class="fill-sunk" stroke="currentColor" stroke-width="1.6"/>
+          <text x="507" y="58" text-anchor="middle" class="t-small" font-weight="700">reserves X<tspan dy="3" font-size="9">n</tspan></text><text x="507" y="78" text-anchor="middle" class="t-small t-muted">sugars, starch</text>
+          <line x1="507" y1="100" x2="507" y2="178" class="stroke" stroke-width="2" marker-end="url(#tw-b)"/><text x="515" y="145" class="t-small">growth r<tspan dy="3" font-size="9">gr</tspan><tspan dy="-3">X</tspan><tspan dy="3" font-size="9">s</tspan></text>
+          <rect x="442" y="180" width="130" height="70" rx="12" class="fill-sunk" stroke="currentColor" stroke-width="1.6"/>
+          <text x="507" y="208" text-anchor="middle" class="t-small" font-weight="700">structure X<tspan dy="3" font-size="9">s</tspan></text><text x="507" y="228" text-anchor="middle" class="t-small t-muted">cell walls, cytoplasm</text>
+          <line x1="572" y1="50" x2="660" y2="30" class="stroke-danger" stroke-width="1.6" marker-end="url(#tw-b)" color="var(--danger)"/><text x="600" y="24" class="t-small" style="fill:var(--danger)">maintenance φ<tspan dy="3" font-size="9">resp</tspan></text>
+          <line x1="572" y1="85" x2="660" y2="105" class="stroke-danger" stroke-width="1.6" marker-end="url(#tw-b)" color="var(--danger)"/><text x="600" y="126" class="t-small" style="fill:var(--danger)">growth losses (1−c<tspan dy="3" font-size="9">β</tspan><tspan dy="-3">)/c</tspan><tspan dy="3" font-size="9">β</tspan></text>
+          <path d="M442 215 L299 215 L299 96" class="stroke-magenta" stroke-width="1.6" stroke-dasharray="6 4" fill="none" marker-end="url(#tw-b)" color="var(--magenta)"/>
+          <text x="308" y="236" class="t-small" style="fill:var(--magenta)">leaf area → interception</text><text x="308" y="253" class="t-small" style="fill:var(--magenta)">LAI = c<tspan dy="3" font-size="9">lar,s</tspan><tspan dy="-3">(1−c</tspan><tspan dy="3" font-size="9">τ</tspan><tspan dy="-3">)X</tspan><tspan dy="3" font-size="9">s</tspan></text>
+          <path d="M572 232 L604 232 L604 262" class="stroke" stroke-width="1.4" fill="none" marker-end="url(#tw-b)"/><text x="612" y="258" class="t-small">fresh weight</text><text x="612" y="276" class="t-small">c<tspan dy="3" font-size="9">fw</tspan><tspan dy="-3">(X</tspan><tspan dy="3" font-size="9">n</tspan><tspan dy="-3">+X</tspan><tspan dy="3" font-size="9">s</tspan><tspan dy="-3">)(1−c</tspan><tspan dy="3" font-size="9">τ</tspan><tspan dy="-3">)</tspan></text>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> The two-state lettuce model of Van Henten (1994). Solid arrows are mass flows, dashed the leaf-area feedback that makes young crops grow exponentially. The equations are T1–T5 in the Derive tab.</figcaption>
+      </figure>
+      <p>All parameters come from Table 3.2 of Van Henten's thesis: most from the crop-physiology literature, the structural leaf-area ratio \(c_{\text{lar,s}}\) by calibration on a greenhouse experiment with the cultivar ‘Berlo’, validated on a second experiment with ‘Norden’, where the model slightly underestimated growth — Van Henten suspected exactly that calibrated leaf-area ratio. Van Henten and Van Straten (1994) showed that growth in the model is controlled by only a handful of parameters: the yield factor, the light-use efficiency, the maximum growth rate, the extinction coefficient and the leaf-area ratio. These are the natural candidates for a twin to learn.</p>
+      <div class="callout warn"><div class="callout-title">Using a model outside its calibration</div><p>Van Henten calibrated the model for Dutch winter greenhouses: low light and short days. Under the high, constant LED light of a plant factory it produces plausible growth rates, but its non-structural pool swells to 60–70 % of the dry weight in the first week — far more than the sugars measured in lettuce. That is a sign that conversion into structure (\(c_{\text{r,gr,max}}\)), rather than photosynthesis, limits growth in the model under these conditions. Every model has such a domain of validity; one of the jobs of a digital twin is to reveal where it ends.</p></div>
+
+      <h2 data-nonum>Measuring growth without harvesting</h2>
+      <p>A twin needs frequent data about the very crop it represents, so the measurement must be non-destructive. A top-view camera and colour segmentation (<a href="/laboratories/plant-vision/">plant vision laboratory</a>) give the <strong>projected leaf area</strong> and the fraction of the tray covered by leaves. In the model, the cover follows the same exponential law as light interception, so the image can be inverted into an estimate of structural dry weight. The inversion works beautifully for young, separate plants — and breaks down as the canopy closes: when 90 % of the tray is green, a 1 % error in the green area becomes a 4 % error in mass; at 99 % cover, the image says almost nothing (Eq. T6). This is a real limitation of top-view imaging (Zhang et al., 2020), which is why commercial systems add 3D cameras, re-space the plants or weigh them.</p>
+
+      <div class="callout note"><div class="callout-title">What a sensor cannot see, a twin cannot learn</div><p>In Van Henten's model, extra photosynthesis first fills the reserve pool; as long as reserves are plentiful, structure grows at a rate set by \(c_{\text{r,gr,max}}\) rather than by light. A top camera sees only structure. A crop whose light-use efficiency is 15–20 % below the model's can therefore look exactly like the model for a week or more — and sometimes the canopy closes before the difference becomes visible. Draw several physical twins and you will see the twin learn \(c_\varepsilon\) quickly for some and hardly at all for others. The weighing gutter, which feels reserves as well as structure, learns it within days, and the camera learns the leaf-area ratio — the parameter it literally looks at — very well. This is <em>identifiability</em>: whether data can pin down a parameter depends on what the sensors observe and on when they observe it.</p></div>
+
+      <h2 data-nonum>Data assimilation with an ensemble Kalman filter</h2>
+      <p>Imagine sixty versions of the crop, all started from slightly different transplant sizes and each with its own value of the uncertain parameter drawn from a prior distribution. The ensemble is the twin's uncertainty made concrete. Between measurements, every member is simply run forward with the model and its own random day-to-day variation, so the ensemble spreads (the <em>forecast step</em>). When a measurement arrives, the filter compares it with what each member predicts and shifts every member towards the data (the <em>analysis step</em>) by an amount set by the Kalman gain: large if the ensemble is uncertain and the measurement precise, small in the opposite case (Figure 3). Because the correlations inside the ensemble link the measured quantity to everything else, the analysis also corrects unmeasured variables — the reserve pool and the parameter. This is the ensemble Kalman filter (Evensen, 1994; Burgers et al., 1998), used for weather forecasting and for crop-yield forecasting alike (de Wit &amp; van Diepen, 2007); treating a parameter as an extra state variable is called state augmentation (Evensen, 2009).</p>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 740 240" role="img" aria-label="The data-assimilation cycle: the ensemble forecast spreads out between measurements; at a measurement the prior distribution is combined with the measurement likelihood into a narrower posterior; the posterior ensemble is forecast again">
+          <defs><marker id="tw-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <line x1="30" y1="200" x2="720" y2="200" class="stroke" stroke-width="1.2"/><text x="690" y="220" class="t-small t-muted">time</text>
+          <path d="M40 120 C 120 110, 170 70, 250 60" class="stroke-magenta" stroke-width="1.2" fill="none" opacity=".8"/><path d="M40 120 C 120 118, 170 110, 250 100" class="stroke-magenta" stroke-width="1.2" fill="none" opacity=".8"/><path d="M40 120 C 120 125, 170 140, 250 150" class="stroke-magenta" stroke-width="1.2" fill="none" opacity=".8"/><path d="M40 120 C 120 115, 170 95, 250 82" class="stroke-magenta" stroke-width="1.2" fill="none" opacity=".8"/><path d="M40 120 C 120 122, 170 128, 250 128" class="stroke-magenta" stroke-width="1.2" fill="none" opacity=".8"/>
+          <text x="80" y="180" class="t-small" style="fill:var(--magenta)">forecast: ensemble spreads</text>
+          <path d="M262 50 C 300 50, 300 160, 262 160" class="stroke-magenta" stroke-width="2" fill="none"/><text x="300" y="46" class="t-small" style="fill:var(--magenta)">prior</text>
+          <path d="M262 95 C 280 95, 280 125, 262 125" class="stroke-amber" stroke-width="2" fill="none"/><circle cx="262" cy="110" r="5" class="fill-amber"/><text x="300" y="172" class="t-small" style="fill:var(--amber)">measurement ±σ</text>
+          <path d="M262 98 C 290 98, 290 122, 262 122" class="stroke-accent" stroke-width="2.6" fill="none"/><text x="300" y="154" class="t-small" style="fill:var(--accent)">posterior (analysis)</text>
+          <line x1="262" y1="40" x2="262" y2="200" class="stroke-muted" stroke-dasharray="3 3"/><text x="262" y="218" text-anchor="middle" class="t-small">noon</text>
+          <path d="M270 110 C 350 104, 420 80, 500 74" class="stroke-magenta" stroke-width="1.2" fill="none" opacity=".8"/><path d="M270 110 C 350 108, 420 100, 500 98" class="stroke-magenta" stroke-width="1.2" fill="none" opacity=".8"/><path d="M270 110 C 350 114, 420 122, 500 126" class="stroke-magenta" stroke-width="1.2" fill="none" opacity=".8"/><path d="M270 110 C 350 110, 420 110, 500 112" class="stroke-magenta" stroke-width="1.2" fill="none" opacity=".8"/>
+          <line x1="512" y1="40" x2="512" y2="200" class="stroke-muted" stroke-dasharray="3 3"/><text x="512" y="218" text-anchor="middle" class="t-small">noon</text>
+          <path d="M512 72 C 540 72, 540 128, 512 128" class="stroke-magenta" stroke-width="2" fill="none"/><path d="M512 90 C 530 90, 530 110, 512 110" class="stroke-accent" stroke-width="2.6" fill="none"/>
+          <path d="M520 100 C 600 97, 660 92, 715 90" class="stroke-magenta" stroke-width="1.2" fill="none"/><path d="M520 100 C 600 102, 660 106, 715 108" class="stroke-magenta" stroke-width="1.2" fill="none"/>
+          <text x="545" y="150" class="t-small t-muted">narrower each cycle —</text><text x="545" y="166" class="t-small t-muted">as long as the measurements</text><text x="545" y="182" class="t-small t-muted">carry information</text>
+        </svg></div>
+        <figcaption><b>Figure 3.</b> The forecast–analysis cycle of the ensemble Kalman filter. Each analysis combines the prior spread of the ensemble with the measurement error; the posterior is narrower than both.</figcaption>
+      </figure>
+      <p>Two practical details matter. First, positive quantities such as masses are assimilated as logarithms, so that a 10 % error means the same at 1 g and at 100 g. Second, an ensemble that has learned a parameter tends to become over-confident and stop learning (<em>filter collapse</em>); a small random walk of the parameter keeps it alert, and also lets it follow a parameter that drifts, for example as the crop ages.</p>
+
+      <h2 data-nonum>From state to decision: forecasting and steering</h2>
+      <p>To forecast the harvest, the twin runs every member forward — with its own state, its own parameter and fresh random weather-like variation — until its fresh weight reaches the target. The distribution of these <em>first-passage times</em> is the harvest forecast, and its width tells the grower how far ahead a sale can be promised. In <em>Twin</em> mode the laboratory closes the loop: every noon the twin searches for the light intensity that brings its median forecast onto the delivery day, and the lamps follow. It is a simple predictive controller — the same idea as the MPC of the <a href="/laboratories/climate-controller/">climate controller laboratory</a> — and it shows the twin's economic value: when the crop is ahead of schedule, the twin dims the lamps and saves electricity.</p>
+      <div class="callout frontier"><div class="callout-title">Frontier (2024–2026)</div><p>Research groups and vertical-farm companies are coupling crop models, 3D imaging and data assimilation into operational twins, and autonomous-greenhouse competitions have shown that algorithms can grow complete crop cycles in research-scale greenhouse compartments (96 m²) with little human intervention (see <a href="/lessons/control-optimisation/">Lesson 10.4</a> and <a href="/lessons/digital-twins/">Lesson 10.5</a>). The open problems are less about algorithms than about trustworthy models, calibrated sensors, data ownership and knowing when a twin is wrong.</p></div>
+    </section>
+
+    <!-- ============================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the twin</h2>
+      <p>Equations T1–T5 are Van Henten's two-state lettuce model exactly as published (thesis Eqs. 3.10–3.21, parameters of Table 3.2), with the radiation input written as PAR at the canopy instead of outside global radiation. They are integrated per square metre of ground with a fourth-order Runge–Kutta method (steps ≤ 1 h, split at lamp switching). Equations T6–T9 describe the measurements, the filter and the forecasts.</p>
+
+      <div class="eq-box" id="eq-tw-states">
+        <div class="eq-head"><span class="eq-label">State equations: reserves and structure</span><span class="eq-num">(T1)</span></div>
+        <div class="eq-main">\[ \frac{\mathrm dX_n}{\mathrm dt} = c_\alpha\,\varphi_{\text{phot}} - r_{\text{gr}}X_s - \varphi_{\text{resp}} - \frac{1-c_\beta}{c_\beta}\,r_{\text{gr}}X_s,\qquad \frac{\mathrm dX_s}{\mathrm dt} = r_{\text{gr}}X_s \]</div>
+        <p class="eq-read">the reserve pool grows with the sugar produced by photosynthesis and shrinks by the material turned into structure, by maintenance respiration and by the respiratory cost of building new structure; the structural pool grows at the relative rate \(r_{\text{gr}}\).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value (Van Henten, 1994)</th></tr>
+          <tr><td>\(X_n, X_s\)</td><td>non-structural and structural dry weight per m² of ground</td><td>kg m⁻²</td><td>initial total 2.7 × 10⁻³, 75 % structural</td></tr>
+          <tr><td>\(\varphi_{\text{phot}}\)</td><td>gross canopy CO₂ uptake (T2)</td><td>kg CO₂ m⁻² s⁻¹</td><td>–</td></tr>
+          <tr><td>\(c_\alpha\)</td><td>CO₂ → sugar conversion (30/44)</td><td>–</td><td>0.68</td></tr>
+          <tr><td>\(c_\beta\)</td><td>yield factor: structure formed per unit of sugar used for growth</td><td>–</td><td>0.8</td></tr>
+          <tr><td>\(r_{\text{gr}}\), \(\varphi_{\text{resp}}\)</td><td>specific growth rate; maintenance respiration (T4)</td><td>s⁻¹; kg m⁻² s⁻¹</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Mass balance of the reserve pool: input from photosynthesis (converted from CO₂ to CH₂O with \(c_\alpha = 30/44\)), outputs to growth and respiration.</li>
+            <li>To make one kilogram of structure the plant spends \(1/c_\beta\) kg of sugar: 1 kg ends up in the structure, \((1-c_\beta)/c_\beta\) kg is respired to supply energy (growth respiration).</li>
+            <li>The structural pool only grows; nothing leaves it (no senescence in this model).</li>
+            <li>Fresh weight is proportional to total dry weight (T5), so both pools count for the harvest.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Well-mixed pools with no distinction between organs other than a fixed root fraction; no senescence, no tipburn, no nutrient or water limitation. Validated on greenhouse lettuce up to about 60 days (Van Henten, 1994).</p></details>
+        <div class="eq-units">Every term is in kg m⁻² s⁻¹: \(c_\alpha\varphi_{\text{phot}}\) (– × kg m⁻² s⁻¹), \(r_{\text{gr}}X_s\) (s⁻¹ × kg m⁻²) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-tw-phot">
+        <div class="eq-head"><span class="eq-label">Canopy photosynthesis and light interception</span><span class="eq-num">(T2)</span></div>
+        <div class="eq-main">\[ \varphi_{\text{phot}}=\varphi_{\text{phot,max}}\left(1-e^{-c_Kc_{\text{lar,s}}(1-c_\tau)X_s}\right),\qquad \varphi_{\text{phot,max}}=\frac{\varepsilon I\;\sigma_{\text{CO}_2}\,(X_c-\Gamma)}{\varepsilon I+\sigma_{\text{CO}_2}\,(X_c-\Gamma)} \]
+        \[ I = \frac{\text{PPFD}}{4.57\ \mu\text{mol J}^{-1}},\qquad X_c = 1.83\times10^{-6}\,C_{\text{ppm}} \]</div>
+        <p class="eq-read">canopy photosynthesis is the photosynthesis of a closed canopy times the fraction of light intercepted, which depends exponentially on leaf area. The closed-canopy rate combines a light-limited rate (efficiency times light) and a CO₂-limited rate (conductance times the CO₂ available above the compensation point) like two resistances in series.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(c_K\)</td><td>extinction coefficient (planophile canopy)</td><td>–</td><td>0.9</td></tr>
+          <tr><td>\(c_{\text{lar,s}}\)</td><td>shoot structural leaf-area ratio (calibrated)</td><td>m² kg⁻¹</td><td>75 (printed as 75 × 10⁻³, i.e. m² g⁻¹)</td></tr>
+          <tr><td>\(c_\tau\)</td><td>root share of total dry weight (NFT lettuce)</td><td>–</td><td>0.07</td></tr>
+          <tr><td>\(I\)</td><td>PAR at the canopy</td><td>W m⁻²</td><td>44 at 200 µmol m⁻² s⁻¹</td></tr>
+          <tr><td>\(X_c\)</td><td>CO₂ concentration (density 1.83 kg m⁻³)</td><td>kg m⁻³</td><td>1.10 × 10⁻³ at 600 ppm</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Leaf area index = structural leaf-area ratio × shoot structural weight = \(c_{\text{lar,s}}(1-c_\tau)X_s\); Beer's law gives the intercepted fraction \(1-e^{-c_K\,\text{LAI}}\) (Lesson 2.4, Eq. 2.4.4).</li>
+            <li>\(\varphi_{\text{phot,max}}\) is the gross rate of a canopy with 1 m² of effective leaf surface per m² of ground (Acock et al.'s (1978) formulation, extended by Van Henten with photorespiration and temperature effects).</li>
+            <li>The form \(ab/(a+b)\) is the rectangular hyperbola: nearly \(a\) (light-limited) when \(a\ll b\), nearly \(b\) (CO₂-limited) when \(a\gg b\).</li>
+            <li>Van Henten fed the model with outside solar radiation times the PAR fraction (0.5) and the roof transmission; under LEDs the PAR is known directly. The photon-to-energy factor 4.57 µmol J⁻¹ is the daylight value (Thimijan &amp; Heins, 1983).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A big-leaf canopy with uniform, diffuse light; for LED spectra richer in red the true factor is somewhat above 4.57 µmol J⁻¹, so the model receives slightly more PAR energy than a daylight-calibrated leaf would. The printed unit of \(c_{\text{lar,s}}\) in Table 3.2 is inconsistent with the kilogram-based states; only 75 m² kg⁻¹ gives the published growth curves.</p></details>
+        <div class="eq-units">\(\varepsilon I\): kg J⁻¹ × W m⁻² = kg m⁻² s⁻¹; \(\sigma(X_c-\Gamma)\): m s⁻¹ × kg m⁻³ = kg m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="vhPhot" data-output="Gross photosynthesis, closed canopy" data-unit="µmol CO₂ m⁻² s⁻¹" data-digits="1" data-plot="ppfd" data-ymin="0" data-title="Try it — light and CO₂ in Van Henten's canopy">
+          <div data-var="ppfd" data-label="PPFD" data-min="0" data-max="800" data-step="10" data-value="200" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="co2" data-label="CO₂" data-min="300" data-max="1500" data-step="10" data-value="600" data-unit="µmol mol⁻¹"></div>
+          <div data-var="T" data-label="Temperature" data-min="8" data-max="35" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-tw-co2">
+        <div class="eq-head"><span class="eq-label">Photorespiration, light-use efficiency and CO₂ conductance</span><span class="eq-num">(T3)</span></div>
+        <div class="eq-main">\[ \Gamma=c_\Gamma\,c_{Q10,\Gamma}^{(T-20)/10},\qquad \varepsilon=c_\varepsilon\,\frac{X_c-\Gamma}{X_c+2\Gamma} \]
+        \[ \frac{1}{\sigma_{\text{CO}_2}}=\frac{1}{c_{\text{bnd}}}+\frac{1}{c_{\text{stm}}}+\frac{1}{\sigma_{\text{car}}},\qquad \sigma_{\text{car}}=c_{\text{car},1}T^2+c_{\text{car},2}T+c_{\text{car},3} \]</div>
+        <p class="eq-read">the CO₂ compensation point doubles for every 10 °C; the light-use efficiency falls below its maximum as photorespiration competes with carboxylation; CO₂ reaches the chloroplasts through three conductances in series — boundary layer, stomata and the temperature-dependent carboxylation.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(c_\Gamma\), \(c_{Q10,\Gamma}\)</td><td>compensation point at 20 °C (40 ppm); its Q<sub>10</sub></td><td>kg m⁻³; –</td><td>7.32 × 10⁻⁵; 2</td></tr>
+          <tr><td>\(c_\varepsilon\)</td><td>light-use efficiency at very high CO₂</td><td>kg CO₂ J⁻¹</td><td>17 × 10⁻⁹</td></tr>
+          <tr><td>\(c_{\text{bnd}}, c_{\text{stm}}\)</td><td>boundary-layer and stomatal conductance</td><td>m s⁻¹</td><td>0.004; 0.007</td></tr>
+          <tr><td>\(c_{\text{car},1\ldots3}\)</td><td>carboxylation conductance polynomial (5–40 °C)</td><td>m s⁻¹ °C⁻², m s⁻¹ °C⁻¹, m s⁻¹</td><td>−1.32 × 10⁻⁵; 5.94 × 10⁻⁴; −2.64 × 10⁻³</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>\(c_\varepsilon = 17\times10^{-9}\) kg CO₂ J⁻¹ divided by \(4.57\times10^{-6}\) mol photons J⁻¹ gives \(3.7\times10^{-3}\) kg CO₂ per mol photons, a quantum yield of about 0.085 mol CO₂ per mol photons in the absence of photorespiration.</li>
+            <li>At 600 ppm and 20 °C, \((X_c-\Gamma)/(X_c+2\Gamma) = 560/680 = 0.82\): photorespiration costs 18 % of the light-limited rate; at 400 ppm it costs 25 %.</li>
+            <li>The polynomial for \(\sigma_{\text{car}}\) is zero at 5 and 40 °C and peaks at 22.5 °C with 4.0 × 10⁻³ m s⁻¹; in series with the other two conductances it gives \(\sigma_{\text{CO}_2}\approx 1.5\times10^{-3}\) m s⁻¹.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Constant stomatal and boundary-layer conductance (no humidity or wind effects); the carboxylation polynomial must not be used outside 5–40 °C (the simulator limits the temperature to that range).</p></details>
+        <div class="eq-units">\(\varepsilon\): kg J⁻¹ × (kg m⁻³ / kg m⁻³) = kg J⁻¹; conductances add as reciprocals in s m⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-tw-resp">
+        <div class="eq-head"><span class="eq-label">Maintenance respiration and the growth rate</span><span class="eq-num">(T4)</span></div>
+        <div class="eq-main">\[ \varphi_{\text{resp}}=\bigl(c_{\text{resp,s}}(1-c_\tau)+c_{\text{resp,r}}\,c_\tau\bigr)X_s\,c_{Q10,\text{resp}}^{(T-25)/10} \]
+        \[ r_{\text{gr}}=c_{\text{r,gr,max}}\,\frac{X_n}{X_s+X_n}\,c_{Q10,\text{gr}}^{(T-20)/10} \]</div>
+        <p class="eq-read">maintenance respiration is proportional to the structural mass of shoot and roots and doubles for every 10 °C; the specific growth rate is proportional to the reserve fraction of the dry matter and rises by 60 % for every 10 °C.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(c_{\text{resp,s}}, c_{\text{resp,r}}\)</td><td>maintenance respiration of shoot and root at 25 °C (0.03 and 0.01 d⁻¹)</td><td>s⁻¹</td><td>3.47 × 10⁻⁷; 1.16 × 10⁻⁷</td></tr>
+          <tr><td>\(c_{Q10,\text{resp}}\)</td><td>Q<sub>10</sub> of maintenance respiration</td><td>–</td><td>2</td></tr>
+          <tr><td>\(c_{\text{r,gr,max}}\)</td><td>saturation growth rate at 20 °C (0.43 d⁻¹)</td><td>s⁻¹</td><td>5 × 10⁻⁶</td></tr>
+          <tr><td>\(c_{Q10,\text{gr}}\)</td><td>Q<sub>10</sub> of growth</td><td>–</td><td>1.6</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Following Thornley and Hurd (1974), the use of reserves for growth depends on how much reserve there is relative to total dry matter — a Michaelis–Menten-like form with a half-saturation equal to the structure.</li>
+            <li>With a reserve fraction of 0.25 at 20 °C, \(r_{\text{gr}} = 0.43\times0.25 \approx 0.11\) d⁻¹; with 0.6 it is 0.26 d⁻¹ — the model's maximum relative growth rates of young lettuce.</li>
+            <li>At 20 °C the maintenance respiration of the shoot is \(0.03\times2^{-0.5}\approx0.021\) d⁻¹, a few per cent of the dry matter per day.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Q<sub>10</sub> responses are valid over the usual growing range; respiration is not acclimated. Because \(r_{\text{gr}}\) saturates, high light fills the reserve pool rather than the structure — the behaviour noted in the Explain tab.</p></details>
+        <div class="eq-units">\(\varphi_{\text{resp}}\): s⁻¹ × kg m⁻² = kg m⁻² s⁻¹; \(r_{\text{gr}}\): s⁻¹ × (–) ✓</div>
+        <div class="mini-calc" data-formula="0.432*fn*pow(1.6,(T-20)/10)" data-output="Specific growth rate r_gr" data-unit="d⁻¹" data-digits="3" data-plot="fn" data-ymin="0" data-title="Try it — reserves drive growth">
+          <div data-var="fn" data-label="Reserve fraction Xn/(Xn+Xs)" data-min="0" data-max="0.9" data-step="0.01" data-value="0.3"></div>
+          <div data-var="T" data-label="Temperature" data-min="8" data-max="32" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-tw-fw">
+        <div class="eq-head"><span class="eq-label">Fresh weight per head</span><span class="eq-num">(T5)</span></div>
+        <div class="eq-main">\[ Y_{\text{fw}} = c_{\text{fw}}\,(X_s+X_n)(1-c_\tau),\qquad \text{FW}_{\text{head}} = \frac{1000\,Y_{\text{fw}}}{\rho_p} \]</div>
+        <p class="eq-read">the fresh weight of the heads per square metre is the fresh-to-dry ratio times the shoot dry weight; dividing by the plant density gives grams per head.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(c_{\text{fw}}\)</td><td>fresh weight / dry weight (4.4 % dry matter)</td><td>–</td><td>22.5</td></tr>
+          <tr><td>\(\rho_p\)</td><td>plant density</td><td>plants m⁻²</td><td>20</td></tr>
+          <tr><td>\(\text{FW}_{\text{head}}\)</td><td>fresh weight per head; harvest when it reaches the target</td><td>g</td><td>target 250</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>A constant dry-matter content; in reality it rises with light and falls with fast growth. Re-spacing the plants (the density slider during a run) keeps the per-plant masses and changes the per-m² states.</p></details>
+        <div class="eq-units">kg m⁻² × 1000 g kg⁻¹ ÷ plants m⁻² = g plant⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="22.5*Xd*(1-0.07)/rho*1000" data-output="Fresh weight per head" data-unit="g" data-digits="0" data-plot="Xd" data-ymin="0" data-title="Try it — from dry matter per m² to grams per head">
+          <div data-var="Xd" data-label="Total dry weight X<sub>n</sub> + X<sub>s</sub>" data-min="0.002" data-max="0.3" data-step="0.002" data-value="0.2" data-unit="kg m⁻²"></div>
+          <div data-var="rho" data-label="Plant density" data-min="10" data-max="40" data-step="1" data-value="20" data-unit="plants m⁻²"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-tw-camera">
+        <div class="eq-head"><span class="eq-label">The camera measurement and its error</span><span class="eq-num">(T6)</span></div>
+        <div class="eq-main">\[ f = 1-e^{-\kappa X_s},\qquad \kappa=c_Kc_{\text{lar,s}}(1-c_\tau) \]
+        \[ \hat f = f\,e^{\sigma_I z},\ z\sim\mathcal N(0,1),\qquad \widehat{X}_s = -\frac{\ln(1-\hat f)}{\kappa},\qquad y=\ln\frac{1000\,\widehat X_s}{\rho_p} \]
+        \[ \sqrt{R}\approx\sigma_I\,A(f),\qquad A(f)=\frac{\mathrm d\ln X_s}{\mathrm d\ln f}=\frac{f}{(1-f)\,\bigl(-\ln(1-f)\bigr)} \]</div>
+        <p class="eq-read">the fraction of the tray covered by leaves follows the same exponential law as light interception. The pipeline inverts the measured cover into a structural dry weight per plant; its logarithm is what the filter assimilates. A relative error \(\sigma_I\) in projected area becomes a relative error \(A(f)\,\sigma_I\) in mass, and \(A\) grows without bound as the cover approaches 100 %.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(f, \hat f\)</td><td>true and measured cover (projected leaf area × plant density)</td><td>–</td><td>0–1</td></tr>
+          <tr><td>\(\sigma_I\)</td><td>segmentation error of projected area (log-SD)</td><td>–</td><td>0.08</td></tr>
+          <tr><td>\(A(f)\)</td><td>elasticity of the mass estimate with respect to area</td><td>–</td><td>1.1 at f = 0.2; 3.9 at 0.9</td></tr>
+          <tr><td>\(R\)</td><td>observation-error variance given to the filter</td><td>– (log units)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the elasticity</summary>
+          <ol class="steps">
+            <li>From \(X_s = -\ln(1-f)/\kappa\): \(\mathrm dX_s/\mathrm df = 1/(\kappa(1-f))\).</li>
+            <li>Relative change: \(\mathrm d\ln X_s/\mathrm d\ln f = (f/X_s)\,\mathrm dX_s/\mathrm df = f/\bigl((1-f)(-\ln(1-f))\bigr)\).</li>
+            <li>For small \(f\), \(-\ln(1-f)\approx f\) and \(A\to1\): area and mass errors are equal. At \(f = 0.9\), \(A = 0.9/(0.1\times2.303) = 3.9\).</li>
+            <li>Images with measured cover ≥ 95 % are rejected (“canopy closed”): there the error is so large and so non-Gaussian that assimilating it would bias the twin.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The inversion uses Van Henten's own cover law with the nominal leaf-area ratio and assumes the true relation; real image-to-biomass calibrations are empirical allometric fits (see <a href="/lessons/growth-analysis/">Lesson 2.4</a>, Eq. 2.4.10) with their own bias. Leaf curling and head formation, which also hide mass from a top camera, are not modelled. If \(c_{\text{lar,s}}\) itself is uncertain, each ensemble member predicts the observation with its own \(c_{\text{lar,s}}\).</p></details>
+        <div class="eq-units">\(\kappa X_s\): m² kg⁻¹ × kg m⁻² = dimensionless ✓; \(A\) is a ratio of relative changes ✓</div>
+        <div class="mini-calc" data-formula="100*s*f/((1-f)*(-log(1-f)))" data-output="Relative error of the dry-weight estimate" data-unit="%" data-digits="1" data-plot="f" data-ymin="0" data-title="Try it — when does an image stop being useful?">
+          <div data-var="f" data-label="Canopy cover f" data-min="0.02" data-max="0.97" data-step="0.01" data-value="0.5"></div>
+          <div data-var="s" data-label="Segmentation error σ<sub>I</sub>" data-min="0.01" data-max="0.3" data-step="0.01" data-value="0.08"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-tw-forecast-step">
+        <div class="eq-head"><span class="eq-label">Ensemble forecast step with an uncertain parameter</span><span class="eq-num">(T7)</span></div>
+        <div class="eq-main">\[ \mathbf x^{(i)}_{k+1}=\mathcal M\bigl(\mathbf x^{(i)}_k;\ \theta_0\,m^{(i)},\ \xi^{(i)}_d\bigr),\qquad \ln m^{(i)}_{k+1}=\ln m^{(i)}_k+\eta^{(i)}_k,\qquad \xi^{(i)}_d=e^{\sigma_p w_d-\sigma_p^2/2} \]
+        \[ \ln m^{(i)}_0\sim\mathcal N(0,\ s_\theta^2),\qquad \eta\sim\mathcal N(0,\ \sigma_\eta^2),\qquad w_d\sim\mathcal N(0,1) \]</div>
+        <p class="eq-read">each ensemble member \(i\) is propagated with the crop model, using its own multiplier \(m^{(i)}\) of the uncertain parameter and its own random daily factor on photosynthesis; after each analysis the log-multiplier takes a small random step.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(\mathbf x = [X_n, X_s]\)</td><td>model state of a member</td><td>kg m⁻²</td><td>–</td></tr>
+          <tr><td>\(\mathcal M\)</td><td>the crop model T1–T4 integrated from one measurement to the next</td><td>–</td><td>–</td></tr>
+          <tr><td>\(\theta_0, m\)</td><td>Van Henten's value of the uncertain parameter; multiplier</td><td>–</td><td>c<sub>ε</sub>; prior log-SD \(s_\theta\) = 0.20</td></tr>
+          <tr><td>\(\xi_d, \sigma_p\)</td><td>daily process-noise factor (mean 1); its log-SD</td><td>–</td><td>σ<sub>p</sub> = 0.03</td></tr>
+          <tr><td>\(\sigma_\eta\)</td><td>parameter random walk per analysis</td><td>–</td><td>0.01</td></tr>
+          <tr><td>\(N\)</td><td>ensemble size</td><td>–</td><td>60</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>The ensemble represents the probability distribution of state and parameter by a sample; nonlinear models are simply run for every member, which is the great practical advantage of the EnKF over the extended Kalman filter (Evensen, 1994, 2003).</li>
+            <li>The process noise represents everything the model does not capture — day-to-day differences in the crop's response — and is what keeps the ensemble honest about the future.</li>
+            <li>The physical twin in the simulator is generated in exactly the same way with a hidden multiplier and its own noise, a so-called identical-twin experiment: it lets you check whether the filter can recover a known truth.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Using the same model structure for truth and twin is optimistic: real crops also differ in model structure. The log-normal noise keeps masses positive.</p></details>
+        <div class="eq-units">\(m\), \(\xi\) and \(\eta\) are dimensionless multipliers or log-increments ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-tw-analysis">
+        <div class="eq-head"><span class="eq-label">Ensemble Kalman filter analysis (state augmentation)</span><span class="eq-num">(T8)</span></div>
+        <div class="eq-main">\[ \mathbf z^{(i)}=\bigl[\ln X_n^{(i)},\ \ln X_s^{(i)},\ \ln m^{(i)}\bigr]^{\top},\qquad \mathbf K=\frac{\operatorname{cov}\bigl(\mathbf z,h(\mathbf z)\bigr)}{\operatorname{var}\bigl(h(\mathbf z)\bigr)+R} \]
+        \[ \mathbf z^{(i)}_{\text{a}}=\mathbf z^{(i)}+\mathbf K\left(y+\sqrt R\,\epsilon^{(i)}-h\bigl(\mathbf z^{(i)}\bigr)\right),\qquad \epsilon^{(i)}\sim\mathcal N(0,1) \]</div>
+        <p class="eq-read">each member's augmented state is moved towards the measurement by the gain times the difference between a perturbed copy of the measurement and what the member predicts; the gain is the ensemble covariance between the state and the predicted observation divided by the total variance of the predicted observation plus the measurement error.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(y\)</td><td>log of the measurement (structural dry weight or fresh weight per plant)</td><td>ln g</td></tr>
+          <tr><td>\(h(\mathbf z)\)</td><td>observation operator: what the member predicts the sensor will report (T6 or ln FW)</td><td>ln g</td></tr>
+          <tr><td>\(R\)</td><td>measurement-error variance (log units)</td><td>–</td></tr>
+          <tr><td>\(\mathbf K\)</td><td>Kalman gain, one entry per augmented state variable</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation for one variable</summary>
+          <ol class="steps">
+            <li>For a Gaussian prior \(\mathcal N(\mu_p,P)\) and a measurement \(y\) with variance \(R\) of the same quantity, Bayes' rule gives a Gaussian posterior with mean \(\mu_p + K(y-\mu_p)\), \(K = P/(P+R)\), and variance \((1-K)P = PR/(P+R)\) (Kalman, 1960).</li>
+            <li>The EnKF estimates \(P\) and the cross-covariances with unobserved variables from the ensemble. A variable that is correlated with the predicted observation (such as the parameter, through its effect on growth) is corrected in proportion to that correlation.</li>
+            <li>Perturbing the measurement for each member (Burgers et al., 1998) makes the posterior ensemble spread match the theoretical posterior variance.</li>
+            <li>Early in the crop the parameter and the predicted measurement are only weakly correlated (the members have had little time to diverge); the correlation, and hence the learning rate, increases over the first days.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Linear update, Gaussian errors in log space, a scalar observation per day, no localisation or covariance inflation beyond the parameter random walk. With small ensembles the sampled covariances are noisy and the filter can become over-confident.</p></details>
+        <div class="eq-units">\(\mathbf K\): (ln units)² ÷ (ln units)² = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="sp*sr/sqrt(sp*sp+sr*sr)" data-output="Posterior standard deviation" data-unit="(log units)" data-digits="3" data-plot="sr" data-ymin="0" data-title="Try it — how much does one measurement teach?">
+          <div data-var="sp" data-label="Prior SD of ln SDW, √P" data-min="0.01" data-max="0.5" data-step="0.01" data-value="0.2"></div>
+          <div data-var="sr" data-label="Measurement SD, √R" data-min="0.01" data-max="1" data-step="0.01" data-value="0.1"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-tw-harvest">
+        <div class="eq-head"><span class="eq-label">Harvest forecast and closed-loop light planning</span><span class="eq-num">(T9)</span></div>
+        <div class="eq-main">\[ t_h^{(i)}=\min\Bigl\{t\ge t_k:\ \text{FW}_{\text{head}}\bigl(\mathbf x^{(i)}(t)\bigr)\ge \text{FW}^\ast\Bigr\} \]
+        \[ \hat t_h=\operatorname{median}_i\,t_h^{(i)},\qquad \text{PI}_{90}=\bigl[q_{0.05},\,q_{0.95}\bigr] \]
+        \[ \operatorname{median}_i\,t_h^{(i)}(\text{PPFD}_k)=D^\ast \]
+        \[ 60\le\text{PPFD}_k\le 500,\qquad \bigl|\text{PPFD}_k-\text{PPFD}_{k-1}\bigr|\le 60 \]</div>
+        <p class="eq-read">each member is run forward until its fresh weight per head reaches the target; the median of these first-passage times is the forecast harvest day and their 5th and 95th percentiles bound the 90 % prediction interval. In twin mode, the PPFD for the coming day is chosen so that the median forecast equals the delivery day \(D^\ast\).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\text{FW}^\ast\)</td><td>harvest target</td><td>g head⁻¹</td></tr>
+          <tr><td>\(t_h^{(i)}\)</td><td>harvest day of member \(i\) (linear interpolation within 6-h checkpoints)</td><td>d</td></tr>
+          <tr><td>\(D^\ast\)</td><td>delivery day requested in twin mode</td><td>d</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>The forecast integrates the members with today's climate held constant and with fresh random daily factors, so the interval contains state, parameter and future-weather uncertainty.</li>
+            <li>The median forecast is a decreasing function of PPFD, so the equation for the light level is solved by bisection on a subset of 24 members (deterministic, to keep it smooth). The change is limited to ±60 µmol m⁻² s⁻¹ per day, a rate constraint that avoids stressing the crop and keeps the controller from over-reacting to one uncertain forecast.</li>
+            <li>This is a receding-horizon controller: only tomorrow's light level is applied, and the plan is recomputed after the next measurement.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The controller ignores electricity prices, light-use efficiency changes with PPFD and quality effects such as tipburn at high light. The prediction interval is only as good as the model and the noise assumptions: with the camera after canopy closure, it no longer shrinks.</p></details>
+        <div class="eq-units">All times in days; PPFD in µmol m⁻² s⁻¹ ✓</div>
+      </div>
+    </section>
+
+    <!-- ============================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. <em>Reset</em> restarts the same physical twin, <em>Draw a new physical twin</em> creates a new one; <em>+1 day</em> steps through a crop day by day. Record your results with <em>Save investigation</em>.</p>
+      <ol class="task-list">
+        <li><h4>How fast does the twin learn?</h4><p>With the default settings, note the day on which the 90 % band of the learned parameter first becomes narrower than ±10 % of its mean, and the harvest-forecast error on days 5, 10 and 15. Repeat for three different physical twins. Is the parameter learned faster when the hidden deviation is large? Relate the learning speed to the growth stage and to Eq. T8.</p></li>
+        <li><h4>When does the camera go blind?</h4><p>For plant densities of 10, 20 and 30 plants m⁻², find the day on which the canopy closes (the first rejected image). Use Eq. T6 to compute the error of the dry-weight estimate at 50 %, 80 % and 90 % cover. Then compare the width of the harvest-forecast interval on day 18 with the camera and with the weighing gutter (σ = 4 %). What would you advise a vertical farm that plans to rely on top-view imaging?</p></li>
+        <li><h4>How many members are enough?</h4><p>Run the same physical twin with N = 10, 20, 60 and 200. Compare the final parameter estimate, the width of the forecast interval and whether the true harvest day lies inside it. What goes wrong with very small ensembles, and how does the parameter random walk help or hurt?</p></li>
+        <li><h4>Which parameters can be learned?</h4><p>Repeat task 1 for the leaf-area ratio and the maximum growth rate. Which parameter is learned fastest, and which matters most for the harvest date? Compare your ranking with Van Henten and Van Straten's (1994) sensitivity analysis. Why is the leaf-area ratio special for a camera-based twin (hint: Eq. T6)?</p></li>
+        <li><h4>Model, shadow, twin</h4><p>Keep one physical twin and run it three times: as a digital model, as a digital shadow and as a digital twin with a delivery day of 30. Tabulate the harvest-forecast error on day 10, the actual harvest day and the lamp electricity per kilogram. Then set the delivery day to 26 and to 34: what does punctuality cost or save in electricity? Which of the three modes would you call a digital twin in a funding proposal, and why?</p></li>
+        <li><h4>Connect to your project</h4><p>Photograph your own lettuce plants from above every day for a week, measure the projected leaf area (for example in the <a href="/laboratories/plant-vision/">plant vision laboratory</a>) and harvest a few plants at the end. Fit the relation between cover and dry weight and compare it with Eq. T6. Which of the twin's assumptions does your crop violate?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-lettuce-digital-twin">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Before a measurement, the ensemble standard deviation of ln(structural dry weight) is 0.20. The camera measurement has a log-standard deviation of 0.10. What is the standard deviation after the analysis (Eq. T8, one variable)?","answer":0.0894,"tol":0.03,"unit":"(log units)","hint":"Posterior variance = P·R/(P+R).","explain":"<p>\\(P = 0.04\\), \\(R = 0.01\\): posterior variance \\(= 0.04\\times0.01/0.05 = 0.008\\), SD \\(= 0.089\\). One good measurement more than halves the uncertainty; the gain is \\(K = 0.04/0.05 = 0.8\\).</p>"},
+          {"type":"numeric","q":"The top camera's segmentation error is 8 % (log-SD) and the canopy cover is 90 %. How large is the resulting relative error of the structural dry-weight estimate (Eq. T6)?","answer":31.3,"tol":0.04,"unit":"%","hint":"A(f) = f / ((1−f)·(−ln(1−f))).","explain":"<p>\\(A(0.9) = 0.9/(0.1\\times2.303) = 3.91\\), so the error is \\(3.91\\times8\\ \\% = 31\\ \\%\\) — about four times the error of the image itself. A few days later the canopy closes and the images are rejected.</p>"},
+          {"type":"numeric","q":"A crop at 20 plants m⁻² has a total dry weight (X<sub>n</sub> + X<sub>s</sub>) of 0.20 kg m⁻². What is the fresh weight per head according to Van Henten's model (c<sub>fw</sub> = 22.5, c<sub>τ</sub> = 0.07)?","answer":209,"tol":0.02,"unit":"g","explain":"<p>\\(22.5\\times0.20\\times(1-0.07)/20\\times1000 = 209\\) g per head.</p>"},
+          {"type":"mcq","q":"According to Kritzinger et al. (2018), what distinguishes a digital twin from a digital shadow?","options":["Data also flow automatically from the digital object back to the physical object","The digital object has a 3D visualisation","The model is mechanistic rather than empirical","Measurements are taken more than once per day"],"answer":0,"feedback":["","Visualisation is irrelevant to the classification — the hologram in this lab is decoration.","Twins can use empirical, mechanistic or hybrid models.","Frequency matters for usefulness, not for the definition."],"explain":"<p>A shadow receives data automatically but does not act; a twin also acts on the physical system automatically — in this lab by setting the light intensity every day.</p>"},
+          {"type":"tf","q":"With the top camera, the width of the harvest-forecast interval keeps shrinking right up to the harvest because a new image arrives every day.","answer":false,"explain":"<p>Once the canopy closes (cover ≥ 95 %), the images carry almost no information about mass and are rejected. From then on the twin predicts without correction and the interval stops narrowing — until the harvest is so close that there is little time left for the members to diverge. A weighing gutter stays informative.</p>"},
+          {"type":"multi","q":"Which of the following make the twin's 90 % harvest-forecast interval wider on day 15? (Select all that apply.)","options":["Larger day-to-day process noise","A larger segmentation error of the camera","Measuring every 5 days instead of every day","A higher plant density with the top camera","A larger harvest target that is further away"],"answer":[0,1,2,3,4],"shuffle":false,"explain":"<p>All five: process noise adds future uncertainty; noisier or rarer measurements teach the filter less; a denser crop closes its canopy earlier so the camera goes blind sooner; and a more distant target leaves more time for the members to diverge.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ============================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>The crop model is Van Henten's (1994) two-state lettuce model with all parameters from Table 3.2 of the thesis (root fraction 0.07 for NFT-grown lettuce; leaf-area ratio read as 75 m² kg⁻¹). The initial dry weight (2.7 g m⁻² at 20 plants m⁻², 75 % structural) is taken from his first experiment and scaled with plant density.</li>
+        <li>Radiation enters as PAR at the canopy from constant LEDs, converted with the daylight factor 4.57 µmol J⁻¹; the model was calibrated for greenhouse sunlight. At plant-factory light levels the model accumulates an unrealistically large reserve pool (see Explain).</li>
+        <li>Temperature, CO₂ and light are uniform and exactly known to the twin; plants are identical; there is no tipburn, bolting, disease or nutrient and water limitation.</li>
+        <li>The physical crop is generated with the same model structure (identical-twin experiment) but a hidden parameter multiplier, a different transplant size and daily multiplicative noise on photosynthesis. Real crops also differ in structure, which makes real twins less accurate than this one.</li>
+        <li>The camera measures cover with log-normal segmentation error; the pipeline inverts Van Henten's cover law with the nominal leaf-area ratio and rejects images above 95 % cover. The weighing gutter measures fresh weight per head with log-normal error and no water or substrate artefacts.</li>
+        <li>The filter is a stochastic ensemble Kalman filter with perturbed observations on log-transformed states and parameter, a parameter random walk and no other inflation or localisation. The prior of the open-loop “model without data” ensemble is the same as the twin's.</li>
+        <li>Forecasts hold today's climate constant; the closed-loop controller chooses a PPFD between 60 and 500 µmol m⁻² s⁻¹ by bisection, changes it by at most 60 µmol m⁻² s⁻¹ per day and ignores prices and quality effects. Lamp electricity assumes 2.8 µmol J⁻¹.</li>
+        <li>The 3D scene is illustrative: plant size follows the simulated fresh weight, the hologram follows the ensemble mean, and the dots on the gauge follow the members.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+            <li>Acock, B., Charles-Edwards, D. A., Fitter, D. J., Hand, D. W., Ludwig, L. J., Warren Wilson, J., &amp; Withers, A. C. (1978). The contribution of leaves from different levels within a tomato crop to canopy net photosynthesis: An experimental examination of two canopy models. <em>Journal of Experimental Botany</em>, 29(4), 815–827. <a href="https://doi.org/10.1093/jxb/29.4.815" target="_blank" rel="noopener">doi:10.1093/jxb/29.4.815</a></li>
+        <li>Burgers, G., van Leeuwen, P. J., &amp; Evensen, G. (1998). Analysis scheme in the ensemble Kalman filter. <em>Monthly Weather Review</em>, 126(6), 1719–1724. <a href="https://doi.org/10.1175/1520-0493(1998)126%3C1719:ASITEK%3E2.0.CO;2" target="_blank" rel="noopener">doi:10.1175/1520-0493(1998)126&lt;1719:ASITEK&gt;2.0.CO;2</a></li>
+        <li>de Wit, A. J. W., &amp; van Diepen, C. A. (2007). Crop model data assimilation with the Ensemble Kalman filter for improving regional crop yield forecasts. <em>Agricultural and Forest Meteorology</em>, 146(1–2), 38–56. <a href="https://doi.org/10.1016/j.agrformet.2007.05.004" target="_blank" rel="noopener">doi:10.1016/j.agrformet.2007.05.004</a></li>
+        <li>Evensen, G. (1994). Sequential data assimilation with a nonlinear quasi-geostrophic model using Monte Carlo methods to forecast error statistics. <em>Journal of Geophysical Research: Oceans</em>, 99(C5), 10143–10162. <a href="https://doi.org/10.1029/94JC00572" target="_blank" rel="noopener">doi:10.1029/94JC00572</a></li>
+        <li>Evensen, G. (2003). The Ensemble Kalman Filter: Theoretical formulation and practical implementation. <em>Ocean Dynamics</em>, 53(4), 343–367. <a href="https://doi.org/10.1007/s10236-003-0036-9" target="_blank" rel="noopener">doi:10.1007/s10236-003-0036-9</a></li>
+        <li>Evensen, G. (2009). The ensemble Kalman filter for combined state and parameter estimation. <em>IEEE Control Systems Magazine</em>, 29(3), 83–104. <a href="https://doi.org/10.1109/MCS.2009.932223" target="_blank" rel="noopener">doi:10.1109/MCS.2009.932223</a></li>
+        <li>Kalman, R. E. (1960). A new approach to linear filtering and prediction problems. <em>Journal of Basic Engineering</em>, 82(1), 35–45. <a href="https://doi.org/10.1115/1.3662552" target="_blank" rel="noopener">doi:10.1115/1.3662552</a></li>
+        <li>Kritzinger, W., Karner, M., Traar, G., Henjes, J., &amp; Sihn, W. (2018). Digital Twin in manufacturing: A categorical literature review and classification. <em>IFAC-PapersOnLine</em>, 51(11), 1016–1022. <a href="https://doi.org/10.1016/j.ifacol.2018.08.474" target="_blank" rel="noopener">doi:10.1016/j.ifacol.2018.08.474</a></li>
+        <li>Pylianidis, C., Osinga, S., &amp; Athanasiadis, I. N. (2021). Introducing digital twins to agriculture. <em>Computers and Electronics in Agriculture</em>, 184, 105942. <a href="https://doi.org/10.1016/j.compag.2020.105942" target="_blank" rel="noopener">doi:10.1016/j.compag.2020.105942</a></li>
+        <li>Thornley, J. H. M., &amp; Hurd, R. G. (1974). An analysis of the growth of young tomato plants in water culture at different light integrals and CO<sub>2</sub> concentrations. II. A mathematical model. <em>Annals of Botany</em>, 38(2), 389–400. <a href="https://doi.org/10.1093/oxfordjournals.aob.a084822" target="_blank" rel="noopener">doi:10.1093/oxfordjournals.aob.a084822</a></li>
+            <li>Thimijan, R. W., &amp; Heins, R. D. (1983). Photometric, radiometric, and quantum light units of measure: A review of procedures for interconversion. <em>HortScience</em>, 18(6), 818–822. <a href="https://doi.org/10.21273/HORTSCI.18.6.818" target="_blank" rel="noopener">doi:10.21273/HORTSCI.18.6.818</a></li>
+        <li>Van Henten, E. J. (1994). <em>Greenhouse climate management: An optimal control approach</em> [Doctoral dissertation, Wageningen Agricultural University]. <a href="https://doi.org/10.18174/205106" target="_blank" rel="noopener">doi:10.18174/205106</a></li>
+        <li>Van Henten, E. J. (1994). Validation of a dynamic lettuce growth model for greenhouse climate control. <em>Agricultural Systems</em>, 45(1), 55–72. <a href="https://doi.org/10.1016/S0308-521X(94)90280-1" target="_blank" rel="noopener">doi:10.1016/S0308-521X(94)90280-1</a></li>
+        <li>Van Henten, E. J., &amp; Van Straten, G. (1994). Sensitivity analysis of a dynamic growth model of lettuce. <em>Journal of Agricultural Engineering Research</em>, 59(1), 19–31. <a href="https://doi.org/10.1006/jaer.1994.1061" target="_blank" rel="noopener">doi:10.1006/jaer.1994.1061</a></li>
+        <li>Verdouw, C., Tekinerdogan, B., Beulens, A., &amp; Wolfert, S. (2021). Digital twins in smart farming. <em>Agricultural Systems</em>, 189, 103046. <a href="https://doi.org/10.1016/j.agsy.2020.103046" target="_blank" rel="noopener">doi:10.1016/j.agsy.2020.103046</a></li>
+        <li>Zhang, L., Xu, Z., Xu, D., Ma, J., Chen, Y., &amp; Fu, Z. (2020). Growth monitoring of greenhouse lettuce based on a convolutional neural network. <em>Horticulture Research</em>, 7, 124. <a href="https://doi.org/10.1038/s41438-020-00345-6" target="_blank" rel="noopener">doi:10.1038/s41438-020-00345-6</a></li>
+      </ol>
+      <p>The model is introduced in <a href="/lessons/growth-analysis/">Lesson 2.4 — Plant growth analysis and crop models</a>; digital twins and their governance in <a href="/lessons/digital-twins/">Lesson 10.5</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

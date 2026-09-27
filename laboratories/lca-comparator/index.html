@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LCA comparator · Future Food Production</title>
+<meta name="description" content="Compare the life-cycle footprint of 1 kg of lettuce delivered to a retailer in Västerås/Stockholm from Spanish fields, Swedish fields, heated greenhouses and vertical farms on different grids: GWP, energy, water and land, break-even grid intensity and Monte Carlo uncertainty.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  #stage { aspect-ratio: 16 / 10.5; min-height: 470px; }
+  .lca-tip { position: absolute; display: none; z-index: 6; pointer-events: none; background: rgba(10, 16, 14, .93); color: #e6eee9; border: 1px solid rgba(255, 255, 255, .14); border-radius: 10px; padding: 8px 10px; font: 500 .76rem var(--font-sans); max-width: 320px; backdrop-filter: blur(6px); }
+  .lca-tip table { border-collapse: collapse; margin-top: 5px; width: 100%; }
+  .lca-tip td { padding: 1px 4px; font: 500 .72rem var(--font-mono); }
+  .lca-tip td:nth-child(n+2) { text-align: right; }
+  .lca-tip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+  .inv-card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px 12px; margin: 16px 0; }
+  .inv-card h3 { font: 650 .92rem var(--font-sans); margin: 0 0 2px; }
+  .inv-card .chart-sub { font-size: .78rem; color: var(--muted); margin-bottom: 8px; }
+  .inv-wrap { overflow-x: auto; }
+  table.inv-table { width: 100%; border-collapse: collapse; font-size: .84rem; min-width: 820px; }
+  .inv-table th, .inv-table td { padding: 5px 7px; border-bottom: 1px solid var(--line); text-align: left; }
+  .inv-table th { font: 650 .78rem var(--font-sans); color: var(--ink-2); white-space: nowrap; }
+  .inv-table td.num, .inv-table th.num { text-align: right; }
+  .inv-table input, .inv-table select { width: 86px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); font: 500 .8rem var(--font-mono); text-align: right; }
+  .inv-table select { width: 150px; text-align: left; font-family: var(--font-sans); }
+  .inv-table input.edited, .inv-table select.edited { border-color: var(--magenta); background: var(--magenta-soft); }
+  .inv-table td.same { color: var(--muted); font: 500 .8rem var(--font-mono); }
+  .inv-table td.u { color: var(--muted); font: 500 .74rem var(--font-mono); white-space: nowrap; }
+  .inv-table tfoot td { font-weight: 700; border-top: 2px solid var(--line-strong); font-family: var(--font-mono); }
+  .inv-table tfoot td:first-child { font-family: var(--font-sans); }
+  .sys-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--sc); margin-right: 6px; vertical-align: 0; }
+  .inv-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .chart-card.full { grid-column: 1 / -1; }
+  .prose table.factors td:nth-child(n+3), .prose table.factors th:nth-child(n+3) { text-align: right; }
+</style>
+</head>
+<body data-page="lab" data-slug="lca-comparator">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>LCA comparator</h1>
+    <p class="lead">Which kilogram of lettuce on a shelf in Västerås or Stockholm has the smallest footprint — one trucked from a field in southern Spain, one from a Swedish field, one from a heated Swedish greenhouse, or one from a vertical farm down the road? Build the life-cycle inventory yourself, switch grids and heat sources, and watch five supply chains, four impact indicators, the break-even grid intensity and a Monte Carlo uncertainty analysis respond in real time.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Contribution analysis</h3>
+      <div class="chart-sub">Where does each footprint come from? Stacked contributions per kg delivered for the chosen indicator. “Losses” is the extra production needed to replace what is lost between harvest and the retailer.</div>
+      <div class="chart" id="ch-contrib" style="height:320px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Break-even grid intensity</h3>
+      <div class="chart-sub">GWP of the vertical farm (magenta) rises linearly with the carbon intensity of its electricity; imported field lettuce (amber) hardly depends on the Swedish grid. Where they cross is the break-even intensity EF* (Eq. A8). Dotted verticals: real grids.</div>
+      <div class="chart" id="ch-break" style="height:320px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Monte Carlo: which system is lowest?</h3>
+      <div class="chart-sub">Share of Monte Carlo runs in which each system has the lowest footprint in the chosen indicator. Every uncertain input is drawn from a triangular distribution; shared factors are drawn once per run for all systems.</div>
+      <div class="chart" id="ch-win" style="height:300px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Monte Carlo: uncertainty of each footprint</h3>
+      <div class="chart-sub">Probability density of each system's footprint across the Monte Carlo runs (log scale). Overlapping curves mean the ranking is not settled.</div>
+      <div class="chart" id="ch-dist" style="height:300px"></div>
+    </div>
+    <div class="chart-card full">
+      <h3>Trade-offs across the four indicators</h3>
+      <div class="chart-sub">Each system's footprint divided by that of imported field lettuce (log scale; below 1 = better than the import). No system wins everywhere: this is why Lesson 15.4 needs multi-criteria analysis.</div>
+      <div class="chart" id="ch-trade" style="height:320px"></div>
+    </div>
+  </div>
+
+  <section class="inv-card" aria-labelledby="inv-h">
+    <h3 id="inv-h">Life-cycle inventory — edit any value</h3>
+    <div class="chart-sub">Literature defaults per kg harvested (sources in the <em>Assumptions &amp; sources</em> tab). Edited cells turn magenta and are kept in the page link. The coal-grid vertical farm is the <em>same farm</em> as the Swedish one, so its column follows “VF Sweden”. The bottom row is the result per kg delivered to the retailer in the chosen indicator.</div>
+    <div class="inv-wrap"><table class="inv-table" id="inv-table"></table></div>
+    <div class="inv-actions">
+      <button class="btn btn-sm" type="button" id="inv-reset">Reset to literature defaults</button>
+      <button class="btn btn-sm" type="button" id="inv-csv">Download inventory and results (CSV)</button>
+    </div>
+  </section>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of five supply chains</h2>
+      <p>The stage shows five ways to put one kilogram of lettuce on a retailer's shelf in the Mälardalen region. Lettuce crates (green dots) travel from each farm through cultivation and packing to the retailer. The size of each node is its contribution to the chosen indicator; the puffs rising from it are proportional to that contribution. Hover over a lane for its full breakdown.</p>
+      <ol>
+        <li><strong>A knife-edge in January.</strong> With the default inventory, imported Spanish lettuce comes to about 0.68 kg CO₂e per kg delivered, of which the 3,500 km truck journey is more than half. The vertical farm on the Swedish production mix (35 g CO₂e kWh⁻¹) lands at about 0.69 — almost exactly the same. The break-even chart shows why: the break-even intensity EF* is about 34 g CO₂e kWh⁻¹, and the Swedish mix sits right on it.</li>
+        <li><strong>Change the accounting of the grid.</strong> Choose the Swedish <em>consumption</em> mix (49 g, used in the IVL study of a Stockholm vertical farm) or the EU-27 average: the vertical farm rises to 0.86 and 2.9 kg CO₂e kg⁻¹. Choose a renewable power-purchase agreement: it falls to about 0.39 and wins. Nothing about the farm changed — only the electricity dataset.</li>
+        <li><strong>Look at the coal-grid farm.</strong> The same farm on the Polish mix (608 g) emits about 7.8 kg CO₂e per kg — more than ten times the import. The lane is identical; only the power station behind the ⚡ line differs.</li>
+        <li><strong>Heat the greenhouse differently.</strong> With a natural-gas boiler and 8 kWh of heat per kg (a January value), the Swedish greenhouse emits about 2.6 kg CO₂e kg⁻¹ — heat is 84 % of it. Switch to wood chips (≈ 0.60) or Västerås district heating (≈ 0.79): the same greenhouse becomes competitive with the import. This is the pattern Stoessel et al. (2012) and Hospido et al. (2009) found: local only wins without fossil heat.</li>
+        <li><strong>Go to July.</strong> Swedish field lettuce appears (≈ 0.27 kg CO₂e kg⁻¹) and wins clearly; the greenhouse needs little heat or light. Seasonal local produce is the robust low-carbon choice.</li>
+        <li><strong>Change the indicator.</strong> Switch to <em>Water</em> and <em>Land</em>: the vertical farm now wins by one to two orders of magnitude (about 2 L and 0.002 m²·yr per kg against 56 L and 0.28 m²·yr for Spanish field lettuce). Switch to <em>Energy</em>: it loses by almost an order of magnitude (≈ 88 MJ against ≈ 10 MJ). The trade-off chart at the bottom shows all four at once.</li>
+        <li><strong>Ask how sure you are.</strong> The Monte Carlo bar chart turns the knife-edge of step 1 into a probability: in January the import, the vertical farm and — with renewable heat — the greenhouse each win a substantial share of plausible states of the world. Raise the uncertainty width and watch the probabilities converge; narrow it and they diverge.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A comparative LCA answers a precise question — here: <em>which way of delivering 1 kg of lettuce to a retailer in Västerås/Stockholm causes the least impact, under stated assumptions?</em> The answer depends on three things far more than on “local versus imported”: the <strong>electricity dataset</strong> of energy-intensive systems, the <strong>heat source</strong> of greenhouses, and the <strong>season</strong>. Distance matters mainly when the mode is air freight.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Goal, scope and functional unit</h2>
+      <p>The functional unit is <strong>1 kg of lettuce delivered to a retailer in Västerås or Stockholm</strong>. The system boundary runs from the cradle (fertiliser, fuel and electricity production) through cultivation, packing and transport to the retailer's door; retail storage, the household and the end-of-life of the lettuce are outside it. The model is <em>attributional</em>: it attributes average emissions of existing systems to the product (ISO 14040/14044). The five systems are:</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 300" role="img" aria-label="Five lettuce supply chains inside a cradle-to-retailer system boundary: Spanish field with truck, Swedish field, heated greenhouse, vertical farm on the Swedish grid and the same vertical farm on a coal-heavy grid.">
+            <defs><marker id="lc-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <rect x="8" y="8" width="744" height="284" rx="14" fill="none" stroke="currentColor" stroke-dasharray="6 5" stroke-width="1.2"/>
+            <text x="18" y="26" class="t-small t-muted">system boundary: cradle to retailer · functional unit 1 kg lettuce delivered to a retailer in Västerås/Stockholm</text>
+            <g class="t-small">
+              <rect x="20" y="40" width="150" height="40" rx="8" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="95" y="57" text-anchor="middle">Open field, Spain</text><text x="95" y="72" text-anchor="middle" class="t-muted">N₂O, diesel, irrigation</text>
+              <rect x="20" y="92" width="150" height="40" rx="8" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="95" y="109" text-anchor="middle">Open field, Sweden</text><text x="95" y="124" text-anchor="middle" class="t-muted">June–October only</text>
+              <rect x="20" y="144" width="150" height="40" rx="8" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/><text x="95" y="161" text-anchor="middle">Heated greenhouse</text><text x="95" y="176" text-anchor="middle" class="t-muted">heat + supplementary light</text>
+              <rect x="20" y="196" width="150" height="40" rx="8" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/><text x="95" y="213" text-anchor="middle">Vertical farm</text><text x="95" y="228" text-anchor="middle" class="t-muted">LED + HVAC, Swedish grid</text>
+              <rect x="20" y="248" width="150" height="40" rx="8" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="95" y="265" text-anchor="middle">Same vertical farm</text><text x="95" y="280" text-anchor="middle" class="t-muted">coal-heavy grid</text>
+              <rect x="226" y="40" width="112" height="248" rx="10" class="fill-bg" stroke="currentColor" stroke-width=".8"/><text x="282" y="150" text-anchor="middle">packing</text><text x="282" y="166" text-anchor="middle" class="t-muted">plastic film</text><text x="282" y="182" text-anchor="middle" class="t-muted">cooling</text>
+              <rect x="394" y="40" width="170" height="248" rx="10" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="479" y="66" text-anchor="middle">transport (t·km × EF)</text><text x="479" y="82" text-anchor="middle" class="t-muted">3,500 km truck (ES)</text><text x="479" y="98" text-anchor="middle" class="t-muted">600 km truck (SE)</text><text x="479" y="114" text-anchor="middle" class="t-muted">20 km (vertical farm)</text>
+              <text x="479" y="170" text-anchor="middle">losses ℓ</text><text x="479" y="186" text-anchor="middle" class="t-muted">harvest → retailer</text><text x="479" y="202" text-anchor="middle" class="t-muted">× 1/(1 − ℓ)</text>
+              <rect x="620" y="118" width="120" height="92" rx="12" class="fill-bg" stroke="currentColor" stroke-width="1.3"/><text x="680" y="152" text-anchor="middle" style="font-weight:700">Retailer</text><text x="680" y="170" text-anchor="middle" class="t-muted">Västerås /</text><text x="680" y="186" text-anchor="middle" class="t-muted">Stockholm</text>
+            </g>
+            <g stroke="currentColor" stroke-width="1.2" marker-end="url(#lc-ar)">
+              <line x1="170" y1="60" x2="224" y2="80"/><line x1="170" y1="112" x2="224" y2="120"/><line x1="170" y1="164" x2="224" y2="164"/><line x1="170" y1="216" x2="224" y2="208"/><line x1="170" y1="268" x2="224" y2="250"/>
+              <line x1="338" y1="164" x2="392" y2="164"/><line x1="564" y1="164" x2="618" y2="164"/>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The five compared chains share one functional unit and one boundary. Every chain draws on background systems — electricity grids, heat plants, fertiliser factories, refineries — whose emission factors decide most of the result.</figcaption>
+      </figure>
+
+      <h3>Four impact indicators and their characterisation</h3>
+      <table class="factors">
+        <caption>Table 1. Indicators computed by the comparator.</caption>
+        <thead><tr><th>Indicator</th><th>Characterisation</th><th>Unit</th></tr></thead>
+        <tbody>
+          <tr><td>Climate change, GWP100</td><td>CO₂ + 273 × N₂O (+ CH₄ inside the upstream factors); 100-year global warming potentials of IPCC AR6 (Forster et al., 2021)</td><td>kg CO₂e</td></tr>
+          <tr><td>Cumulative energy demand (CED)</td><td>total primary energy used along the chain (Frischknecht et al., 2015); electricity converted with the physical-energy-content convention: renewable electricity counts 1:1, nuclear at an efficiency of 33 %, fuels by their conversion efficiency</td><td>MJ</td></tr>
+          <tr><td>Water use</td><td>on-site blue water consumption (irrigation or nutrient-solution make-up), an inventory indicator in the sense of ISO 14046; scarcity weighting with AWARE (Boulay et al., 2018) is shown in Eq. A7</td><td>L</td></tr>
+          <tr><td>Land use</td><td>direct land occupation of the production site, area × time (the unit of the ReCiPe land-occupation midpoint; Huijbregts et al., 2017)</td><td>m²·yr</td></tr>
+        </tbody>
+      </table>
+      <p>These indicators are chosen because they are the four that change the verdict on controlled-environment agriculture: indoor farms save land and water but spend energy, and whether they save or cost greenhouse gases depends on where that energy comes from. Casey et al. (2022) add an important caution for water: counting the water consumed <em>upstream</em> in electricity generation and in the steel, aluminium and LEDs of the building, closed hydroponic farms can have the <em>highest</em> life-cycle water-scarcity footprints of all supply chains, even though they use orders of magnitude less water on site. The comparator shows on-site water only; keep this limitation in mind.</p>
+
+      <h3>Why the grid decides the vertical farm</h3>
+      <p>A vertical farm replaces free sunlight with purchased electricity — here 12 kWh per kilogram, within the 8–12.5 kWh kg⁻¹ of a recent review (Pennisi et al., 2025) and a little below the ≈ 15 kWh kg⁻¹ of Casey et al. (2022). Multiply by the grid emission factor and electricity is between 34 % (wind) and 97 % (coal) of the footprint. The emission factors in this lab are life-cycle intensities of <em>generation</em> for 2024 from Ember via Our World in Data: Sweden 35, Spain 146, EU-27 211 and Poland 608 g CO₂e kWh⁻¹; the Swedish consumption mix of 49 g (including imports) is the value used by Molin and Martin (2018); a wind power-purchase agreement is represented by the IPCC median life-cycle intensity of onshore wind, 11 g (Schlömer et al., 2014). Which one is right is an accounting decision (location-based average, market-based contract or consequential marginal mix — see <a href="/lessons/lca-emerging-systems/">Lesson 15.1</a>), and the model lets you see its consequence directly.</p>
+      <div class="callout note"><div class="callout-title">Energy is not the same as carbon</div><p>Switch the indicator to <em>Energy</em> and compare the Swedish and the coal-grid vertical farm: 88 against 110 MJ per kg — only 24 % apart, although their GWP differs elevenfold. Nuclear power has a high primary-energy factor (three units of heat per unit of electricity) but a low carbon intensity, so a nuclear-and-hydro grid can use a lot of primary energy with few emissions. CED measures resource use; GWP measures climate impact. They answer different questions.</p></div>
+
+      <h3>Heat: the hidden giant of Nordic greenhouses</h3>
+      <p>A glass greenhouse at 59° N loses heat through its cover for most of the year. For year-round production Swedish greenhouses need roughly 120–388 kWh of heat per m² and year (Nilsson &amp; Nimmermark, as summarised by Molin &amp; Martin, 2018); per kilogram of winter lettuce this becomes several kWh. The comparator uses 8 kWh kg⁻¹ in January and 1 kWh kg⁻¹ in July, and three heat sources per kWh of delivered heat: a wood-chip boiler, 0.023 kg CO₂e (biogenic CO₂ treated as neutral); the Västerås district-heating network, 0.045 kg CO₂e (Mälarenergi's 2025 value, fossil share 0.5 %); and a natural-gas boiler, 0.262 kg CO₂e. The factor of eleven between gas and wood chips is larger than any difference in transport.</p>
+
+      <h3>Losses multiply everything</h3>
+      <p>Lettuce is perishable. If a fraction ℓ of the harvest is lost before it reaches the retailer, every kilogram delivered has to carry the burden of 1/(1 − ℓ) kg grown, packed and transported. With 10 % losses on the long Spanish chain every impact rises by 11 %; with 3 % on the short vertical-farm chain by 3 %. Globally about 14 % of food is lost between harvest and retail (FAO, 2019).</p>
+
+      <h3>Uncertainty: why triangular distributions?</h3>
+      <p>For most inventory items we know a plausible minimum, a most likely value and a plausible maximum — for instance electricity use of vertical farms from 8 to 15 kWh kg⁻¹ with a mode near 12. A <strong>triangular distribution</strong> encodes exactly these three numbers and nothing more, which makes it the standard choice when data are too scarce for a fitted distribution. The Monte Carlo analysis draws every uncertain value, recomputes all systems and records which one is lowest. Factors that several systems share — the Swedish grid factor, the truck factor, the packaging factor, the N₂O emission factor — are drawn <em>once per run</em> for all systems. This <em>paired</em> sampling removes noise that would otherwise blur a real difference (Heijungs, 2020).</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“Local food has a lower footprint because it travels less.” In this model the 3,500 km truck journey adds about 0.4 kg CO₂e per kg — a lot for a vegetable, yet less than heating a greenhouse with gas in January (2.1 kg CO₂e per kg) or running a vertical farm on an average EU grid (2.5). Distance becomes decisive only with air freight (≈ 2.7 kg CO₂e per kg over 3,000 km).</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier 2024–2026</div><p>Newer LCAs of controlled-environment agriculture use hourly electricity factors, because a farm that lights its crop at night, when wind supplies a larger share of the Nordic grid, has a different footprint from one that lights by day. Combined with demand response, the farm becomes a flexible load that can soak up surplus renewable power — a consequential benefit that an annual average factor cannot show.</p></div>
+      <a class="lab-link" data-lab="mcda-studio" data-why="Combine the footprints from this lab with cost, resilience and acceptance, and rank the lettuce systems with explicit weights."></a>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the comparator</h2>
+      <p>The model is a linear LCA: nine short equations. All impacts are per kilogram <em>delivered to the retailer</em>; inventory amounts \(a_i\) are per kilogram <em>harvested</em>.</p>
+
+      <div class="eq-box" id="eq-lca-lab-total">
+        <div class="eq-head"><span class="eq-label">Footprint per kilogram delivered</span><span class="eq-num">(A1)</span></div>
+        <div class="eq-main">\[ I_c = \frac{1}{1-\ell}\sum_{i} a_i\,\text{CF}_{i,c} \]</div>
+        <p class="eq-read">the impact in indicator c per kilogram delivered is the sum over all inventory items of the amount needed per kilogram harvested times its characterisation factor, divided by the fraction of the harvest that survives to the retailer.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(I_c\)</td><td>impact in indicator \(c\) (GWP, CED, water, land) per kg delivered</td><td>kg CO₂e, MJ, L or m²·yr per kg</td></tr>
+          <tr><td>\(a_i\)</td><td>amount of inventory item \(i\) per kg harvested (kWh, g N, L, t·km …)</td><td>item unit kg⁻¹</td></tr>
+          <tr><td>\(\text{CF}_{i,c}\)</td><td>characterisation or emission factor of item \(i\) for indicator \(c\)</td><td>impact per item unit</td></tr>
+          <tr><td>\(\ell\)</td><td>fraction of the harvest lost between the field or farm and the retailer</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>LCA models are linear: each unit process scales with its output, so impacts are sums of activity × factor (Lesson 15.1, Eq. 15.1.1).</li>
+            <li>To deliver 1 kg when a fraction \(\ell\) is lost, the farm must harvest \(H\) with \((1-\ell)H = 1\), so \(H = 1/(1-\ell)\).</li>
+            <li>Every harvested kilogram carries \(\sum_i a_i\text{CF}_{i,c}\); multiplying by \(H\) gives Eq. A1. The contribution chart shows the terms \(a_i\text{CF}_{i,c}\) and, separately, the loss surcharge \(\big(\tfrac{1}{1-\ell}-1\big)\sum_i a_i\text{CF}_{i,c}\).</li>
+            <li>Example (Spanish field, GWP): the items sum to 0.613 kg CO₂e per kg harvested; with \(\ell = 0.10\) the footprint per kg delivered is \(0.613/0.9 = 0.681\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>All lost lettuce is assumed to have been grown, packed and transported (a conservative choice for transport). Losses are not credited with any end-of-life benefit (composting or biogas). Linearity means no economies of scale inside the model.</p></details>
+        <div class="eq-units">\(\dfrac{1}{(-)}\cdot\dfrac{\text{item}}{\text{kg}_{\text{harvested}}}\cdot\dfrac{\text{impact}}{\text{item}}\) = impact per kg delivered, because \((1-\ell)\) has units kg delivered per kg harvested ✓</div>
+        <div class="mini-calc" data-formula="g/(1-l/100)" data-output="Footprint per kg delivered" data-unit="kg CO₂e kg⁻¹" data-digits="3" data-plot="l" data-title="Try it — the loss multiplier">
+          <div data-var="g" data-label="Footprint per kg harvested" data-min="0.1" data-max="3" data-step="0.01" data-value="0.61" data-unit="kg CO₂e kg⁻¹"></div>
+          <div data-var="l" data-label="Losses ℓ" data-min="0" data-max="50" data-step="1" data-value="10" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lca-lab-electricity">
+        <div class="eq-head"><span class="eq-label">Electricity: carbon and primary energy of a grid mix</span><span class="eq-num">(A2)</span></div>
+        <div class="eq-main">\[ G_{\text{el}} = e_{\text{el}}\,\text{EF}_{\text{grid}}, \qquad \text{CED}_{\text{el}} = e_{\text{el}}\,\text{PEF}, \qquad \text{PEF} = f_{\text{loss}}\cdot 3.6\sum_{k}\frac{s_k}{\eta_k} \]</div>
+        <p class="eq-read">the climate impact of electricity is the electricity used per kilogram times the grid emission factor; its primary energy is the electricity times the primary-energy factor, which is 3.6 MJ per kWh times the sum over generation technologies of their share divided by their conversion efficiency, raised for grid losses and fuel supply.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value used</th></tr>
+          <tr><td>\(e_{\text{el}}\)</td><td>electricity per kg harvested</td><td>kWh kg⁻¹</td><td>VF 12; greenhouse 3.5 (Jan)</td></tr>
+          <tr><td>\(\text{EF}_{\text{grid}}\)</td><td>life-cycle GHG intensity of the electricity</td><td>kg CO₂e kWh⁻¹</td><td>0.011–0.82</td></tr>
+          <tr><td>\(s_k\)</td><td>share of technology \(k\) in generation (2024)</td><td>–</td><td>Ember via OWID</td></tr>
+          <tr><td>\(\eta_k\)</td><td>primary-to-electric efficiency: renewables 1, nuclear 0.33, coal 0.37, gas 0.50, oil 0.35, biomass 0.30</td><td>–</td><td>convention / assumption</td></tr>
+          <tr><td>\(f_{\text{loss}}\)</td><td>grid losses and fuel supply</td><td>–</td><td>1.08 (assumption)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>One kWh is 3.6 MJ. Producing it from a fuel with efficiency \(\eta\) requires \(3.6/\eta\) MJ of primary energy.</li>
+            <li>For hydro, wind and solar the physical-energy-content convention counts the electricity itself as primary energy (\(\eta = 1\)); for nuclear the heat released in the reactor is counted, with \(\eta = 0.33\).</li>
+            <li>A mix is the share-weighted sum: \(3.6\sum_k s_k/\eta_k\). Sweden 2024 (37.5 % hydro, 29.4 % nuclear, 23.5 % wind, 5.9 % biomass …): \(3.6\times1.757 = 6.33\) MJ kWh⁻¹, and 6.83 with \(f_{\text{loss}}\). Poland (54 % coal): 8.56 MJ kWh⁻¹. A wind contract: 3.89 MJ kWh⁻¹.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The energy-harvested approach of Frischknecht et al. (2015) counts slightly more for hydro and wind (the kinetic or potential energy converted), and efficiencies differ between plants. Emission factors are annual averages of generation; consumption mixes with trade, residual mixes and marginal factors are different accounting choices (Lesson 15.1).</p></details>
+        <div class="eq-units">kWh kg⁻¹ × kg CO₂e kWh⁻¹ = kg CO₂e kg⁻¹ ✓; MJ kWh⁻¹ × (–) = MJ kWh⁻¹, × kWh kg⁻¹ = MJ kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="1.08*3.6*(n/100/0.33 + f/100/eta + (100-n-f)/100)" data-output="Primary-energy factor PEF" data-unit="MJ kWh⁻¹" data-digits="2" data-plot="n" data-title="Try it — a grid of nuclear, fossil and renewable power">
+          <div data-var="n" data-label="Nuclear share" data-min="0" data-max="80" data-step="1" data-value="29" data-unit="%"></div>
+          <div data-var="f" data-label="Fossil share" data-min="0" data-max="20" data-step="1" data-value="1" data-unit="%"></div>
+          <div data-var="eta" data-label="Fossil plant efficiency" data-min="0.3" data-max="0.6" data-step="0.01" data-value="0.37"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lca-lab-heat">
+        <div class="eq-head"><span class="eq-label">Greenhouse heat</span><span class="eq-num">(A3)</span></div>
+        <div class="eq-main">\[ G_{\text{heat}} = q\,\text{EF}_{\text{heat}}, \qquad \text{EF}_{\text{heat}} = \frac{\text{EF}_{\text{fuel}}}{\eta_{\text{b}}}\;\text{(own boiler)} \]</div>
+        <p class="eq-read">the heating footprint per kilogram is the heat needed per kilogram times the emission factor per kWh of delivered heat; for an own boiler that factor is the fuel's emission factor divided by the boiler efficiency.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value used</th></tr>
+          <tr><td>\(q\)</td><td>heat delivered per kg harvested</td><td>kWh kg⁻¹</td><td>8 (January), 1 (July)</td></tr>
+          <tr><td>\(\text{EF}_{\text{fuel}}\)</td><td>life-cycle factor per kWh of fuel: gas 0.236, wood chips 0.0194</td><td>kg CO₂e kWh⁻¹</td><td>DESNZ (2025)</td></tr>
+          <tr><td>\(\eta_{\text{b}}\)</td><td>boiler efficiency: gas 0.90, wood chips 0.85</td><td>–</td><td>typical</td></tr>
+          <tr><td>\(\text{EF}_{\text{heat}}\)</td><td>per kWh of heat: gas 0.262, wood chips 0.023, Västerås district heat 0.045</td><td>kg CO₂e kWh⁻¹</td><td>Mälarenergi (2025) for DH</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Energy balance of a boiler: fuel energy × \(\eta_{\text{b}}\) = useful heat, so fuel per kWh of heat is \(1/\eta_{\text{b}}\).</li>
+            <li>Multiply by the fuel factor: gas \(0.236/0.90 = 0.262\); wood chips \(0.0194/0.85 = 0.023\) kg CO₂e per kWh of heat.</li>
+            <li>District heat is bought as delivered heat, so the network operator's factor per kWh delivered is used directly.</li>
+            <li>January greenhouse with gas: \(8\times0.262 = 2.10\) kg CO₂e per kg harvested — 84 % of its total.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Biogenic CO₂ from wood is treated as climate-neutral, which assumes regrowth within the time horizon. District-heating factors depend on how a combined heat-and-power plant's emissions are allocated between heat and electricity; the Mälarenergi value is the utility's accounting value. Primary energy of district heat (2.4 MJ kWh⁻¹) is a model assumption that treats waste-derived heat as burden-free.</p></details>
+        <div class="eq-units">kWh kg⁻¹ × kg CO₂e kWh⁻¹ = kg CO₂e kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="q*ef/eta" data-output="Heating footprint" data-unit="kg CO₂e kg⁻¹" data-digits="2" data-plot="q" data-title="Try it — heat demand × heat source">
+          <div data-var="q" data-label="Heat demand q" data-min="0" data-max="25" data-step="0.5" data-value="8" data-unit="kWh kg⁻¹"></div>
+          <div data-var="ef" data-label="Fuel factor EF<sub>fuel</sub>" data-min="0" data-max="0.3" data-step="0.001" data-value="0.236" data-unit="kg CO₂e kWh⁻¹"></div>
+          <div data-var="eta" data-label="Boiler efficiency η<sub>b</sub>" data-min="0.6" data-max="1" data-step="0.01" data-value="0.9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lca-lab-n2o">
+        <div class="eq-head"><span class="eq-label">Fertiliser nitrogen: production and field N₂O</span><span class="eq-num">(A4)</span></div>
+        <div class="eq-main">\[ G_{\text{N}} = N\left[\text{EF}_{\text{prod}} + \left(\text{EF}_1 + \text{Frac}_{\text{GASF}}\,\text{EF}_4 + \text{Frac}_{\text{LEACH}}\,\text{EF}_5\right)\frac{44}{28}\,\text{GWP}_{\text{N}_2\text{O}}\right] \]</div>
+        <p class="eq-read">the nitrogen footprint equals the fertiliser nitrogen per kilogram times the sum of the emissions from making it and the nitrous oxide emitted from the soil — directly, and indirectly after ammonia volatilisation and nitrate leaching — converted from N₂O-nitrogen to N₂O and weighted by its global warming potential.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Value</th></tr>
+          <tr><td>\(N\)</td><td>fertiliser N per kg harvested (field 3–4 g, soilless 2.2–2.5 g)</td><td>kg N kg⁻¹</td></tr>
+          <tr><td>\(\text{EF}_{\text{prod}}\)</td><td>production footprint of mineral N (illustrative, as in Lesson 1.3)</td><td>4 kg CO₂e kg⁻¹ N</td></tr>
+          <tr><td>\(\text{EF}_1\)</td><td>direct N₂O–N per kg N applied (aggregated default)</td><td>0.010</td></tr>
+          <tr><td>\(\text{Frac}_{\text{GASF}}\), \(\text{EF}_4\)</td><td>fraction of synthetic N volatilised; N₂O–N per kg volatilised N</td><td>0.11; 0.010</td></tr>
+          <tr><td>\(\text{Frac}_{\text{LEACH}}\), \(\text{EF}_5\)</td><td>fraction of N leached; N₂O–N per kg leached N</td><td>0.24; 0.011</td></tr>
+          <tr><td>\(\text{GWP}_{\text{N}_2\text{O}}\)</td><td>100-year GWP of N₂O (AR6)</td><td>273</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>IPCC Tier 1 (2019 Refinement, Tables 11.1 and 11.3): direct emissions are \(\text{EF}_1\) of the applied N; indirect emissions arise from the fraction volatilised (re-deposited and partly nitrified) and the fraction leached.</li>
+            <li>Total N₂O–N per kg N: \(0.010 + 0.11\times0.010 + 0.24\times0.011 = 0.01374\).</li>
+            <li>N₂O–N to N₂O: multiply by the molar-mass ratio \(44/28\). Times 273: \(0.01374\times1.571\times273 = 5.89\) kg CO₂e per kg N — more than the production footprint of 4.</li>
+            <li>Spanish field lettuce, 3.8 g N kg⁻¹: \(0.0038\times(4+5.89) = 0.038\) kg CO₂e kg⁻¹. Soilless systems collect their drain water, so the model applies only the production term to them.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Tier 1 factors are global defaults with wide uncertainty (the Monte Carlo draws the N₂O factor between 0.3 and 2 times the default). N₂O from recirculating nutrient solutions is not zero but poorly quantified and is excluded.</p></details>
+        <div class="eq-units">kg N kg⁻¹ × (kg CO₂e kg⁻¹ N + kg N₂O–N kg⁻¹ N × kg N₂O kg⁻¹ N₂O–N × kg CO₂e kg⁻¹ N₂O) = kg CO₂e kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="n/1000*(ep + (0.010+0.11*0.010+0.24*0.011)*44/28*273*soil)" data-output="Nitrogen footprint" data-unit="kg CO₂e kg⁻¹" data-digits="3" data-plot="n" data-title="Try it — nitrogen per kilogram of lettuce">
+          <div data-var="n" data-label="Fertiliser N" data-min="0" data-max="10" data-step="0.1" data-value="3.8" data-unit="g N kg⁻¹"></div>
+          <div data-var="ep" data-label="Production factor" data-min="1" data-max="10" data-step="0.1" data-value="4" data-unit="kg CO₂e kg⁻¹ N"></div>
+          <div data-var="soil" data-label="Soil system? (1 yes, 0 no)" data-min="0" data-max="1" data-step="1" data-value="1"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lca-lab-transport">
+        <div class="eq-head"><span class="eq-label">Transport to the retailer</span><span class="eq-num">(A5)</span></div>
+        <div class="eq-main">\[ G_{\text{tr}} = \frac{m}{1000}\,d\,\text{EF}_{\text{mode}}, \qquad \text{CED}_{\text{tr}} = G_{\text{tr}}\,\frac{\text{CED}_{\text{fuel}}}{\text{EF}_{\text{fuel}}} \]</div>
+        <p class="eq-read">transport emissions are the transported mass in tonnes times the distance times the emission factor per tonne-kilometre of the mode; the primary energy follows from the ratio of energy to emissions of the fuel.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value used</th></tr>
+          <tr><td>\(m\)</td><td>mass carried per kg harvested</td><td>kg</td><td>1</td></tr>
+          <tr><td>\(d\)</td><td>distance farm → retailer</td><td>km</td><td>3,500 (Spain), 600 (Skåne), 20 (VF)</td></tr>
+          <tr><td>\(\text{EF}_{\text{mode}}\)</td><td>truck (refrigerated, well-to-wheel) 0.110; rail 0.028; ship 0.013; air with radiative forcing 0.90</td><td>kg CO₂e t⁻¹ km⁻¹</td><td>DESNZ (2025)</td></tr>
+          <tr><td>\(\text{CED}_{\text{fuel}}/\text{EF}_{\text{fuel}}\)</td><td>diesel: 43 MJ L⁻¹ ÷ 3.3 kg CO₂e L⁻¹</td><td>MJ per kg CO₂e</td><td>13</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Transport work of 1 kg over \(d\) km is \(10^{-3}d\) t·km. Multiply by the factor per t·km.</li>
+            <li>Spain → Mälardalen by truck: \(3.5\times0.110 = 0.385\) kg CO₂e kg⁻¹; by air over 3,000 km, \(3.0\times0.90 = 2.7\).</li>
+            <li>Energy: for a diesel vehicle, emissions and energy are proportional; 43 MJ per litre (35.8 MJ lower heating value plus 20 % for fuel supply) and 3.3 kg CO₂e per litre give 13 MJ per kg CO₂e, so the truck uses \(0.110\times13 = 1.43\) MJ per t·km. For air the factor without radiative forcing (0.53) is used for energy.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Average load factors including empty returns. Lettuce is bulky and fills a trailer's volume before its weight limit, so the real factor per kg can be higher. The short vertical-farm delivery uses the truck factor; a small van emits more per t·km, but over 20 km the term stays small.</p></details>
+        <div class="eq-units">t × km × kg CO₂e t⁻¹ km⁻¹ = kg CO₂e ✓</div>
+        <div class="mini-calc" data-formula="0.001*d*ef" data-output="Transport footprint" data-unit="kg CO₂e kg⁻¹" data-digits="3" data-plot="d" data-title="Try it — distance versus mode">
+          <div data-var="d" data-label="Distance d" data-min="0" data-max="6000" data-step="50" data-value="3500" data-unit="km"></div>
+          <div data-var="ef" data-label="EF per t·km" data-min="0.01" data-max="1" data-step="0.001" data-value="0.110" data-unit="kg CO₂e t⁻¹ km⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lca-lab-land">
+        <div class="eq-head"><span class="eq-label">Land occupation</span><span class="eq-num">(A6)</span></div>
+        <div class="eq-main">\[ \text{LO} = \frac{1}{Y\,S} \]</div>
+        <p class="eq-read">the land occupied per kilogram per year is one divided by the product of the yield per square metre of growing area and the number of growing layers stacked on each square metre of land.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value used</th></tr>
+          <tr><td>\(\text{LO}\)</td><td>land occupation per kg harvested</td><td>m²·yr kg⁻¹</td><td>–</td></tr>
+          <tr><td>\(Y\)</td><td>annual yield per m² of growing area</td><td>kg m⁻² yr⁻¹</td><td>field 3.3–3.9; greenhouse 41; VF 115</td></tr>
+          <tr><td>\(S\)</td><td>growing area per m² of land (layers × floor-use fraction)</td><td>m² m⁻²</td><td>1; VF 5 (assumption)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A square metre of land produces \(Y S\) kg per year, so one kilogram needs \(1/(YS)\) m² for one year.</li>
+            <li>Spanish field (Y = 3.9, Barbosa et al., 2015): 0.256 m²·yr kg⁻¹; greenhouse (41): 0.024; vertical farm (115 per m² of shelf, Zhuang et al., 2022, stacked five-fold): 0.0017.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Only direct land of the production site is counted. Land for wind turbines, for forests supplying wood chips, for fertiliser plants or roads is excluded. Occupation says nothing about land quality or biodiversity; the carbon opportunity cost of land (Lesson 15.1, Eq. 15.1.8) would add a climate value to the saved area.</p></details>
+        <div class="eq-units">1/(kg m⁻² yr⁻¹ × m² m⁻²) = m²·yr kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="1/(y*s)" data-output="Land occupation" data-unit="m²·yr kg⁻¹" data-digits="4" data-plot="y" data-title="Try it — yield and stacking">
+          <div data-var="y" data-label="Yield Y" data-min="1" data-max="150" data-step="0.5" data-value="3.9" data-unit="kg m⁻² yr⁻¹" data-scale="log"></div>
+          <div data-var="s" data-label="Layers per m² of land S" data-min="1" data-max="12" data-step="0.5" data-value="1"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lca-lab-water">
+        <div class="eq-head"><span class="eq-label">Water use and its scarcity weighting</span><span class="eq-num">(A7)</span></div>
+        <div class="eq-main">\[ W = w_{\text{blue}}, \qquad \text{WSF} = w_{\text{blue}}\,\text{CF}_{\text{AWARE}} \]</div>
+        <p class="eq-read">the water indicator of the comparator is the blue water consumed on site per kilogram; weighting it by the AWARE characterisation factor of the watershed and month gives a water-scarcity footprint in world-equivalent litres.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value used</th></tr>
+          <tr><td>\(w_{\text{blue}}\)</td><td>blue water consumed on site per kg harvested</td><td>L kg⁻¹</td><td>ES 50; SE field 10; greenhouse 20; VF 2</td></tr>
+          <tr><td>\(\text{CF}_{\text{AWARE}}\)</td><td>scarcity factor, 0.1–100, world average = 1 (Boulay et al., 2018)</td><td>L world-eq L⁻¹</td><td>not applied by default</td></tr>
+        </table>
+        <details><summary>Where do the defaults come from?</summary>
+          <ol class="steps">
+            <li>Barbosa et al. (2015): 250 L kg⁻¹ for desert-irrigated field lettuce in Arizona and 20 L kg⁻¹ for a hydroponic greenhouse; the global average <em>blue</em> water footprint of lettuce is 28 L kg⁻¹ (Mekonnen &amp; Hoekstra, 2011).</li>
+            <li>For drip-irrigated winter lettuce in south-east Spain the model assumes 50 L kg⁻¹ (an estimate between those bounds); Swedish summer fields need little irrigation (10 L kg⁻¹, assumption); closed vertical farms recover 95–98 % of their water (2 L kg⁻¹).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Water embodied in electricity, fertilisers, packaging and buildings is excluded — and for vertical farms it can dominate (Casey et al., 2022). A litre withdrawn in the Segura basin in south-east Spain, one of Europe's most water-stressed, weighs far more than a litre in Mälardalen: use the WULCA database to look up factors, and the mini-calculator to weight.</p></details>
+        <div class="eq-units">L kg⁻¹ × (L world-eq L⁻¹) = L world-eq kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="w*cf" data-output="Water-scarcity footprint" data-unit="L world-eq kg⁻¹" data-digits="1" data-plot="cf" data-title="Try it — the same litres in a scarce or an abundant watershed">
+          <div data-var="w" data-label="Blue water w" data-min="0" data-max="250" data-step="1" data-value="50" data-unit="L kg⁻¹"></div>
+          <div data-var="cf" data-label="AWARE factor" data-min="0.1" data-max="100" data-step="0.1" data-value="1" data-scale="log"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lca-lab-breakeven">
+        <div class="eq-head"><span class="eq-label">Break-even grid intensity, with losses</span><span class="eq-num">(A8)</span></div>
+        <div class="eq-main">\[ \text{EF}^{*} = \frac{(1-\ell_{\text{VF}})\,G_{\text{imp}} - g_0}{e_{\text{el}}} \]</div>
+        <p class="eq-read">the grid intensity below which the vertical farm beats the imported lettuce equals the import's footprint per kilogram delivered, converted to a per-kilogram-harvested basis for the farm, minus the farm's non-electric footprint, divided by its electricity use.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(G_{\text{imp}}\)</td><td>footprint of imported field lettuce per kg delivered</td><td>kg CO₂e kg⁻¹</td></tr>
+          <tr><td>\(g_0\)</td><td>vertical farm's non-electric footprint per kg harvested (nitrogen, substrate and buildings, packaging, delivery)</td><td>kg CO₂e kg⁻¹</td></tr>
+          <tr><td>\(\ell_{\text{VF}}\), \(e_{\text{el}}\)</td><td>vertical-farm losses; electricity per kg harvested</td><td>–; kWh kg⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>By Eq. A1 the farm's footprint per kg delivered is \(G_{\text{VF}} = (e_{\text{el}}\,\text{EF} + g_0)/(1-\ell_{\text{VF}})\) — a straight line in EF with slope \(e_{\text{el}}/(1-\ell_{\text{VF}})\) (the magenta line of the break-even chart).</li>
+            <li>Set \(G_{\text{VF}} = G_{\text{imp}}\) and solve: \(e_{\text{el}}\,\text{EF}^{*} = (1-\ell_{\text{VF}})G_{\text{imp}} - g_0\).</li>
+            <li>Defaults: \(G_{\text{imp}} = 0.681\), \(g_0 = 0.251\), \(\ell = 0.03\), \(e = 12\): \(\text{EF}^{*} = (0.661 - 0.251)/12 = 0.034\) kg CO₂e kWh⁻¹ = 34 g — just below the Swedish production mix (35 g).</li>
+            <li>Halving the electricity use doubles the headroom: \(e = 6\) gives 68 g kWh⁻¹. If \(g_0 \ge (1-\ell)G_{\text{imp}}\) no grid is clean enough.</li>
+          </ol>
+        </details>
+        <div class="eq-units">(kg CO₂e kg⁻¹ − kg CO₂e kg⁻¹) / (kWh kg⁻¹) = kg CO₂e kWh⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="max(0,((1-l/100)*gi-g0)/e*1000)" data-output="Break-even EF*" data-unit="g CO₂e kWh⁻¹" data-digits="0" data-plot="e" data-title="Try it — how clean must the grid be?">
+          <div data-var="gi" data-label="Import footprint G<sub>imp</sub>" data-min="0.2" data-max="3.5" data-step="0.01" data-value="0.68" data-unit="kg CO₂e kg⁻¹"></div>
+          <div data-var="g0" data-label="Non-electric g<sub>0</sub>" data-min="0" data-max="0.8" data-step="0.01" data-value="0.25" data-unit="kg CO₂e kg⁻¹"></div>
+          <div data-var="e" data-label="Electricity e<sub>el</sub>" data-min="2" data-max="25" data-step="0.5" data-value="12" data-unit="kWh kg⁻¹"></div>
+          <div data-var="l" data-label="VF losses ℓ" data-min="0" data-max="20" data-step="1" data-value="3" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lca-lab-mc">
+        <div class="eq-head"><span class="eq-label">Monte Carlo with triangular distributions</span><span class="eq-num">(A9)</span></div>
+        <div class="eq-main">\[ x = \begin{cases} a + \sqrt{u\,(b-a)(c-a)} & u &lt; \dfrac{c-a}{b-a}\\[4pt] b - \sqrt{(1-u)(b-a)(b-c)} & \text{otherwise} \end{cases} \qquad \hat P_s = \frac{1}{N}\sum_{j=1}^{N}\mathbf 1\!\left[G_s^{(j)} = \min_k G_k^{(j)}\right] \]</div>
+        <p class="eq-read">a uniform random number u between 0 and 1 is turned into a triangular random value between the minimum a and maximum b with mode c by inverting the cumulative distribution; the probability that system s is lowest is the fraction of the N runs in which its footprint is the smallest of all systems.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(a, c, b\)</td><td>minimum, mode and maximum of an uncertain input (the mode is the default value)</td><td>input unit</td></tr>
+          <tr><td>\(u\)</td><td>uniform random number on (0, 1)</td><td>–</td></tr>
+          <tr><td>\(\hat P_s\)</td><td>estimated probability that system \(s\) has the lowest footprint</td><td>–</td></tr>
+          <tr><td>\(N\)</td><td>number of Monte Carlo runs</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The triangular density rises linearly from \(a\) to \(c\) and falls to \(b\); its area is 1, so its peak height is \(2/(b-a)\).</li>
+            <li>The cumulative probability up to \(x \le c\) is the area of a triangle: \(F(x) = (x-a)^2/[(b-a)(c-a)]\). At \(x=c\), \(F = (c-a)/(b-a)\).</li>
+            <li>Set \(F(x) = u\) and solve: \(x = a + \sqrt{u(b-a)(c-a)}\). The upper branch follows in the same way from \(1-F(x) = (b-x)^2/[(b-a)(b-c)]\). This inverse-transform method turns any uniform random number into the desired distribution.</li>
+            <li>Each run is a Bernoulli trial for “system \(s\) is lowest”, so the standard error of \(\hat P_s\) is \(\sqrt{\hat P_s(1-\hat P_s)/N}\) — the formula of Lesson 15.1 (Eq. 15.1.9).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Inputs are drawn independently except for shared factors, which are drawn once per run (paired comparison). Scenario choices — the grid basis, the heat source, the season — are not sampled: they are separate experiments that you choose with the controls.</p></details>
+        <div class="eq-units">\(\hat P\) and its standard error are dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*sqrt(p*(1-p)/n)" data-output="Standard error of P̂" data-unit="percentage points" data-digits="2" data-plot="n" data-title="Try it — how many runs are enough?">
+          <div data-var="p" data-label="Estimated probability P̂" data-min="0.01" data-max="0.99" data-step="0.01" data-value="0.5"></div>
+          <div data-var="n" data-label="Runs N" data-min="100" data-max="20000" data-step="100" data-value="3000" data-scale="log"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the comparator to answer. Record your settings with <em>Save investigation</em>; the page link keeps both the controls and any inventory values you edit.</p>
+      <ol class="task-list">
+        <li><h4>How clean must the grid be?</h4><p>In January with the default inventory, read the break-even intensity EF*. Then lower the vertical farm's electricity use from 12 to 8 kWh kg⁻¹ (efficient LEDs, better heat recovery). How does EF* change, and which of the grids in the dropdown now pass? Explain with Eq. A8 why EF* is inversely proportional to electricity use.</p></li>
+        <li><h4>The greenhouse heat budget</h4><p>With natural-gas heat, find the heat demand (kWh kg⁻¹) at which the Swedish greenhouse equals the imported lettuce in January. Repeat for district heating and for wood chips. Which is more effective for a grower: halving the heat demand with better screens, or changing the heat source?</p></li>
+        <li><h4>Losses and shelf life</h4><p>Vertical-farm companies argue that fresher lettuce reaches consumers with fewer losses. In the inventory table raise the Spanish chain's losses from 10 % to 25 % and lower the vertical farm's to 1 %. How far does the break-even intensity move? Is the argument decisive?</p></li>
+        <li><h4>Four indicators, no single winner</h4><p>For January and July, write down the winner in each of the four indicators. Which system is never the worst? Prepare a short argument for a retailer on how to buy lettuce each season, and state which indicator you weighted most — you will formalise this in the <a href="/laboratories/mcda-studio/">MCDA studio</a>.</p></li>
+        <li><h4>How certain is the ranking?</h4><p>In January, run the Monte Carlo with 3,000 and with 10,000 runs. Note P(lowest GWP) for each system and its standard error. Then set the uncertainty width to 0.5 and 2. Which conclusions are robust to the width, and which depend on it? Why do the import and the Swedish vertical farm swap places so often?</p></li>
+        <li><h4>Your own supply chain</h4><p>Find the origin of the lettuce in your local shop this week (label or retailer's website). Enter its distance and mode, and your best estimate of its production system, in the table. Compare it with a Swedish alternative in the same month. What would you need to measure to make the comparison trustworthy?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-lca-comparator">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the comparator and the equations","questions":[
+          {"type":"numeric","q":"Load the preset <em>January (lesson defaults)</em>. What is the break-even grid intensity EF* of the Swedish vertical farm against imported field lettuce?","answer":34.1,"tol":0.04,"unit":"g CO₂e kWh⁻¹","hint":"Read the readout, or use Eq. A8 with G_imp = 0.681, g₀ = 0.251, ℓ = 0.03 and e = 12.","explain":"<p>\\((0.97\\times0.681-0.251)/12 = 0.0341\\) kg CO₂e kWh⁻¹ ≈ 34 g — just below the Swedish production mix of 35 g, so on that mix the import wins by a hair.</p>"},
+          {"type":"numeric","q":"January defaults, but choose <em>Biofuel</em> as the greenhouse heat source. What is the GWP of the Swedish greenhouse per kg delivered?","answer":0.602,"tol":0.03,"unit":"kg CO₂e kg⁻¹","hint":"Heat term: 8 kWh × 0.023; the other terms stay the same; divide by (1 − 0.05).","explain":"<p>Per kg harvested: electricity 3.5 × 0.0349 = 0.122, heat 8 × 0.023 = 0.184, nitrogen 0.010, other 0.14, packaging 0.05, transport 0.066 → 0.572; per kg delivered 0.572/0.95 = 0.602 kg CO₂e kg⁻¹ — below the import (0.681).</p>"},
+          {"type":"mcq","q":"Switch the Swedish grid from the production mix to the EU-27 average. What happens to the vertical farm's footprint and why?","options":["It rises about fourfold, because electricity is multiplied by a sixfold higher grid factor while the non-electric part stays the same","It is unchanged, because the farm is in Sweden","It rises sixfold, exactly like the grid factor","It falls, because the EU grid contains more renewables"],"answer":0,"feedback":["","The accounting basis, not the farm's location, decides the factor used in the LCA.","Only the electricity term scales with the grid factor; the non-electric 0.25 kg CO₂e kg⁻¹ does not.","The EU-27 grid (211 g) is about six times more carbon-intensive than the Swedish mix (35 g)."],"explain":"<p>\\(G = (12\\times0.211+0.251)/0.97 = 2.87\\) against 0.69 kg CO₂e kg⁻¹: ×4.2. Electricity goes from 63 % to 91 % of the total.</p>"},
+          {"type":"multi","q":"Set the month to July and look at all four indicators. Which statements are true? (Select all that apply.)","options":["Swedish field lettuce has the lowest GWP","The vertical farm has the lowest land occupation","The vertical farm has the lowest cumulative energy demand","Spanish field lettuce uses the most on-site water"],"answer":[0,1,3],"explain":"<p>In July the Swedish field wins on GWP (≈ 0.27 kg CO₂e kg⁻¹), the vertical farm on land (≈ 0.002 m²·yr kg⁻¹) and water, and Spanish field lettuce uses most on-site water (≈ 56 L kg⁻¹). The vertical farm's CED (≈ 88 MJ kg⁻¹) is the <em>highest</em> of the Swedish systems.</p>"},
+          {"type":"numeric","q":"Choose the preset <em>Air-freighted import</em> (3,000 km by air). What is the GWP of the imported lettuce per kg delivered?","answer":3.25,"tol":0.03,"unit":"kg CO₂e kg⁻¹","explain":"<p>Transport \\(3.0\\times0.90 = 2.70\\) plus 0.228 for the rest of the chain = 2.928 per kg harvested; divided by 0.9 for 10 % losses: 3.25 kg CO₂e kg⁻¹ — nearly five times the trucked import, and worse than every other option except the coal-grid vertical farm.</p>"},
+          {"type":"tf","q":"If the Monte Carlo gives P(lowest GWP) = 0.45 for the imported lettuce with N = 3,000 runs, the standard error of that estimate is about 0.9 percentage points, so the import is lowest in 45 ± 2 % of plausible states of the world under the stated input distributions.","answer":true,"explain":"<p>\\(\\sqrt{0.45\\times0.55/3000} = 0.0091\\), i.e. 0.9 percentage points; ± 2 SE ≈ ± 1.8 points. The statement is conditional on the input distributions — choosing a different grid basis changes it far more.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Functional unit and boundary:</strong> 1 kg of lettuce delivered to a retailer in Västerås/Stockholm; cradle to retailer; attributional, average data. Retail, household and end-of-life of the lettuce are excluded.</li>
+        <li><strong>Inventory defaults</strong> (per kg harvested) are teaching values chosen within published ranges and calibrated so that the totals reproduce the teaching model of Lesson 15.1 (import ≈ 0.62 kg CO₂e kg⁻¹ before losses; vertical-farm non-electric footprint ≈ 0.25). Yields: Spanish field 3.9 kg m⁻² yr⁻¹ (arid-region winter lettuce, Barbosa et al., 2015); Swedish field 3.3 (UK field, Gargaro et al., 2025); greenhouse 41 (hydroponic greenhouse, Barbosa et al., 2015); vertical farm 115 kg per m² of cultivation area (Zhuang et al., 2022) with five growing layers per m² of land (assumption). Electricity: vertical farm 12 kWh kg⁻¹ (Pennisi et al., 2025; Casey et al., 2022; Graamans et al., 2018); greenhouse 3.5 (January) and 0.8 (July) kWh kg⁻¹; field 0.2–0.3 kWh kg⁻¹ (order of magnitude of the 1,100 kJ kg⁻¹ of conventional lettuce in Barbosa et al., 2015). Heat: 8 kWh kg⁻¹ in January (Lesson 15.1) and 1 kWh kg⁻¹ in July (assumption). Nitrogen: field 3–3.8 g N kg⁻¹ (≈ 100–150 kg N ha⁻¹), soilless 2.2–2.5 g N kg⁻¹ (close to crop uptake). Diesel 0.005–0.006 L kg⁻¹ (≈ 200 L ha⁻¹). Substrate, seeds, CO₂ and infrastructure are a lumped GWP term (0.08–0.19 kg CO₂e kg⁻¹). Packaging 10 g of plastic film per kg. Water: see Eq. A7. Losses: 10 % (Spain), 7 % (Swedish field), 5 % (greenhouse), 3 % (vertical farm) — scenario assumptions.</li>
+        <li><strong>Emission factors:</strong> grid intensities and generation shares for 2024 from Ember via Our World in Data (accessed September 2026): Sweden 34.9, Spain 146.2, EU-27 211.2, Poland 608.2 g CO₂e kWh⁻¹; Swedish consumption mix 49 g (IVL, used by Molin &amp; Martin, 2018); onshore wind 11 g and coal 820 g (IPCC medians, Schlömer et al., 2014). Heat: natural gas and wood chips from DESNZ (2025) via Lesson 15.1; district heating 44.9 g CO₂e kWh⁻¹ delivered (Mälarenergi, Västerås, 2025). Truck 0.110, rail 0.028, ship 0.013, air 0.90 (with radiative forcing) kg CO₂e t⁻¹ km⁻¹ (DESNZ 2025 via Lesson 15.1). Nitrogen fertiliser production 4 kg CO₂e kg⁻¹ N (illustrative, Lesson 1.3); field N₂O by IPCC Tier 1 (2019 Refinement). Diesel 3.3 kg CO₂e L⁻¹ (2.68 combustion, Lesson 1.3, plus 24 % for supply, the same proportion as the DESNZ truck factors). Plastic film 5.0 kg CO₂e kg⁻¹ (≈ 1.9 production + 3.1 from incineration of its fossil carbon: 0.857 × 44/12).</li>
+        <li><strong>Cumulative energy demand</strong> uses primary-energy factors computed from the 2024 generation shares with efficiencies of 1 (hydro, wind, solar), 0.33 (nuclear), 0.37 (coal), 0.50 (gas), 0.35 (oil) and 0.30 (biomass electricity), plus 8 % for losses and fuel supply; heat 4.4 (gas), 4.45 (wood chips) and 2.4 (district heat, waste heat counted as burden-free) MJ kWh⁻¹; nitrogen 40 MJ kg⁻¹ N; diesel 43 MJ L⁻¹; plastic 80 MJ kg⁻¹; other inputs 15 MJ per kg CO₂e. These are approximations for teaching; a database LCA (e.g. ecoinvent) would give different decimals.</li>
+        <li><strong>Water and land</strong> are direct, on-site quantities only (no water or land embodied in electricity, heat, fertiliser, packaging or buildings).</li>
+        <li><strong>The coal-grid vertical farm</strong> is a counterfactual: the identical farm and delivery distance, powered by a coal-heavy mix. It isolates the effect of the grid.</li>
+        <li><strong>Monte Carlo:</strong> triangular distributions with the default as mode and relative half-widths: yield 15 %, layers 25 %, electricity 25 %, heat 30 %, nitrogen 20 %, diesel 30 %, other inputs 40 %, packaging 30 %, water 30 %, distance 10 %, losses 50 %; shared factors: Swedish grid ×0.7–1.5, Spanish grid ×0.8–1.25, coal grid ×0.85–1.15, N₂O factor ×0.3–2, nitrogen production ±25 %, packaging ±30 %, transport modes ±20 %, heat factor ±8 % (gas), ±30 % (district heat), ±50 % (wood chips). All widths are scaled by the uncertainty-width slider.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Barbosa, G. L., Gadelha, F. D. A., Kublik, N., Proctor, A., Reichelm, L., Weissinger, E., Wohlleb, G. M., &amp; Halden, R. U. (2015). Comparison of land, water, and energy requirements of lettuce grown using hydroponic vs. conventional agricultural methods. <em>International Journal of Environmental Research and Public Health</em>, 12(6), 6879–6891. <a href="https://doi.org/10.3390/ijerph120606879" target="_blank" rel="noopener">doi:10.3390/ijerph120606879</a></li>
+        <li>Boulay, A.-M., Bare, J., Benini, L., Berger, M., Lathuillière, M. J., Manzardo, A., et al. (2018). The WULCA consensus characterization model for water scarcity footprints: assessing impacts of water consumption based on available water remaining (AWARE). <em>International Journal of Life Cycle Assessment</em>, 23(2), 368–378. <a href="https://doi.org/10.1007/s11367-017-1333-8" target="_blank" rel="noopener">doi:10.1007/s11367-017-1333-8</a></li>
+        <li>Casey, L., Freeman, B., Francis, K., Brychkova, G., McKeown, P., Spillane, C., Bezrukov, A., Zaworotko, M., &amp; Styles, D. (2022). Comparative environmental footprints of lettuce supplied by hydroponic controlled-environment agriculture and field-based supply chains. <em>Journal of Cleaner Production</em>, 369, 133214. <a href="https://doi.org/10.1016/j.jclepro.2022.133214" target="_blank" rel="noopener">doi:10.1016/j.jclepro.2022.133214</a></li>
+        <li>Department for Energy Security and Net Zero (DESNZ). (2025). <em>Greenhouse gas reporting: conversion factors 2025</em>. UK Government. <a href="https://www.gov.uk/government/publications/greenhouse-gas-reporting-conversion-factors-2025" target="_blank" rel="noopener">gov.uk</a></li>
+        <li>Ember &amp; Our World in Data. (2026). <em>Carbon intensity of electricity generation</em> and <em>Share of electricity generated by source</em> [datasets, values for 2024]. <a href="https://ourworldindata.org/grapher/carbon-intensity-electricity" target="_blank" rel="noopener">ourworldindata.org</a></li>
+        <li>FAO. (2019). <em>The State of Food and Agriculture 2019: Moving forward on food loss and waste reduction</em>. FAO. <a href="https://doi.org/10.4060/CA6030EN" target="_blank" rel="noopener">doi:10.4060/CA6030EN</a></li>
+        <li>Forster, P., Storelvmo, T., Armour, K., Collins, W., Dufresne, J.-L., Frame, D., et al. (2021). The Earth's energy budget, climate feedbacks, and climate sensitivity. In <em>Climate Change 2021: The Physical Science Basis. Contribution of Working Group I to the Sixth Assessment Report of the IPCC</em> (pp. 923–1054). Cambridge University Press. <a href="https://doi.org/10.1017/9781009157896.009" target="_blank" rel="noopener">doi:10.1017/9781009157896.009</a></li>
+        <li>Frischknecht, R., Wyss, F., Büsser Knöpfel, S., Lützkendorf, T., &amp; Balouktsi, M. (2015). Cumulative energy demand in LCA: the energy harvested approach. <em>International Journal of Life Cycle Assessment</em>, 20(7), 957–969. <a href="https://doi.org/10.1007/s11367-015-0897-4" target="_blank" rel="noopener">doi:10.1007/s11367-015-0897-4</a></li>
+        <li>Gargaro, M., Hastings, A., Murphy, R. J., &amp; Harris, Z. M. (2025). A comparative LCA of field grown lettuce versus vertically farmed lettuce. <em>Food and Energy Security</em>, 14(4), e70117. <a href="https://doi.org/10.1002/fes3.70117" target="_blank" rel="noopener">doi:10.1002/fes3.70117</a></li>
+        <li>Graamans, L., Baeza, E., van den Dobbelsteen, A., Tsafaras, I., &amp; Stanghellini, C. (2018). Plant factories versus greenhouses: comparison of resource use efficiency. <em>Agricultural Systems</em>, 160, 31–43. <a href="https://doi.org/10.1016/j.agsy.2017.11.003" target="_blank" rel="noopener">doi:10.1016/j.agsy.2017.11.003</a></li>
+        <li>Heijungs, R. (2020). On the number of Monte Carlo runs in comparative probabilistic LCA. <em>International Journal of Life Cycle Assessment</em>, 25(2), 394–402. <a href="https://doi.org/10.1007/s11367-019-01698-4" target="_blank" rel="noopener">doi:10.1007/s11367-019-01698-4</a></li>
+        <li>Hospido, A., Milà i Canals, L., McLaren, S., Truninger, M., Edwards-Jones, G., &amp; Clift, R. (2009). The role of seasonality in lettuce consumption: a case study of environmental and social aspects. <em>International Journal of Life Cycle Assessment</em>, 14(5), 381–391. <a href="https://doi.org/10.1007/s11367-009-0091-7" target="_blank" rel="noopener">doi:10.1007/s11367-009-0091-7</a></li>
+        <li>Huijbregts, M. A. J., Steinmann, Z. J. N., Elshout, P. M. F., Stam, G., Verones, F., Vieira, M., et al. (2017). ReCiPe2016: a harmonised life cycle impact assessment method at midpoint and endpoint level. <em>International Journal of Life Cycle Assessment</em>, 22(2), 138–147. <a href="https://doi.org/10.1007/s11367-016-1246-y" target="_blank" rel="noopener">doi:10.1007/s11367-016-1246-y</a></li>
+        <li>IPCC. (2019). <em>2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories</em>, Volume 4, Chapter 11: N₂O emissions from managed soils, and CO₂ emissions from lime and urea application (Tables 11.1 and 11.3). <a href="https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch11_Soils_N2O_CO2.pdf" target="_blank" rel="noopener">ipcc-nggip.iges.or.jp</a></li>
+        <li>ISO. (2014). <em>ISO 14046:2014 Environmental management — Water footprint — Principles, requirements and guidelines</em>. International Organization for Standardization.</li>
+        <li>Mälarenergi. (2025). <em>Ursprungsmärkning fjärrvärme</em> [Origin labelling of district heating, Västerås; environmental values for 2025]. <a href="https://www.malarenergi.se/hallbarhet/ursprungsmarkning-fjarrvarme/" target="_blank" rel="noopener">malarenergi.se</a></li>
+        <li>Martin, M., &amp; Molin, E. (2019). Environmental assessment of an urban vertical hydroponic farming system in Sweden. <em>Sustainability</em>, 11(15), 4124. <a href="https://doi.org/10.3390/su11154124" target="_blank" rel="noopener">doi:10.3390/su11154124</a></li>
+        <li>Mekonnen, M. M., &amp; Hoekstra, A. Y. (2011). <em>The green, blue and grey water footprint of crops and derived crop products. Volume 1: Main report</em> (Value of Water Research Report Series No. 47). UNESCO-IHE. <a href="https://www.waterfootprint.org/resources/Report47-WaterFootprintCrops-Vol1.pdf" target="_blank" rel="noopener">waterfootprint.org</a></li>
+        <li>Molin, E., &amp; Martin, M. (2018). <em>Assessing the energy and environmental performance of vertical hydroponic farming</em> (Report C 299). IVL Swedish Environmental Research Institute. <a href="https://www.diva-portal.org/smash/get/diva2:1549663/FULLTEXT01.pdf" target="_blank" rel="noopener">diva-portal.org</a></li>
+        <li>Pennisi, G., Gianquinto, G., Marcelis, L. F. M., Martin, M., &amp; Orsini, F. (2025). Vertical farming: productivity, environmental impact, and resource use. A review. <em>Agronomy for Sustainable Development</em>, 45(5), 57. <a href="https://doi.org/10.1007/s13593-025-01055-w" target="_blank" rel="noopener">doi:10.1007/s13593-025-01055-w</a></li>
+        <li>Schlömer, S., Bruckner, T., Fulton, L., Hertwich, E., McKinnon, A., Perczyk, D., Roy, J., Schaeffer, R., Sims, R., Smith, P., &amp; Wiser, R. (2014). Annex III: Technology-specific cost and performance parameters. In <em>Climate Change 2014: Mitigation of Climate Change. Contribution of Working Group III to the Fifth Assessment Report of the IPCC</em>. Cambridge University Press.</li>
+        <li>Stoessel, F., Juraske, R., Pfister, S., &amp; Hellweg, S. (2012). Life cycle inventory and carbon and water FoodPrint of fruits and vegetables: application to a Swiss retailer. <em>Environmental Science &amp; Technology</em>, 46(6), 3253–3262. <a href="https://doi.org/10.1021/es2030577" target="_blank" rel="noopener">doi:10.1021/es2030577</a></li>
+        <li>Zhuang, Y., Lu, N., Shimamura, S., Maruyama, A., Kikuchi, M., &amp; Takagaki, M. (2022). Economies of scale in constructing plant factories with artificial lighting and the economic viability of crop production. <em>Frontiers in Plant Science</em>, 13, 992194. <a href="https://doi.org/10.3389/fpls.2022.992194" target="_blank" rel="noopener">doi:10.3389/fpls.2022.992194</a></li>
+      </ol>
+      <a class="lab-link" data-lab="resilience-simulator" data-why="The vertical farm that looks green on a clean grid is also exposed to electricity-price and IT shocks: test its role in a regional food network."></a>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

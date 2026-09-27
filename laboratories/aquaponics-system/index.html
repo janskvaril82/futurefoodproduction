@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aquaponics system simulator · Future Food Production</title>
+<meta name="description" content="A complete coupled aquaponic system in 3D — tilapia, swirl separator, moving-bed biofilter, raft lettuce and pH control — driven by a live model of fish growth, nitrification, oxygen and carbonate chemistry.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Eq. A1–A2: satiation intake of Nile tilapia (g fish⁻¹ d⁻¹) */
+FFP_CALC.aqIntake = v => { const x = v.T < 31 ? (31 - v.T) / 14 : (v.T - 31) / 9; const tau = (v.T <= 17 || v.T >= 40) ? 0.01 : Math.exp(-4.6 * Math.pow(Math.max(0, x), 3.3)); const s = v.DO <= 0.3 ? 0 : v.DO < 1.5 ? 0.6 * (v.DO - 0.3) / 1.2 : v.DO < 5 ? 0.6 + 0.4 * (v.DO - 1.5) / 3.5 : 1; return 0.224 * Math.pow(v.W, 0.635) * tau * s; };
+/* Eq. A3: growth per fish (g d⁻¹) from ration (% BW) */
+FFP_CALC.aqGrowth = v => { const I = v.R / 100 * v.W; const M = 0.005 * Math.pow(v.W, 0.8) * Math.pow(2, (v.T - 32.7) / 10); return I >= M ? 0.79 * (I - M) : -(M - I) * 11.21 / 7.1; };
+/* Eq. A5: fish oxygen use (g O₂ per kg fish per day) */
+FFP_CALC.aqO2 = v => { const I = v.R / 100 * 1000; const Mk = 0.005 * Math.pow(v.W, 0.8) * Math.pow(2, (v.T - 32.7) / 10) * 1000 / v.W; const G = I >= Mk ? 0.79 * (I - Mk) : -(Mk - I) * 11.21 / 7.1; return (I * 11.21 - G * 7.1) / 13.6; };
+/* Eq. A11: pH of water with alkalinity A (mg/L as CaCO₃) and free CO₂ (mg/L) at T */
+FFP_CALC.aqPH = v => { const Tk = v.T + 273.15, lg = Math.log10(Tk); const pK1 = -(-356.3094 - 0.06091964 * Tk + 21834.37 / Tk + 126.8339 * lg - 1684915 / (Tk * Tk)); const hco3 = v.A / 50.04, co2 = v.C / 44.01; return pK1 + Math.log10(hco3 / co2); };
+/* Eq. A12: un-ionised ammonia N (mg/L) from TAN, pH, T (Emerson et al. 1975) */
+FFP_CALC.aqNH3 = v => v.TAN / (1 + Math.pow(10, 0.09018 + 2729.92 / (v.T + 273.15) - v.pH));
+/* Eq. A7: TAN removal of a biofilm (g N/d) */
+FFP_CALC.aqNit = v => 1.2 * v.A * Math.pow(1.07, v.T - 20) * v.S / (0.5 + v.S) * v.O / (0.5 + v.O);
+/* Eq. A10: steady-state DO (mg/L) */
+FFP_CALC.aqDO = v => { const Tk = v.T + 273.15; const Cs = Math.exp(-139.34411 + 1.575701e5 / Tk - 6.642308e7 / Tk ** 2 + 1.2438e10 / Tk ** 3 - 8.621949e11 / Tk ** 4); const k = v.k * 24 * Math.pow(1.024, v.T - 20); return Math.max(0, Cs - v.D / (k * v.V)); };
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+</head>
+<body data-page="lab" data-slug="aquaponics-system">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Aquaponics system simulator</h1>
+    <p class="lead">Run a complete coupled aquaponic system in a Nordic greenhouse. Nile tilapia swim in a glass-fronted tank, a swirl separator catches their faeces, a moving-bed biofilter turns ammonia into nitrate, and lettuce grows on floating rafts — all driven by a live model of fish appetite and growth, nitrogen excretion, two-step nitrification, plant uptake, dissolved oxygen, carbon dioxide and pH. Start a new system and watch it “cycle”, overfeed it, switch off the blower or the base pump, and see every consequence in the water chemistry, the charts and the fish themselves. Click any component to inspect it.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Nitrogen in the water</h3>
+      <div class="chart-sub">Total ammonia-N and nitrite-N (left axis) and nitrate-N (right axis). A new biofilter shows the classic ammonia peak, then the nitrite peak; a mature coupled system accumulates nitrate.</div>
+      <div class="chart" id="chart-n"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Dissolved oxygen and pH</h3>
+      <div class="chart-sub">Oxygen dips during the daily feeding window (07:00–19:00) as fish and bacteria respire; pH is held at the set-point by base dosing — or drifts down when the pump is off.</div>
+      <div class="chart" id="chart-o2"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Fish and lettuce</h3>
+      <div class="chart-sub">Standing biomass (left) and cumulative harvest (right, dashed). With staggered harvest the fish biomass stays constant and the growth is harvested; lettuce is harvested one raft cohort at a time.</div>
+      <div class="chart" id="chart-bio"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Where did the feed nitrogen go?</h3>
+      <div class="chart-sub">Cumulative nitrogen budget since the last restart (g N). Link widths are proportional to the flows computed by the model.</div>
+      <div class="chart tall" id="chart-sankey"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ============================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the system</h2>
+      <p>The simulation starts from a <em>mature</em> system: 45 kg of 250 g tilapia (25 kg m⁻³) are fed 1.6 % of their body weight per day with a 32 % protein feed, and 10 m² of lettuce rafts take up the nitrate. One simulated day passes every second. Follow these steps in order.</p>
+      <ol>
+        <li><strong>Follow the water.</strong> Pumped water enters the fish tank through the spray bar at the back, leaves over the stand-pipe to the <em>swirl separator</em> (tangential inlet: the water spins and settleable solids slide down into the cone), then flows to the <em>moving-bed biofilter</em>, down the manifold into the two raft beds, along the beds, into the <em>sump</em>, and is pumped back. The flow particles in the pipes show the path.</li>
+        <li><strong>Watch the daily rhythm.</strong> Set the speed to <em>6 h/s</em>. During the feeding window (07:00–19:00 in the HUD) ammonia rises and oxygen falls in the charts; at night they recover. Fish digest for hours, so excretion peaks in the evening.</li>
+        <li><strong>Look at the biofilter.</strong> Click the translucent biofilter. Thousands of plastic carriers tumble in the aeration current; their colour darkens as the nitrifier biofilm grows. The inspector shows how much of the biofilm capacity is used.</li>
+        <li><strong>Read the lettuce production line.</strong> New transplants float at the far end of the beds; as they grow the rafts are pushed towards the inlet end, where the heads are harvested. Every 4.7 days the oldest cohort is harvested and a new one is planted, so the size gradient appears to move along the beds. Switch on <em>Cut-away raft bed</em> to see the roots hanging in the water.</li>
+        <li><strong>Start a new system.</strong> Choose the preset <em>Start-up (new system)</em>. Only a trace of nitrifiers exists. Ammonia climbs first; a few days later nitrite takes over; after about three weeks both fall and nitrate appears — the system has “cycled”. Note that the start-up preset stocks only 5 kg m⁻³: with more fish the peaks would kill them.</li>
+        <li><strong>Break the blower.</strong> Choose <em>Aeration failure</em> (speed 1 h/s). Oxygen falls by roughly 2 mg L⁻¹ per hour; below 2 mg L⁻¹ the fish crowd at the surface, below 0.3 mg L⁻¹ they begin to die. Restore the aeration slider to rescue them — how many hours do you have?</li>
+        <li><strong>Overfeed.</strong> Choose <em>Overfed</em>. The fish cannot eat 4 % of their body weight at 26 °C: pellets settle on the tank floor, the water turns turbid, the sludge cone fills faster, oxygen demand rises and nitrite creeps above 1 mg L⁻¹.</li>
+        <li><strong>Switch off the base pump.</strong> Choose <em>No pH control</em>. Within days the alkalinity is gone, pH falls below 6, nitrification slows and ammonium accumulates — harmless to the fish only as long as the pH stays low.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>An aquaponic system is <strong>one body of water shared by three kinds of organisms</strong>. Everything is driven by the feed: its nitrogen becomes fish, ammonia and solids; the ammonia becomes nitrite and nitrate at a cost of oxygen and alkalinity; the nitrate feeds the plants — or accumulates. Change one flow and every other one responds, with time constants from hours (oxygen) to weeks (nitrifier growth, nitrate accumulation).</p></div>
+      <div class="callout note"><div class="callout-title">What you see is computed</div><p>The number of fish in the tank (one drawn fish represents four), their swimming speed and depth, the water turbidity, the sludge level, the carrier colour, the lettuce sizes, the bubbles and the flow particles are all driven by the model state. Labels and the inspector show live values; the HUD warns when a water-quality limit is exceeded.</p></div>
+    </section>
+
+    <!-- ============================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>The system as coupled mass balances</h2>
+      <p>Engineers describe a recirculating system as <em>compartments</em> (pools) linked by <em>flows</em>. Because the whole water volume passes through all components about ten times a day, this simulator treats the water as one well-mixed volume, and follows eight pools: fish, fish-gut contents, suspended organic solids, total ammonia nitrogen (TAN = NH₃ + NH₄⁺), nitrite, nitrate, dissolved oxygen and the carbonate system (alkalinity and total inorganic carbon), plus two nitrifier populations attached to surfaces and six cohorts of lettuce. Figure 1 shows where each flow happens physically.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 820 330" role="img" aria-label="Process flow diagram of the simulated aquaponic system with the model's nitrogen, oxygen and carbon flows">
+            <defs>
+              <marker id="aqw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--water)"/></marker>
+              <marker id="aqm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+              <marker id="aqa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--amber)"/></marker>
+            </defs>
+            <rect x="20" y="120" width="150" height="100" rx="12" class="fill-water-soft" style="stroke:var(--water)" stroke-width="2"/>
+            <text x="95" y="112" text-anchor="middle" font-weight="600">Fish tank 1.8 m³</text>
+            <text x="95" y="150" text-anchor="middle" class="t-small">tilapia: intake, growth,</text>
+            <text x="95" y="166" text-anchor="middle" class="t-small">respiration (O₂ → CO₂),</text>
+            <text x="95" y="182" text-anchor="middle" class="t-small">excretion (TAN), faeces</text>
+            <text x="95" y="205" text-anchor="middle" class="t-small t-muted">Eqs. A1–A5</text>
+            <line x1="128" y1="40" x2="128" y2="116" style="stroke:var(--amber)" stroke-width="2" marker-end="url(#aqa)"/>
+            <text x="136" y="50" class="t-small">feed (N, energy)</text>
+            <path d="M205 125 h70 v45 l-35 38 l-35 -38 z" class="fill-sunk" stroke="currentColor" stroke-width="1.4"/>
+            <text x="240" y="115" text-anchor="middle" font-weight="600">Swirl separator</text>
+            <text x="240" y="152" text-anchor="middle" class="t-small">captures η of</text>
+            <text x="240" y="166" text-anchor="middle" class="t-small">solids (Eq. A6)</text>
+            <line x1="240" y1="210" x2="240" y2="262" class="stroke-muted" stroke-width="2" marker-end="url(#aqm)"/>
+            <text x="248" y="252" class="t-small t-muted">sludge (N, P)</text>
+            <rect x="310" y="120" width="110" height="100" rx="10" class="fill-accent-soft" stroke="currentColor" stroke-width="1.4"/>
+            <text x="365" y="112" text-anchor="middle" font-weight="600">Moving-bed biofilter</text>
+            <g class="fill-bg" stroke="currentColor" stroke-width=".8"><circle cx="332" cy="142" r="6"/><circle cx="352" cy="156" r="6"/><circle cx="374" cy="141" r="6"/><circle cx="396" cy="155" r="6"/><circle cx="336" cy="176" r="6"/><circle cx="360" cy="186" r="6"/><circle cx="386" cy="178" r="6"/><circle cx="404" cy="196" r="6"/></g>
+            <text x="365" y="238" text-anchor="middle" class="t-small">AOB: TAN → NO₂⁻ · NOB: NO₂⁻ → NO₃⁻</text>
+            <text x="365" y="254" text-anchor="middle" class="t-small t-muted">Eq. A7 (uses O₂, alkalinity)</text>
+            <rect x="455" y="150" width="200" height="70" rx="8" class="fill-water-soft" style="stroke:var(--water)" stroke-width="2"/>
+            <rect x="462" y="146" width="186" height="10" rx="3" class="fill-bg" stroke="currentColor" stroke-width="1"/>
+            <g class="fill-accent"><ellipse cx="485" cy="138" rx="10" ry="7"/><ellipse cx="525" cy="136" rx="13" ry="9"/><ellipse cx="568" cy="135" rx="15" ry="11"/><ellipse cx="615" cy="133" rx="18" ry="13"/></g>
+            <text x="555" y="112" text-anchor="middle" font-weight="600">Raft beds (lettuce)</text>
+            <text x="555" y="188" text-anchor="middle" class="t-small">uptake of NO₃⁻ and NH₄⁺</text>
+            <text x="555" y="204" text-anchor="middle" class="t-small t-muted">Eq. A9 · releases OH⁻</text>
+            <rect x="690" y="160" width="100" height="60" rx="8" class="fill-sunk" stroke="currentColor" stroke-width="1.4"/>
+            <text x="740" y="182" text-anchor="middle" font-weight="600">Sump</text>
+            <text x="740" y="199" text-anchor="middle" class="t-small">pump · pH control</text>
+            <line x1="712" y1="70" x2="712" y2="156" style="stroke:var(--amber)" stroke-width="2" marker-end="url(#aqa)"/>
+            <text x="712" y="50" class="t-small" text-anchor="middle">base (KOH,</text>
+            <text x="712" y="63" class="t-small" text-anchor="middle">Ca(OH)₂, NaHCO₃)</text>
+            <line x1="770" y1="96" x2="770" y2="156" style="stroke:var(--water)" stroke-width="2" marker-end="url(#aqw)"/>
+            <text x="782" y="86" class="t-small" text-anchor="middle">exchange</text>
+            <line x1="170" y1="150" x2="203" y2="150" style="stroke:var(--water)" stroke-width="3" marker-end="url(#aqw)"/>
+            <line x1="275" y1="150" x2="308" y2="150" style="stroke:var(--water)" stroke-width="3" marker-end="url(#aqw)"/>
+            <line x1="420" y1="178" x2="453" y2="178" style="stroke:var(--water)" stroke-width="3" marker-end="url(#aqw)"/>
+            <line x1="655" y1="190" x2="688" y2="190" style="stroke:var(--water)" stroke-width="3" marker-end="url(#aqw)"/>
+            <path d="M740 220 V300 H10 V165 H16" fill="none" style="stroke:var(--water)" stroke-width="3" marker-end="url(#aqw)"/>
+            <text x="410" y="292" text-anchor="middle" class="t-small">2.4 m³ h⁻¹ recirculation — the model treats the water as one well-mixed volume</text>
+            <text x="560" y="72" text-anchor="middle" class="t-small t-muted">↑ N₂/N₂O (denitrification in anoxic niches) · CO₂ stripped by aeration</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The simulated system, arranged in the order recommended by Rakocy et al. (2006): fish tank → solids removal → biofilter → hydroponic beds → sump. Feed is the only substantial nutrient input; base neutralises the acid produced by nitrification; exchange water dilutes what accumulates. Equation numbers refer to the Derive tab.</figcaption>
+      </figure>
+
+      <h3>1 · The feed drives everything</h3>
+      <p>Fish eat only up to their appetite. The maximum daily intake of Nile tilapia grows with body mass but more slowly than mass itself: in the experiments of Tran-Duy et al. (2008) at 32–33 °C, fish of about 37 g ate 5.8 % of their weight per day to satiation and fish of about 190 g only 3.2 %. The appetite also collapses in cold water (tilapia stop feeding below about 17 °C; Popma &amp; Masser, 1999), at low dissolved oxygen, and at high un-ionised ammonia. Whatever is offered above the appetite is <em>wasted</em>: it becomes suspended solids that consume oxygen as bacteria decompose them. Food that is eaten is digested over several hours; about 80 % of its nitrogen is absorbed (a design value; Timmons &amp; Ebeling, 2013), part is built into new fish protein, and the rest is excreted across the gills as ammonia. This is why the charts show ammonia peaking in the evening, hours after the meals.</p>
+      <table>
+        <caption>Table 1. What 1 kg of feed (32 % crude protein) becomes in the default mature system — model output, averaged over 30 days.</caption>
+        <thead><tr><th>Flow</th><th class="num">Per kg feed</th><th>Comment</th></tr></thead>
+        <tbody>
+          <tr><td>Nitrogen in the feed</td><td class="num">51 g N</td><td>0.32 ÷ 6.25 (Eq. A4)</td></tr>
+          <tr><td>… retained in fish growth</td><td class="num">≈ 19 g N (37 %)</td><td>within the 20–50 % reported by Schneider et al. (2005)</td></tr>
+          <tr><td>… excreted as ammonia</td><td class="num">≈ 22 g N</td><td>the load on the biofilter</td></tr>
+          <tr><td>Fish gain (FCR ≈ 1.3–1.4)</td><td class="num">≈ 0.74 kg</td><td>Tran-Duy et al. (2008) measured FCR 1.2–1.5 at satiation</td></tr>
+          <tr><td>Oxygen consumed (fish + bacteria)</td><td class="num">≈ 0.70 kg O₂</td><td>RAS range 0.3–0.75 kg O₂ kg⁻¹ feed (Losordo et al., 1998)</td></tr>
+          <tr><td>Base needed (as KOH)</td><td class="num">≈ 0.14 kg</td><td>≈ 2.5 equivalents of alkalinity</td></tr>
+        </tbody>
+      </table>
+
+      <h3>2 · Nitrification: slow bacteria, fast consequences</h3>
+      <p>Ammonia-oxidising bacteria (AOB) turn TAN into nitrite, nitrite-oxidising bacteria (NOB) turn nitrite into nitrate (Lesson 6.1). Both live in the biofilm on the moving-bed carriers, the tank walls and the undersides of the rafts. Their growth follows Monod kinetics on their substrate and on oxygen, doubles roughly every ten degrees, and falls steeply below pH ≈ 6.5. Because a new system starts with only a trace of them, and because NOB can only grow once AOB produce nitrite, a new system passes through an <strong>ammonia peak</strong> and then a <strong>nitrite peak</strong>. In a mature system the biofilm grows until it removes exactly the ammonia load; TAN then settles at a few tenths of a milligram per litre — not zero, because a biofilm needs some substrate to maintain itself. When the load approaches the capacity of the biofilm area, the TAN concentration rises steeply: that is what the <em>biofilter capacity</em> readout warns about.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“The plants clean the water.” In this system the lettuce takes up only about 5 % of the feed nitrogen. The water is cleaned of ammonia by <em>bacteria</em> — using oxygen and destroying alkalinity — and the nitrate that the lettuce does not take up is removed by denitrification in anoxic niches and by water exchange. Lennard (2017, cited in Lennard &amp; Goddek, 2019) points out that the widely used UVI design is over-supplied with nitrogen and relies on passive denitrification.</p></div>
+
+      <h3>3 · Oxygen: the fastest variable</h3>
+      <p>Fish respiration, nitrification (4.57 g O₂ per g N) and the decomposition of solids all draw on the same dissolved oxygen, which is replenished by the blower through the transfer coefficient k<sub>L</sub>a. The system water holds only about 7 mg L⁻¹ × 6.0 m³ ≈ 42 g of oxygen, while the system consumes about 500 g per day — the whole oxygen content is used in about two hours. That is why an aeration failure is an emergency measured in hours, and why commercial systems keep back-up blowers or pure oxygen on standby.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the fish appetite factors used by the model</div>
+          <div class="seg" id="ff-sel" role="group" aria-label="Appetite factor" style="margin-bottom:8px">
+            <button type="button" data-v="T" aria-pressed="true">Temperature τ</button>
+            <button type="button" data-v="DO" aria-pressed="false">Oxygen σ</button>
+            <button type="button" data-v="UIA" aria-pressed="false">Un-ionised ammonia υ</button>
+          </div>
+          <div id="fig-factors" style="height:260px"></div>
+        </div>
+        <figcaption><b>Figure 2.</b> Relative appetite of Nile tilapia (Eq. A2) as a function of temperature, dissolved oxygen and un-ionised ammonia. The dot marks the current state of the simulated system. The shapes follow Popma &amp; Masser (1999), Yi (1998), Tsadik &amp; Kutty (1987) and Tran-Duy et al. (2008).</figcaption>
+      </figure>
+
+      <h3>4 · pH, alkalinity and CO₂: one triangle</h3>
+      <p>Nitrification releases two hydrogen ions per ammonium oxidised, consuming about 7 g of alkalinity (as CaCO₃) per gram of nitrogen. The pH, however, depends on the <em>ratio</em> of bicarbonate to dissolved CO₂: \(\text{pH} = \text{p}K_1 + \log_{10}([\text{HCO}_3^-]/[\text{CO}_2])\). In an air-aerated system CO₂ is stripped almost to equilibrium with air (a few mg L⁻¹), so holding the pH at 7.2 is only possible with a low alkalinity of 15–20 mg L⁻¹ as CaCO₃; operators who want a larger buffer must accept a higher pH — which raises the toxic NH₃ fraction. This is the pH compromise of coupled aquaponics: nitrifiers and fish prefer about 7–8, plants and nutrient availability 5.5–6.5, and the usual answer is pH ≈ 7 (Somerville et al., 2014; Lennard &amp; Goddek, 2019).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — pH as a function of alkalinity and CO₂ (26 °C)</div>
+          <div id="fig-carb" style="height:260px"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> pH of fresh water as a function of alkalinity for five dissolved CO₂ concentrations, computed with the carbonate model of the simulator (Eq. A11). An aerated system sits on the low-CO₂ curves (the highest pH at a given alkalinity); systems supplied with pure oxygen, where CO₂ accumulates, sit on the high-CO₂ curves below them.</figcaption>
+      </figure>
+
+      <h3>5 · Balancing fish and plants</h3>
+      <p>Rakocy et al. (2006) balanced the UVI raft system with a <strong>feed-rate ratio</strong> of 60–100 g of feed per m² of plant area per day; FAO recommends 40–50 g m⁻² d⁻¹ for leafy greens in small systems (Somerville et al., 2014). In the model you can check what these ratios mean for nitrogen: at 70 g m⁻² d⁻¹ the lettuce takes up a small part of the feed nitrogen and nitrate settles where denitrification and water exchange remove the surplus. Potassium, calcium and iron — scarce in fish feed — are supplied through the base (KOH or Ca(OH)₂) and chelated iron; the <a href="/laboratories/nutrient-mass-balance/">nutrient mass balance laboratory</a> quantifies these deficits.</p>
+      <table>
+        <caption>Table 2. Design and water-quality targets used for the status colours.</caption>
+        <thead><tr><th>Quantity</th><th>Target</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>TAN (tilapia)</td><td class="num">&lt; 2 mg L⁻¹</td><td>Somerville et al. (2014), Table 7.1</td></tr>
+          <tr><td>Un-ionised NH₃</td><td class="num">appetite falls from 0.08 mg L⁻¹</td><td>Popma &amp; Masser (1999)</td></tr>
+          <tr><td>Nitrite-N</td><td class="num">&lt; 1 mg L⁻¹</td><td>Losordo et al. (1998); Timmons &amp; Ebeling (2013), in Eck et al. (2019)</td></tr>
+          <tr><td>Nitrate-N</td><td class="num">5–150 mg L⁻¹</td><td>Somerville et al. (2014), Table 3.2</td></tr>
+          <tr><td>Dissolved oxygen</td><td class="num">&gt; 5 (aquaponics), &gt; 4 (tilapia)</td><td>Somerville et al. (2014)</td></tr>
+          <tr><td>Free CO₂</td><td class="num">&lt; 15–20 mg L⁻¹</td><td>Espinal &amp; Matulić (2019); Lennard &amp; Goddek (2019)</td></tr>
+          <tr><td>Suspended solids</td><td class="num">&lt; 30 mg L⁻¹</td><td>Lennard &amp; Goddek (2019)</td></tr>
+          <tr><td>Water for lettuce roots</td><td class="num">≤ 25 °C, DO ≥ 4</td><td>Brechner &amp; Both (2013)</td></tr>
+        </tbody>
+      </table>
+      <div class="callout frontier"><div class="callout-title">Frontier — decoupling the loops</div><p>Because fish, bacteria and plants want different pH, temperature and nutrient levels, European research has moved towards <em>decoupled</em> (multi-loop) aquaponics: the fish loop sends water to the plant loop only as fast as the crop evapotranspires it, sludge is mineralised in separate reactors, and nutrients are adjusted for the plants (Goddek et al., 2019). The single-loop system simulated here is the classical design; the <a href="/laboratories/nutrient-mass-balance/">nutrient mass balance lab</a> compares both.</p></div>
+      <a class="lab-link" data-lab="ammonia-toxicity" data-why="Map the un-ionised ammonia fraction over pH and temperature, compare species limits and design a safe operating window."></a>
+    </section>
+
+    <!-- ============================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The model is a system of 41 ordinary differential equations (fish weight and number, gut contents, TAN, nitrite, nitrate, two nitrifier populations, suspended solids and their nitrogen, oxygen, alkalinity, inorganic carbon, six lettuce cohorts and cumulative budgets) integrated with the classical fourth-order Runge–Kutta method in steps of four simulated minutes. Symbols and parameter values are given in each box; the numbers in square brackets are the values used.</p>
+
+      <div class="eq-box" id="eq-aq-intake">
+        <div class="eq-head"><span class="eq-label">Fish appetite and feed intake</span><span class="eq-num">(A1)</span></div>
+        <div class="eq-main">\[ I_{\max} = a\,W^{\,b}\;\tau(T)\,\sigma(\text{DO})\,\upsilon(\text{UIA}), \qquad I = \min\!\left(\tfrac{R}{100}\,W,\; I_{\max}\right) \]</div>
+        <p class="eq-read">the most feed a tilapia will eat per day is a power function of its body mass, reduced by three factors for temperature, oxygen and un-ionised ammonia; the fish eats the ration offered or its appetite, whichever is smaller — the rest is wasted.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(I_{\max}\)</td><td>satiation intake per fish</td><td>g d⁻¹</td><td></td></tr>
+          <tr><td>\(W\)</td><td>fish mass</td><td>g</td><td>250</td></tr>
+          <tr><td>\(a,\ b\)</td><td>intake coefficient and exponent (at 31–33 °C, DO &gt; 5)</td><td>g<sup>1−b</sup> d⁻¹; –</td><td>0.224; 0.635</td></tr>
+          <tr><td>\(R\)</td><td>ration offered</td><td>% of body mass d⁻¹</td><td>1.6</td></tr>
+          <tr><td>\(\tau,\ \sigma,\ \upsilon\)</td><td>factors for temperature, oxygen, ammonia (Eq. A2)</td><td>–</td><td>0–1</td></tr>
+        </table>
+        <details><summary>Follow the derivation (fitting the power law)</summary>
+          <ol class="steps">
+            <li>Tran-Duy et al. (2008, Table 2) fed Nile tilapia to satiation at 32.7 °C and DO ≈ 5.5 mg L⁻¹: fish with a geometric mean mass of ≈ 37 g ate 2.15 g d⁻¹, fish of ≈ 190 g ate 6.08 g d⁻¹.</li>
+            <li>Assume \(I = aW^b\). Taking logarithms of both points: \(b = \ln(6.08/2.15)/\ln(190/37) = 1.040/1.636 = 0.635\).</li>
+            <li>Then \(a = 2.15/37^{0.635} = 0.217\) g<sup>0.365</sup> d⁻¹; dividing by \(\tau(32.7\,{}^{\circ}\text{C}) = 0.98\) gives \(a = 0.221\) at the optimum.</li>
+            <li>Because \(b &lt; 1\), the <em>relative</em> intake \(I/W \propto W^{-0.365}\) falls as fish grow: a 250 g fish eats at most ≈ 3.0 % d⁻¹ at 31 °C and ≈ 2.6 % d⁻¹ at 26 °C.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Valid for pelleted diets with ≈ 32 % protein and fish of 20–300 g; the exponent 0.635 is close to the 0.67 used for tilapia by Yi (1998). Social effects, feeding frequency and diet energy density are ignored.</p></details>
+        <div class="eq-units">g<sup>1−b</sup> d⁻¹ × g<sup>b</sup> = g d⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="aqIntake" data-output="Satiation intake" data-unit="g fish⁻¹ d⁻¹" data-digits="2" data-plot="W" data-title="Try it — tilapia appetite">
+          <div data-var="W" data-label="Fish mass W" data-min="10" data-max="600" data-step="5" data-value="250" data-unit="g"></div>
+          <div data-var="T" data-label="Temperature" data-min="16" data-max="38" data-step="0.5" data-value="26" data-unit="°C"></div>
+          <div data-var="DO" data-label="Dissolved O₂" data-min="0" data-max="9" data-step="0.1" data-value="7" data-unit="mg L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-factors">
+        <div class="eq-head"><span class="eq-label">Environmental appetite factors</span><span class="eq-num">(A2)</span></div>
+        <div class="eq-main">\[ \tau(T) = \exp\!\left[-4.6\left(\frac{|T_{\text{opt}}-T|}{T_{\text{opt}}-T_{\text{lim}}}\right)^{p}\right],\quad \sigma(\text{DO}) = \text{piecewise linear},\quad \upsilon = \frac{\text{UIA}_{\max}-\text{UIA}}{\text{UIA}_{\max}-\text{UIA}_{\text{crit}}} \]</div>
+        <p class="eq-read">appetite is highest at the optimum temperature and falls to 1 % at the cold and hot limits; it falls linearly as dissolved oxygen drops below 5 mg per litre (steeply below 1.5), and linearly as un-ionised ammonia rises from 0.06 to 1.4 mg per litre.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Value</th><th>Source</th></tr>
+          <tr><td>\(T_{\text{lim}}\)</td><td>cold limit (below: optimum side); hot limit</td><td>17 °C; 40 °C</td><td>Popma &amp; Masser (1999); Yi (1998)</td></tr>
+          <tr><td>\(T_{\text{opt}}\)</td><td>optimum temperature</td><td>31 °C</td><td>29–31 °C, Popma &amp; Masser (1999)</td></tr>
+          <tr><td>\(p\)</td><td>shape exponent</td><td>3.3</td><td>calibrated: growth at 22 °C ≈ ⅓ of optimum (Popma &amp; Masser, 1999)</td></tr>
+          <tr><td>\(\sigma\)</td><td>0 at 0.3, 0.6 at 1.5, 1 at ≥ 5 mg L⁻¹</td><td>–</td><td>Yi (1998); Tsadik &amp; Kutty (1987); Tran-Duy et al. (2008)</td></tr>
+          <tr><td>\(\text{UIA}_{\text{crit}},\ \text{UIA}_{\max}\)</td><td>un-ionised ammonia thresholds</td><td>0.06; 1.4 mg NH₃ L⁻¹</td><td>Yi (1998)</td></tr>
+        </table>
+        <details><summary>Follow the derivation (calibrating σ)</summary>
+          <ol class="steps">
+            <li>Tsadik and Kutty (1987) found that feed ingestion of 8 g tilapia fell by 40 % when DO fell from 7.0 to 1.5 mg L⁻¹: \(\sigma(1.5) \approx 0.6\).</li>
+            <li>Tran-Duy et al. (2008) found intake at ≈ 3.0 mg L⁻¹ to be about 77 % of intake at ≈ 5.5 mg L⁻¹: the line from (1.5, 0.6) to (5.0, 1.0) gives \(\sigma(3.0) = 0.6 + 0.4\times1.5/3.5 = 0.77\) ✓.</li>
+            <li>Below 0.3 mg L⁻¹ — the dawn minimum tilapia survive in ponds (Popma &amp; Masser, 1999) — feeding stops.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The factors multiply, i.e. stresses are assumed independent. Acclimation, nitrite and CO₂ effects on appetite are not included; the illustrative mortality hazards (Sources tab) are separate from these appetite factors.</p></details>
+        <div class="eq-units">All three factors are dimensionless ratios of like quantities ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-growth">
+        <div class="eq-head"><span class="eq-label">Growth–ration relation</span><span class="eq-num">(A3)</span></div>
+        <div class="eq-main">\[ G = \begin{cases} e_g\,(I - M) & I \ge M\\[2pt] -(M - I)\,\dfrac{ME}{E_{\text{fish}}} & I &lt; M \end{cases} \qquad M = c\,W^{0.8}\,Q_{10}^{(T-32.7)/10} \]</div>
+        <p class="eq-read">fish grow in proportion to the feed they eat above a maintenance ration; below maintenance they burn their own tissue. Maintenance scales with metabolic body mass and doubles every ten degrees.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(G\)</td><td>growth rate per fish</td><td>g d⁻¹</td><td></td></tr>
+          <tr><td>\(e_g\)</td><td>growth efficiency above maintenance</td><td>g fish (g feed)⁻¹</td><td>0.79</td></tr>
+          <tr><td>\(M,\ c\)</td><td>maintenance ration; its coefficient at 32.7 °C</td><td>g d⁻¹; g<sup>0.2</sup> d⁻¹</td><td>0.005</td></tr>
+          <tr><td>\(Q_{10}\)</td><td>temperature coefficient of maintenance</td><td>–</td><td>2 (assumed)</td></tr>
+          <tr><td>\(ME,\ E_{\text{fish}}\)</td><td>metabolisable energy of feed; energy of fish tissue</td><td>kJ g⁻¹</td><td>11.2; 7.1</td></tr>
+        </table>
+        <details><summary>Follow the derivation (fitting to experimental data)</summary>
+          <ol class="steps">
+            <li>Brett's classical growth–ration curve is close to a straight line between the maintenance ration and satiation (Brett, 1979; Jobling, 1994): \(G = e_g(I - M)\).</li>
+            <li>Tran-Duy et al. (2008) give intake and growth at two oxygen levels for two sizes, e.g. small fish: \((I, G) = (2.15, 1.75)\) and \((1.54, 1.24)\) g d⁻¹. Two points fix a line: \(e_g = (1.75-1.24)/(2.15-1.54) = 0.84\).</li>
+            <li>Fitting all four treatments together gives \(e_g \approx 0.79\) and \(c \approx 0.005\) (maintenance ≈ 0.35 g d⁻¹ for a 200 g fish at 32.7 °C). Predicted growth is within ±8 % of the four measured values, and the resulting FCR at satiation (1.3–1.4) matches the measured 1.23–1.49.</li>
+            <li>Starving fish lose mass at the rate that supplies their maintenance energy from tissue: \(M\,ME/E_{\text{fish}}\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The fit uses one diet at one temperature; the Q₁₀ scaling to other temperatures is an assumption. The real growth–ration curve bends near satiation (feed efficiency peaks below maximum ration), which this linear model ignores.</p></details>
+        <div class="eq-units">(g feed d⁻¹) × (g fish g⁻¹ feed) = g fish d⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="aqGrowth" data-output="Growth" data-unit="g fish⁻¹ d⁻¹" data-digits="2" data-plot="R" data-title="Try it — the growth–ration line">
+          <div data-var="R" data-label="Ration R" data-min="0" data-max="3" data-step="0.05" data-value="1.6" data-unit="% BW d⁻¹"></div>
+          <div data-var="W" data-label="Fish mass" data-min="20" data-max="600" data-step="10" data-value="250" data-unit="g"></div>
+          <div data-var="T" data-label="Temperature" data-min="18" data-max="34" data-step="0.5" data-value="26" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-nfish">
+        <div class="eq-head"><span class="eq-label">Nitrogen partition of feed</span><span class="eq-num">(A4)</span></div>
+        <div class="eq-main">\[ \dot N_{\text{feed}} = \frac{PC}{6.25}\,F,\quad \dot N_{\text{faeces}} = (1-f_{\text{abs}})\frac{PC}{6.25}I_{\text{tot}},\quad \dot N_{\text{TAN}} = f_{\text{abs}}\frac{PC}{6.25}I_{\text{tot}} - n_{\text{fish}}\,G_{\text{tot}} \]</div>
+        <p class="eq-read">feed nitrogen is the protein content divided by 6.25; the unabsorbed fifth leaves in the faeces; of the absorbed nitrogen, what is not built into new fish tissue is excreted as ammonia.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(PC\)</td><td>crude-protein fraction of feed</td><td>–</td><td>0.32</td></tr>
+          <tr><td>\(F,\ I_{\text{tot}}\)</td><td>feed offered; feed eaten by the stock</td><td>g d⁻¹</td><td></td></tr>
+          <tr><td>\(f_{\text{abs}}\)</td><td>fraction of ingested N absorbed</td><td>–</td><td>0.80</td></tr>
+          <tr><td>\(n_{\text{fish}}\)</td><td>N content of fish tissue (16 % protein)</td><td>g N g⁻¹</td><td>0.0256</td></tr>
+          <tr><td>\(G_{\text{tot}}\)</td><td>growth of the whole stock</td><td>g d⁻¹</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Crude protein is defined as measured nitrogen × 6.25, so nitrogen = protein ÷ 6.25 (Lesson 6.1, Eq. 6.1.1).</li>
+            <li>Mass conservation for nitrogen in the fish: intake = faeces + growth + excretion. With \(f_{\text{abs}} = 0.8\) (Timmons &amp; Ebeling, 2013), faeces take 20 %.</li>
+            <li>Tran-Duy et al. (2008) measured 15.9–16.7 % crude protein in tilapia bodies: \(n_{\text{fish}} = 0.16/6.25 = 0.0256\).</li>
+            <li>Excretion is the remainder, \(0.8\,N_{\text{eaten}} - n_{\text{fish}}G\); urea (≈ 10 % of excretion) is lumped with ammonia because bacteria hydrolyse it quickly. With the model's FCR ≈ 1.35 this gives ≈ 43 % of feed N as TAN — compare the conservative design value 57.6 % behind Timmons &amp; Ebeling's factor 0.092.</li>
+          </ol>
+        </details>
+        <div class="eq-units">(g feed d⁻¹)(g N g⁻¹ feed) = g N d⁻¹; (g N g⁻¹ fish)(g fish d⁻¹) = g N d⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-o2fish">
+        <div class="eq-head"><span class="eq-label">Fish respiration from an energy balance</span><span class="eq-num">(A5)</span></div>
+        <div class="eq-main">\[ \dot m_{\text{O}_2,\text{fish}} = \frac{I\cdot ME - G\cdot E_{\text{fish}}}{Q_{\text{ox}}}, \qquad \dot m_{\text{CO}_2} = RQ\,\frac{44}{32}\,\dot m_{\text{O}_2} \]</div>
+        <p class="eq-read">the oxygen a fish consumes equals the metabolisable energy it eats minus the energy it stores as new tissue, divided by the energy released per gram of oxygen; carbon dioxide is produced in proportion, with a respiratory quotient of 0.9.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(ME\)</td><td>metabolisable energy of feed (95 % of digestible energy)</td><td>kJ g⁻¹</td><td>11.2</td></tr>
+          <tr><td>\(E_{\text{fish}}\)</td><td>energy density of fish (16 % protein × 23.6 + 8.4 % fat × 39.5 kJ g⁻¹)</td><td>kJ g⁻¹</td><td>7.1</td></tr>
+          <tr><td>\(Q_{\text{ox}}\)</td><td>oxycalorific coefficient</td><td>kJ (g O₂)⁻¹</td><td>13.6</td></tr>
+          <tr><td>\(RQ\)</td><td>respiratory quotient (mol CO₂ per mol O₂)</td><td>–</td><td>0.9</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>First law for the fish: energy eaten and absorbed = energy stored + heat released by metabolism (+ energy in excreted ammonia, folded into \(ME\)).</li>
+            <li>Nearly all metabolic heat comes from aerobic respiration, which releases ≈ 13.6 kJ per gram of O₂ whatever the fuel (Elliott &amp; Davison, 1975).</li>
+            <li>Digestible energy: Popma and Masser (1999) give 8.2–9.4 kcal DE per g protein for tilapia feeds; for 32 % protein this is 2.6–3.0 kcal g⁻¹ ≈ 11.8 kJ g⁻¹; \(ME = 0.95\,DE\).</li>
+            <li>Example (250 g fish, 1.6 % d⁻¹, 26 °C): \(I = 4.0\) g d⁻¹, \(G = 2.95\) g d⁻¹ → O₂ = (4.0 × 11.2 − 2.95 × 7.1)/13.6 = 1.75 g d⁻¹ = 7.0 g O₂ kg⁻¹ d⁻¹ (≈ 290 mg kg⁻¹ h⁻¹).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A daily average: the gut compartment (time constant ≈ 5 h) spreads respiration and excretion over the day. Swimming activity is folded into maintenance.</p></details>
+        <div class="eq-units">(g d⁻¹ × kJ g⁻¹)/(kJ g⁻¹ O₂) = g O₂ d⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="aqO2" data-output="Fish O₂ consumption" data-unit="g O₂ kg⁻¹ d⁻¹" data-digits="1" data-plot="R" data-title="Try it — oxygen demand of fed fish">
+          <div data-var="R" data-label="Ration" data-min="0" data-max="3" data-step="0.05" data-value="1.6" data-unit="% BW d⁻¹"></div>
+          <div data-var="W" data-label="Fish mass" data-min="20" data-max="600" data-step="10" data-value="250" data-unit="g"></div>
+          <div data-var="T" data-label="Temperature" data-min="18" data-max="34" data-step="0.5" data-value="26" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-solids">
+        <div class="eq-head"><span class="eq-label">Solids capture and mineralisation</span><span class="eq-num">(A6)</span></div>
+        <div class="eq-main">\[ \frac{dS}{dt} = (1-\eta)\,P_S - k_{\min}\theta^{T-20}S - \frac{Q_{\text{ex}}}{V}S, \qquad P_S = (1-ADC)\,I_{\text{tot}}\,d_m + U\,d_m \]</div>
+        <p class="eq-read">suspended solids are produced as undigested feed dry matter plus uneaten feed; a fraction η is captured as sludge in the swirl separator, the rest stays in the water, where heterotrophic bacteria decompose it — releasing its nitrogen as ammonia and consuming about one gram of oxygen per gram of solids.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(S\)</td><td>suspended organic solids in the system</td><td>g DM</td><td></td></tr>
+          <tr><td>\(\eta\)</td><td>capture efficiency of the separator</td><td>–</td><td>0.5</td></tr>
+          <tr><td>\(ADC,\ d_m\)</td><td>dry-matter digestibility; feed dry-matter content</td><td>–</td><td>0.70; 0.945</td></tr>
+          <tr><td>\(U\)</td><td>uneaten feed</td><td>g d⁻¹</td><td></td></tr>
+          <tr><td>\(k_{\min}\)</td><td>mineralisation rate at 20 °C</td><td>d⁻¹</td><td>0.4</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>With ADC = 0.7, faeces are ≈ 28 % of the feed mass, inside the 20–40 % of feed that ends up as total suspended solids in RAS (Timmons &amp; Ebeling, 2013, in Goddek et al., 2019). The nitrogen of the solids is tracked separately (faeces ≈ 3.6 % N). Captured sludge leaves the system with its nutrients — the loss that decoupled systems try to recover by mineralisation.</p></details>
+        <div class="eq-units">g d⁻¹ − d⁻¹ × g − (m³ d⁻¹/m³) × g = g d⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-nitrif">
+        <div class="eq-head"><span class="eq-label">Two-step nitrification in a biofilm</span><span class="eq-num">(A7)</span></div>
+        <div class="eq-main">\[ r_{A} = \frac{\mu_{A}}{Y_A}\,\theta^{T-20}\,\frac{S_{\text{TAN}}}{K_A+S_{\text{TAN}}}\,\frac{C_{\text{O}_2}}{K_{O,A}+C_{\text{O}_2}}\,f_{\text{pH}}\,X_A,\qquad \frac{dX_A}{dt} = Y_A\,r_A - \Big(b + (\mu_A-b)\frac{X_A}{X_{A,\max}}\Big)\theta^{T-20}X_A \]</div>
+        <p class="eq-read">ammonia oxidisers remove TAN at a rate proportional to their biomass, with Monod saturation in ammonia and in oxygen, a temperature factor and a pH factor; they grow with yield Y and are lost by decay and by detachment, which increases as the biofilm approaches the maximum the available surface can carry. Nitrite oxidisers follow the same equations with nitrite as substrate.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>AOB / NOB</th></tr>
+          <tr><td>\(\mu\)</td><td>maximum specific growth rate at 20 °C</td><td>d⁻¹</td><td>0.9 / 0.8</td></tr>
+          <tr><td>\(Y\)</td><td>growth yield</td><td>g cells (g N)⁻¹</td><td>0.15 / 0.05</td></tr>
+          <tr><td>\(K\)</td><td>half-saturation for TAN or nitrite</td><td>mg N L⁻¹</td><td>0.5 / 0.5</td></tr>
+          <tr><td>\(K_O\)</td><td>half-saturation for oxygen</td><td>mg L⁻¹</td><td>0.5 / 1.0</td></tr>
+          <tr><td>\(\theta,\ b\)</td><td>temperature coefficient; decay rate</td><td>–; d⁻¹</td><td>1.07; 0.05</td></tr>
+          <tr><td>\(f_{\text{pH}}\)</td><td>\(1/(1+10^{6.0-\text{pH}})\)</td><td>–</td><td>0.94 at pH 7.2</td></tr>
+          <tr><td>\(X_{\max}\)</td><td>\(r_{\max}A_{\text{bf}}Y/\mu\) with \(r_{\max}\) = 1.2 / 1.5 g N m⁻² d⁻¹</td><td>g</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Monod growth on two substrates (Lesson 6.1, Eq. 6.1.8): \(\mu = \mu_{\max}\theta^{T-20}\,f(S)\,f(O)\); substrate is used at \(\mu X/Y\).</li>
+            <li>A biofilm cannot grow without limit: shear detaches cells faster as the film thickens. A detachment term proportional to \(X/X_{\max}\) makes the biomass settle at \(X_{\max}\) when substrate is abundant, so that the maximum areal removal rate is \(r_{\max}\) at 20 °C — the design quantity engineers use (≈ 0.2–1 g TAN m⁻² d⁻¹ at typical concentrations; Lesson 6.1).</li>
+            <li>At steady state with a moderate load, growth balances loss at a low TAN concentration: in the default system ≈ 0.4 mg L⁻¹.</li>
+            <li>Stoichiometry (Lesson 6.1, Eqs. 6.1.5–6.1.7): step 1 uses 3.43 and step 2 1.14 g O₂ per g N; step 1 destroys 1.98 equivalents of alkalinity per mole of N (7.07 g CaCO₃ g⁻¹ N).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Kinetic constants are illustrative values of the magnitude tabulated for nitrifiers (Rittmann &amp; McCarty, 2020); the higher \(K_O\) of NOB reproduces the nitrite accumulation seen under oxygen limitation. Diffusion inside the biofilm is not modelled explicitly; comammox <i>Nitrospira</i> and heterotroph competition are not distinguished.</p></details>
+        <div class="eq-units">(d⁻¹)/(g g⁻¹ N) × g = g N d⁻¹; d⁻¹ × g = g d⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="aqNit" data-output="Maximum TAN removal of a full biofilm" data-unit="g N d⁻¹" data-digits="0" data-plot="S" data-title="Try it — biofilm capacity (r_max 1.2 g m⁻² d⁻¹)">
+          <div data-var="A" data-label="Biofilm area" data-min="10" data-max="400" data-step="10" data-value="122" data-unit="m²"></div>
+          <div data-var="S" data-label="TAN" data-min="0" data-max="5" data-step="0.05" data-value="0.5" data-unit="mg L⁻¹"></div>
+          <div data-var="O" data-label="Dissolved O₂" data-min="0" data-max="9" data-step="0.1" data-value="7" data-unit="mg L⁻¹"></div>
+          <div data-var="T" data-label="Temperature" data-min="8" data-max="34" data-step="1" data-value="26" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-nbal">
+        <div class="eq-head"><span class="eq-label">Nitrogen balances of the water</span><span class="eq-num">(A8)</span></div>
+        <div class="eq-main">\[ \begin{aligned} V\frac{dS_{\text{TAN}}}{dt} &= \dot N_{\text{TAN}} + k_{\min}S_N - r_A - U_{\text{NH}_4} - Q_{\text{ex}}S_{\text{TAN}}\\ V\frac{dS_{\text{NO}_2}}{dt} &= r_A - r_N - Q_{\text{ex}}S_{\text{NO}_2}\\ V\frac{dS_{\text{NO}_3}}{dt} &= r_N - U_{\text{NO}_3} - k_{\text{den}}\theta^{T-20}S_{\text{NO}_3}V - Q_{\text{ex}}(S_{\text{NO}_3}-S_{\text{in}}) \end{aligned} \]</div>
+        <p class="eq-read">each dissolved nitrogen species changes by what is produced minus what is consumed and what leaves with the exchanged water; ammonia comes from excretion and from mineralised solids, nitrite only from step 1, nitrate only from step 2, and nitrate is removed by plants, denitrification and exchange.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(V\)</td><td>system water volume (tank, separator, biofilter, beds 0.3 m deep, sump)</td><td>m³</td><td>≈ 6.0</td></tr>
+          <tr><td>\(S_N\)</td><td>nitrogen in suspended solids</td><td>g</td><td></td></tr>
+          <tr><td>\(U\)</td><td>plant uptake of NH₄⁺ and NO₃⁻ (split in proportion to concentration)</td><td>g N d⁻¹</td><td>Eq. A9</td></tr>
+          <tr><td>\(k_{\text{den}}\)</td><td>first-order denitrification in anoxic niches</td><td>d⁻¹</td><td>0.012</td></tr>
+          <tr><td>\(Q_{\text{ex}}\)</td><td>exchange flow = exchange rate × V</td><td>m³ d⁻¹</td><td>0.09</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The whole volume is treated as well mixed (Lesson 6.1, Eq. 6.1.11). The denitrification constant was chosen so that about a quarter of the feed nitrogen is lost as gas in the default system, within the 25–60 % reported by Hu et al. (2015) and Zou et al. (2016), as reviewed by Eck et al. (2019).</p></details>
+        <div class="eq-units">m³ × g m⁻³ d⁻¹ = g d⁻¹ on both sides ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-plant">
+        <div class="eq-head"><span class="eq-label">Lettuce growth and nitrogen uptake</span><span class="eq-num">(A9)</span></div>
+        <div class="eq-main">\[ \frac{dW_k}{dt} = r\,W_k\left(1-\frac{W_k}{W_{\max}}\right)\frac{S_N}{K_N+S_N}\,f_{\text{DO}}\,f_T, \qquad U = n_{\text{pl}}\sum_k n_k\,\frac{dW_k}{dt} \]</div>
+        <p class="eq-read">each lettuce cohort grows logistically, slowed by a Michaelis–Menten factor for dissolved inorganic nitrogen and by root-zone oxygen and temperature; the crop takes up nitrogen in proportion to its growth.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(W_k,\ n_k\)</td><td>fresh mass per head and number of heads in cohort k (6 cohorts)</td><td>g; –</td><td>25 m⁻² in total</td></tr>
+          <tr><td>\(r,\ W_{\max}\)</td><td>relative growth rate; asymptotic head mass</td><td>d⁻¹; g</td><td>0.18; 250</td></tr>
+          <tr><td>\(S_N\)</td><td>TAN + nitrate-N</td><td>mg L⁻¹</td><td></td></tr>
+          <tr><td>\(K_N\)</td><td>apparent half-saturation of crop N uptake</td><td>mg N L⁻¹</td><td>1.0 (assumed)</td></tr>
+          <tr><td>\(f_{\text{DO}}\)</td><td>0 at ≤ 2.5, 1 at ≥ 4 mg L⁻¹ (stress at 3, fine at ≥ 4)</td><td>–</td><td>Brechner &amp; Both (2013)</td></tr>
+          <tr><td>\(f_T\)</td><td>1 at 15–25 °C, −5 % per °C above 25 °C (illustrative)</td><td>–</td><td></td></tr>
+          <tr><td>\(n_{\text{pl}}\)</td><td>N per g fresh mass: 3.8 % DM × 4.3 % N</td><td>g N g⁻¹</td><td>0.00163 (Yang &amp; Kim, 2020)</td></tr>
+        </table>
+        <details><summary>Follow the derivation (calibrating growth)</summary>
+          <ol class="steps">
+            <li>The logistic solution is \(W(t) = W_{\max}/(1 + A e^{-rt})\) with \(A = (W_{\max}-W_0)/W_0\).</li>
+            <li>A transplant of \(W_0 = 3\) g reaches 150 g when \(e^{-rt} = (W_{\max}/150-1)/A = 0.667/82.3\), i.e. \(t = \ln(123.5)/r = 4.82/r\).</li>
+            <li>Cornell's hydroponic system harvests 150 g heads 24 days after transplanting with CO₂ enrichment and 17 mol m⁻² d⁻¹ (Brechner &amp; Both, 2013); in a greenhouse without enrichment we assume ≈ 27 days: \(r = 4.82/27 \approx 0.18\) d⁻¹. Harvest is every 28/6 = 4.7 days.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Light (≈ 17 mol m⁻² d⁻¹) and air conditions are assumed optimal; potassium, phosphorus, iron and calcium are assumed to be supplemented and not limiting (they are analysed in the nutrient mass balance lab).</p></details>
+        <div class="eq-units">d⁻¹ × g = g d⁻¹; (g N g⁻¹)(heads)(g head⁻¹ d⁻¹) = g N d⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-do">
+        <div class="eq-head"><span class="eq-label">Dissolved-oxygen balance</span><span class="eq-num">(A10)</span></div>
+        <div class="eq-main">\[ V\frac{dC}{dt} = k_La\,\theta_a^{T-20}\,V\,(C_s - C) - \dot m_{\text{O}_2,\text{fish}} - 3.43\,r_A - 1.14\,r_N - 1.0\,k_{\min}S + Q_{\text{ex}}(C_s - C) \]</div>
+        <p class="eq-read">oxygen in the water increases by transfer from the air bubbles, in proportion to the deficit below saturation, and decreases by fish respiration, the two nitrification steps and the decomposition of solids.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(k_La\)</td><td>volumetric oxygen transfer coefficient (+ 0.1 h⁻¹ passive)</td><td>h⁻¹ (× 24 → d⁻¹)</td><td>3</td></tr>
+          <tr><td>\(\theta_a\)</td><td>temperature correction of \(k_La\)</td><td>–</td><td>1.024</td></tr>
+          <tr><td>\(C_s\)</td><td>saturation concentration (Benson &amp; Krause, 1984)</td><td>mg L⁻¹</td><td>8.1 at 26 °C</td></tr>
+        </table>
+        <details><summary>Follow the derivation (steady state)</summary>
+          <ol class="steps">
+            <li>Setting \(dC/dt = 0\) and lumping all consumers into a demand \(D\) (g d⁻¹): \(C^* = C_s - D/(k_La\,V)\).</li>
+            <li>Default system: \(D \approx 480\) g d⁻¹, \(k_La = (3+0.1) \times 24 \times 1.15 = 86\) d⁻¹, \(V = 6.0\) m³ → deficit 0.93 mg L⁻¹, so \(C^* \approx 7.2\) mg L⁻¹.</li>
+            <li>If aeration stops, \(dC/dt \approx -D/V = -80\) mg L⁻¹ d⁻¹ ≈ −3.3 mg L⁻¹ h⁻¹ at first: about two hours to fall below 2 mg L⁻¹.</li>
+          </ol>
+        </details>
+        <div class="eq-units">d⁻¹ × m³ × g m⁻³ = g d⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="aqDO" data-output="Steady-state DO" data-unit="mg L⁻¹" data-digits="2" data-plot="k" data-title="Try it — aeration versus demand">
+          <div data-var="k" data-label="k<sub>L</sub>a" data-min="0.2" data-max="8" data-step="0.1" data-value="3.1" data-unit="h⁻¹"></div>
+          <div data-var="D" data-label="O₂ demand" data-min="50" data-max="2000" data-step="10" data-value="480" data-unit="g d⁻¹"></div>
+          <div data-var="V" data-label="Water volume" data-min="1" data-max="20" data-step="0.5" data-value="6" data-unit="m³"></div>
+          <div data-var="T" data-label="Temperature" data-min="10" data-max="34" data-step="1" data-value="26" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-carb">
+        <div class="eq-head"><span class="eq-label">Alkalinity, inorganic carbon and pH</span><span class="eq-num">(A11)</span></div>
+        <div class="eq-main">\[ \text{Alk} = C_T(\alpha_1 + 2\alpha_2) + \frac{K_w}{[\text{H}^+]} - [\text{H}^+],\quad V\frac{d\text{Alk}}{dt} = -1.98\frac{r_A}{14} + \frac{U_{\text{NO}_3}-U_{\text{NH}_4}+r_{\text{den}}}{14} + D_{\text{base}} + Q_{\text{ex}}(\text{Alk}_{\text{in}}-\text{Alk}) \]</div>
+        <p class="eq-read">alkalinity is the charge carried by bicarbonate, carbonate and hydroxide minus hydrogen ions; it is destroyed by ammonia oxidation, restored by nitrate uptake, denitrification, base dosing and exchange. Total inorganic carbon gains the CO₂ of respiration and loses CO₂ to the air bubbles; the pH is the value of [H⁺] that satisfies the charge balance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(C_T\)</td><td>total inorganic carbon, CO₂ + HCO₃⁻ + CO₃²⁻</td><td>mmol L⁻¹</td></tr>
+          <tr><td>\(\alpha_1,\ \alpha_2\)</td><td>fractions of HCO₃⁻ and CO₃²⁻, functions of pH, \(K_1\), \(K_2\) (Plummer &amp; Busenberg, 1982)</td><td>–</td></tr>
+          <tr><td>\(K_w\)</td><td>ion product of water (Stumm &amp; Morgan, 1996)</td><td>mol² L⁻²</td></tr>
+          <tr><td>\(D_{\text{base}}\)</td><td>base dose: 20 eq d⁻¹ × clamp((pH<sub>set</sub> − pH)/0.1, 0, 1)</td><td>eq d⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Carbon balance: \(V\,dC_T/dt = \) (CO₂ from fish and heterotrophs)/44 − \(0.9\,k_La\,V\,([\text{CO}_2]-[\text{CO}_2]_{\text{eq}})\) + carbon added with NaHCO₃ + exchange. The factor 0.9 is \((D_{\text{CO}_2}/D_{\text{O}_2})^{1/2}\) from penetration theory.</li>
+            <li>Nitrification converts bicarbonate into CO₂: \(C_T\) is unchanged but alkalinity falls, so the pH drops.</li>
+            <li>Every time step the charge balance is solved for pH by Newton's method, then \([\text{CO}_2] = C_T\,\alpha_0\).</li>
+            <li>Near pH 7 this reduces to the Henderson–Hasselbalch form \(\text{pH} \approx \text{p}K_1 + \log_{10}([\text{HCO}_3^-]/[\text{CO}_2])\) used in the calculator below.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ionic strength corrections, ammonium buffering and calcium carbonate precipitation are neglected. Following standard RAS practice (Ebeling et al., 2006), excreted TAN is treated as NH₄⁺; the alkalinity gained when excreted NH₃ is protonated is neglected, which makes the predicted base demand conservative. One mole of OH⁻ per mole of nitrate taken up is an upper-bound assumption.</p></details>
+        <div class="eq-units">mmol L⁻¹ = meq L⁻¹ for monovalent charges; eq d⁻¹ / m³ = meq L⁻¹ d⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="aqPH" data-output="pH" data-unit="" data-digits="2" data-plot="A" data-title="Try it — pH from alkalinity and CO₂">
+          <div data-var="A" data-label="Alkalinity" data-min="5" data-max="250" data-step="5" data-value="20" data-unit="mg L⁻¹ as CaCO₃"></div>
+          <div data-var="C" data-label="Free CO₂" data-min="0.5" data-max="40" data-step="0.5" data-value="2" data-unit="mg L⁻¹"></div>
+          <div data-var="T" data-label="Temperature" data-min="5" data-max="35" data-step="1" data-value="26" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aq-nh3">
+        <div class="eq-head"><span class="eq-label">Un-ionised ammonia</span><span class="eq-num">(A12)</span></div>
+        <div class="eq-main">\[ \text{NH}_3\text{-N} = \frac{\text{TAN}}{1+10^{\,\text{p}K_a-\text{pH}}},\qquad \text{p}K_a = 0.09018 + \frac{2729.92}{T} \]</div>
+        <p class="eq-read">the toxic un-ionised ammonia is the fraction of TAN that is not protonated; the fraction increases tenfold per pH unit and with temperature (T in kelvin).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\text{p}K_a\)</td><td>acid dissociation constant of NH₄⁺ (Emerson et al., 1975)</td><td>–</td></tr>
+          <tr><td>\(T\)</td><td>absolute temperature</td><td>K</td></tr>
+        </table>
+        <details><summary>More detail</summary><p>The full treatment — heat maps, species limits and the diurnal pH swing — is in the <a href="/laboratories/ammonia-toxicity/">ammonia equilibrium and toxicity lab</a>. In the model, un-ionised ammonia (as mg NH₃ L⁻¹ = NH₃-N × 17/14) enters the appetite factor υ and the mortality hazard.</p></details>
+        <div class="eq-units">mg N L⁻¹ × dimensionless fraction = mg N L⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="aqNH3" data-output="NH₃-N" data-unit="mg L⁻¹" data-digits="4" data-plot="pH" data-title="Try it">
+          <div data-var="TAN" data-label="TAN" data-min="0.05" data-max="10" data-step="0.05" data-value="0.5" data-unit="mg N L⁻¹"></div>
+          <div data-var="pH" data-label="pH" data-min="6" data-max="9" data-step="0.05" data-value="7.2"></div>
+          <div data-var="T" data-label="Temperature" data-min="5" data-max="35" data-step="0.5" data-value="26" data-unit="°C"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. <em>Save investigation</em> stores your settings and readouts in your notebook; <em>Download time series</em> gives the data behind the charts for your own plots.</p>
+      <ol class="task-list">
+        <li><h4>Cycling a new system</h4><p>Run <em>Start-up (new system)</em>. From the chart and the CSV, find the day and height of the TAN peak and of the nitrite peak, and the day on which both stay below 0.5 mg L⁻¹. Repeat at 22 °C and 30 °C. Explain the delay between the peaks with Eq. A7, and estimate how much the temperature changes the cycling time. Why does the preset stock only 5 kg m⁻³?</p></li>
+        <li><h4>Balance the nitrogen</h4><p>In the mature system, record steady nitrate-N for plant areas of 5.8, 10.1 and 20.2 m² and exchange rates of 0.5, 1.5 and 5 % d⁻¹ (let each run for 60 days). Compute the feed-rate ratio of each design and compare it with the UVI range (60–100 g m⁻² d⁻¹) and the FAO recommendation for leafy greens (40–50). Which lever controls nitrate most strongly, and why do the plants remove so little nitrogen? Use the Sankey diagram as evidence.</p></li>
+        <li><h4>The oxygen emergency</h4><p>Run <em>Aeration failure</em> at 1 h/s. Measure the time from the failure until DO falls below 4, 2 and 0.3 mg L⁻¹, and the first fish deaths. Repeat at 15 and 40 kg m⁻³ and at 22 °C. Relate your times to Eq. A10 (\(dC/dt \approx -D/V\)) and propose an alarm threshold and a response plan (back-up blower, oxygen cylinder, stop feeding).</p></li>
+        <li><h4>The pH compromise</h4><p>Change the pH set-point from 6.6 to 7.8 in steps of 0.3 (mature system, 20 days each). Record un-ionised NH₃-N, TAN, alkalinity, CO₂ and base use. At which pH is the fish's ammonia exposure lowest, and what does it cost the nitrifiers? Repeat one setting with Ca(OH)₂ and NaHCO₃: how much K, Ca or Na does each base add per day, and which would you choose for lettuce?</p></li>
+        <li><h4>Feeding and solids</h4><p>Increase the feeding rate from 1.0 to 4.0 % BW d⁻¹. Plot FCR, suspended solids, nitrite and DO against the ration. Where does feed start to be wasted? Then keep the ration at 3 % and raise the separator efficiency from 30 to 90 %: which water-quality variables improve, and what happens to the nitrogen that leaves with the sludge?</p></li>
+        <li><h4>Fish or lettuce? The temperature trade-off</h4><p>For water temperatures of 20, 23, 26, 29 and 32 °C, record fish growth (harvest rate), FCR and lettuce production after 30 days. Tilapia want 29–31 °C, lettuce roots ≤ 25 °C (Brechner &amp; Both, 2013). Which temperature maximises the combined value if tilapia sell for 60 SEK kg⁻¹ and lettuce for 40 SEK kg⁻¹? What does this suggest about choosing a cool-water species such as rainbow trout for Nordic aquaponics?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-aquaponics-system">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"The default system feeds 720 g d⁻¹ of a 32 % crude-protein feed. How much nitrogen enters the system with the feed each day?","answer":36.86,"tol":0.02,"unit":"g N d⁻¹","hint":"Nitrogen = protein ÷ 6.25 (Eq. A4).","explain":"<p>\\(720\\times0.32/6.25 = 36.9\\) g N d⁻¹.</p>"},
+          {"type":"numeric","q":"The biofilter oxidises 26 g of TAN-N to nitrate per day. How much oxygen do the nitrifiers need per day (use 3.43 + 1.14 g O₂ per g N)?","answer":118.8,"tol":0.02,"unit":"g O₂ d⁻¹","hint":"Eq. A10: 4.57 g O₂ per g N nitrified completely.","explain":"<p>\\(4.57\\times26 = 118.8\\) g O₂ d⁻¹ — about a quarter of the system's oxygen demand.</p>"},
+          {"type":"numeric","q":"What percentage of TAN is un-ionised NH₃ at pH 7.2 and 26 °C (Eq. A12)?","answer":0.955,"tol":0.03,"unit":"%","hint":"pKa = 0.09018 + 2729.92/(26 + 273.15).","explain":"<p>\\(\\text{p}K_a = 9.216\\); \\(f = 1/(1+10^{2.016}) = 0.00955\\) = 0.96 %.</p>"},
+          {"type":"mcq","q":"In the start-up preset, why does the nitrite peak come several days after the ammonia peak?","options":["Nitrite oxidisers can only grow once ammonia oxidisers produce nitrite, so they start later from a tiny population","Fish excrete nitrite once they are stressed","The lettuce releases nitrite as the roots develop","Nitrite forms from nitrate by denitrification in the new biofilter"],"answer":0,"feedback":["","Fish excrete ammonia and urea, not nitrite.","Plants take up nitrogen; they do not release nitrite.","A new biofilter has no anoxic sludge and no nitrate to reduce."],"explain":"<p>Two populations grow in sequence (Eq. A7): the substrate of the NOB appears only when the AOB are active.</p>"},
+          {"type":"multi","q":"Which changes lower the steady-state nitrate concentration in the mature system? (Select all that apply.)","options":["Increasing the water exchange rate","Increasing the raft area","Reducing the feeding rate","Increasing aeration","Raising the pH set-point"],"answer":[0,1,2],"explain":"<p>Nitrate settles where production (∝ feed) equals removal by plants, denitrification and exchange (Eq. A8). Aeration and pH barely change the nitrate balance.</p>"},
+          {"type":"tf","q":"In a well-aerated system with 2 mg L⁻¹ of free CO₂, a pH of 7.2 at 26 °C corresponds to an alkalinity of only about 15–20 mg L⁻¹ as CaCO₃.","answer":true,"explain":"<p>\\([\\text{HCO}_3^-] = [\\text{CO}_2]\\,10^{\\text{pH}-\\text{p}K_1} = (2/44)\\times10^{0.86} = 0.33\\) mmol L⁻¹ ≈ 16 mg L⁻¹ as CaCO₃ (Eq. A11).</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ============================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>One well-mixed water volume.</strong> Concentration differences between fish tank, biofilter and raft beds are ignored; in reality TAN is highest at the tank outlet and oxygen lowest there. Evaporation and transpiration are replaced by clean water that carries no alkalinity or nitrogen.</li>
+        <li><strong>Fish.</strong> Nile tilapia of one mean size (250 g); satiation intake and the growth–ration line are fitted to Tran-Duy et al. (2008) at 32.7 °C and extrapolated to other temperatures with the cardinal-temperature function (Eq. A2) and Q₁₀ = 2 for maintenance. Nitrite and CO₂ do not affect appetite. With “staggered harvest” all positive growth is removed so that biomass is constant.</li>
+        <li><strong>Mortality</strong> uses illustrative hazard functions anchored to published tolerance data: death starts below 0.3 mg O₂ L⁻¹ (half the fish in ≈ 5 h at anoxia), losses from un-ionised ammonia grow steeply from ≈ 1 mg NH₃ L⁻¹ (Popma &amp; Masser, 1999), and nitrite kills half the fish in four days at 8 mg NO₂-N L⁻¹, the 96-h LC₅₀ for 90 g Nile tilapia reported by Atwood et al. (2001; reviewed in Kroupová et al., 2005). Chloride protection against nitrite is not modelled here.</li>
+        <li><strong>Feed.</strong> Pellets with 32 % protein (variable), 94.5 % dry matter and 11.8 kJ g⁻¹ digestible energy; 80 % of the nitrogen and 70 % of the dry matter are digested; urea is lumped with ammonia. Feed is offered evenly between 07:00 and 19:00 and digested with a 5-hour time constant.</li>
+        <li><strong>Biofilm.</strong> Area = media volume × 500 m² m⁻³ + raft undersides + 12 m² of walls and pipes. Kinetic constants are illustrative values of the right magnitude (Lesson 6.1; Rittmann &amp; McCarty, 2020); the start-up inoculum is 2 × 10⁻⁵ of the maximum biomass. Heterotroph competition, diffusion within the film and comammox are not distinguished.</li>
+        <li><strong>Denitrification</strong> is represented by one first-order constant, calibrated to lose about a quarter of the feed nitrogen, and returns 1 equivalent of alkalinity per mole of N. N₂O is not separated from N₂.</li>
+        <li><strong>Lettuce</strong> grows logistically in six cohorts transplanted every 4.7 days; light, CO₂, potassium, phosphorus, calcium and iron are assumed non-limiting. The temperature penalty above 25 °C is illustrative.</li>
+        <li><strong>Chemistry.</strong> Carbonate equilibria from Plummer and Busenberg (1982) without ionic-strength corrections; CO₂ stripping uses kLa(CO₂) = 0.9 kLa(O₂); atmospheric CO₂ = 425 ppm; make-up water has 100 mg L⁻¹ alkalinity as CaCO₃. Ammonium, phosphate and organic acids do not buffer.</li>
+        <li><strong>The 3D scene</strong> is illustrative of a small commercial or teaching system (≈ 6 m³); one drawn fish represents four, the moving-bed carriers are drawn about twice their real size, and the lettuce heads show the cohort masses.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Brechner, M., &amp; Both, A. J. (2013). <em>Cornell Controlled Environment Agriculture: Hydroponic Lettuce Handbook</em>. Cornell University CEA Program.</li>
+        <li>Eck, M., Körner, O., &amp; Jijakli, M. H. (2019). Nutrient cycling in aquaponics systems. In S. Goddek, A. Joyce, B. Kotzen, &amp; G. M. Burnell (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 231–246). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_9" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_9</a></li>
+        <li>Elliott, J. M., &amp; Davison, W. (1975). Energy equivalents of oxygen consumption in animal energetics. <em>Oecologia</em>, 19(3), 195–201. <a href="https://doi.org/10.1007/BF00345305" target="_blank" rel="noopener">doi:10.1007/BF00345305</a></li>
+        <li>Emerson, K., Russo, R. C., Lund, R. E., &amp; Thurston, R. V. (1975). Aqueous ammonia equilibrium calculations: effect of pH and temperature. <em>Journal of the Fisheries Research Board of Canada</em>, 32(12), 2379–2383. <a href="https://doi.org/10.1139/f75-274" target="_blank" rel="noopener">doi:10.1139/f75-274</a></li>
+        <li>Espinal, C. A., &amp; Matulić, D. (2019). Recirculating aquaculture technologies. In S. Goddek et al. (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 35–76). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_3" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_3</a></li>
+        <li>Goddek, S., Joyce, A., Wuertz, S., Körner, O., Bläser, I., Reuter, M., &amp; Keesman, K. J. (2019). Decoupled aquaponics systems. In S. Goddek et al. (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 201–229). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_8" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_8</a></li>
+        <li>Kroupová, H., Máchová, J., &amp; Svobodová, Z. (2005). Nitrite influence on fish: a review. <em>Veterinární medicína</em>, 50(11), 461–471. <a href="https://doi.org/10.17221/5650-VETMED" target="_blank" rel="noopener">doi:10.17221/5650-VETMED</a></li>
+        <li>Lennard, W., &amp; Goddek, S. (2019). Aquaponics: the basics. In S. Goddek et al. (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 113–143). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_5" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_5</a></li>
+        <li>Plummer, L. N., &amp; Busenberg, E. (1982). The solubilities of calcite, aragonite and vaterite in CO₂–H₂O solutions between 0 and 90 °C, and an evaluation of the aqueous model for the system CaCO₃–CO₂–H₂O. <em>Geochimica et Cosmochimica Acta</em>, 46(6), 1011–1040. <a href="https://doi.org/10.1016/0016-7037(82)90056-4" target="_blank" rel="noopener">doi:10.1016/0016-7037(82)90056-4</a></li>
+        <li>Popma, T., &amp; Masser, M. (1999). <em>Tilapia: Life History and Biology</em> (SRAC Publication No. 283). Southern Regional Aquaculture Center.</li>
+        <li>Rakocy, J. E., Masser, M. P., &amp; Losordo, T. M. (2006). <em>Recirculating Aquaculture Tank Production Systems: Aquaponics — Integrating Fish and Plant Culture</em> (SRAC Publication No. 454). Southern Regional Aquaculture Center.</li>
+        <li>Somerville, C., Cohen, M., Pantanella, E., Stankus, A., &amp; Lovatelli, A. (2014). <em>Small-scale aquaponic food production: Integrated fish and plant farming</em> (FAO Fisheries and Aquaculture Technical Paper No. 589). FAO. <a href="https://www.fao.org/3/i4021e/i4021e.pdf" target="_blank" rel="noopener">fao.org/3/i4021e</a></li>
+        <li>Tran-Duy, A., Schrama, J. W., van Dam, A. A., &amp; Verreth, J. A. J. (2008). Effects of oxygen concentration and body weight on maximum feed intake, growth and hematological parameters of Nile tilapia, <i>Oreochromis niloticus</i>. <em>Aquaculture</em>, 275(1–4), 152–162. <a href="https://doi.org/10.1016/j.aquaculture.2007.12.024" target="_blank" rel="noopener">doi:10.1016/j.aquaculture.2007.12.024</a></li>
+        <li>Yang, T., &amp; Kim, H.-J. (2020). Characterizing nutrient composition and concentration in tomato-, basil-, and lettuce-based aquaponic and hydroponic systems. <em>Water</em>, 12(5), 1259. <a href="https://doi.org/10.3390/w12051259" target="_blank" rel="noopener">doi:10.3390/w12051259</a></li>
+        <li>Yi, Y. (1998). A bioenergetics growth model for Nile tilapia (<i>Oreochromis niloticus</i>) based on limiting nutrients and fish standing crop in fertilized ponds. <em>Aquacultural Engineering</em>, 18(3), 157–173. <a href="https://doi.org/10.1016/S0144-8609(98)00028-4" target="_blank" rel="noopener">doi:10.1016/S0144-8609(98)00028-4</a></li>
+      </ol>
+      <p class="muted">Also used: Benson &amp; Krause (1984) for oxygen solubility (via <code>physics.doSaturation</code>); Timmons &amp; Ebeling (2013), Ebeling et al. (2006), Losordo et al. (1998), Schneider et al. (2005), Hu et al. (2015), Zou et al. (2016), Rusten et al. (2006) and Rittmann &amp; McCarty (2020) as cited in <a href="/lessons/aquaponic-ecosystem/">Lesson 6.1</a>; Tsadik &amp; Kutty (1987) and Atwood et al. (2001) as reported by Tran-Duy et al. (2008) and Kroupová et al. (2005); Stumm &amp; Morgan (1996), <em>Aquatic Chemistry</em> (3rd ed., Wiley), for the ion product of water; Brett (1979) in <em>Fish Physiology</em> Vol. 8 and Jobling (1994), <em>Fish Bioenergetics</em>, for the growth–ration concept.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

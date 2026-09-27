@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inside a photosynthesising leaf · Future Food Production</title>
+<meta name="description" content="Fly into a 3D leaf cross-section and a chloroplast, watch photons, CO₂, O₂ and water vapour move, and generate light-, CO₂- and temperature-response curves with the Farquhar–von Caemmerer–Berry model coupled to the Medlyn stomatal model.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live calculators for the Derive tab (same equations and constants as leafmodel.js) */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  var R = 8.314462618, K0 = 273.15;
+  function arr(Ea, T) { return Math.exp(Ea * (T + K0 - 298.15) / (298.15 * R * (T + K0))); }
+  function peaked(Ea, T, Hd, S) { var Tk = T + K0; return arr(Ea, T) * (1 + Math.exp((298.15 * S - Hd) / (298.15 * R))) / (1 + Math.exp((Tk * S - Hd) / (Tk * R))); }
+  function gstar(T, O) { return 42.75 * arr(37830, T) * O / 210; }
+  function km(T, O) { return 404.9 * arr(79430, T) * (1 + O / (278.4 * arr(36380, T))); }
+  function J(I, jmax, th) { th = th || 0.7; var a = 0.85 * 0.85 / 2, b = a * I + jmax; return (b - Math.sqrt(Math.max(0, b * b - 4 * th * a * I * jmax))) / (2 * th); }
+  FFP_CALC.lpAc = function (v) { var V = v.vcmax * peaked(65330, v.T, 200000, 641.64), G = gstar(v.T, 210); return V * (v.ci - G) / (v.ci + km(v.T, 210)); };
+  FFP_CALC.lpJ = function (v) { return J(v.I, v.jmax, v.theta); };
+  FFP_CALC.lpAj = function (v) { var Jm = v.jmax * peaked(43540, v.T, 200000, 640.95), G = gstar(v.T, 210); return J(v.I, Jm) * (v.ci - G) / (4 * v.ci + 8 * G); };
+  FFP_CALC.lpGstar = function (v) { return gstar(v.T, v.O); };
+  FFP_CALC.lpPR = function (v) { var G = gstar(25, v.O); return 100 * G / v.ci; };
+  FFP_CALC.lpC4 = function (v) {
+    var Vp = Math.min(v.ci * 200 / (v.ci + 82), 80), Rd = 0.4, Rm = 0.2, Jv = J(v.I, 248);
+    var Ac = Math.min(Vp - Rm + 0.003 * v.ci, 40 - Rd), Aj = Math.min(0.4 * Jv / 2 - Rm + 0.003 * v.ci, 0.6 * Jv / 3 - Rd);
+    return Math.min(Ac, Aj);
+  };
+  FFP_CALC.lpPore = function (v) {
+    var Dv = 2.49e-5, vm = R * 298.15 / 101325, d = v.dens * 1e6, l = 11e-6, p = 16e-6, K = Dv / vm * d, c = Math.sqrt(Math.PI) / 2, g = v.gs;
+    var x = (g * c + Math.sqrt(g * g * c * c + 4 * K * g * l)) / (2 * K); return 4 * x * x / (Math.PI * p) * 1e6;
+  };
+})();
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+</head>
+<body data-page="lab" data-slug="leaf-photosynthesis">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Inside a photosynthesising leaf</h1>
+    <p class="lead">Shrink to the size of a cell and enter a leaf. This laboratory couples a microscopic 3D leaf — cuticle, epidermis, palisade and spongy mesophyll, a vein and working stomata — to the model that plant physiologists use to predict photosynthesis: the Farquhar–von Caemmerer–Berry biochemistry with Bernacchi temperature functions and the Medlyn stomatal model. Change light, CO₂, temperature, humidity and oxygen, and watch photons being absorbed, CO₂ diffusing to the chloroplasts and O₂ and water vapour leaving — every stream is driven by the computed fluxes. Then fly into a chloroplast.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Light-response curve</h3>
+      <div class="chart-sub">Net CO₂ assimilation A against PPFD for the current leaf (stomata respond too). Dashed lines show the same leaf at the other O₂ level and at another CO₂ level; the dot is the current state.</div>
+      <div class="chart" id="chart-light"></div>
+    </div>
+    <div class="chart-card">
+      <h3>A–Cᵢ curve: which process limits?</h3>
+      <div class="chart-sub">Demand: the thick curve is coloured by the limiting process (blue Rubisco, amber RuBP regeneration, magenta TPU; C4: teal PEPC). Supply: the dashed black line is diffusion through the stomata. Where they cross is where the leaf operates.</div>
+      <div class="chart" id="chart-aci"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Temperature response</h3>
+      <div class="chart-sub">Net A (thick), the two biochemical limits, photorespiratory CO₂ loss and day respiration against leaf temperature, at the current light, CO₂ and VPD.</div>
+      <div class="chart" id="chart-temp"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Carbon budget of the leaf</h3>
+      <div class="chart-sub">Gross carboxylation by Rubisco, minus CO₂ released by photorespiration and by day respiration, gives net uptake A.</div>
+      <div class="chart" id="chart-budget"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour through the leaf</h2>
+      <ol>
+        <li><strong>Read the cross-section.</strong> The block is 440 × 220 µm and about 230 µm thick — roughly the thickness of two sheets of paper. From the top: a glossy <em>cuticle</em>, a clear <em>upper epidermis</em>, tall <em>palisade</em> cells lined with chloroplasts, loosely packed <em>spongy mesophyll</em> with large air spaces, a <em>vein</em> (xylem above, phloem below, surrounded by a bundle sheath) and a <em>lower epidermis</em> with stomata. Click any tissue to identify it; the 100 µm scale bar sits at the front corner.</li>
+        <li><strong>Follow the photons.</strong> Each streak is a photon of the colour it would have. Blue and red photons are absorbed within the first few cell layers; green photons penetrate deeper and some are reflected — the reason leaves look green. Turn PPFD down to 50 µmol m⁻² s⁻¹ and up to 2000 and watch the flux of streaks and absorption flashes change.</li>
+        <li><strong>Follow a CO₂ molecule.</strong> CO₂ glyphs (grey carbon, red oxygens) enter through the stomata, cross the substomatal cavity and the air spaces and disappear at chloroplasts, where Rubisco fixes them. O₂ leaves by the same route, and water vapour (blue) streams out much faster: for every CO₂ molecule a well-watered C3 leaf fixes, it loses a few hundred water molecules. Press <em>Stoma</em> to look at the pore from below and change the VPD: the guard cells close and the streams thin out.</li>
+        <li><strong>Watch the chloroplasts move.</strong> At low light the chloroplasts gather at the upper, light-facing end of the palisade cells; at high light they spread down the side walls. This <em>avoidance response</em> is real (it is driven by the blue-light receptor phototropin) and protects the photosynthetic machinery from excess light.</li>
+        <li><strong>Remove photorespiration.</strong> Switch O₂ to 2 %. Net assimilation of a C3 leaf jumps by roughly a third and the photorespiration readout collapses, because Rubisco no longer wastes energy fixing O₂. Now switch to C4: the O₂ effect disappears, because the C4 pump already keeps CO₂ high around Rubisco — and the bundle sheath turns green (Kranz anatomy).</li>
+        <li><strong>Fly into a chloroplast.</strong> Inside, grana (stacks of thylakoids) glow with the electron-transport rate J, the Calvin–Benson cycle turns at a rate set by carboxylation, CO₂ enters and sugar (triose phosphate) leaves at the net rate A, and O₂ bubbles away from the thylakoids at J/4.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Photosynthesis is limited by whichever of three processes is slowest — <strong>Rubisco</strong> (the enzyme that fixes CO₂), <strong>RuBP regeneration</strong> (fed by electron transport, i.e. by light) or <strong>triose-phosphate use</strong> (sugar export) — and by how much CO₂ the <strong>stomata</strong> let in. Every grower's lever (light, CO₂, temperature, humidity) acts through one of these.</p></div>
+      <div class="callout note"><div class="callout-title">Scale</div><p>The leaf block uses 1 scene unit = 10 µm. Molecules are drawn as large glyphs so you can see them; each CO₂ glyph stands for about 4 × 10¹⁰ molecules (the legend in the 3D view updates the exact number), and each H₂O glyph for 125 times more.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From a photon and a CO₂ molecule to a sugar</h2>
+      <p>A leaf is a gas-exchange organ built around a compromise. It must take in CO₂ from air that contains only about 0.04 % of it, while losing as little water as possible to air that is usually far drier than the leaf interior. Both gases share one route: the <strong>stomatal pores</strong>. The cuticle blocks almost everything else.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 330" role="img" aria-label="Diffusion pathway of CO₂ and water vapour through a leaf, with conductances in series">
+          <defs>
+            <marker id="lpA1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+          </defs>
+          <rect x="30" y="28" width="420" height="10" rx="3" class="fill-amber-soft stroke-amber" stroke-width="1"/>
+          <rect x="30" y="38" width="420" height="22" class="fill-bg stroke-muted" stroke-width="1"/>
+          <g class="fill-accent-soft stroke-accent" stroke-width="1.2">
+            <rect x="36" y="62" width="30" height="78" rx="12"/><rect x="72" y="62" width="30" height="78" rx="12"/><rect x="108" y="62" width="30" height="78" rx="12"/><rect x="144" y="62" width="30" height="78" rx="12"/><rect x="180" y="62" width="30" height="78" rx="12"/><rect x="216" y="62" width="30" height="78" rx="12"/><rect x="252" y="62" width="30" height="78" rx="12"/><rect x="288" y="62" width="30" height="78" rx="12"/><rect x="324" y="62" width="30" height="78" rx="12"/><rect x="360" y="62" width="30" height="78" rx="12"/><rect x="396" y="62" width="30" height="78" rx="12"/>
+            <ellipse cx="60" cy="170" rx="26" ry="16"/><ellipse cx="130" cy="186" rx="30" ry="15"/><ellipse cx="205" cy="165" rx="24" ry="17"/><ellipse cx="275" cy="192" rx="22" ry="14"/><ellipse cx="400" cy="175" rx="30" ry="18"/><ellipse cx="90" cy="215" rx="22" ry="12"/><ellipse cx="410" cy="222" rx="24" ry="12"/>
+          </g>
+          <rect x="30" y="238" width="190" height="16" class="fill-bg stroke-muted" stroke-width="1"/>
+          <rect x="262" y="238" width="188" height="16" class="fill-bg stroke-muted" stroke-width="1"/>
+          <ellipse cx="231" cy="246" rx="10" ry="8" class="fill-accent stroke-accent"/><ellipse cx="251" cy="246" rx="10" ry="8" class="fill-accent stroke-accent"/>
+          <path d="M241 300 L241 220 C241 200 300 190 330 130 L334 118" class="stroke-water" stroke-width="2.4" fill="none" marker-end="url(#lpA1)" style="color:var(--water)"/>
+          <path d="M200 170 C215 200 238 212 236 262 L236 300" class="stroke-magenta" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#lpA1)" style="color:var(--magenta)"/>
+          <text x="248" y="316" class="t-small">CO₂ in (Cₐ)</text>
+          <text x="140" y="316" class="t-small">H₂O out</text>
+          <text x="455" y="36" class="t-small">cuticle (≈ impermeable)</text>
+          <text x="455" y="54" class="t-small">upper epidermis</text>
+          <text x="455" y="104" class="t-small">palisade: chloroplast CO₂ at Rubisco</text>
+          <text x="455" y="186" class="t-small">spongy mesophyll, air spaces → Cᵢ</text>
+          <text x="455" y="250" class="t-small">stoma: conductance gₛ</text>
+          <text x="455" y="290" class="t-small">boundary layer: g_b, surface Cₛ</text>
+          <text x="470" y="140" class="t-small t-muted">mesophyll conductance g_m</text>
+          <line x1="30" y1="272" x2="450" y2="272" class="stroke-muted" stroke-dasharray="3 4"/>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> CO₂ (blue) diffuses from the air through the leaf boundary layer, the stomatal pore, the intercellular air spaces and finally the liquid phase of cell walls and chloroplasts to Rubisco; water vapour (magenta) evaporates from mesophyll cell walls and leaves by the same pores. Each step is a conductance in series. This laboratory models the stomatal step explicitly and treats the leaf as well stirred (large g_b) and the mesophyll conductance as infinite, so Rubisco sees Cᵢ.</figcaption>
+      </figure>
+      <h3>Anatomy is built for light and gas</h3>
+      <p>The <strong>palisade</strong> cells are columns aligned with the incoming light. Light can travel down their vacuoles and between them, spreading absorption through the layer instead of saturating the top cells (the “sieve” and “light-guide” effects). The <strong>spongy mesophyll</strong> below is full of air spaces; these distribute CO₂ from the stomata to every cell and scatter light sideways, lengthening its path. Blue and red photons are absorbed strongly by chlorophyll and are used up in the upper palisade; green photons are absorbed more weakly and reach the lower chloroplasts, which is why, under strong white light, green light drives photosynthesis in the deeper layers (Terashima et al., 2009). Leaf anatomy therefore sets both how evenly light is used and how easily CO₂ reaches the chloroplasts (Terashima et al., 2011).</p>
+      <h3>Three biochemical limits</h3>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 250" role="img" aria-label="The three limitations of C3 photosynthesis in the chloroplast">
+          <defs><marker id="lpA2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <rect x="20" y="30" width="130" height="50" rx="8" class="fill-amber-soft stroke-amber" stroke-width="1.5"/>
+          <text x="85" y="52" text-anchor="middle" class="t-small">Light (PPFD)</text><text x="85" y="68" text-anchor="middle" class="t-small">absorbed by PSII/PSI</text>
+          <rect x="190" y="30" width="150" height="50" rx="8" class="fill-amber-soft stroke-amber" stroke-width="1.5"/>
+          <text x="265" y="52" text-anchor="middle" class="t-small">Electron transport J</text><text x="265" y="68" text-anchor="middle" class="t-small">→ ATP + NADPH</text>
+          <line x1="150" y1="55" x2="186" y2="55" class="stroke" stroke-width="1.6" marker-end="url(#lpA2)"/>
+          <circle cx="440" cy="125" r="62" class="fill-water-soft stroke-water" stroke-width="1.6"/>
+          <text x="440" y="112" text-anchor="middle" class="t-small">Calvin–Benson</text><text x="440" y="128" text-anchor="middle" class="t-small">cycle</text><text x="440" y="146" text-anchor="middle" class="t-small t-muted">RuBP regenerated</text>
+          <path d="M340 60 C380 62 400 70 410 78" class="stroke-amber" stroke-width="2" fill="none" marker-end="url(#lpA2)" style="color:var(--amber)"/>
+          <rect x="190" y="160" width="160" height="56" rx="8" class="fill-water-soft stroke-water" stroke-width="1.5"/>
+          <text x="270" y="182" text-anchor="middle" class="t-small">Rubisco + CO₂ → 2 PGA</text><text x="270" y="200" text-anchor="middle" class="t-small">Rubisco + O₂ → photorespiration</text>
+          <path d="M352 180 C370 178 385 170 392 160" class="stroke-water" stroke-width="2" fill="none" marker-end="url(#lpA2)" style="color:var(--water)"/>
+          <rect x="545" y="95" width="140" height="60" rx="8" class="fill-magenta-soft stroke-magenta" stroke-width="1.5"/>
+          <text x="615" y="118" text-anchor="middle" class="t-small">Triose phosphate</text><text x="615" y="136" text-anchor="middle" class="t-small">→ sucrose, starch (TPU)</text>
+          <line x1="502" y1="125" x2="541" y2="125" class="stroke-magenta" stroke-width="2" marker-end="url(#lpA2)" style="color:var(--magenta)"/>
+          <text x="20" y="235" class="t-small t-muted">Limits: blue = Rubisco capacity (V_cmax) · amber = RuBP regeneration (J) · magenta = triose-phosphate use (TPU)</text>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> The Farquhar–von Caemmerer–Berry model treats the chloroplast as three processes in sequence. The slowest sets the rate: Rubisco at low CO₂, RuBP regeneration (light) at moderate-to-high CO₂ or low light, and triose-phosphate use at very high CO₂, especially when cool.</figcaption>
+      </figure>
+      <p>Rubisco is a slow and indiscriminate enzyme: besides CO₂ it also reacts with O₂. Each oxygenation starts <strong>photorespiration</strong>, a salvage pathway that releases half a CO₂ per O₂ fixed and costs ATP and NADPH. The CO₂ concentration at which carboxylation gains exactly balance photorespiratory losses is the <strong>photorespiratory compensation point Γ*</strong> (≈ 43 µmol mol⁻¹ at 25 °C in air). Γ* is proportional to the O₂ concentration and rises steeply with temperature, because Rubisco's preference for CO₂ over O₂ and the solubility of CO₂ relative to O₂ both fall as the leaf warms (Bernacchi et al., 2001). That is why photorespiration is suppressed at 2 % O₂, why CO₂ enrichment helps most in warm greenhouses, and why the temperature optimum of a C3 leaf moves upwards at high CO₂.</p>
+      <h3>Stomata: the supply side</h3>
+      <p>The biochemistry sets a <em>demand</em> for CO₂ that rises with Cᵢ; diffusion through the stomata sets a <em>supply</em>, \(A = g_s (C_a - C_i)/1.6\), that falls as Cᵢ approaches Cₐ. The leaf operates where the two meet — the operating point in the A–Cᵢ chart (Farquhar &amp; Sharkey, 1982). Stomata do not open at random: across hundreds of species their behaviour is close to an optimum that maximises carbon gain for a given water loss. The Medlyn et al. (2011) model derived from this theory predicts that gₛ scales with A/Cₐ and falls with the square root of the vapour-pressure deficit D; its single parameter g₁ reflects how “expensive” water is for the plant. Crops that evolved with ample water have high g₁ (≈ 5.8 kPa^½ for C3 crops), C4 grasses low g₁ (≈ 1.6) (Lin et al., 2015; De Kauwe et al., 2015).</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“More light always means more photosynthesis.” Above a few hundred µmol m⁻² s⁻¹ a C3 leaf is often no longer limited by light but by Rubisco or TPU. Doubling light then barely helps, while raising CO₂ can help a lot. Use the light-response chart to find where the curve bends for different CO₂ levels.</p></div>
+      <h3>The C4 alternative</h3>
+      <p>C4 plants such as maize, sorghum and sugar cane first fix CO₂ in the mesophyll with PEP carboxylase (which does not react with O₂), then release it in the <strong>bundle sheath</strong> around the veins, where Rubisco sits at a CO₂ concentration several times that of the air. Photorespiration almost disappears, A saturates at low Cᵢ, and the plant can keep its stomata narrower (low g₁) — higher water-use efficiency. The price is extra ATP per CO₂ fixed, so at low temperature and low light C3 plants often do as well or better. In the 3D view, switching to C4 fills the bundle-sheath cells with chloroplasts — the “Kranz” (wreath) anatomy.</p>
+      <h3>What it means for controlled-environment agriculture</h3>
+      <ul>
+        <li><strong>CO₂ enrichment</strong> (typically to 800–1000 ppm in greenhouses and plant factories) raises A mainly by suppressing photorespiration and by moving the operating point up the steep part of the A–Cᵢ curve; the gain is largest in warm, bright conditions and small when the leaf is already TPU- or light-limited.</li>
+        <li><strong>Light</strong> should be matched to CO₂ and temperature: at 1000 ppm the light-response curve saturates later, so more photons pay off.</li>
+        <li><strong>Humidity (VPD)</strong> acts through the stomata: very dry air closes them and lowers Cᵢ and A; very humid air keeps them open but reduces transpiration, which has its own risks (see the <a href="/laboratories/stomata-transpiration/">stomata and transpiration laboratory</a>).</li>
+        <li><strong>Temperature</strong> has an optimum that depends on CO₂ and on the temperature the crop was grown at (acclimation — try the growth-temperature slider).</li>
+      </ul>
+      <div class="callout frontier"><div class="callout-title">Research frontier</div><p>Engineering photorespiratory bypasses, faster recovery from photoprotection, and introducing C4-like or algal CO₂-concentrating mechanisms into C3 crops are among the most active routes to raising crop yield potential. The model in this laboratory is the standard tool used to estimate what such changes could gain.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The model computes, for given light, CO₂, O₂, leaf temperature and VPD, the net CO₂ assimilation rate A, the stomatal conductance gₛ and the intercellular CO₂ concentration Cᵢ that are simultaneously consistent with the biochemistry (Eqs. P1–P6) and with stomatal behaviour and diffusion (P7–P8). Symbols: CO₂ in µmol mol⁻¹, O₂ in mmol mol⁻¹, fluxes in µmol m⁻² s⁻¹, conductances in mol m⁻² s⁻¹.</p>
+
+      <div class="eq-box" id="eq-lp-rubisco">
+        <div class="eq-head"><span class="eq-label">Rubisco-limited assimilation</span><span class="eq-num">(P1)</span></div>
+        <div class="eq-main">\[ A_c = V_{c\max}\,\frac{C_i-\Gamma^*}{C_i + K_c\left(1+O/K_o\right)} \;-\; R_d \]</div>
+        <p class="eq-read">When there is plenty of RuBP, the rate is set by how fast Rubisco can carboxylate: a Michaelis–Menten function of CO₂ with O₂ as a competitive inhibitor, reduced by the CO₂ lost in photorespiration (the Γ* term) and by day respiration.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value at 25 °C</th></tr>
+          <tr><td>\(V_{c\max}\)</td><td>maximum carboxylation rate of Rubisco</td><td>µmol m⁻² s⁻¹</td><td>80 (C3 crop leaf)</td></tr>
+          <tr><td>\(C_i\)</td><td>intercellular CO₂ mole fraction</td><td>µmol mol⁻¹</td><td>≈ 0.7 Cₐ</td></tr>
+          <tr><td>\(\Gamma^*\)</td><td>photorespiratory CO₂ compensation point</td><td>µmol mol⁻¹</td><td>42.75</td></tr>
+          <tr><td>\(K_c,\ K_o\)</td><td>Michaelis constants of Rubisco for CO₂ and O₂</td><td>µmol mol⁻¹, mmol mol⁻¹</td><td>404.9, 278.4</td></tr>
+          <tr><td>\(O\)</td><td>O₂ mole fraction</td><td>mmol mol⁻¹</td><td>210 (air)</td></tr>
+          <tr><td>\(R_d\)</td><td>day (mitochondrial) respiration</td><td>µmol m⁻² s⁻¹</td><td>0.015 V<sub>cmax</sub></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Rubisco carboxylation with O₂ as competitive inhibitor: \(V_c = V_{c\max} C_i/[C_i + K_c(1+O/K_o)]\).</li>
+            <li>For every carboxylation there are \(\phi = V_o/V_c\) oxygenations; each oxygenation releases ½ CO₂ in photorespiration. Net carboxylation is \(V_c - \tfrac12 V_o = V_c(1-\tfrac{\phi}{2})\).</li>
+            <li>Because both reactions compete for the same site, \(\phi = O/(S_{c/o} C_i)\), where \(S_{c/o}\) is Rubisco's specificity. Defining \(\Gamma^* = \tfrac12 O/S_{c/o}\) gives \(\tfrac{\phi}{2} = \Gamma^*/C_i\).</li>
+            <li>So the net rate is \(V_c(1-\Gamma^*/C_i) - R_d = V_{c\max}(C_i-\Gamma^*)/[C_i + K_c(1+O/K_o)] - R_d\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Rubisco is fully activated and RuBP-saturated. Kc, Ko and Γ* are the in-vivo values of Bernacchi et al. (2001), expressed on a Cᵢ basis (i.e. assuming infinite mesophyll conductance). With a finite mesophyll conductance, the same equations apply with the chloroplast concentration C<sub>c</sub> &lt; Cᵢ (and C<sub>c</sub>-based kinetic constants).</p></details>
+        <div class="eq-units">\(\dfrac{\mu\text{mol m}^{-2}\text{s}^{-1}\cdot \mu\text{mol mol}^{-1}}{\mu\text{mol mol}^{-1}} = \mu\text{mol m}^{-2}\,\text{s}^{-1}\) ✓</div>
+        <div class="mini-calc" data-fn="lpAc" data-output="A<sub>c</sub> + R<sub>d</sub> (before subtracting R<sub>d</sub>)" data-unit="µmol m⁻² s⁻¹" data-digits="1" data-plot="ci" data-title="Try it — Rubisco-limited rate (21 % O₂)">
+          <div data-var="ci" data-label="Cᵢ" data-min="0" data-max="1500" data-step="5" data-value="300" data-unit="µmol mol⁻¹"></div>
+          <div data-var="T" data-label="Leaf temperature" data-min="5" data-max="45" data-step="0.5" data-value="25" data-unit="°C"></div>
+          <div data-var="vcmax" data-label="V<sub>cmax,25</sub>" data-min="20" data-max="200" data-step="1" data-value="80" data-unit="µmol m⁻² s⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lp-rubp">
+        <div class="eq-head"><span class="eq-label">RuBP-regeneration (electron-transport) limited assimilation</span><span class="eq-num">(P2)</span></div>
+        <div class="eq-main">\[ A_j = J\,\frac{C_i-\Gamma^*}{4\,C_i + 8\,\Gamma^*} \;-\; R_d \]</div>
+        <p class="eq-read">When RuBP regeneration is limiting, the rate is set by the supply of NADPH from electron transport: each carboxylation needs four electrons, each oxygenation also four, and photorespiration returns ½ CO₂ per oxygenation.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(J\)</td><td>potential whole-chain electron transport rate at the current light (Eq. P3)</td><td>µmol e⁻ m⁻² s⁻¹</td></tr>
+          <tr><td>4, 8</td><td>electrons per carboxylation (4 per C) and per oxygenation (2Γ*·4)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Regenerating the RuBP consumed by one carboxylation and \(\phi\) oxygenations requires NADPH equivalent to \(4 + 4\phi\) electrons: \(J = V_c(4 + 4\phi)\).</li>
+            <li>With \(\phi = 2\Gamma^*/C_i\): \(V_c = J/(4 + 8\Gamma^*/C_i) = J C_i/(4C_i + 8\Gamma^*)\).</li>
+            <li>Net: \(A_j = V_c(1-\Gamma^*/C_i) - R_d = J(C_i-\Gamma^*)/(4C_i+8\Gamma^*) - R_d\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>NADPH (not ATP) limits RuBP regeneration; von Caemmerer (2000) uses the coefficients 4 and 8, Farquhar et al. (1980) used 4.5 and 10.5 (ATP limitation). The difference is ≈ 10 %.</p></details>
+        <div class="eq-units">\(\mu\text{mol e}^{-}\,\text{m}^{-2}\,\text{s}^{-1}\times\dfrac{\mu\text{mol CO}_2}{\mu\text{mol e}^{-}}\) — the fraction is CO₂ fixed per electron. ✓</div>
+        <div class="mini-calc" data-fn="lpAj" data-output="Aⱼ + R<sub>d</sub>" data-unit="µmol m⁻² s⁻¹" data-digits="1" data-plot="ci" data-title="Try it — electron-transport-limited rate">
+          <div data-var="ci" data-label="Cᵢ" data-min="0" data-max="1500" data-step="5" data-value="300" data-unit="µmol mol⁻¹"></div>
+          <div data-var="I" data-label="PPFD" data-min="0" data-max="2000" data-step="10" data-value="800" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="T" data-label="Leaf temperature" data-min="5" data-max="45" data-step="0.5" data-value="25" data-unit="°C"></div>
+          <div data-var="jmax" data-label="J<sub>max,25</sub>" data-min="40" data-max="300" data-step="1" data-value="135" data-unit="µmol m⁻² s⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lp-jlight">
+        <div class="eq-head"><span class="eq-label">Electron transport from absorbed light</span><span class="eq-num">(P3)</span></div>
+        <div class="eq-main">\[ \theta J^2 - \left(I_2 + J_{\max}\right)J + I_2 J_{\max} = 0,\qquad I_2 = I\,\frac{a\,(1-f)}{2} \]</div>
+        <p class="eq-read">Electron transport rises linearly with light at first (slope set by the light absorbed by photosystem II) and bends smoothly towards its maximum J<sub>max</sub>; θ sets how sharp the bend is. The smaller root of the quadratic is used.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(I\)</td><td>incident PPFD</td><td>µmol m⁻² s⁻¹</td><td></td></tr>
+          <tr><td>\(a\)</td><td>leaf absorptance for PAR</td><td>–</td><td>0.85</td></tr>
+          <tr><td>\(f\)</td><td>correction for spectral quality (light not usable by PSII)</td><td>–</td><td>0.15</td></tr>
+          <tr><td>½</td><td>half of absorbed photons go to PSII</td><td>–</td><td></td></tr>
+          <tr><td>\(\theta\)</td><td>curvature (convexity)</td><td>–</td><td>0.7</td></tr>
+          <tr><td>\(J_{\max}\)</td><td>maximum electron transport rate</td><td>µmol m⁻² s⁻¹</td><td>135 at 25 °C</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>At low light, J = I₂ (every photon absorbed by PSII moves one electron); at high light J → J<sub>max</sub>.</li><li>The non-rectangular hyperbola \(\theta J^2 - (I_2+J_{\max})J + I_2J_{\max}=0\) connects the two limits; θ = 0 gives a rectangular hyperbola, θ = 1 the sharp minimum \(J=\min(I_2, J_{\max})\).</li><li>Solving: \(J = \dfrac{I_2 + J_{\max} - \sqrt{(I_2+J_{\max})^2 - 4\theta I_2 J_{\max}}}{2\theta}\).</li><li>With a = 0.85, f = 0.15: I₂ = 0.361 I. The maximum quantum yield of Aⱼ at high Cᵢ is then 0.361/4 ≈ 0.09 CO₂ per incident photon, and at ambient Cᵢ ≈ 0.06 — close to measured values for C3 leaves.</li></ol></details>
+        <div class="eq-units">All terms in the quadratic have units (µmol m⁻² s⁻¹)². ✓</div>
+        <div class="mini-calc" data-fn="lpJ" data-output="J" data-unit="µmol e⁻ m⁻² s⁻¹" data-digits="0" data-plot="I">
+          <div data-var="I" data-label="PPFD" data-min="0" data-max="2000" data-step="10" data-value="800" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="jmax" data-label="J<sub>max</sub>" data-min="20" data-max="400" data-step="1" data-value="135" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="theta" data-label="Curvature θ" data-min="0.3" data-max="0.99" data-step="0.01" data-value="0.7"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lp-tpu">
+        <div class="eq-head"><span class="eq-label">Triose-phosphate-use limitation</span><span class="eq-num">(P4)</span></div>
+        <div class="eq-main">\[ A_p = 3\,\text{TPU} - R_d \]</div>
+        <p class="eq-read">If the chloroplast makes triose phosphate faster than the cell can turn it into sucrose and starch, phosphate is not recycled quickly enough and photosynthesis stalls at three times the triose-phosphate-use rate.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>TPU</td><td>rate of triose-phosphate use</td><td>µmol m⁻² s⁻¹</td></tr><tr><td>3</td><td>CO₂ fixed per triose phosphate (C₃ sugar)</td><td>–</td></tr></table>
+        <details><summary>Assumptions and validity</summary><p>We assume all glycolate carbon returns to the chloroplast (α = 0 in Sharkey et al., 2007). TPU limitation is recognised by A becoming insensitive to — or even decreasing with — CO₂ and O₂; it is most common at high CO₂ and low temperature. TPU follows the temperature response of Sharkey et al. (2007).</p></details>
+        <div class="eq-units">µmol (triose phosphate) m⁻² s⁻¹ × 3 µmol CO₂ per µmol triose = µmol CO₂ m⁻² s⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-lp-net">
+        <div class="eq-head"><span class="eq-label">Net assimilation and photorespiration</span><span class="eq-num">(P5)</span></div>
+        <div class="eq-main">\[ A = \min\left(A_c,\,A_j,\,A_p\right),\qquad \tfrac12 V_o = V_c\,\frac{\Gamma^*}{C_i},\qquad \Gamma^* = \Gamma^*_{21\%}\,\frac{O}{210} \]</div>
+        <p class="eq-read">The net rate is the smallest of the three limited rates. The CO₂ released by photorespiration is the carboxylation rate times Γ*/Cᵢ, and Γ* is proportional to the oxygen concentration.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(V_c,\ V_o\)</td><td>carboxylation and oxygenation rates of Rubisco</td><td>µmol m⁻² s⁻¹</td></tr><tr><td>\(\Gamma^*_{21\%}\)</td><td>Γ* at 210 mmol mol⁻¹ O₂ (42.75 µmol mol⁻¹ at 25 °C)</td><td>µmol mol⁻¹</td></tr></table>
+        <details><summary>Why a minimum, not a smooth blend?</summary><p>The original model uses the minimum; many fitting tools blend the limitations with a small curvature to avoid sharp corners. The minimum makes the limiting process unambiguous, which is what the colouring of the A–Cᵢ chart shows.</p></details>
+        <div class="eq-units">Γ*/Cᵢ is dimensionless, so ½V<sub>o</sub> has the units of V<sub>c</sub>. ✓</div>
+        <div class="mini-calc" data-fn="lpPR" data-output="Photorespiratory loss ½V<sub>o</sub>/V<sub>c</sub>" data-unit="% of carboxylation" data-digits="1" data-plot="ci" data-title="Try it — share of carboxylation lost at 25 °C">
+          <div data-var="ci" data-label="Cᵢ" data-min="50" data-max="1500" data-step="5" data-value="300" data-unit="µmol mol⁻¹"></div>
+          <div data-var="O" data-label="O₂" data-min="10" data-max="300" data-step="5" data-value="210" data-unit="mmol mol⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lp-temp">
+        <div class="eq-head"><span class="eq-label">Temperature dependence of the parameters</span><span class="eq-num">(P6)</span></div>
+        <div class="eq-main">\[ k(T) = k_{25}\,\exp\!\left[\frac{E_a\,(T_k-298.15)}{298.15\,R\,T_k}\right]\cdot\frac{1+\exp\!\left(\dfrac{298.15\,\Delta S-H_d}{298.15\,R}\right)}{1+\exp\!\left(\dfrac{T_k\,\Delta S-H_d}{R\,T_k}\right)} \]</div>
+        <p class="eq-read">Each rate or constant rises exponentially with temperature (Arrhenius), and enzyme capacities additionally collapse at high temperature as the proteins deactivate (second factor). The function equals k₂₅ at 25 °C.</p>
+        <table>
+          <caption>Parameters used (the deactivation factor is omitted where no Hd is given).</caption>
+          <tr><th>Parameter</th><th class="num">k₂₅</th><th class="num">E<sub>a</sub> (kJ mol⁻¹)</th><th class="num">H<sub>d</sub> (kJ mol⁻¹)</th><th class="num">ΔS (J mol⁻¹ K⁻¹)</th><th>Source</th></tr>
+          <tr><td>K<sub>c</sub></td><td class="num">404.9 µmol mol⁻¹</td><td class="num">79.43</td><td class="num">–</td><td class="num">–</td><td>Bernacchi et al. 2001</td></tr>
+          <tr><td>K<sub>o</sub></td><td class="num">278.4 mmol mol⁻¹</td><td class="num">36.38</td><td class="num">–</td><td class="num">–</td><td>Bernacchi et al. 2001</td></tr>
+          <tr><td>Γ*</td><td class="num">42.75 µmol mol⁻¹</td><td class="num">37.83</td><td class="num">–</td><td class="num">–</td><td>Bernacchi et al. 2001</td></tr>
+          <tr><td>R<sub>d</sub></td><td class="num">0.015 V<sub>cmax,25</sub></td><td class="num">46.39</td><td class="num">–</td><td class="num">–</td><td>Bernacchi et al. 2001</td></tr>
+          <tr><td>V<sub>cmax</sub></td><td class="num">slider</td><td class="num">65.33</td><td class="num">200</td><td class="num">668.39 − 1.07 T<sub>g</sub></td><td>Bernacchi 2001; Kattge &amp; Knorr 2007</td></tr>
+          <tr><td>J<sub>max</sub></td><td class="num">slider</td><td class="num">43.5</td><td class="num">200</td><td class="num">659.70 − 0.75 T<sub>g</sub></td><td>Bernacchi 2003; Kattge &amp; Knorr 2007</td></tr>
+          <tr><td>TPU</td><td class="num">slider</td><td class="num">53.1</td><td class="num">201.8</td><td class="num">650</td><td>Sharkey et al. 2007</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary><ol class="steps"><li>Arrhenius: the fraction of molecules with enough energy to react is proportional to \(e^{-E_a/RT}\); normalising at 298.15 K gives the first factor.</li><li>At high temperature an enzyme is in equilibrium between active and denatured forms with equilibrium constant \(K = \exp[(T\Delta S - H_d)/RT]\); the active fraction is \(1/(1+K)\), normalised at 25 °C — the second factor.</li><li>Kattge &amp; Knorr (2007) found that ΔS falls as plants acclimate to warmer growth temperatures T<sub>g</sub> (°C), which shifts the optimum upwards by roughly 0.3–0.4 °C per °C of growth temperature.</li></ol></details>
+        <div class="eq-units">\(E_a/(RT)\) and \(\Delta S/R\) are dimensionless (J mol⁻¹ ÷ J mol⁻¹ K⁻¹ · K). ✓</div>
+        <div class="mini-calc" data-formula="exp(Ea*1000*(T-25)/(298.15*8.314*(T+273.15)))*(1+exp((298.15*dS-200000)/(298.15*8.314)))/(1+exp(((T+273.15)*dS-200000)/(8.314*(T+273.15))))" data-output="k(T)/k₂₅" data-digits="2" data-plot="T" data-title="Try it — V<sub>cmax</sub> temperature factor">
+          <div data-var="T" data-label="Leaf temperature" data-min="0" data-max="50" data-step="0.5" data-value="35" data-unit="°C"></div>
+          <div data-var="Ea" data-label="E<sub>a</sub>" data-min="30" data-max="90" data-step="0.1" data-value="65.3" data-unit="kJ mol⁻¹"></div>
+          <div data-var="dS" data-label="ΔS" data-min="620" data-max="670" data-step="0.5" data-value="641.5" data-unit="J mol⁻¹ K⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lp-medlyn">
+        <div class="eq-head"><span class="eq-label">Optimal stomatal conductance (Medlyn model)</span><span class="eq-num">(P7)</span></div>
+        <div class="eq-main">\[ g_s = g_0 + 1.6\left(1 + \frac{g_1}{\sqrt{D}}\right)\frac{A}{C_a} \]</div>
+        <p class="eq-read">Stomatal conductance to water vapour is a small residual g₀ plus a term proportional to assimilation divided by CO₂ at the leaf surface, reduced when the air is dry (large D). g₁ expresses how much water the plant is prepared to spend per unit carbon gained.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(g_s\)</td><td>stomatal conductance to water vapour</td><td>mol m⁻² s⁻¹</td><td></td></tr>
+          <tr><td>\(g_0\)</td><td>residual conductance</td><td>mol m⁻² s⁻¹</td><td>0.01</td></tr>
+          <tr><td>\(g_1\)</td><td>slope parameter</td><td>kPa<sup>½</sup></td><td>5.8 (C3 crops), 1.6 (C4)</td></tr>
+          <tr><td>\(D\)</td><td>leaf-to-air vapour-pressure deficit</td><td>kPa</td><td></td></tr>
+          <tr><td>1.6</td><td>ratio of diffusivities of H₂O and CO₂ in air</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation (optimisation theory)</summary><ol class="steps"><li>Cowan &amp; Farquhar's hypothesis: stomata maximise \(\int (A - \lambda E)\,dt\), i.e. carbon gain minus the “price” λ of water.</li><li>Medlyn et al. (2011) combined this with an electron-transport-limited approximation of A and showed that the optimal Cᵢ/Cₐ satisfies \(C_i/C_a = g_1/(g_1+\sqrt D)\) with \(g_1 \propto \sqrt{\Gamma^*\lambda}\).</li><li>Substituting Cᵢ into the diffusion equation (P8) gives \(g_s = 1.6(1+g_1/\sqrt D)A/C_a\); adding g₀ gives P7.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>We use Cₐ for the surface CO₂ (well-stirred leaf, as in a gas-exchange cuvette) and the leaf-to-air D. g₁ values are the field means of Lin et al. (2015) as parameterised by De Kauwe et al. (2015). The model does not include stomatal responses to soil drying; those are added in the stomata laboratory.</p></details>
+        <div class="eq-units">\(\dfrac{\mu\text{mol m}^{-2}\text{s}^{-1}}{\mu\text{mol mol}^{-1}} = \text{mol m}^{-2}\,\text{s}^{-1}\); \(g_1/\sqrt D\) is dimensionless because g₁ is in kPa<sup>½</sup>. ✓</div>
+        <div class="mini-calc" data-formula="0.01+1.6*(1+g1/sqrt(D))*A/ca" data-output="gₛ" data-unit="mol m⁻² s⁻¹" data-digits="3" data-plot="D">
+          <div data-var="A" data-label="A" data-min="0" data-max="50" data-step="0.5" data-value="19" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="D" data-label="VPD D" data-min="0.2" data-max="4" data-step="0.05" data-value="1" data-unit="kPa"></div>
+          <div data-var="g1" data-label="g₁" data-min="0.5" data-max="10" data-step="0.1" data-value="5.8" data-unit="kPa^½"></div>
+          <div data-var="ca" data-label="Cₐ" data-min="100" data-max="2000" data-step="5" data-value="425" data-unit="ppm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lp-supply">
+        <div class="eq-head"><span class="eq-label">Diffusive supply and the coupled solution</span><span class="eq-num">(P8)</span></div>
+        <div class="eq-main">\[ A = \frac{g_s}{1.6}\,\left(C_a - C_i\right) \quad\Rightarrow\quad \frac{C_i}{C_a} = \frac{g_1}{g_1+\sqrt{D}}\quad(g_0 = 0) \]</div>
+        <p class="eq-read">CO₂ flows into the leaf at a rate equal to the conductance to CO₂ (gₛ/1.6) times the concentration difference. Combining with P7 shows that, when g₀ is negligible, the ratio Cᵢ/Cₐ depends only on g₁ and D.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(C_a\)</td><td>CO₂ mole fraction in the air</td><td>µmol mol⁻¹</td></tr><tr><td>\(g_s/1.6\)</td><td>stomatal conductance to CO₂</td><td>mol m⁻² s⁻¹</td></tr></table>
+        <details><summary>How the laboratory solves it</summary><ol class="steps"><li>A depends on Cᵢ (P1–P5) and gₛ depends on A (P7), while Cᵢ depends on gₛ (P8): a circular problem.</li><li>Define \(f(C_i) = A(C_i) - \tfrac{g_s(A(C_i))}{1.6}(C_a - C_i)\): demand minus supply.</li><li>f is negative at Cᵢ = 0 and positive at Cᵢ ≫ Cₐ, so the root is bracketed; we halve the interval 48 times (bisection) until it is narrower than 0.02 µmol mol⁻¹.</li><li>With g₀ = 0: substituting P7 in P8 gives \(A = (1+g_1/\sqrt D)(A/C_a)(C_a - C_i)\), so \(1 - C_i/C_a = 1/(1+g_1/\sqrt D)\) and \(C_i/C_a = g_1/(g_1+\sqrt D)\).</li></ol></details>
+        <div class="eq-units">mol m⁻² s⁻¹ × µmol mol⁻¹ = µmol m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="g1/(g1+sqrt(D))" data-output="Cᵢ/Cₐ" data-digits="3" data-plot="D">
+          <div data-var="g1" data-label="g₁" data-min="0.5" data-max="10" data-step="0.1" data-value="5.8" data-unit="kPa^½"></div>
+          <div data-var="D" data-label="VPD D" data-min="0.2" data-max="4" data-step="0.05" data-value="1" data-unit="kPa"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lp-c4">
+        <div class="eq-head"><span class="eq-label">Simplified C4 photosynthesis</span><span class="eq-num">(P9)</span></div>
+        <div class="eq-main">\[ A = \min\!\Big(\underbrace{\min\{V_p - R_m + g_{bs}C_i,\ V_{c\max}-R_d\}}_{\text{enzyme}},\ \underbrace{\min\{\tfrac{x J}{2} - R_m + g_{bs}C_i,\ \tfrac{(1-x)J}{3} - R_d\}}_{\text{light}}\Big),\quad V_p = \min\!\left(\frac{C_i V_{p\max}}{C_i + K_p},\ V_{pr}\right) \]</div>
+        <p class="eq-read">In C4 leaves either the enzymes (PEP carboxylase pumping CO₂ into the bundle sheath, or Rubisco there) or the light (electrons shared between the C4 pump and the C3 cycle) limit the rate; CO₂ leaking back out of the bundle sheath is represented by g<sub>bs</sub>.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value at 25 °C</th></tr>
+          <tr><td>\(V_{p\max}\), \(K_p\)</td><td>PEP carboxylase capacity and its Michaelis constant</td><td>µmol m⁻² s⁻¹, µmol mol⁻¹</td><td>200 (5 V<sub>cmax</sub>), 82</td></tr>
+          <tr><td>\(V_{pr}\)</td><td>PEP regeneration rate</td><td>µmol m⁻² s⁻¹</td><td>80</td></tr>
+          <tr><td>\(g_{bs}\)</td><td>bundle-sheath conductance to CO₂</td><td>mol m⁻² s⁻¹</td><td>0.003</td></tr>
+          <tr><td>\(x\)</td><td>fraction of electron transport used by the C4 cycle</td><td>–</td><td>0.4</td></tr>
+          <tr><td>\(R_m\)</td><td>mesophyll respiration</td><td>µmol m⁻² s⁻¹</td><td>0.5 R<sub>d</sub></td></tr>
+          <tr><td>\(V_{c\max}\), \(J_{\max}\)</td><td>bundle-sheath Rubisco capacity, electron transport capacity</td><td>µmol m⁻² s⁻¹</td><td>40, 248</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>This is the simplified form of von Caemmerer (2000), which neglects O₂ in the bundle sheath (photorespiration ≈ 0) and mesophyll conductance. Parameter values and temperature responses (Arrhenius E<sub>a</sub> 78, 50.1 and 38.3 kJ mol⁻¹ for V<sub>cmax</sub>, V<sub>pmax</sub> and K<sub>p</sub>; Gaussian J<sub>max</sub>(T) with optimum 43 °C) follow von Caemmerer (2021).</p></details>
+        <div class="eq-units">g<sub>bs</sub>C<sub>i</sub>: mol m⁻² s⁻¹ × µmol mol⁻¹ = µmol m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="lpC4" data-output="C4 net A (25 °C)" data-unit="µmol m⁻² s⁻¹" data-digits="1" data-plot="ci">
+          <div data-var="ci" data-label="Cᵢ" data-min="0" data-max="600" data-step="2" data-value="150" data-unit="µmol mol⁻¹"></div>
+          <div data-var="I" data-label="PPFD" data-min="0" data-max="2000" data-step="10" data-value="1500" data-unit="µmol m⁻² s⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lp-wue">
+        <div class="eq-head"><span class="eq-label">Transpiration and water-use efficiency</span><span class="eq-num">(P10)</span></div>
+        <div class="eq-main">\[ E = g_s\,\frac{D}{P},\qquad \text{WUE} = \frac{A}{E},\qquad \text{iWUE} = \frac{A}{g_s} = \frac{C_a - C_i}{1.6} \]</div>
+        <p class="eq-read">Water vapour leaves through the same stomata, driven by the vapour-pressure deficit expressed as a mole fraction. Water-use efficiency is carbon gained per water lost; intrinsic WUE removes the effect of the weather (D) and depends only on the CO₂ drawdown Cₐ − Cᵢ.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(E\)</td><td>transpiration rate</td><td>mol m⁻² s⁻¹ (shown in mmol)</td></tr><tr><td>\(P\)</td><td>air pressure</td><td>101.3 kPa</td></tr></table>
+        <details><summary>Consequences</summary><p>With Cᵢ/Cₐ fixed by g₁ and D (P8), iWUE rises in proportion to Cₐ: CO₂ enrichment makes crops use water more efficiently. C4 plants (low g₁, low Cᵢ/Cₐ) have two to three times the iWUE of C3 plants — compare the readouts.</p></details>
+        <div class="eq-units">mol m⁻² s⁻¹ × kPa/kPa = mol m⁻² s⁻¹ ✓; WUE: µmol CO₂ per mmol H₂O</div>
+        <div class="mini-calc" data-formula="A/(gs*D/101.325*1000)" data-output="WUE = A/E" data-unit="µmol mmol⁻¹" data-digits="2" data-plot="D">
+          <div data-var="A" data-label="A" data-min="1" data-max="50" data-step="0.5" data-value="19" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="gs" data-label="gₛ" data-min="0.02" data-max="1" data-step="0.01" data-value="0.5" data-unit="mol m⁻² s⁻¹"></div>
+          <div data-var="D" data-label="VPD" data-min="0.2" data-max="4" data-step="0.05" data-value="1" data-unit="kPa"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lp-pore">
+        <div class="eq-head"><span class="eq-label">From conductance to pore aperture (drives the 3D guard cells)</span><span class="eq-num">(P11)</span></div>
+        <div class="eq-main">\[ g_s = \frac{D_v}{v}\,\frac{d\,a}{\,l + \frac{\pi}{2}\sqrt{a/\pi}\,} \]</div>
+        <p class="eq-read">The conductance of d pores per square metre, each of area a and depth l, equals the diffusivity of water vapour divided by the molar volume of air, times the total pore area per unit leaf area, divided by the diffusion path: the pore depth plus an “end correction” for the spreading of the vapour shell outside each pore.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr><tr><td>\(D_v\)</td><td>diffusivity of water vapour in air (25 °C)</td><td>m² s⁻¹</td><td>2.49 × 10⁻⁵</td></tr><tr><td>\(v\)</td><td>molar volume of air, RT/P</td><td>m³ mol⁻¹</td><td>0.0245</td></tr><tr><td>\(d\)</td><td>stomatal density</td><td>m⁻²</td><td>1.45 × 10⁸ in the 3D block</td></tr><tr><td>\(a\)</td><td>pore area (ellipse, length 16 µm)</td><td>m²</td><td></td></tr><tr><td>\(l\)</td><td>pore depth ≈ guard-cell width</td><td>m</td><td>11 × 10⁻⁶</td></tr></table>
+        <details><summary>How the 3D view uses it</summary><p>The model's gₛ is inverted for a (a quadratic in √a) and converted to the width of an elliptical pore of length 16 µm; the guard cells bow apart by that amount. With all pores fully open (circles 16 µm across) the same equation gives the anatomical maximum g<sub>s,max</sub> (Franks &amp; Beerling, 2009).</p></details>
+        <div class="eq-units">\(\dfrac{\text{m}^2\text{s}^{-1}}{\text{m}^3\text{mol}^{-1}}\cdot\dfrac{\text{m}^{-2}\,\text{m}^2}{\text{m}} = \text{mol m}^{-2}\,\text{s}^{-1}\) ✓</div>
+        <div class="mini-calc" data-fn="lpPore" data-output="Pore width" data-unit="µm" data-digits="1" data-plot="gs" data-title="Try it — pore width needed for a given gₛ">
+          <div data-var="gs" data-label="gₛ" data-min="0.01" data-max="1" data-step="0.01" data-value="0.4" data-unit="mol m⁻² s⁻¹"></div>
+          <div data-var="dens" data-label="Stomatal density" data-min="50" data-max="400" data-step="5" data-value="145" data-unit="mm⁻²"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator and the charts. Tick each task when done; <em>Save investigation</em> copies your settings and results into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Anatomy of a light-response curve</h4><p>At 25 °C, 425 ppm and 1 kPa, read A at PPFD 0, 50, 100, 200, 400, 800, 1200 and 2000 µmol m⁻² s⁻¹. Estimate (a) dark respiration, (b) the light compensation point (A = 0), (c) the initial quantum yield (slope between 50 and 100) and (d) the PPFD at which A reaches 90 % of its value at 2000. Repeat at 2 % O₂ and explain every difference.</p></li>
+        <li><h4>Supply meets demand</h4><p>With the default leaf, move VPD from 0.5 to 3.5 kPa. Track Cᵢ, gₛ and A and sketch how the stomatal supply line pivots around Cₐ in the A–Cᵢ chart. Which limitation stays in control? Calculate the stomatal limitation \(1 - A/A(C_i{=}C_a)\) at 0.5 and 3.5 kPa using the demand curve.</p></li>
+        <li><h4>Is CO₂ enrichment worth it in a plant factory?</h4><p>Choose the <em>CO₂-enriched plant factory</em> preset (300 µmol m⁻² s⁻¹, 22 °C). Compare A at 425 and 1000 ppm, then repeat at 800 µmol m⁻² s⁻¹. Where is the relative gain larger and why (look at the limiting process and the photorespiration readout)? Would you rather buy more LEDs or more CO₂?</p></li>
+        <li><h4>Moving optimum</h4><p>From the temperature-response chart, find the temperature optimum of A at 425 ppm and at 1000 ppm (PPFD 1200). Explain the shift using Γ* and photorespiration. Then change the growth temperature from 15 to 30 °C: what happens to the optimum and to A at 38 °C?</p></li>
+        <li><h4>C3 versus C4 on a hot afternoon</h4><p>Apply <em>Hot afternoon</em> and note A, gₛ, E and WUE. Switch to C4 (defaults are applied) and compare. By what factor does WUE change? Now set 15 °C and 300 µmol m⁻² s⁻¹: which pathway wins, and why might northern European crops still be mostly C3?</p></li>
+        <li><h4>Hunting for TPU limitation</h4><p>Use the <em>Cool, high CO₂</em> preset. Show that A no longer responds to O₂ or to more CO₂. Increase TPU₂₅ until another process takes over. Why can growers see no benefit from extra CO₂ on cool, bright days?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-leaf-photosynthesis">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Γ* is 42.75 µmol mol⁻¹ at 25 °C in air (210 mmol mol⁻¹ O₂). What is Γ* at 25 °C in 2 % O₂ (20 mmol mol⁻¹)?","answer":4.07,"tol":0.03,"unit":"µmol mol⁻¹","hint":"Γ* is proportional to O (Eq. P5).","explain":"<p>\\(\\Gamma^* = 42.75\\times 20/210 = 4.07\\) µmol mol⁻¹: photorespiration is almost eliminated.</p>"},
+          {"type":"numeric","q":"A C3 leaf follows the Medlyn model with g₀ = 0 and g₁ = 4 kPa^½. At D = 1 kPa and Cₐ = 425 µmol mol⁻¹, what is Cᵢ?","answer":340,"tol":0.02,"unit":"µmol mol⁻¹","hint":"Use Eq. P8: Cᵢ/Cₐ = g₁/(g₁ + √D).","explain":"<p>\\(C_i/C_a = 4/(4+1) = 0.8\\), so \\(C_i = 0.8\\times425 = 340\\) µmol mol⁻¹.</p>"},
+          {"type":"numeric","q":"Using Eq. P1 at 25 °C and 21 % O₂ with V_cmax = 80 µmol m⁻² s⁻¹, Cᵢ = 300 µmol mol⁻¹ and R_d = 1.2 µmol m⁻² s⁻¹, what is the Rubisco-limited net rate A_c?","answer":19.17,"tol":0.02,"unit":"µmol m⁻² s⁻¹","hint":"K_c(1+O/K_o) = 404.9 × (1 + 210/278.4).","explain":"<p>\\(K_c(1+O/K_o) = 404.9\\times1.754 = 710.3\\); \\(A_c = 80\\times(300-42.75)/(300+710.3) - 1.2 = 20.37 - 1.2 = 19.17\\) µmol m⁻² s⁻¹.</p>"},
+          {"type":"mcq","q":"In the simulator, switching a C3 leaf at 25 °C from 21 % to 2 % O₂ increases A by about a third. What is the main reason?","options":["Rubisco oxygenation and photorespiratory CO₂ release are suppressed","Stomata open because O₂ is a signal for closure","Electron transport J increases at low O₂","Day respiration stops without oxygen"],"answer":0,"feedback":["","gₛ does rise in the model, but only because A rises (Eq. P7) — it is a consequence, not the cause.","J depends on light and J_max, not on O₂ in this model.","Mitochondrial respiration needs very little O₂; 2 % is ample, and R_d is unchanged in the model."],"explain":"<p>Γ* ∝ O, so at 2 % O₂ almost no RuBP is oxygenated and the CO₂ lost by photorespiration (½V_o) nearly vanishes; more of the electron transport goes into net CO₂ fixation.</p>"},
+          {"type":"multi","q":"Which changes increase Cᵢ/Cₐ of the C3 leaf in this model? (Select all that apply.)","options":["Lowering the VPD","Raising g₁","Doubling V_cmax at constant g₁ and D","Switching to the C4 pathway with its default parameters"],"answer":[0,1],"explain":"<p>With a small g₀, Cᵢ/Cₐ ≈ g₁/(g₁+√D) (Eq. P8): it rises when D falls or g₁ rises, and is almost independent of the biochemistry. C4 defaults use g₁ = 1.6, which lowers Cᵢ/Cₐ.</p>"},
+          {"type":"tf","q":"For a C4 leaf in this model, lowering O₂ from 21 % to 2 % strongly increases A.","answer":false,"explain":"<p>The simplified C4 model neglects O₂ in the bundle sheath because the CO₂ pump keeps CO₂ so high that oxygenation is negligible — the light-response curves for the two O₂ levels coincide.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>Steady state: A, gₛ and Cᵢ are solved for instantaneous equilibrium; stomatal opening and closing kinetics (minutes) are not modelled here (see the stomata laboratory).</li>
+        <li>The leaf is well stirred (boundary-layer conductance infinite, Cₛ = Cₐ) and the leaf-to-air VPD is set directly, as in a leaf gas-exchange cuvette. Leaf temperature is an input; the leaf energy balance is treated in the stomata laboratory.</li>
+        <li>Mesophyll conductance is taken as infinite, so Rubisco sees Cᵢ; the Bernacchi et al. (2001) kinetic constants are the matching Cᵢ-based values. In real leaves the chloroplast concentration C<sub>c</sub> is noticeably lower than Cᵢ.</li>
+        <li>C3 limitations are combined by a strict minimum; the TPU limitation assumes no glycolate carbon export (α = 0). R<sub>d</sub> = 0.015 V<sub>cmax,25</sub> and is not reduced in the light.</li>
+        <li>J follows a non-rectangular hyperbola with a = 0.85, f = 0.15, θ = 0.7 for all temperatures; the spectrum of the light is not considered.</li>
+        <li>Temperature responses: Arrhenius energies from Bernacchi et al. (2001, 2003) with high-temperature deactivation of V<sub>cmax</sub> and J<sub>max</sub> from Kattge &amp; Knorr (2007) — this combination is a documented modelling choice, not a single published parameter set.</li>
+        <li>C4: simplified von Caemmerer (2000) model with the parameters and temperature functions of von Caemmerer (2021); V<sub>pmax</sub> = 5 V<sub>cmax</sub>; O₂ has no effect.</li>
+        <li>Stomata: Medlyn et al. (2011) with g₀ = 0.01 mol m⁻² s⁻¹. The 3D pore width is derived from gₛ with the pore-diffusion equation (P11) for the 14 stomata shown (a hypostomatous leaf).</li>
+        <li>The 3D anatomy is a faithful but schematic reconstruction (cell sizes and layer thicknesses typical of a dicot leaf). Photon absorption depths and reflectances by colour are illustrative; particle streams are proportional to the computed fluxes but their paths are drawn, not simulated by diffusion. Chloroplast avoidance movement is represented qualitatively.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Farquhar, G. D., von Caemmerer, S., &amp; Berry, J. A. (1980). A biochemical model of photosynthetic CO₂ assimilation in leaves of C3 species. <em>Planta</em>, 149, 78–90. <a href="https://doi.org/10.1007/BF00386231" target="_blank" rel="noopener">doi:10.1007/BF00386231</a></li>
+        <li>von Caemmerer, S. (2000). <em>Biochemical Models of Leaf Photosynthesis</em>. CSIRO Publishing. <a href="https://doi.org/10.1071/9780643103405" target="_blank" rel="noopener">doi:10.1071/9780643103405</a></li>
+        <li>Bernacchi, C. J., Singsaas, E. L., Pimentel, C., Portis, A. R., &amp; Long, S. P. (2001). Improved temperature response functions for models of Rubisco-limited photosynthesis. <em>Plant, Cell &amp; Environment</em>, 24(2), 253–259. <a href="https://doi.org/10.1111/j.1365-3040.2001.00668.x" target="_blank" rel="noopener">doi:10.1111/j.1365-3040.2001.00668.x</a></li>
+        <li>Bernacchi, C. J., Pimentel, C., &amp; Long, S. P. (2003). In vivo temperature response functions of parameters required to model RuBP-limited photosynthesis. <em>Plant, Cell &amp; Environment</em>, 26(9), 1419–1430. <a href="https://doi.org/10.1046/j.0016-8025.2003.01050.x" target="_blank" rel="noopener">doi:10.1046/j.0016-8025.2003.01050.x</a></li>
+        <li>Kattge, J., &amp; Knorr, W. (2007). Temperature acclimation in a biochemical model of photosynthesis: a reanalysis of data from 36 species. <em>Plant, Cell &amp; Environment</em>, 30(9), 1176–1190. <a href="https://doi.org/10.1111/j.1365-3040.2007.01690.x" target="_blank" rel="noopener">doi:10.1111/j.1365-3040.2007.01690.x</a></li>
+        <li>Sharkey, T. D., Bernacchi, C. J., Farquhar, G. D., &amp; Singsaas, E. L. (2007). Fitting photosynthetic carbon dioxide response curves for C3 leaves. <em>Plant, Cell &amp; Environment</em>, 30(9), 1035–1040. <a href="https://doi.org/10.1111/j.1365-3040.2007.01710.x" target="_blank" rel="noopener">doi:10.1111/j.1365-3040.2007.01710.x</a></li>
+        <li>Medlyn, B. E., Duursma, R. A., Eamus, D., Ellsworth, D. S., Prentice, I. C., Barton, C. V. M., Crous, K. Y., de Angelis, P., Freeman, M., &amp; Wingate, L. (2011). Reconciling the optimal and empirical approaches to modelling stomatal conductance. <em>Global Change Biology</em>, 17(6), 2134–2144. <a href="https://doi.org/10.1111/j.1365-2486.2010.02375.x" target="_blank" rel="noopener">doi:10.1111/j.1365-2486.2010.02375.x</a></li>
+        <li>Lin, Y.-S., Medlyn, B. E., Duursma, R. A., et al. (2015). Optimal stomatal behaviour around the world. <em>Nature Climate Change</em>, 5, 459–464. <a href="https://doi.org/10.1038/nclimate2550" target="_blank" rel="noopener">doi:10.1038/nclimate2550</a></li>
+        <li>De Kauwe, M. G., Kala, J., Lin, Y.-S., Pitman, A. J., Medlyn, B. E., Duursma, R. A., Abramowitz, G., Wang, Y.-P., &amp; Miralles, D. G. (2015). A test of an optimal stomatal conductance scheme within the CABLE land surface model. <em>Geoscientific Model Development</em>, 8, 431–452. <a href="https://doi.org/10.5194/gmd-8-431-2015" target="_blank" rel="noopener">doi:10.5194/gmd-8-431-2015</a></li>
+        <li>von Caemmerer, S. (2021). Updating the steady-state model of C4 photosynthesis. <em>Journal of Experimental Botany</em>, 72(17), 6003–6017. <a href="https://doi.org/10.1093/jxb/erab266" target="_blank" rel="noopener">doi:10.1093/jxb/erab266</a></li>
+        <li>Farquhar, G. D., &amp; Sharkey, T. D. (1982). Stomatal conductance and photosynthesis. <em>Annual Review of Plant Physiology</em>, 33, 317–345. <a href="https://doi.org/10.1146/annurev.pp.33.060182.001533" target="_blank" rel="noopener">doi:10.1146/annurev.pp.33.060182.001533</a></li>
+        <li>Terashima, I., Hanba, Y. T., Tholen, D., &amp; Niinemets, Ü. (2011). Leaf functional anatomy in relation to photosynthesis. <em>Plant Physiology</em>, 155(1), 108–116. <a href="https://doi.org/10.1104/pp.110.165472" target="_blank" rel="noopener">doi:10.1104/pp.110.165472</a></li>
+        <li>Terashima, I., Fujita, T., Inoue, T., Chow, W. S., &amp; Oguchi, R. (2009). Green light drives leaf photosynthesis more efficiently than red light in strong white light: revisiting the enigmatic question of why leaves are green. <em>Plant and Cell Physiology</em>, 50(4), 684–697. <a href="https://doi.org/10.1093/pcp/pcp034" target="_blank" rel="noopener">doi:10.1093/pcp/pcp034</a></li>
+        <li>Kasahara, M., Kagawa, T., Oikawa, K., Suetsugu, N., Miyao, M., &amp; Wada, M. (2002). Chloroplast avoidance movement reduces photodamage in plants. <em>Nature</em>, 420, 829–832. <a href="https://doi.org/10.1038/nature01213" target="_blank" rel="noopener">doi:10.1038/nature01213</a></li>
+        <li>Franks, P. J., &amp; Beerling, D. J. (2009). Maximum leaf conductance driven by CO₂ effects on stomatal size and density over geologic time. <em>Proceedings of the National Academy of Sciences</em>, 106(25), 10343–10347. <a href="https://doi.org/10.1073/pnas.0904209106" target="_blank" rel="noopener">doi:10.1073/pnas.0904209106</a></li>
+      </ol>
+      <p>Related: <a href="/lessons/photosynthesis/">Lesson 2.1 Photosynthesis: from photons to sugars</a> · <a href="/laboratories/stomata-transpiration/">Stomata and transpiration laboratory</a> · <a href="/laboratories/grow-room-lighting/">Grow-room lighting designer</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

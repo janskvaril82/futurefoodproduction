@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Growth-room experiment designer · Future Food Production</title>
+<meta name="description" content="Lay out lettuce trays for your treatments on the shelves of a 3D growth room with hidden light, temperature and draught gradients, and see how systematic, randomised, blocked and pseudo-replicated designs protect — or betray — your conclusions.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* live calculators in the Derive tab (normal and F distributions, compact implementations) */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  function ncdf(x) { var t = 1 / (1 + 0.2316419 * Math.abs(x)), d = 0.3989422804014327 * Math.exp(-x * x / 2), p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429)))); return x > 0 ? 1 - p : p; }
+  function lg(z) { var c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5], x = z, y = z, t = x + 5.5; t -= (x + 0.5) * Math.log(t); var s = 1.000000000190015; for (var j = 0; j < 6; j++) s += c[j] / ++y; return -t + Math.log(2.5066282746310005 * s / x); }
+  function cf(a, b, x) { var qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - qab * x / qap; if (Math.abs(d) < 1e-300) d = 1e-300; d = 1 / d; var h = d; for (var m = 1; m <= 300; m++) { var m2 = 2 * m, aa = m * (b - m) * x / ((qam + m2) * (a + m2)); d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300; c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; h *= d * c; aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2)); d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300; c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; var del = d * c; h *= del; if (Math.abs(del - 1) < 1e-14) break; } return h; }
+  function ibeta(x, a, b) { if (x <= 0) return 0; if (x >= 1) return 1; var bt = Math.exp(lg(a + b) - lg(a) - lg(b) + a * Math.log(x) + b * Math.log(1 - x)); return x < (a + 1) / (a + b + 2) ? bt * cf(a, b, x) / a : 1 - bt * cf(b, a, 1 - x) / b; }
+  function fcdf(f, d1, d2) { return f <= 0 ? 0 : ibeta(d1 * f / (d1 * f + d2), d1 / 2, d2 / 2); }
+  function finv(p, d1, d2) { var lo = 0, hi = 1000; for (var i = 0; i < 90; i++) { var m = (lo + hi) / 2; if (fcdf(m, d1, d2) < p) lo = m; else hi = m; } return (lo + hi) / 2; }
+  FFP_CALC.edSEdiff = function (o) { var n = Math.round(o.n), r = Math.round(o.r); return Math.sqrt(2 / r * (o.sp * o.sp + o.st * o.st + o.spl * o.spl / n)); };
+  FFP_CALC.edFPR = function (o) { var n = Math.round(o.n), t = Math.round(o.t), lam = 1 + n * o.sb * o.sb / (o.spl * o.spl), d2 = t * (n - 1), Fc = finv(0.95, t - 1, d2); return 100 * (1 - fcdf(Fc / lam, t - 1, d2)); };
+  function tcdf(t, v) { var p = 0.5 * ibeta(v / (v + t * t), v / 2, 0.5); return t > 0 ? 1 - p : p; }
+  function tinv(p, v) { var lo = 0, hi = 60; for (var i = 0; i < 80; i++) { var m = (lo + hi) / 2; if (tcdf(m, v) < p) lo = m; else hi = m; } return (lo + hi) / 2; }
+  /* two treatments, completely randomised: error df = 2(r − 1); shifted central-t approximation */
+  FFP_CALC.edPower = function (o) { var r = Math.round(o.r), df = 2 * (r - 1), se = o.su * Math.sqrt(2 / r), tc = tinv(0.975, df), d = o.delta / se; return 100 * (1 - tcdf(tc - d, df) + tcdf(-tc - d, df)); };
+})();
+</script>
+<style>
+.ed-panel { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px 18px; margin: 16px 0; box-shadow: var(--shadow-1); }
+.ed-head { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.ed-head h2 { font-size: 1.25rem; margin: 0; }
+.ed-apa { background: var(--accent-soft); border-radius: 12px; padding: 14px 18px; font-family: var(--font-serif); font-size: 1.02rem; line-height: 1.6; }
+.ed-apa p { margin: 0; }
+.ed-apa::before { content: 'Report sentence — edit before use'; display: block; font: 700 .66rem var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+.ed-res-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; margin-top: 12px; align-items: start; }
+@media (max-width: 980px) { .ed-res-grid { grid-template-columns: 1fr; } }
+.ed-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); margin: 0 0 12px; }
+.ed-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.ed-table caption { caption-side: top; text-align: left; font-size: .8rem; color: var(--muted); padding: 8px 10px 6px; background: var(--bg-sunk); }
+.ed-table th, .ed-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.ed-table th { background: var(--bg-sunk); font-weight: 650; font-size: .78rem; }
+.ed-table .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: .8rem; }
+.ed-table tr:last-child td { border-bottom: 0; }
+.ed-table tr.tot td { font-weight: 600; }
+.ed-table tr.bad td { color: var(--danger); }
+.ed-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; vertical-align: -1px; }
+.ed-truth { border: 1px dashed var(--line-strong); border-radius: 12px; padding: 12px 14px; background: var(--bg); }
+.ed-truth h4 { margin: 0 0 8px; font: 700 .72rem var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--magenta); }
+.ed-truth dl.kv { margin: 0; }
+.ed-bad { color: var(--danger); font-weight: 700; }
+.ed-warn { color: var(--warn); font-weight: 600; }
+.ed-plan-note p { margin: 0 0 6px; }
+.ed-status { font-size: .78rem; color: var(--muted); min-height: 1.2em; margin-top: 4px; }
+.chart-card .chart.ed-plan { height: auto; }
+.chart-card .chart.ed-plan svg { width: 100%; height: auto; display: block; }
+.label3d.ed-shelf { font-size: 11px; padding: 2px 6px; opacity: .92; }
+.label3d.ed-shelf small { font-size: 10px; }
+</style>
+</head>
+<body data-page="lab" data-slug="experiment-designer">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Growth-room experiment designer</h1>
+    <p class="lead">Plan a real experiment before you grow a single plant. Put trays of lettuce for your treatments on the shelves of a 3D growth room, decide how many replicate trays and plants you need and how to arrange them — in convenient groups, completely at random, in blocks, or with one tray per treatment. The room hides what every real growth room hides: less light towards the ends and the bottom of the racks, warmer air near the ceiling and a cold draught from the door. Grow and harvest once to get the ANOVA your design calls for, then repeat the experiment a thousand times to find out which designs tell the truth.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage tall" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <section class="ed-panel" aria-label="Analysis of the harvest">
+    <div class="ed-head"><h2>Analysis of this harvest</h2><span class="muted" id="ed-an-design"></span></div>
+    <div id="ed-analysis"></div>
+  </section>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Layout plan</h3>
+      <div class="chart-sub" id="plan-sub"></div>
+      <div class="chart ed-plan" id="chart-plan"></div>
+    </div>
+    <div class="chart-card">
+      <h3>What 1000 repetitions of the experiment estimate</h3>
+      <div class="chart-sub">Distribution of the estimated effect (best treatment − control) for every design at the current settings. The dashed line is the true effect; the short vertical mark is each design's average estimate. A wide ridge is imprecise; a ridge centred away from the truth is biased.</div>
+      <div class="chart tall" id="chart-est"></div>
+      <div class="ed-status" id="st-est"></div>
+    </div>
+    <div class="chart-card">
+      <h3>False positives when there is nothing to find</h3>
+      <div class="chart-sub">Share of 1000 experiments with p &lt; α when the true effect is zero. A valid design and analysis give α (dashed line); red bars mean the design “finds” effects that do not exist.</div>
+      <div class="chart" id="chart-fpr"></div>
+      <div class="ed-status" id="st-fpr"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Power and false positives versus replication</h3>
+      <div class="chart-sub" id="pow-sub">Share of experiments with p &lt; α as the number of replicates grows (300 experiments per point).</div>
+      <div class="chart" id="chart-power"></div>
+      <div class="ed-status" id="st-pow"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour in six experiments</h2>
+      <ol>
+        <li><strong>Read the plan.</strong> The laboratory opens with a randomised complete block design: three LED spectra, four replicate trays per spectrum and six lettuce plants per tray. Each shelf of rack A is one block and holds one tray of every spectrum in a random order. The coloured tray labels (T1·3 = treatment 1, tray 3) and the LED module above each tray show which spectrum it receives; the white dividers keep the spectra apart. The <em>Layout plan</em> below the analysis panel is the drawing you would pin to the door.</li>
+        <li><strong>Grow &amp; harvest once.</strong> The seedlings grow to their simulated harvest weight and the analysis appears: an ANOVA on the twelve tray means with shelf as block, the treatment means and a report sentence. Look at the box <em>The truth</em>: the best spectrum really is 15&nbsp;% (about 26&nbsp;g) better than the control, yet your estimate misses it by a random error of typically ±13&nbsp;g — and with four trays per treatment the effect is usually not significant.</li>
+        <li><strong>Reveal the room.</strong> Switch <em>Reveal</em> to <em>Growth</em>. Shelves near the floor, the ends of every shelf and the positions next to the door are poorer; the top shelves are best. Try <em>PPFD</em> and <em>Air temp.</em>, switch on the air currents and click a tray to read its hidden light, temperature and growth potential. Differences of 20–30&nbsp;% between positions are larger than the treatment effect you are trying to detect.</li>
+        <li><strong>Convenient but confounded.</strong> This preset loads the trays treatment by treatment, from the top of rack A down. The control gets the best shelves, the best spectrum the worst. Harvest a few times: the estimated effect hovers around zero although the truth is +26&nbsp;g — the treatment effect is cancelled by the position effect. Now set the replicates to 6: the bias changes sign and the same design “proves” a huge effect. A systematic layout is not wrong by a known amount that you could correct afterwards — it is wrong by an unknown amount in an unknown direction.</li>
+        <li><strong>The tempting shortcut.</strong> One tray per treatment with twelve plants each, and no true effect at all (Δ = 0). Harvest several times: small p-values keep appearing, because the plant-level ANOVA mistakes tray and position differences for treatment effects. Press <em>Run 1000 times</em>: about seven experiments in ten are “significant”. Twelve plants in one tray are twelve sub-samples of one replicate, not twelve replicates.</li>
+        <li><strong>Judge the designs.</strong> Go back to <em>Textbook RCBD</em> and press <em>Run 1000 times</em>. The ridges show that the completely randomised and the blocked designs are unbiased, the blocked one more precise; the red bars show which designs keep their promise of 5&nbsp;% false positives; the power curves show how many replicate trays you really need — far more than most student projects use.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A controlled-environment room is not a uniform environment. <strong>Replicate</strong> the thing you applied the treatment to (the tray, not the plant), <strong>randomise</strong> which position each replicate gets so that unknown gradients cannot masquerade as treatment effects, and <strong>block</strong> on the gradients you know about so that they stop inflating your error. Statistics after the experiment cannot rescue a design that broke these rules.</p></div>
+      <div class="callout note"><div class="callout-title">Connect to your project</div><p>Use the same logic for your own soilless system: which unit receives the treatment (a pot, a tray, a reservoir, a whole light compartment)? That unit is your replicate. Then analyse your data in the <a href="/laboratories/statistics-workbench/">Statistics workbench</a> with one value per unit.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Why a growth room is not uniform</h2>
+      <p>Growth rooms and climate chambers are built to hold light, temperature and humidity constant, yet uniformity trials — growing one crop with no treatments at all and mapping how it grows — have repeatedly found position effects that are as large as typical treatment effects. In the North Carolina State University phytotron, Lee and Rawlings (1982) found consistent differences in plant growth between positions within chambers and between chambers, and Potvin and Tardif (1988) concluded that such variability must be handled by the experimental design. The reasons are physical, and this laboratory models the three most common ones.</p>
+      <ul>
+        <li><strong>Light.</strong> Near the open ends of a shelf, fewer LED modules contribute photons and some light escapes; photosynthetic photon flux density (PPFD) falls towards the ends (see the <a href="/laboratories/grow-room-lighting/">Grow-room lighting designer</a>). Drivers and LEDs also age at different rates, and the top shelf receives some light from the ceiling luminaires. Lettuce fresh weight increases almost in proportion to the daily light integral in the range used indoors (Kelly et al., 2020), so a 10&nbsp;% light deficit costs roughly 8&nbsp;% in yield.</li>
+        <li><strong>Temperature.</strong> Warm air is less dense and rises. Heat from the lamps accumulates towards the ceiling, so the air around the top shelf can be 2&nbsp;°C or more warmer than near the floor. Lettuce growth increases with air temperature up to the low or mid 20s&nbsp;°C (Thompson et al., 1998).</li>
+        <li><strong>Air movement.</strong> Every time the door opens — or if it does not close properly — cold, dense air flows in along the floor and chills the nearest, lowest positions; draughts also raise transpiration and can damage leaves.</li>
+      </ul>
+      <p>None of this is visible when you set up an experiment. That is the whole point of this laboratory: the gradients are <em>hidden</em> until you choose to reveal them, just as they would be in your own growth room unless you had mapped it with a quantum sensor, a thermometer and a uniformity trial.</p>
+
+      <h2 data-nonum>Treatment, experimental unit, observational unit</h2>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 720 250" role="img" aria-label="Hierarchy of an experiment: treatments are applied to trays, which contain plants on which measurements are made">
+          <defs><marker id="ed-arx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <rect x="250" y="12" width="220" height="40" rx="10" class="fill-magenta-soft" stroke="currentColor"/><text x="360" y="37" text-anchor="middle" font-weight="600">Treatment (e.g. White + far-red)</text>
+          <line x1="300" y1="52" x2="150" y2="96" stroke="currentColor" marker-end="url(#ed-arx)"/><line x1="360" y1="52" x2="360" y2="96" stroke="currentColor" marker-end="url(#ed-arx)"/><line x1="420" y1="52" x2="570" y2="96" stroke="currentColor" marker-end="url(#ed-arx)"/>
+          <text x="470" y="80" class="t-small t-muted">randomised to</text>
+          <g><rect x="80" y="100" width="140" height="44" rx="9" class="fill-accent-soft" stroke="currentColor"/><text x="150" y="121" text-anchor="middle" font-weight="600">Tray 1</text><text x="150" y="137" text-anchor="middle" class="t-small t-muted">experimental unit</text></g>
+          <g><rect x="290" y="100" width="140" height="44" rx="9" class="fill-accent-soft" stroke="currentColor"/><text x="360" y="121" text-anchor="middle" font-weight="600">Tray 2</text><text x="360" y="137" text-anchor="middle" class="t-small t-muted">experimental unit</text></g>
+          <g><rect x="500" y="100" width="140" height="44" rx="9" class="fill-accent-soft" stroke="currentColor"/><text x="570" y="121" text-anchor="middle" font-weight="600">Tray 3</text><text x="570" y="137" text-anchor="middle" class="t-small t-muted">experimental unit</text></g>
+          <g class="t-small">
+            <circle cx="115" cy="190" r="15" class="fill-water-soft" stroke="currentColor"/><circle cx="150" cy="190" r="15" class="fill-water-soft" stroke="currentColor"/><circle cx="185" cy="190" r="15" class="fill-water-soft" stroke="currentColor"/>
+            <circle cx="325" cy="190" r="15" class="fill-water-soft" stroke="currentColor"/><circle cx="360" cy="190" r="15" class="fill-water-soft" stroke="currentColor"/><circle cx="395" cy="190" r="15" class="fill-water-soft" stroke="currentColor"/>
+            <circle cx="535" cy="190" r="15" class="fill-water-soft" stroke="currentColor"/><circle cx="570" cy="190" r="15" class="fill-water-soft" stroke="currentColor"/><circle cx="605" cy="190" r="15" class="fill-water-soft" stroke="currentColor"/>
+          </g>
+          <line x1="150" y1="144" x2="150" y2="172" stroke="currentColor" stroke-dasharray="3 3"/><line x1="360" y1="144" x2="360" y2="172" stroke="currentColor" stroke-dasharray="3 3"/><line x1="570" y1="144" x2="570" y2="172" stroke="currentColor" stroke-dasharray="3 3"/>
+          <text x="360" y="232" text-anchor="middle" class="t-small">plants = observational units (sub-samples): averaged to one value per tray before the analysis</text>
+          <text x="20" y="124" class="t-small t-muted">n = 3 replicates</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The experimental unit is the smallest unit to which a treatment is independently applied. In a spectrum experiment it is the light compartment with its tray; in an EC experiment the tray with its own reservoir. Plants inside one tray share its solution, its position and its history; they are sub-samples of one replicate.</figcaption>
+      </figure>
+      <p>Getting the experimental unit right determines everything else: the number of replicates, the error term and the degrees of freedom of the test. If the treatment is applied to a whole shelf (one lamp setting per shelf), the shelf is the unit, and two shelves per treatment means two replicates — however many plants stand on them.</p>
+
+      <h2 data-nonum>Four layouts</h2>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 760 230" role="img" aria-label="Four ways of laying out three treatments with three replicates on three shelves">
+          <g font-size="12">
+            <text x="95" y="20" text-anchor="middle" font-weight="700">Systematic</text>
+            <text x="285" y="20" text-anchor="middle" font-weight="700">Completely randomised</text>
+            <text x="475" y="20" text-anchor="middle" font-weight="700">Randomised blocks</text>
+            <text x="665" y="20" text-anchor="middle" font-weight="700">Pseudo-replicated</text>
+          </g>
+          <!-- helper: cells 50 × 36, gap 8; three shelves -->
+          <g id="ed-f2">
+            <!-- Systematic: row = treatment -->
+            <g transform="translate(16,34)">
+              <rect x="0" y="0" width="50" height="36" rx="6" fill="#e0457b" fill-opacity=".35" stroke="#e0457b"/><rect x="54" y="0" width="50" height="36" rx="6" fill="#e0457b" fill-opacity=".35" stroke="#e0457b"/><rect x="108" y="0" width="50" height="36" rx="6" fill="#e0457b" fill-opacity=".35" stroke="#e0457b"/>
+              <rect x="0" y="46" width="50" height="36" rx="6" fill="#2f86e0" fill-opacity=".35" stroke="#2f86e0"/><rect x="54" y="46" width="50" height="36" rx="6" fill="#2f86e0" fill-opacity=".35" stroke="#2f86e0"/><rect x="108" y="46" width="50" height="36" rx="6" fill="#2f86e0" fill-opacity=".35" stroke="#2f86e0"/>
+              <rect x="0" y="92" width="50" height="36" rx="6" fill="#f0a42c" fill-opacity=".35" stroke="#f0a42c"/><rect x="54" y="92" width="50" height="36" rx="6" fill="#f0a42c" fill-opacity=".35" stroke="#f0a42c"/><rect x="108" y="92" width="50" height="36" rx="6" fill="#f0a42c" fill-opacity=".35" stroke="#f0a42c"/>
+            </g>
+            <!-- CRD -->
+            <g transform="translate(206,34)">
+              <rect x="0" y="0" width="50" height="36" rx="6" fill="#2f86e0" fill-opacity=".35" stroke="#2f86e0"/><rect x="54" y="0" width="50" height="36" rx="6" fill="#e0457b" fill-opacity=".35" stroke="#e0457b"/><rect x="108" y="0" width="50" height="36" rx="6" fill="#2f86e0" fill-opacity=".35" stroke="#2f86e0"/>
+              <rect x="0" y="46" width="50" height="36" rx="6" fill="#f0a42c" fill-opacity=".35" stroke="#f0a42c"/><rect x="54" y="46" width="50" height="36" rx="6" fill="#f0a42c" fill-opacity=".35" stroke="#f0a42c"/><rect x="108" y="46" width="50" height="36" rx="6" fill="#e0457b" fill-opacity=".35" stroke="#e0457b"/>
+              <rect x="0" y="92" width="50" height="36" rx="6" fill="#e0457b" fill-opacity=".35" stroke="#e0457b"/><rect x="54" y="92" width="50" height="36" rx="6" fill="#2f86e0" fill-opacity=".35" stroke="#2f86e0"/><rect x="108" y="92" width="50" height="36" rx="6" fill="#f0a42c" fill-opacity=".35" stroke="#f0a42c"/>
+            </g>
+            <!-- RCBD: each row has all three -->
+            <g transform="translate(396,34)">
+              <rect x="0" y="0" width="50" height="36" rx="6" fill="#f0a42c" fill-opacity=".35" stroke="#f0a42c"/><rect x="54" y="0" width="50" height="36" rx="6" fill="#e0457b" fill-opacity=".35" stroke="#e0457b"/><rect x="108" y="0" width="50" height="36" rx="6" fill="#2f86e0" fill-opacity=".35" stroke="#2f86e0"/>
+              <rect x="0" y="46" width="50" height="36" rx="6" fill="#2f86e0" fill-opacity=".35" stroke="#2f86e0"/><rect x="54" y="46" width="50" height="36" rx="6" fill="#f0a42c" fill-opacity=".35" stroke="#f0a42c"/><rect x="108" y="46" width="50" height="36" rx="6" fill="#e0457b" fill-opacity=".35" stroke="#e0457b"/>
+              <rect x="0" y="92" width="50" height="36" rx="6" fill="#e0457b" fill-opacity=".35" stroke="#e0457b"/><rect x="54" y="92" width="50" height="36" rx="6" fill="#2f86e0" fill-opacity=".35" stroke="#2f86e0"/><rect x="108" y="92" width="50" height="36" rx="6" fill="#f0a42c" fill-opacity=".35" stroke="#f0a42c"/>
+              <text x="170" y="22" class="t-small t-muted">block 1</text><text x="170" y="68" class="t-small t-muted">block 2</text><text x="170" y="114" class="t-small t-muted">block 3</text>
+            </g>
+            <!-- Pseudo: one big tray per treatment with many plants -->
+            <g transform="translate(596,34)">
+              <rect x="0" y="0" width="140" height="36" rx="6" fill="#e0457b" fill-opacity=".35" stroke="#e0457b"/><rect x="0" y="46" width="140" height="36" rx="6" fill="#2f86e0" fill-opacity=".35" stroke="#2f86e0"/><rect x="0" y="92" width="140" height="36" rx="6" fill="#f0a42c" fill-opacity=".35" stroke="#f0a42c"/>
+              <g class="fill-bg" stroke="currentColor" stroke-opacity=".5"><circle cx="16" cy="18" r="7"/><circle cx="38" cy="18" r="7"/><circle cx="60" cy="18" r="7"/><circle cx="82" cy="18" r="7"/><circle cx="104" cy="18" r="7"/><circle cx="126" cy="18" r="7"/><circle cx="16" cy="64" r="7"/><circle cx="38" cy="64" r="7"/><circle cx="60" cy="64" r="7"/><circle cx="82" cy="64" r="7"/><circle cx="104" cy="64" r="7"/><circle cx="126" cy="64" r="7"/><circle cx="16" cy="110" r="7"/><circle cx="38" cy="110" r="7"/><circle cx="60" cy="110" r="7"/><circle cx="82" cy="110" r="7"/><circle cx="104" cy="110" r="7"/><circle cx="126" cy="110" r="7"/></g>
+            </g>
+          </g>
+          <g class="t-small" text-anchor="middle">
+            <text x="95" y="188">treatment = shelf:</text><text x="95" y="204" class="t-muted">confounded with height</text>
+            <text x="285" y="188">random positions:</text><text x="285" y="204" class="t-muted">unbiased, gradients add noise</text>
+            <text x="475" y="188">every shelf holds every treatment:</text><text x="475" y="204" class="t-muted">shelf differences removed</text>
+            <text x="665" y="188">one tray per treatment:</text><text x="665" y="204" class="t-muted">no replication at all</text>
+          </g>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> Three treatments (colours) with three replicates on three shelves. Only the two middle layouts are valid experiments; the blocked one is also the most precise when shelves differ.</figcaption>
+      </figure>
+      <h3>Randomisation turns bias into noise</h3>
+      <p>If the trays of one treatment happen to stand on better positions, the treatment looks better than it is. Nobody can list every gradient in a room, so the only general protection is to let chance decide the positions: then no treatment is favoured <em>on average</em>, the position effects become part of the random error, and the ANOVA's error term measures them honestly. This is Fisher's (1935) central argument for randomisation. A particular randomisation can still be unlucky — the truth box shows its <em>chance imbalance</em> — but over many experiments the estimate is unbiased, and the confidence interval accounts for the extra noise.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“I arranged the treatments neatly so that every treatment has the same conditions.” Neat layouts are almost always systematic: treatment one at the door, treatment two in the middle, treatment three at the back. Any gradient along that direction — light, temperature, draught, the order in which you water or harvest — is then <strong>confounded</strong> with the treatment, and no statistical analysis can separate the two afterwards (Casler, 2015).</p></div>
+      <h3>Blocking removes the gradients you know about</h3>
+      <p>Randomisation protects against bias but not against noise: the position differences still inflate the error. If you know a direction in which conditions change — here, shelf height — you can form <strong>blocks</strong> of units that are alike (one shelf), put every treatment once in every block and randomise within blocks. The analysis then removes the block differences from the error (Eq. X7). Blocking pays when blocks really differ; in a perfectly uniform room it costs error degrees of freedom and slightly reduces power — try the <em>Perfectly uniform room</em> preset with both designs. Blocking by shelf does not remove the draught or the shelf-end effect, which act <em>within</em> every shelf; designs that block in two directions (Latin squares, row–column designs) or model the spatial trend can remove those as well (Mead et al., 2012; Brien et al., 2013).</p>
+      <h3>Pseudo-replication</h3>
+      <p>Hurlbert (1984) coined the term <em>pseudo-replication</em> for “the use of inferential statistics to test for treatment effects with data from experiments where either treatments are not replicated (though samples may be) or replicates are not statistically independent”. With one tray per treatment, the difference between two trays contains the treatment effect <em>plus</em> the difference between two trays <em>plus</em> the difference between two positions. The plant-level ANOVA compares it with the scatter of plants within a tray, which contains none of the tray or position differences; the test statistic is inflated and small p-values appear by the dozen (Eq. X9). More plants per tray make it worse, not better. The same error is common in laboratory science (Lazic, 2010) and in student projects: repeated measurements of the same plant, several leaves of one plant, several plants in one pot or reservoir.</p>
+      <div class="callout warn"><div class="callout-title">A test that cannot tell you it is wrong</div><p>A pseudo-replicated analysis produces a perfectly normal-looking ANOVA table. Nothing in the output warns you; only the design does. That is why reviewers — and your teacher — ask first: <em>what was the experimental unit, and how many were there?</em></p></div>
+      <h3>More trays or more plants?</h3>
+      <p>Every tray mean contains three kinds of variation: position, tray and plants (Eq. X5). Measuring more plants per tray only shrinks the last term; the first two are divided only by the number of trays. In the default room, 4 trays × 12 plants per treatment give an estimate with a standard deviation of about 16&nbsp;g, while 8 trays × 6 plants — the same 48 plants — give about 11&nbsp;g, and even 8 trays × 3 plants (24 plants) beat 4 × 12. Spend your resources on experimental units.</p>
+      <table><caption>Table 1. The four designs of this laboratory.</caption>
+        <tr><th>Design</th><th>Experimental unit and n</th><th>Protects against</th><th>Weakness</th><th>Valid analysis</th></tr>
+        <tr><td>Systematic</td><td>tray; r per treatment</td><td>nothing</td><td>confounding: bias of unknown size and sign</td><td>none</td></tr>
+        <tr><td>Completely randomised (CRD)</td><td>tray; r per treatment</td><td>bias from any gradient</td><td>gradients inflate the error</td><td>one-way ANOVA on tray means</td></tr>
+        <tr><td>Randomised complete block (RCBD)</td><td>tray; r blocks (shelves)</td><td>bias; noise from differences between blocks</td><td>costs (r − 1) error df; within-block gradients remain</td><td>two-way ANOVA (treatment + block) on tray means</td></tr>
+        <tr><td>Pseudo-replicated</td><td>tray; <strong>1</strong> per treatment</td><td>nothing</td><td>treatment inseparable from tray and position</td><td>none (error df = 0)</td></tr>
+      </table>
+      <div class="callout frontier"><div class="callout-title">Frontier</div><p>Large plant-phenotyping facilities move plants on conveyor belts past imaging stations and use row–column designs with spatial statistical models to separate treatment effects from greenhouse gradients (Brien et al., 2013). The same logic — map the gradients, randomise, block and model what remains — applies to a single rack in a student laboratory.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The model behind the simulator</h2>
+      <p>Notation: treatment \(i = 1,\dots,t\) (treatment 1 is the control), tray \(j\) (the experimental unit), plant \(k = 1,\dots,n\) in the tray, \(r\) replicate trays per treatment. The hidden fields (Eqs. X2–X4) are deterministic functions of position; everything else is random.</p>
+
+      <div class="eq-box" id="eq-ed-model">
+        <div class="eq-head"><span class="eq-label">Fresh weight of a plant</span><span class="eq-num">(X1)</span></div>
+        <div class="eq-main">\[ y_{jk} = B\,\tau_{i(j)}\,g(\mathbf{x}_j) + u_j + e_{jk},\qquad \tau_i = 1+\Delta\,\pi_i,\qquad u_j\sim N(0,\sigma^2_{\text{tray}}),\quad e_{jk}\sim N(0,\sigma^2_{\text{plant}}) \]</div>
+        <p class="eq-read">the harvest weight of plant k in tray j is the baseline weight, multiplied by the relative effect of the tray's treatment and by the growth potential of the tray's position, plus a random tray effect shared by all plants in the tray, plus the plant's own random deviation.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(B\)</td><td>fresh weight of a control plant in a position of average growth potential</td><td>g</td><td>180</td></tr>
+          <tr><td>\(\Delta\)</td><td>true relative effect of the best treatment (slider)</td><td>–</td><td>0–0.40</td></tr>
+          <tr><td>\(\pi_i\)</td><td>effect profile: 0 for the control, 1 for the best treatment (0.5 in between for t = 3; 0.35, 0.7 for t = 4)</td><td>–</td><td></td></tr>
+          <tr><td>\(g(\mathbf{x}_j)\)</td><td>growth potential of the tray position (Eq. X4), mean 1 over the room</td><td>–</td><td>0.80–1.15 at G = 1</td></tr>
+          <tr><td>\(\sigma_{\text{tray}}, \sigma_{\text{plant}}\)</td><td>SD of tray effects and of plants within a tray</td><td>g</td><td>10, 25</td></tr>
+        </table>
+        <details><summary>Why multiply by g but add u?</summary><ol class="steps"><li>Light and temperature change the growth <em>rate</em>, so they scale the whole plant: a treatment that adds 15&nbsp;% adds 15&nbsp;% of whatever the position allows. A multiplicative model captures this; it also means that the treatment effect in grams is slightly larger on good positions (a treatment × position interaction on the gram scale, none on the log scale).</li><li>Tray effects — a slower pump, a reservoir that warmed up, a batch of weaker seedlings — shift all plants in the tray by a similar amount, so they are modelled as an additive random effect shared by the plants.</li><li>Plant-to-plant variation (σ ≈ 14&nbsp;% of the mean) reflects genetic and micro-site differences between seedlings.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Normal, independent tray and plant effects; no competition between neighbouring trays; no missing plants. Fresh weights are truncated at 5&nbsp;g, which practically never happens at the default settings.</p></details>
+        <div class="eq-units">g × (–) × (–) + g + g = g ✓</div>
+        <div class="mini-calc" data-formula="B*(1+d/100*pi)*g" data-output="Expected tray mean" data-unit="g" data-digits="1" data-plot="g">
+          <div data-var="B" data-label="Baseline B" data-min="100" data-max="300" data-step="5" data-value="180" data-unit="g"></div>
+          <div data-var="d" data-label="Effect Δ" data-min="0" data-max="40" data-step="1" data-value="15" data-unit="%"></div>
+          <div data-var="pi" data-label="Profile π<sub>i</sub>" data-min="0" data-max="1" data-step="0.05" data-value="1"></div>
+          <div data-var="g" data-label="Growth potential g" data-min="0.7" data-max="1.3" data-step="0.01" data-value="0.92"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ed-light">
+        <div class="eq-head"><span class="eq-label">The hidden light field</span><span class="eq-num">(X2)</span></div>
+        <div class="eq-main">\[ \frac{\text{PPFD}}{\text{PPFD}_0} = \big[1-G\,(1-L_s)\big]\;\big[1-0.16\,G\,u^2\big]\;\big[1+0.03\,G\,\delta_B\big],\qquad u = \frac{x-x_c}{W/2} \]</div>
+        <p class="eq-read">the relative photon flux at a canopy position is the product of a shelf factor, a loss that grows with the square of the distance from the middle of the shelf, and a small bonus for the newer modules of rack B; the gradient strength G scales all three.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\text{PPFD}_0\)</td><td>PPFD at the centre of the best shelf</td><td>µmol m⁻² s⁻¹</td><td>250</td></tr>
+          <tr><td>\(L_s\)</td><td>shelf factor, bottom → top shelf</td><td>–</td><td>0.88, 0.93, 0.97, 1.00</td></tr>
+          <tr><td>\(u\)</td><td>relative position along the shelf (−1 at the door end, +1 at the far end)</td><td>–</td><td></td></tr>
+          <tr><td>\(x_c, W\)</td><td>centre and length of the shelf</td><td>m</td><td>W = 2.4</td></tr>
+          <tr><td>\(\delta_B\)</td><td>1 for rack B, 0 for rack A</td><td>–</td><td></td></tr>
+          <tr><td>\(G\)</td><td>gradient strength (slider): 0 uniform, 1 typical, 2 poor room</td><td>–</td><td>1</td></tr>
+        </table>
+        <details><summary>Where the shape comes from</summary><p>At the end of a shelf a point on the canopy sees LED modules on one side only, and light escapes through the open end; a quadratic fall-off of 16&nbsp;% at the very end is a modest version of the edge losses you can compute in the <a href="/laboratories/grow-room-lighting/">Grow-room lighting designer</a> for benches without reflective walls. The shelf factors represent lumen depreciation of older drivers on the lower shelves and room light reaching the top shelf. The numbers are illustrative, not measurements of a particular room.</p></details>
+        <div class="eq-units">all factors dimensionless; PPFD in µmol m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="250*(1-G*(1-Ls))*(1-0.16*G*u*u)" data-output="PPFD at the canopy" data-unit="µmol m⁻² s⁻¹" data-digits="0" data-plot="u">
+          <div data-var="G" data-label="Gradient strength G" data-min="0" data-max="2" data-step="0.1" data-value="1"></div>
+          <div data-var="Ls" data-label="Shelf factor L<sub>s</sub>" data-min="0.85" data-max="1" data-step="0.01" data-value="0.88"></div>
+          <div data-var="u" data-label="Position along shelf u" data-min="-1" data-max="1" data-step="0.05" data-value="-0.75"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ed-temp">
+        <div class="eq-head"><span class="eq-label">Air temperature and the door draught</span><span class="eq-num">(X3)</span></div>
+        <div class="eq-main">\[ T = T_0 + 1.5\,G\,(z-z_1) - 2.5\,G\,D,\qquad D = \exp\!\left(-\frac{\max(0,\;d-0.6)}{0.9}\right)\big(1-0.2\,(s-1)\big) \]</div>
+        <p class="eq-read">canopy air temperature rises by 1.5 °C per metre of height above the bottom shelf and falls by up to 2.5 °C in the draught; the draught intensity decays exponentially with distance beyond the first 0.6 m from the door and is strongest on the lowest shelf.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(T_0\)</td><td>canopy air temperature on the bottom shelf, away from the door</td><td>°C</td><td>21.2</td></tr>
+          <tr><td>\(z - z_1\)</td><td>height of the canopy above the bottom-shelf canopy</td><td>m</td><td>0–1.5</td></tr>
+          <tr><td>\(D\)</td><td>draught intensity (0–1)</td><td>–</td><td></td></tr>
+          <tr><td>\(d\)</td><td>distance from the door wall, measured along the racks</td><td>m</td><td>0.85–5.1</td></tr>
+          <tr><td>\(s\)</td><td>shelf number, 1 = bottom … 4 = top</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>Physics behind the two terms</summary><ol class="steps"><li><strong>Stratification.</strong> Air heated by lamps and drivers expands and becomes buoyant; without strong mixing it collects under the ceiling, giving a stable vertical gradient of a few kelvin per room height.</li><li><strong>Draught.</strong> Cold air from a colder corridor is denser; it enters low through an open or leaking door and spreads along the floor as a gravity current, mixing with room air as it goes. An exponential decay with a length scale of about 0.9&nbsp;m is a simple description of that mixing.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Steady state; humidity, air speed and leaf temperature are not modelled separately. In a real room the draught comes and goes with door openings, which makes its effect harder to see and easier to confound.</p></details>
+        <div class="eq-units">°C + °C m⁻¹ × m − °C × (–) = °C ✓</div>
+        <div class="mini-calc" data-formula="21.2+1.5*G*dz-2.5*G*exp(-max(0,dd-0.6)/0.9)*(1-0.2*(s-1))" data-output="Canopy air temperature" data-unit="°C" data-digits="1" data-plot="dd">
+          <div data-var="G" data-label="Gradient strength G" data-min="0" data-max="2" data-step="0.1" data-value="1"></div>
+          <div data-var="dz" data-label="Height above bottom shelf" data-min="0" data-max="1.5" data-step="0.5" data-value="0" data-unit="m"></div>
+          <div data-var="s" data-label="Shelf s" data-min="1" data-max="4" data-step="1" data-value="1"></div>
+          <div data-var="dd" data-label="Distance from door d" data-min="0.5" data-max="5" data-step="0.05" data-value="0.85" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ed-growth">
+        <div class="eq-head"><span class="eq-label">Growth potential of a position</span><span class="eq-num">(X4)</span></div>
+        <div class="eq-main">\[ g = \frac{1}{\bar g_{\text{room}}}\left(\frac{\text{PPFD}}{\text{PPFD}_0}\right)^{0.8}\big[1+0.03\,(T-22)\big]\big(1-0.06\,G\,D\big) \]</div>
+        <p class="eq-read">the growth potential is the relative light raised to the power 0.8, times a temperature factor of 3 % per degree around 22 °C, times a small penalty for draught stress, divided by the room average so that the mean potential is one.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(0.8\)</td><td>light-response exponent: fresh weight slightly less than proportional to light</td><td>–</td></tr>
+          <tr><td>\(0.03\)</td><td>relative growth increase per kelvin in the 19–24 °C range</td><td>K⁻¹</td></tr>
+          <tr><td>\(\bar g_{\text{room}}\)</td><td>mean of the un-normalised factor over the 32 positions</td><td>–</td></tr>
+        </table>
+        <details><summary>How large are the differences?</summary><p>At G = 1 the best position (top shelf of rack B, middle of the shelf) has g = 1.15, the worst (bottom shelf of rack A, next to the door) g = 0.80: a 44&nbsp;% range, of which more than half comes from light and the rest roughly equally from the warmer air higher up and from the door draught (its cooling and air-movement stress). In the twelve positions of rack A used by the default design the SD of B·g is 17&nbsp;g — two thirds of the treatment effect of interest.</p></details>
+        <details><summary>Assumptions and validity</summary><p>Multiplicative, independent effects of light and temperature; no acclimation; no interaction with the treatments. The exponent and sensitivities are plausible values for lettuce (Kelly et al., 2020; Thompson et al., 1998), chosen for teaching rather than fitted.</p></details>
+        <div class="eq-units">all factors dimensionless ✓</div>
+        <div class="mini-calc" data-formula="pow(rel,0.8)*(1+0.03*(T-22))*(1-0.06*G*D)" data-output="Un-normalised growth factor" data-digits="3" data-plot="rel">
+          <div data-var="rel" data-label="Relative PPFD" data-min="0.6" data-max="1.05" data-step="0.01" data-value="0.8"></div>
+          <div data-var="T" data-label="Air temperature T" data-min="18" data-max="26" data-step="0.1" data-value="19.3" data-unit="°C"></div>
+          <div data-var="D" data-label="Draught D" data-min="0" data-max="1" data-step="0.01" data-value="0.76"></div>
+          <div data-var="G" data-label="Gradient strength G" data-min="0" data-max="2" data-step="0.1" data-value="1"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ed-variance">
+        <div class="eq-head"><span class="eq-label">How precise is a treatment mean?</span><span class="eq-num">(X5)</span></div>
+        <div class="eq-main">\[ \operatorname{Var}(\bar y_{j\cdot}) = \sigma^2_{\text{pos}} + \sigma^2_{\text{tray}} + \frac{\sigma^2_{\text{plant}}}{n},\qquad \operatorname{SE}(\bar y_{i}-\bar y_{1}) = \sqrt{\frac{2}{r}\left(\sigma^2_{\text{pos}} + \sigma^2_{\text{tray}} + \frac{\sigma^2_{\text{plant}}}{n}\right)} \]</div>
+        <p class="eq-read">the variance of one tray mean is the variance of position effects plus the variance of tray effects plus the plant variance divided by the number of plants in the tray; the standard error of the difference between two treatment means divides that variance by the number of replicate trays.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\sigma^2_{\text{pos}}\)</td><td>variance of \(B\,g\) over the positions a tray can get (randomised designs); within-shelf variance in the RCBD</td><td>g²</td></tr>
+          <tr><td>\(n,\ r\)</td><td>plants per tray, trays per treatment</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>A tray mean is \(\bar y_{j\cdot} = B\tau g_j + u_j + \bar e_{j\cdot}\). With randomised positions \(B\tau g_j\) is a random draw with variance \(\sigma^2_{\text{pos}}\) (for the control, τ = 1).</li><li>The three terms are independent, so their variances add; averaging n independent plant errors divides their variance by n.</li><li>A treatment mean averages r independent tray means (variance ÷ r), and the difference of two independent means doubles it.</li><li>Default room, CRD: \(\sigma_{\text{pos}} = 17.0\), \(\sigma_{\text{tray}} = 10\), \(\sigma_{\text{plant}} = 25\), n = 6, r = 4 → SE = \(\sqrt{0.5\,(289+100+104)} = 15.7\) g; the Monte Carlo gives 16.3&nbsp;g. RCBD: within-shelf \(\sigma_{\text{pos}} = 11.2\) → SE = 12.8&nbsp;g (Monte Carlo 13.1).</li><li>As n → ∞ the SE only falls to \(\sqrt{0.5\,(289+100)} = 13.9\) g: plants per tray cannot replace trays.</li></ol></details>
+        <div class="eq-units">\(\sqrt{\text{g}^2} = \text{g}\) ✓</div>
+        <div class="mini-calc" data-fn="edSEdiff" data-output="SE of a difference between two treatment means" data-unit="g" data-digits="1" data-plot="n">
+          <div data-var="sp" data-label="σ<sub>pos</sub>" data-min="0" data-max="40" data-step="0.5" data-value="17" data-unit="g"></div>
+          <div data-var="st" data-label="σ<sub>tray</sub>" data-min="0" data-max="30" data-step="0.5" data-value="10" data-unit="g"></div>
+          <div data-var="spl" data-label="σ<sub>plant</sub>" data-min="5" data-max="50" data-step="0.5" data-value="25" data-unit="g"></div>
+          <div data-var="r" data-label="Trays per treatment r" data-min="2" data-max="12" data-step="1" data-value="4"></div>
+          <div data-var="n" data-label="Plants per tray n" data-min="1" data-max="30" data-step="1" data-value="6"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ed-anova">
+        <div class="eq-head"><span class="eq-label">One-way ANOVA on tray means (CRD)</span><span class="eq-num">(X6)</span></div>
+        <div class="eq-main">\[ F = \frac{r\sum_{i}(\bar y_{i\cdot}-\bar y_{\cdot\cdot})^2/(t-1)}{\sum_{i}\sum_{j}(\bar y_{ij}-\bar y_{i\cdot})^2/\big(t(r-1)\big)} \;\sim\; F_{t-1,\;t(r-1)}\ \text{ if } H_0 \text{ is true} \]</div>
+        <p class="eq-read">the variance between treatment means, scaled to one tray, is divided by the variance between trays of the same treatment; if all treatments are equal both estimate the variance of a tray mean and their ratio follows the F distribution with t − 1 and t(r − 1) degrees of freedom.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\bar y_{ij}\)</td><td>mean of the n plants in tray j of treatment i</td><td>g</td></tr>
+          <tr><td>\(\bar y_{i\cdot},\ \bar y_{\cdot\cdot}\)</td><td>treatment mean, grand mean</td><td>g</td></tr>
+        </table>
+        <details><summary>Why tray means, and not plants?</summary><ol class="steps"><li>Under H₀ the expected numerator is \(\operatorname{Var}(\bar y_{j\cdot})\) from Eq. X5 — tray, position and plant variation together.</li><li>The denominator compares trays that received the same treatment, so it contains exactly the same three components: the ratio is fair.</li><li>For balanced data this is identical to the F-test of a nested ANOVA with plants within trays within treatments. Using the plants as the error term instead leaves out the tray and position components (Eq. X9).</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Randomised positions, independent trays, approximately normal tray means with equal variances. Randomisation itself justifies the test approximately even when the position effects are not normal (Fisher, 1935).</p></details>
+        <div class="eq-units">g² / g² — dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-ed-rcbd">
+        <div class="eq-head"><span class="eq-label">Randomised complete blocks and their efficiency</span><span class="eq-num">(X7)</span></div>
+        <div class="eq-main">\[ \bar y_{ij} = \mu+\tau_i+\beta_j+\varepsilon_{ij},\qquad F=\frac{MS_{\text{trt}}}{MS_E},\; df_E=(t-1)(r-1);\qquad RE = \frac{(r-1)\,MS_{\text{block}} + r(t-1)\,MS_E}{(rt-1)\,MS_E} \]</div>
+        <p class="eq-read">each tray mean is the overall mean plus a treatment effect plus a block (shelf) effect plus error; the block sum of squares is removed from the error before the treatments are tested; the relative efficiency says how many times more replicates a completely randomised design would need for the same precision.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\beta_j\)</td><td>effect of shelf j (block)</td><td>g</td></tr>
+          <tr><td>\(MS_{\text{block}}, MS_E\)</td><td>block and error mean squares</td><td>g²</td></tr>
+          <tr><td>\(RE\)</td><td>relative efficiency of the block design versus a CRD</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Least squares gives \(\hat\tau_i = \bar y_{i\cdot}-\bar y_{\cdot\cdot}\), \(\hat\beta_j = \bar y_{\cdot j}-\bar y_{\cdot\cdot}\); the residual is \(\bar y_{ij}-\bar y_{i\cdot}-\bar y_{\cdot j}+\bar y_{\cdot\cdot}\).</li><li>Because every treatment appears once in every block, the treatment, block and error sums of squares are orthogonal and add up to the total.</li><li>The RE formula estimates the error mean square a CRD would have had on the same material, \(\big[(r-1)MS_{\text{block}}+r(t-1)MS_E\big]/(rt-1)\), and divides by the RCBD's \(MS_E\) (Montgomery, 2017).</li><li>The simulator's stats library reproduces the textbook RCBD example of Montgomery (F = 8.11, p = .0019) and an independent least-squares fit.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Additivity (the treatment effect is the same on every shelf), one tray of every treatment per block, randomisation within blocks. Blocks must be defined <em>before</em> the experiment from what you know about the room — never after looking at the data.</p></details>
+        <div class="eq-units">MS ratios are dimensionless ✓</div>
+        <div class="mini-calc" data-formula="((r-1)*msb+r*(t-1)*mse)/((r*t-1)*mse)" data-output="Relative efficiency RE" data-digits="2" data-plot="msb">
+          <div data-var="msb" data-label="MS<sub>block</sub>" data-min="0" data-max="3000" data-step="10" data-value="900" data-unit="g²"></div>
+          <div data-var="mse" data-label="MS<sub>E</sub>" data-min="50" data-max="800" data-step="5" data-value="320" data-unit="g²"></div>
+          <div data-var="r" data-label="Blocks r" data-min="2" data-max="8" data-step="1" data-value="4"></div>
+          <div data-var="t" data-label="Treatments t" data-min="2" data-max="4" data-step="1" data-value="3"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ed-bias">
+        <div class="eq-head"><span class="eq-label">Bias from confounding</span><span class="eq-num">(X8)</span></div>
+        <div class="eq-main">\[ E\big[\hat\Delta\big] = B\big(\tau_t\,\bar g_t-\tau_1\,\bar g_1\big) = \underbrace{B\,\bar g\,(\tau_t-\tau_1)}_{\text{true effect}} + \underbrace{B\big[\tau_t\,(\bar g_t-\bar g) - \tau_1\,(\bar g_1-\bar g)\big]}_{\text{bias}} \]</div>
+        <p class="eq-read">the expected estimated effect of the best treatment over the control is the true effect plus a bias that is proportional to how much better or worse, on average, the positions given to each treatment are than the positions used overall.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\hat\Delta\)</td><td>estimated effect: mean of the best treatment − mean of the control</td><td>g</td></tr>
+          <tr><td>\(\bar g_i\)</td><td>mean growth potential of the positions that received treatment i</td><td>–</td></tr>
+          <tr><td>\(\bar g\)</td><td>mean growth potential of all positions used</td><td>–</td></tr>
+        </table>
+        <details><summary>Worked number: the “convenient” layout</summary><ol class="steps"><li>Systematic, t = 3, r = 4: the control fills A4 and the door end of A3 (\(\bar g_1 = 1.040\)); the best treatment fills the far end of A2 and all of A1 (\(\bar g_3 = 0.902\)); \(\bar g = 0.976\).</li><li>True effect: \(180\times0.976\times0.15 = 26.3\) g.</li><li>Expected estimate: \(180\,(1.15\times0.902-1.040) = -0.5\) g, a bias of −26.8&nbsp;g that is the same in every repetition.</li><li>Under randomisation every treatment has the same chance of every position, \(E[\bar g_i] = \bar g\), and the bias vanishes.</li></ol></details>
+        <details><summary>Why more replicates do not help</summary><p>Replication shrinks random error, not bias. The systematic design's false-positive rate can even <em>rise</em> with r, because a fixed bias becomes ever more “significant” as the standard error falls.</p></details>
+        <div class="eq-units">g × (–) = g ✓</div>
+        <div class="mini-calc" data-formula="B*((1+d/100)*gt-g1)" data-output="Expected estimate of the effect" data-unit="g" data-digits="1" data-plot="gt">
+          <div data-var="B" data-label="Baseline B" data-min="100" data-max="300" data-step="5" data-value="180" data-unit="g"></div>
+          <div data-var="d" data-label="True effect Δ" data-min="0" data-max="40" data-step="1" data-value="15" data-unit="%"></div>
+          <div data-var="g1" data-label="ḡ of control positions" data-min="0.8" data-max="1.2" data-step="0.005" data-value="1.04"></div>
+          <div data-var="gt" data-label="ḡ of best-treatment positions" data-min="0.8" data-max="1.2" data-step="0.005" data-value="0.9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ed-pseudo">
+        <div class="eq-head"><span class="eq-label">How pseudo-replication inflates the false-positive rate</span><span class="eq-num">(X9)</span></div>
+        <div class="eq-main">\[ \lambda = \frac{\sigma^2_{\text{between}} + \sigma^2_{\text{plant}}/n}{\sigma^2_{\text{plant}}/n} = 1+\frac{n\,\sigma^2_{\text{between}}}{\sigma^2_{\text{plant}}},\qquad \sigma^2_{\text{between}} = \sigma^2_{\text{pos}}+\sigma^2_{\text{tray}},\qquad \alpha_{\text{actual}} = P\!\left(F_{t-1,\;t(n-1)} > \frac{F_{1-\alpha;\,t-1,\,t(n-1)}}{\lambda}\right) \]</div>
+        <p class="eq-read">with one tray per treatment, the real variance of a treatment mean is λ times larger than the plant-level analysis assumes; the naive F statistic is therefore inflated by the factor λ and exceeds its critical value far more often than α — and λ grows with the number of plants per tray.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\lambda\)</td><td>variance inflation of the naive test</td><td>–</td></tr>
+          <tr><td>\(\sigma^2_{\text{between}}\)</td><td>variance between trays that has nothing to do with the treatment (position + tray)</td><td>g²</td></tr>
+          <tr><td>\(\alpha_{\text{actual}}\)</td><td>true false-positive rate of the naive test</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>All n plants of treatment i come from one tray: \(\bar y_{i} = B\tau_i g_j + u_j + \bar e_{j}\), so \(\operatorname{Var}(\bar y_i) = \sigma^2_{\text{between}} + \sigma^2_{\text{plant}}/n\).</li><li>The plant-level ANOVA estimates the error from plants within the same tray, \(MS_W \approx \sigma^2_{\text{plant}}\), and so assumes \(\operatorname{Var}(\bar y_i) = \sigma^2_{\text{plant}}/n\).</li><li>Under H₀ the numerator of F is therefore λ times too large: \(F_{\text{naive}} \approx \lambda\,F_{t-1,\,t(n-1)}\). Rejecting when \(F_{\text{naive}} > F_{\text{crit}}\) happens with probability \(P(F > F_{\text{crit}}/\lambda)\).</li><li>Default room (random positions within rack A): \(\sigma^2_{\text{between}} = 17.0^2 + 10^2 = 389\) g², \(\sigma_{\text{plant}} = 25\) g. For n = 6, λ = 4.7 and \(\alpha_{\text{actual}} = 0.48\); for n = 12, λ = 8.5 and \(\alpha_{\text{actual}} = 0.68\). The Monte Carlo gives about 0.49 and 0.71.</li><li>The same algebra with the intraclass correlation ρ gives the survey statisticians' <em>design effect</em> \(1+(n-1)\rho\) for clustered samples (Kish, 1965).</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Normal effects, one tray per treatment. Only if \(\sigma^2_{\text{between}} = 0\) — no tray effects and a perfectly uniform room — is the plant-level test valid, and that is exactly what you can never verify without replicate trays.</p></details>
+        <div class="eq-units">g²/g² — dimensionless ✓</div>
+        <div class="mini-calc" data-fn="edFPR" data-output="Actual false-positive rate (nominal 5 %)" data-unit="%" data-digits="1" data-plot="n" data-ymin="0" data-ymax="100">
+          <div data-var="sb" data-label="σ<sub>between</sub>" data-min="0" data-max="40" data-step="0.5" data-value="19.7" data-unit="g"></div>
+          <div data-var="spl" data-label="σ<sub>plant</sub>" data-min="5" data-max="50" data-step="0.5" data-value="25" data-unit="g"></div>
+          <div data-var="t" data-label="Treatments t" data-min="2" data-max="4" data-step="1" data-value="3"></div>
+          <div data-var="n" data-label="Plants per tray n" data-min="2" data-max="40" data-step="1" data-value="6"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ed-power">
+        <div class="eq-head"><span class="eq-label">Power of a valid design</span><span class="eq-num">(X10)</span></div>
+        <div class="eq-main">\[ 1-\beta = P\big(F'_{t-1,\,df_E}(\lambda_{nc}) > F_{1-\alpha;\,t-1,\,df_E}\big),\qquad \lambda_{nc} = \frac{r\sum_i(\mu_i-\bar\mu)^2}{\sigma^2_{\text{unit}}};\qquad \text{two treatments: } 1-\beta \approx P\!\left(T_{\nu} > t_{1-\alpha/2,\,\nu} - \frac{\Delta_g}{\text{SE}}\right) \]</div>
+        <p class="eq-read">power is the probability that the F statistic, which follows a noncentral F distribution when the treatment means differ, exceeds its critical value; the noncentrality grows with the number of replicate trays and with the spread of the true means relative to the variance of a tray mean.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\mu_i\)</td><td>true mean of treatment i in the positions used</td><td>g</td></tr>
+          <tr><td>\(\sigma^2_{\text{unit}}\)</td><td>variance of a tray mean (Eq. X5; within blocks for the RCBD)</td><td>g²</td></tr>
+          <tr><td>\(\Delta_g,\ \text{SE}\)</td><td>true difference and its standard error (Eq. X5)</td><td>g</td></tr>
+          <tr><td>\(T_\nu,\ \nu\)</td><td>Student's t with the error degrees of freedom (two treatments, CRD: ν = 2(r − 1))</td><td>–</td></tr>
+        </table>
+        <details><summary>Worked number</summary><p>Default settings: true means 0, 13.2 and 26.3&nbsp;g above the control, \(\sum(\mu_i-\bar\mu)^2 = 347\) g². CRD: \(\sigma^2_{\text{unit}} = 493\), λ = 2.8, df (2, 9) → power 0.23 (Monte Carlo 0.20). RCBD: \(\sigma^2_{\text{unit}} = 330\), λ = 4.2, df (2, 6) → power 0.28 (Monte Carlo 0.26). About 8 trays per treatment are needed before the RCBD's power passes 0.6 — see the power chart.</p></details>
+        <div class="eq-units">g²/g² — λ dimensionless ✓</div>
+        <div class="mini-calc" data-fn="edPower" data-output="Power, two treatments in a CRD (α = 0.05)" data-unit="%" data-digits="0" data-plot="r" data-ymin="0" data-ymax="100">
+          <div data-var="delta" data-label="True difference Δ<sub>g</sub>" data-min="5" data-max="60" data-step="1" data-value="26" data-unit="g"></div>
+          <div data-var="su" data-label="SD of a tray mean σ<sub>unit</sub>" data-min="5" data-max="40" data-step="0.5" data-value="22" data-unit="g"></div>
+          <div data-var="r" data-label="Trays per treatment r" data-min="2" data-max="20" data-step="1" data-value="4"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator. Tick each task when done; <em>Save investigation</em> copies the settings and the last result into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Map the room before you plant</h4><p>Reveal PPFD, air temperature and growth potential in turn and click trays in different positions. Which shelf and which end are best and worst? Estimate the size (in %) of the vertical and the horizontal gradients. Which of them does blocking by shelf remove, and which does it leave in the error?</p></li>
+        <li><h4>A bias you cannot see</h4><p>Load <em>Convenient but confounded</em>. Harvest five times and write down the estimated effect each time; compare with the truth box. Then set r = 6 and r = 8 and repeat. Explain, with Eq. X8, why the bias changes size and sign, and why more replicates cannot remove it.</p></li>
+        <li><h4>How often does pseudo-replication lie?</h4><p>Load <em>The tempting shortcut</em> (Δ = 0). Run the Monte Carlo for 4, 6, 8 and 12 plants per tray and plot the false-positive rate against n. Compare with Eq. X9. Then set σ<sub>tray</sub> = 0 and the gradient strength to 0: why is the plant-level test now valid — and why can you never know this in a real growth room?</p></li>
+        <li><h4>When does blocking pay?</h4><p>With Δ = 15 %, t = 3 and r = 4, compare the power of the CRD and the RCBD at gradient strengths 0, 1 and 2 (Monte Carlo). Record the relative efficiency from single harvests. When does blocking help, when does it cost, and why?</p></li>
+        <li><h4>Trays or plants?</h4><p>You can afford 48 plants per treatment. Compare 4 trays × 12 plants with 8 trays × 6 plants in the completely randomised design: record the SD of the estimates (ridge chart) and the power. Explain the result with Eq. X5, and calculate the SE for 16 trays × 3 plants.</p></li>
+        <li><h4>Design your project experiment</h4><p>Describe your own treatments, experimental unit and space. Choose t, r, n and a design that reaches at least 80 % power for a realistic effect, or explain what effect size you can realistically detect. Draw your layout plan with a real randomisation (for example from a random-number table or a spreadsheet) and justify your blocks.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-experiment-designer">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A randomised complete block design has t = 4 treatments on r = 6 shelves (one tray of every treatment per shelf). How many error degrees of freedom does the treatment test have?","answer":15,"abstol":0.5,"hint":"Eq. X7: (t − 1)(r − 1).","explain":"<p>\\((t-1)(r-1) = 3\\times5 = 15\\). Check it in the readout <em>Error df of the valid analysis</em>.</p>"},
+          {"type":"numeric","q":"In a perfectly uniform room, σ_tray = 10 g, σ_plant = 25 g and each tray holds n = 6 plants. What is the standard deviation of a tray mean?","answer":14.29,"tol":0.02,"unit":"g","hint":"Eq. X5 with σ_pos = 0.","explain":"<p>\\(\\sqrt{10^2 + 25^2/6} = \\sqrt{100+104.2} = 14.3\\) g. Doubling the plants per tray only brings it to 12.3 g; the tray variance stays.</p>"},
+          {"type":"mcq","q":"With the preset “Convenient but confounded” the estimated effect is close to zero although the true effect is about +26 g. What is the main reason?","options":["Four replicate trays are too few to detect the effect","The control occupies the best positions and the best treatment the worst: treatment is confounded with position","Plant-to-plant variation is too large","The ANOVA assumptions of normality are violated"],"answer":1,"feedback":["Too few replicates cause imprecision, not a systematic shift of the estimate towards zero.","","Plant variation adds noise in both directions; it does not bias the estimate.","The estimate is a difference of means; its bias does not come from non-normality."],"explain":"<p>Eq. X8: the expected estimate is \\(180\\,(1.15\\times0.902-1.040) \\approx -0.5\\) g, a bias of about −27 g that is the same in every repetition.</p>"},
+          {"type":"numeric","q":"One tray per treatment, n = 12 plants per tray, σ_between = 15 g (position + tray) and σ_plant = 25 g. By what factor λ does the plant-level analysis underestimate the variance of a treatment mean?","answer":5.32,"tol":0.02,"hint":"Eq. X9: λ = 1 + nσ²_between/σ²_plant.","explain":"<p>\\(\\lambda = 1 + 12\\times225/625 = 5.32\\). The naive F statistic is about five times too large, so false positives become very common.</p>"},
+          {"type":"tf","q":"Increasing the number of plants per tray from 6 to 12 lowers the false-positive rate of the pseudo-replicated design.","answer":false,"explain":"<p>It raises it: λ = 1 + nσ²_between/σ²_plant grows with n. In the default room the false-positive rate climbs from about 48 % (n = 6) to about 71 % (n = 12).</p>"},
+          {"type":"multi","q":"Run the Monte Carlo at the default room (G = 1) with Δ = 0. Which designs keep the false-positive rate close to α = 5 %? (Select all that apply.)","options":["Systematic","Completely randomised","Randomised complete block (block = shelf)","Pseudo-replicated"],"answer":[1,2],"explain":"<p>Only the randomised designs with replicated experimental units are valid. The systematic layout confounds treatments with positions (and its error rate depends on the layout), and the pseudo-replicated design has no valid error term.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>The room (6.4 × 5.2 m, two racks with four shelves and four tray positions each) has smooth, deterministic gradients of light, temperature and draught (Eqs. X2–X4). They are constant during the crop cycle and the same in every simulated repetition; only randomisations, trays and plants are new each time. Real rooms also fluctuate from day to day and with lamp ageing and door use.</li>
+        <li>Fresh weight responds multiplicatively to position (light<sup>0.8</sup>, +3&nbsp;% per °C, −6&nbsp;% in the core of the draught) and to the treatment; there is no treatment × position interaction beyond this multiplicative scaling. The parameter values are plausible for lettuce but chosen for teaching, not fitted to a particular room.</li>
+        <li>Spectral treatments are perfectly separated by light-tight compartments (the white partitions are drawn semi-transparent so that the trays stay visible); EC treatments have independent reservoirs. Neighbouring trays do not shade or compete with each other, and plants within a tray do not compete either.</li>
+        <li>Tray effects and plant deviations are independent and normally distributed; no plants are lost; fresh weights are truncated at 5&nbsp;g.</li>
+        <li>All designs use the same area: the first r shelves (rack A from the top down, then rack B) and the first t positions from the door. The systematic design fills it treatment by treatment; the pseudo-replicated design places one tray per treatment at random positions within it.</li>
+        <li>Analyses (from the course library <code>stats.js</code>): one-way ANOVA on tray means (systematic, CRD), randomised-block ANOVA on tray means with shelf as block (RCBD), and the plant-level one-way ANOVA commonly — and wrongly — applied to pseudo-replicated data. The contrast best − control has a Welch confidence interval (one-way designs) or an interval from the block-design error mean square (RCBD). The block ANOVA was checked against Montgomery's (2017) textbook example and an independent least-squares fit.</li>
+        <li>Monte Carlo: 1000 experiments per design with the chosen effect and 1000 with Δ = 0; 300 per point for the replication sweep. With 1000 experiments a true rate of 5&nbsp;% is estimated with a standard error of 0.7 percentage points.</li>
+        <li>The 3D plants are drawn with a size proportional to (fresh weight)<sup>0.55</sup>; the LED colours, heat maps and air-flow particles illustrate the model.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Brien, C. J., Berger, B., Rabie, H., &amp; Tester, M. (2013). Accounting for variation in designing greenhouse experiments with special reference to greenhouses containing plants on conveyor systems. <em>Plant Methods</em>, 9, 5. <a href="https://doi.org/10.1186/1746-4811-9-5" target="_blank" rel="noopener">doi:10.1186/1746-4811-9-5</a></li>
+        <li>Casler, M. D. (2015). Fundamentals of experimental design: guidelines for designing successful experiments. <em>Agronomy Journal</em>, 107(2), 692–705. <a href="https://doi.org/10.2134/agronj2013.0114" target="_blank" rel="noopener">doi:10.2134/agronj2013.0114</a></li>
+        <li>Fisher, R. A. (1935). <em>The design of experiments</em>. Oliver and Boyd.</li>
+        <li>Hurlbert, S. H. (1984). Pseudoreplication and the design of ecological field experiments. <em>Ecological Monographs</em>, 54(2), 187–211. <a href="https://doi.org/10.2307/1942661" target="_blank" rel="noopener">doi:10.2307/1942661</a></li>
+        <li>Kelly, N., Choe, D., Meng, Q., &amp; Runkle, E. S. (2020). Promotion of lettuce growth under an increasing daily light integral depends on the combination of the photosynthetic photon flux density and photoperiod. <em>Scientia Horticulturae</em>, 272, 109565. <a href="https://doi.org/10.1016/j.scienta.2020.109565" target="_blank" rel="noopener">doi:10.1016/j.scienta.2020.109565</a></li>
+        <li>Kish, L. (1965). <em>Survey sampling</em>. Wiley.</li>
+        <li>Lazic, S. E. (2010). The problem of pseudoreplication in neuroscientific studies: is it affecting your analysis? <em>BMC Neuroscience</em>, 11, 5. <a href="https://doi.org/10.1186/1471-2202-11-5" target="_blank" rel="noopener">doi:10.1186/1471-2202-11-5</a></li>
+        <li>Lee, C., &amp; Rawlings, J. O. (1982). Design of experiments in growth chambers — uniformity trials in the North Carolina State University phytotron. <em>Crop Science</em>, 22(3), 551–558. <a href="https://doi.org/10.2135/cropsci1982.0011183X002200030028x" target="_blank" rel="noopener">doi:10.2135/cropsci1982.0011183X002200030028x</a></li>
+        <li>Mead, R., Gilmour, S. G., &amp; Mead, A. (2012). <em>Statistical principles for the design of experiments: applications to real experiments</em>. Cambridge University Press. <a href="https://doi.org/10.1017/CBO9781139020879" target="_blank" rel="noopener">doi:10.1017/CBO9781139020879</a></li>
+        <li>Montgomery, D. C. (2017). <em>Design and analysis of experiments</em> (9th ed.). Wiley.</li>
+        <li>Potvin, C., &amp; Tardif, S. (1988). Sources of variability and experimental designs in growth chambers. <em>Functional Ecology</em>, 2(1), 123. <a href="https://doi.org/10.2307/2389472" target="_blank" rel="noopener">doi:10.2307/2389472</a></li>
+        <li>Thompson, H. C., Langhans, R. W., Both, A.-J., &amp; Albright, L. D. (1998). Shoot and root temperature effects on lettuce growth in a floating hydroponic system. <em>Journal of the American Society for Horticultural Science</em>, 123(3), 361–364. <a href="https://doi.org/10.21273/JASHS.123.3.361" target="_blank" rel="noopener">doi:10.21273/JASHS.123.3.361</a></li>
+      </ol>
+      <p class="muted" style="font-size:.86rem">Related: <a href="/lessons/experimental-design/">Lesson 3.1 Designing plant-growth experiments</a>, <a href="/lessons/inferential-statistics/">Lesson 3.3 Inferential statistics</a>, <a href="/laboratories/statistics-workbench/">Statistics workbench</a>, <a href="/laboratories/sampling-distributions/">Sampling distributions and p-values</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

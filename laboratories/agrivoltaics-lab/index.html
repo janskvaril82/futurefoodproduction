@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agrivoltaic field designer · Future Food Production</title>
+<meta name="description" content="Design an agrivoltaic field in 3D: panel height, tilt, azimuth and row spacing or vertical bifacial fences over crops. Trace the sun through the day, map the light on the crop, and compute crop yield, electricity and the land equivalent ratio.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* live calculators that need more than one expression (Derive tab) */
+window.FFP_CALC = window.FFP_CALC || {};
+/* relative yield under a uniform shade s (%) for a half-sine day with peak PPFD Imax, canopy saturation onset Ik and harvest exponent gamma (Eq. A8) */
+FFP_CALC.avRelYield = function (v) {
+  var th = 0.7, n = 200, a = 0, b = 0, f = 1 - v.s / 100;
+  function P(I) { var q = I + v.Ik; return (q - Math.sqrt(Math.max(0, q * q - 4 * th * I * v.Ik))) / (2 * th); }
+  for (var i = 0; i < n; i++) { var I = v.Imax * Math.sin(Math.PI * (i + 0.5) / n); a += P(f * I); b += P(I); }
+  return 100 * Math.pow(a / b, v.gamma);
+};
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .cbar-inline { font: 500 .72rem var(--font-mono); color: var(--muted); margin-top: 4px; }
+  .cbar-inline .cbar { height: 9px; border-radius: 3px; margin: 3px 0 2px; }
+  .cbar-inline .cbar-ticks { display: flex; justify-content: space-between; }
+</style>
+</head>
+<body data-page="lab" data-slug="agrivoltaics-lab">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Agrivoltaic field designer</h1>
+    <p class="lead">Can one hectare give both food and electricity? Build an agrivoltaic field in 3D — tall tilted panel rows that tractors drive under, or vertical bifacial "solar fences" like Sweden's first agrivoltaic research site at Kärrbo prästgård near Västerås. Let the sun run through the day, watch the real shadows sweep over the crop, and see what the model calculates: the light map on the crop, the crop yield, the electricity and the land equivalent ratio.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Light map of the crop</h3>
+      <div class="chart-sub">Top view of the field: light at canopy height as a percentage of the open field (or PPFD now). Dark bars are the panel rows; the dashed box is the area used for crop averages. Click to place a quantum sensor.</div>
+      <div class="chart" id="chart-map"></div>
+      <div class="cbar-inline" id="map-cbar"></div>
+    </div>
+    <div class="chart-card">
+      <h3>A day of light at the crop</h3>
+      <div class="chart-sub">Photosynthetic photon flux density (PPFD) over the day shown in 3D: open field, the crop mean under the array and the range between the most shaded and the sunniest spot; dotted: electricity per m² of land (right axis).</div>
+      <div class="chart" id="chart-day"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Food and electricity from one hectare</h3>
+      <div class="chart-sub">Crop yield relative to an open field, electricity relative to a conventional ground-mounted PV park on the same land, and their sum — the land equivalent ratio (LER).</div>
+      <div class="chart" id="chart-bars"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Land equivalent ratio vs ground coverage</h3>
+      <div class="chart-sub">Your design with the row spacing varied (extended array, central row gap). Denser rows give more electricity and less crop; the red zone is where the crop falls below the 66 % that DIN SPEC 91434 requires — the peak of the LER curve is rarely where the crop is still acceptable.</div>
+      <div class="chart" id="chart-ler"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Run a summer day at Kärrbo.</strong> The laboratory opens with vertical bifacial modules in north–south rows 10 m apart over ley grass, the design principle of the research site outside Västerås. Press <em>Play the day</em>. In the morning the east faces are lit, in the afternoon the west faces; around noon the fences stand edge-on to the sun and cast almost no shadow. The <em>PV output now</em> readout rises twice: a "camel-back" power curve with peaks in the morning and afternoon, when electricity is often worth more than at midday.</li>
+        <li><strong>Follow the shadows.</strong> Set <em>Map shows</em> to <em>PPFD now</em> and drag the solar time. Shadow bands sweep across the whole row gap during the day, so no spot is shaded for long; then switch back to <em>Day %</em>: the darkest strips lie right beside the fences, where both the morning and the evening shadow fall and the sky is partly hidden.</li>
+        <li><strong>Lift the panels.</strong> Apply the preset <em>Heggelbach-like overhead</em>: modules on a 5 m high table facing south-west, like those of the German research farm near Lake Constance (the 20° tilt is our assumption). The shadows are now broad rectangles that travel across the crop. Lower the clearance to 3 m and then raise it to 7 m, keeping everything else fixed: the mean light hardly changes, but the stripes in the <em>Day %</em> map become sharper or smoother. Height spreads shade; it does not remove it.</li>
+        <li><strong>Change the crop, not the array.</strong> With the same design, switch between ley grass, lettuce, potato, cereal and maize. The light reduction is identical — the yield is not. Shade-tolerant crops lose much less than the light; maize loses more than the light.</li>
+        <li><strong>Find the best compromise.</strong> The last chart varies only the row spacing. The land equivalent ratio (LER) rises as rows get denser, because electricity gains more than the crop loses — until the crop falls below what a farmer (and the German standard DIN SPEC 91434, which requires at least 66 % of the reference yield) would accept. Watch the <em>Crop yield</em> readout turn red.</li>
+        <li><strong>Place a sensor.</strong> Click on the field (or on the map chart) to plant a virtual quantum sensor. Its PPFD, its daily light and its season yield appear in the scene and as a dashed curve in the day chart — this is how agrivoltaic research sites such as Kärrbo map the light under their modules.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Panels do not destroy sunlight; they <strong>redistribute</strong> it between modules and crop, in space and in time. Geometry decides how much light the crop loses, how evenly it is shared and at which hours it is missing; physiology decides how much yield that costs; and the land equivalent ratio tells you whether sharing the land beats splitting it.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Sharing sunlight between crops and modules</h2>
+      <p>The idea is older than most solar parks: Goetzberger and Zastrow (1982) proposed raising solar collectors about 2 m above a field and spacing them so that crops below still receive enough light. The name <em>agrivoltaics</em> and the land equivalent ratio as the yardstick came with the Montpellier experiments of Dupraz et al. (2011). Today two families of design dominate (DIN, 2021):</p>
+      <ul>
+        <li><strong>Overhead systems</strong> (category I in DIN SPEC 91434): modules on a table at least 2.1 m, often 4–6 m, above the ground; machinery drives underneath. The German research plant at Heggelbach (194 kWp on one third of a hectare, 5 m clearance, bifacial modules facing south-west) is the best-documented example (Trommsdorff et al., 2021).</li>
+        <li><strong>Interspace systems</strong> (category II), here vertical bifacial "fences": modules stand upright in rows far apart, crops grow between the rows. Facing east and west, both sides of a bifacial module collect light. Sweden's first agrivoltaic research facility, at Kärrbo prästgård outside Västerås (59.55° N), was established in 2021 by Mälardalen University researchers with vertically mounted bifacial modules in north–south rows and a conventional ground-mounted system for comparison (Campana et al., 2024; Ma Lu et al., 2024).</li>
+      </ul>
+
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 300" role="img" aria-label="Cross-sections of an overhead and a vertical agrivoltaic system with sun rays, shadows and sky view">
+          <defs><marker id="av-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-amber"/></marker>
+            <marker id="av-dim" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 1 L10 5 L0 9" fill="none" stroke="currentColor" stroke-width="1.5"/></marker></defs>
+          <text x="20" y="22" class="t-small" font-weight="600">Overhead (category I)</text>
+          <text x="370" y="22" class="t-small" font-weight="600">Vertical bifacial fences (category II)</text>
+          <!-- overhead: sun, rays through the panel edges, shadows on the ground -->
+          <circle cx="252" cy="34" r="11" class="fill-amber-soft stroke-amber" stroke-width="1.5"/>
+          <line x1="184" y1="56" x2="77" y2="250" class="stroke-amber" stroke-width="1.3" stroke-dasharray="5 4"/>
+          <line x1="134" y1="58" x2="28" y2="250" class="stroke-amber" stroke-width="1.3" stroke-dasharray="5 4"/>
+          <line x1="324" y1="56" x2="217" y2="250" class="stroke-amber" stroke-width="1.3" stroke-dasharray="5 4" opacity="0.6"/>
+          <line x1="274" y1="58" x2="168" y2="250" class="stroke-amber" stroke-width="1.3" stroke-dasharray="5 4" opacity="0.6"/>
+          <rect x="28" y="246" width="49" height="8" class="fill-magenta-soft stroke-magenta" stroke-width="1"/>
+          <rect x="168" y="246" width="49" height="8" class="fill-magenta-soft stroke-magenta" stroke-width="1"/>
+          <line x1="20" y1="250" x2="330" y2="250" class="stroke" stroke-width="2"/>
+          <line x1="120" y1="250" x2="120" y2="130" class="stroke-muted" stroke-width="4"/>
+          <line x1="260" y1="250" x2="260" y2="130" class="stroke-muted" stroke-width="4"/>
+          <line x1="90" y1="138" x2="150" y2="118" class="stroke-water" stroke-width="7" stroke-linecap="round"/>
+          <line x1="230" y1="138" x2="290" y2="118" class="stroke-water" stroke-width="7" stroke-linecap="round"/>
+          <line x1="310" y1="247" x2="310" y2="142" class="stroke-muted" stroke-width="1.2" marker-start="url(#av-dim)" marker-end="url(#av-dim)"/>
+          <text x="316" y="200" class="t-small">h</text>
+          <line x1="122" y1="276" x2="258" y2="276" class="stroke-muted" stroke-width="1.2" marker-start="url(#av-dim)" marker-end="url(#av-dim)"/>
+          <text x="190" y="292" text-anchor="middle" class="t-small t-muted">pitch p</text>
+          <text x="53" y="272" text-anchor="middle" class="t-small">shadow</text>
+          <text x="270" y="38" class="t-small t-muted">sun (south)</text>
+          <!-- vertical fences: morning sun from the east, shadow to the west, sky view of a crop point -->
+          <circle cx="684" cy="100" r="10" class="fill-amber-soft stroke-amber" stroke-width="1.5"/>
+          <line x1="700" y1="115" x2="511" y2="250" class="stroke-amber" stroke-width="1.3" stroke-dasharray="5 4"/>
+          <line x1="663" y1="206" x2="605" y2="250" class="stroke-amber" stroke-width="1.3" stroke-dasharray="5 4" opacity="0.6"/>
+          <rect x="511" y="246" width="94" height="8" class="fill-magenta-soft stroke-magenta" stroke-width="1"/>
+          <line x1="370" y1="250" x2="680" y2="250" class="stroke" stroke-width="2"/>
+          <line x1="420" y1="250" x2="420" y2="160" class="stroke-muted" stroke-width="3"/>
+          <line x1="630" y1="250" x2="630" y2="160" class="stroke-muted" stroke-width="3"/>
+          <line x1="420" y1="232" x2="420" y2="165" class="stroke-water" stroke-width="7"/>
+          <line x1="630" y1="232" x2="630" y2="165" class="stroke-water" stroke-width="7"/>
+          <line x1="470" y1="249" x2="420" y2="165" class="stroke-water" stroke-width="1" stroke-dasharray="3 3"/>
+          <line x1="470" y1="249" x2="630" y2="165" class="stroke-water" stroke-width="1" stroke-dasharray="3 3"/>
+          <path d="M452 219 A 34 34 0 0 1 501 233" fill="none" class="stroke-water" stroke-width="1.5"/>
+          <circle cx="470" cy="249" r="4" class="fill-water"/>
+          <text x="476" y="206" class="t-small">sky view</text>
+          <text x="560" y="269" text-anchor="middle" class="t-small">morning shadow (west side)</text>
+          <text x="637" y="184" class="t-small">east face</text><text x="637" y="197" class="t-small">lit</text>
+          <text x="380" y="150" class="t-small">west face: afternoon</text>
+          <line x1="422" y1="281" x2="628" y2="281" class="stroke-muted" stroke-width="1.2" marker-start="url(#av-dim)" marker-end="url(#av-dim)"/>
+          <text x="525" y="296" text-anchor="middle" class="t-small t-muted">pitch 5–20 m</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> Two agrivoltaic families in cross-section. Overhead modules cast a shadow (magenta) whose position follows the sun: the higher the table, the farther the shadow travels during the day and the more evenly the shade is shared. Vertical east–west fences cast long shadows only when the sun is low in the morning and evening, and they hide part of the sky (blue angle) from the crop next to them.</figcaption>
+      </figure>
+
+      <h3>Direct and diffuse light need different treatment</h3>
+      <p>Sunlight reaches the crop in two forms. The <strong>direct beam</strong> comes from one direction, so a crop point is either in the shadow of a panel or not — the laboratory decides this with a <em>ray cast</em>: a straight line from the crop point towards the sun either hits a module rectangle or passes by. The <strong>diffuse</strong> light comes from the whole sky; a point receives the fraction of it that corresponds to the part of the sky it can "see", the <em>sky view factor</em>. On an overcast Swedish day almost all light is diffuse, so shading is weak but unavoidable; on a clear day in Tucson the beam dominates and the shadows are sharp. The laboratory splits the global irradiance into beam and diffuse with the Erbs et al. (1982) correlation and uses NASA POWER's monthly cloudiness for each site.</p>
+      <p>The geometry explains most design rules. The <strong>ground-coverage ratio</strong> (GCR, module width over row spacing) fixes, to first order, what fraction of the beam the modules intercept. <strong>Height</strong> does not change how much light is intercepted, but it spreads the shadow: a high table's shadow travels far across the field during the day, a low one's hardly moves. <strong>Orientation</strong> decides when the shade falls: Trommsdorff et al. (2021) found that turning the Heggelbach rows about 30° from south distributed the ground radiation more evenly.</p>
+
+      <h3>How crops respond to less light</h3>
+      <p>Leaves do not use extra light at noon on a sunny day efficiently: photosynthesis saturates. A crop therefore loses less than proportionally when some of the brightest hours are shaded. How much less depends on the crop. A meta-analysis of shading experiments (Laub et al., 2022) found that berries, fruits and fruit vegetables even gained yield with up to 30 % less radiation, that forages, leafy vegetables, tuber crops and C₃ cereals lost less than proportionally at moderate shade, and that maize and grain legumes lost more than proportionally — maize kept only about 45 % of its yield at 40 % shade. Lettuce, for example, compensates by growing larger, thinner leaves that intercept more of the light that remains (Marrou et al., 2013). In hot, dry climates shade can also save water and cool the crop (Barron-Gafford et al., 2019), effects that this laboratory does not model; a review of agrivoltaic applications discusses these microclimate effects and which crops are likely to benefit (Weselek et al., 2019).</p>
+      <p>The laboratory uses a saturating canopy light-response curve (a non-rectangular hyperbola) applied every half hour at every point of the crop, integrated over the growing season. Its saturation parameter was calibrated so that uniform shading reproduces the published responses: this is why the same light map gives different yields for different crops.</p>
+
+      <h3>Electricity from both sides of the module</h3>
+      <p>Photovoltaic output follows the irradiance on the module plane. It depends on the angle between sun and module (the cosine law), on how much of the module is shaded by the neighbouring row, on the diffuse sky the module can see and on the light reflected from the ground. Bifacial modules also convert light on their rear side, with an efficiency relative to the front given by the <em>bifaciality factor</em> φ (0.7–0.9 for current cell types). Vertical east–west modules turn this into a design principle: both faces are "fronts". Cell temperature matters as well — crystalline modules lose about 0.3–0.4 % of their output per kelvin (Skoplaki &amp; Palyvos, 2009) — and inverters, cables and soiling take about 14 % more (the PVWatts default; Dobos, 2014).</p>
+
+      <h3>The land equivalent ratio</h3>
+      <p>Dupraz et al. (2011) borrowed a yardstick from intercropping research: the land equivalent ratio, LER = (crop yield in the agrivoltaic system / crop yield of an open field) + (electricity of the agrivoltaic system / electricity of a conventional PV park on the same area). An LER of 1.35 means that growing the same crop and the same electricity on separate fields would need 1.35 ha for every hectare of agrivoltaics. Measured values include 1.56–1.70 in 2017, depending on the crop, and about 1.86 for potatoes in the hot, dry summer of 2018 at Heggelbach (Trommsdorff et al., 2021; Fraunhofer ISE, 2019), and 1.27 (2021) and 1.39 (2022) for ley grass at Kärrbo, where the light for the crop was about 25 % lower on average without a statistically significant yield difference (Campana et al., 2024).</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"An LER above 1 means the farm produces more food." It does not: the crop term is below 1 in almost every design, so each agrivoltaic hectare produces <em>less</em> crop than an open field. LER &gt; 1 means that the <em>combination</em> of food and electricity needs less land than producing them apart. Whether that is desirable depends on what the land is needed for, on prices and on the choice of reference — change the reference PV park or the reference crop yield and the LER changes too.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier (2024–2026)</div><p>Research is moving from single demonstration plots to crop rotations under the same array (at Kärrbo, barley grown between the vertical rows in 2023 yielded at least as much as the open-field control; Ma Lu et al., 2024), to tracking systems that can turn the modules away when the crop needs light, and to regulations that define what counts as agrivoltaics — Germany's DIN SPEC 91434 limits the land lost to the structure to 10 % (overhead) or 15 % (interspace) and requires at least 66 % of the reference crop yield.</p></div>
+      <p>For the full background — microclimate, water, economics and policy — see the lesson <a href="/lessons/agrivoltaics/">Agrivoltaics and multifunctional land use</a>; for the solar geometry used here see <a href="/laboratories/sun-and-dli/">Sun path and daily light integral</a>.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>Symbols: \(\alpha\) solar elevation, \(\gamma_s\) solar azimuth (clockwise from north), \(\beta\) module tilt, \(\gamma_m\) azimuth of the module front face, \(w\) collector width (slant height), \(p\) row pitch, \(h\) clearance. Local solar time is used throughout (12:00 = sun due south).</p>
+
+      <div class="eq-box" id="eq-av-sun">
+        <div class="eq-head"><span class="eq-label">Position of the sun</span><span class="eq-num">(A1)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \sin\alpha = \sin\phi\,\sin\delta + \cos\phi\,\cos\delta\,\cos\omega \\[4pt] \delta = 0.409\,\sin\!\left(\frac{2\pi J}{365} - 1.39\right), \qquad \omega = 15^{\circ}\,(t-12) \end{gathered} \]</div>
+        <p class="eq-read">the sine of the solar elevation equals the sine of the latitude times the sine of the declination plus the product of their cosines and the cosine of the hour angle; the declination follows the day of the year, and the hour angle turns by 15 degrees per hour away from solar noon.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\alpha\)</td><td>solar elevation above the horizon</td><td>rad or °</td></tr>
+          <tr><td>\(\phi\)</td><td>latitude (Kärrbo 59.55° N)</td><td>°</td></tr>
+          <tr><td>\(\delta\)</td><td>solar declination (FAO-56 approximation)</td><td>rad</td></tr>
+          <tr><td>\(J\)</td><td>day of the year</td><td>–</td></tr>
+          <tr><td>\(\omega\), \(t\)</td><td>hour angle; local solar time</td><td>°; h</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Put the sun on a unit sphere centred on the observer. In equatorial coordinates its direction is fixed by the declination \(\delta\) (its latitude on the celestial sphere) and the hour angle \(\omega\) (Earth's rotation since solar noon).</li>
+            <li>Rotating from equatorial to horizontal coordinates is a rotation about the east–west axis by the co-latitude \(90^{\circ}-\phi\). The vertical component of the rotated unit vector is \(\sin\alpha\), which gives the formula above (spherical law of cosines).</li>
+            <li>The azimuth follows from the horizontal components; physics.js returns it clockwise from north. The model then converts \((\alpha,\gamma_s)\) to a unit vector \(\mathbf{s}\) pointing to the sun.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The declination formula is accurate to about 0.5°; atmospheric refraction and the equation of time are ignored, so the sun rises a few minutes early in the model. That is irrelevant for daily light integrals.</p></details>
+        <div class="eq-units">All terms are sines and cosines of angles — dimensionless ✓</div>
+        <div class="mini-calc" data-formula="asin(sin(lat*PI/180)*sin(0.409*sin(2*PI*J/365-1.39)) + cos(lat*PI/180)*cos(0.409*sin(2*PI*J/365-1.39))*cos(15*(t-12)*PI/180))*180/PI" data-output="Solar elevation α" data-unit="°" data-digits="1" data-plot="t" data-title="Try it">
+          <div data-var="lat" data-label="Latitude φ" data-min="30" data-max="70" data-step="0.1" data-value="59.6" data-unit="° N"></div>
+          <div data-var="J" data-label="Day of year J" data-min="1" data-max="365" data-step="1" data-value="172"></div>
+          <div data-var="t" data-label="Solar time t" data-min="0" data-max="24" data-step="0.1" data-value="12" data-unit="h"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-av-erbs">
+        <div class="eq-head"><span class="eq-label">Global, beam and diffuse irradiance</span><span class="eq-num">(A2)</span></div>
+        <div class="eq-main">\[ G_h = k_t\,G_{sc}\,E_0\sin\alpha,\qquad D_h = k_d(k_t)\,G_h,\qquad B_n = \frac{G_h - D_h}{\sin\alpha} \]</div>
+        <p class="eq-read">global horizontal irradiance is the clearness index times the extraterrestrial irradiance on a horizontal plane; a fraction k_d of it, which depends on the clearness index, is diffuse; the rest is the beam, which, measured perpendicular to the sun's rays, is the horizontal beam divided by the sine of the elevation.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(G_h, D_h\)</td><td>global and diffuse horizontal irradiance</td><td>W m⁻²</td></tr>
+          <tr><td>\(B_n\)</td><td>direct normal irradiance (beam)</td><td>W m⁻²</td></tr>
+          <tr><td>\(k_t\)</td><td>clearness index (monthly NASA POWER value, applied to a Haurwitz clear-sky day shape)</td><td>–</td></tr>
+          <tr><td>\(k_d\)</td><td>diffuse fraction, Erbs et al. (1982): \(k_d = 0.9511 - 0.1604k_t + 4.388k_t^2 - 16.638k_t^3 + 12.336k_t^4\) for \(0.22 &lt; k_t \le 0.8\)</td><td>–</td></tr>
+          <tr><td>\(G_{sc}, E_0\)</td><td>solar constant 1367 W m⁻²; Earth–Sun distance factor</td><td>W m⁻²; –</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li><strong>Daily total.</strong> NASA POWER gives, for each month and site, the ratio of the radiation reaching the ground to that at the top of the atmosphere, \(k_t = H/H_0\) (all-sky clearness index).</li>
+            <li><strong>Shape within the day.</strong> The clear-sky model of Haurwitz (1945), \(G_{cs} = 1098\sin\alpha\,e^{-0.059/\sin\alpha}\) W m⁻², is scaled so that its daily integral equals \(k_tH_0\).</li>
+            <li><strong>Beam–diffuse split.</strong> Erbs et al. (1982) fitted \(k_d\) to hourly pyranometer and pyrheliometer data: clear skies (\(k_t\approx 0.75\)) give about 15–20 % diffuse, overcast skies (\(k_t &lt; 0.22\)) almost 100 %.</li>
+            <li>The horizontal beam \(G_h - D_h\) is divided by \(\sin\alpha\) to obtain the irradiance on a surface facing the sun; the model caps it at 1100 W m⁻² near sunrise and sunset.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A "typical" day for each month: real days alternate between clear and cloudy, which changes the beam–diffuse mix; the monthly mean clearness index with one day shape smooths this out. The circumsolar and horizon brightening of the real sky is ignored (isotropic sky).</p></details>
+        <div class="eq-units">\(k_t, k_d\) dimensionless; \([B_n] = \text{W m}^{-2}/1 = \text{W m}^{-2}\) ✓</div>
+        <div class="mini-calc" data-formula="100*(kt <= 0.22 ? 1 - 0.09*kt : (kt <= 0.8 ? 0.9511 - 0.1604*kt + 4.388*kt*kt - 16.638*pow(kt,3) + 12.336*pow(kt,4) : 0.165))" data-output="Diffuse fraction k_d" data-unit="%" data-digits="0" data-plot="kt" data-ymin="0" data-ymax="100">
+          <div data-var="kt" data-label="Clearness index k<sub>t</sub>" data-min="0.05" data-max="0.85" data-step="0.01" data-value="0.5"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-av-ray">
+        <div class="eq-head"><span class="eq-label">Ray casting the direct beam</span><span class="eq-num">(A3)</span></div>
+        <div class="eq-main">\[ \begin{gathered} t^{*} = \frac{\mathbf{n}\cdot(\mathbf{C}_k-\mathbf{P})}{\mathbf{n}\cdot\mathbf{s}},\qquad \mathbf{Q} = \mathbf{P}+t^{*}\mathbf{s} \\[4pt] \text{shaded} \iff t^{*}&gt;0,\quad |(\mathbf{Q}-\mathbf{C}_k)\cdot\mathbf{e}_u|\le \tfrac{L}{2},\quad |(\mathbf{Q}-\mathbf{C}_k)\cdot\mathbf{e}_w|\le \tfrac{w}{2} \end{gathered} \]</div>
+        <p class="eq-read">follow the ray from the crop point P towards the sun until it meets the plane of panel row k; the crop point is shaded if the meeting point Q lies in front of the crop, within the row length L and within the collector width w.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\mathbf{P}\)</td><td>crop point at canopy height</td><td>m</td></tr>
+          <tr><td>\(\mathbf{s}\)</td><td>unit vector towards the sun (Eq. A1)</td><td>–</td></tr>
+          <tr><td>\(\mathbf{C}_k\)</td><td>centre of row \(k\): \((0,\ h + \tfrac{w}{2}\sin\beta,\ v_k)\) in array coordinates</td><td>m</td></tr>
+          <tr><td>\(\mathbf{n},\mathbf{e}_u,\mathbf{e}_w\)</td><td>front normal \((0,\cos\beta,\sin\beta)\), along-row axis \((1,0,0)\), up-slope axis \((0,\sin\beta,-\cos\beta)\)</td><td>–</td></tr>
+          <tr><td>\(f_g\)</td><td>shaded fraction of the ground for long rows</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A point on the ray is \(\mathbf{P}+t\mathbf{s}\). It lies in the plane of the row when \(\mathbf{n}\cdot(\mathbf{P}+t\mathbf{s}-\mathbf{C}_k)=0\), which gives \(t^{*}\).</li>
+            <li>\(t^{*}\le 0\) means the plane is behind the point (the sun is on the other side): no shade from this row.</li>
+            <li>Projecting \(\mathbf{Q}-\mathbf{C}_k\) on the two in-plane axes gives the position within the rectangle; both must be within half the length and half the width.</li>
+            <li>The model repeats this for every crop point (64 × 32 points), every row that the ray can reach and every quarter hour of the day. Summing gives the daily light map.</li>
+            <li><strong>Check with a closed form.</strong> For infinitely long rows the shadow on the ground is a band of width \(w\,|\cos\theta|/\sin\alpha\) per row, so the shaded fraction of the ground is \(f_g = \min\!\left(1,\ \text{GCR}\,|\cos\theta|/\sin\alpha\right)\), where \(\cos\theta=\mathbf{n}\cdot\mathbf{s}\) is the cosine of the angle of incidence on the module. Averaged over the gaps, the ray caster reproduces this.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Modules are opaque rectangles (optionally with a uniform transmission τ for gaps between cells); posts, beams and cables are not traced; light scattered by the modules and the ground onto the crop is ignored. Rows are finite, so the ends of the field receive more light — the crop averages use the interior (dashed box).</p></details>
+        <div class="eq-units">\(t^{*}\): m / 1 = m ✓; \(f_g\): (–)(–)/(–) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*min(1, g*abs(cos(b*PI/180)*sin(a*PI/180) + sin(b*PI/180)*cos(a*PI/180)*cos(psi*PI/180))/sin(a*PI/180))" data-output="Shaded fraction of the ground f_g" data-unit="%" data-digits="0" data-plot="a" data-ymin="0" data-ymax="100" data-title="Try it — ground shadow of long rows">
+          <div data-var="g" data-label="Ground-coverage ratio GCR" data-min="0.05" data-max="0.8" data-step="0.01" data-value="0.36"></div>
+          <div data-var="b" data-label="Tilt β" data-min="0" data-max="90" data-step="1" data-value="20" data-unit="°"></div>
+          <div data-var="a" data-label="Solar elevation α" data-min="3" data-max="80" data-step="1" data-value="40" data-unit="°"></div>
+          <div data-var="psi" data-label="Sun azimuth relative to the row normal ψ" data-min="0" data-max="180" data-step="1" data-value="0" data-unit="°"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-av-svf">
+        <div class="eq-head"><span class="eq-label">Sky view factor for diffuse light</span><span class="eq-num">(A4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{SVF}(\mathbf{P}) = \frac{1}{\pi}\int_{\Omega_{\text{sky}}}\cos\theta_z\,\mathrm{d}\Omega \;\approx\; \frac{1}{N}\sum_{i=1}^{N}\big[1-(1-\tau)\,b_i\big] \\[6pt] \text{SVF}_{\text{2D}} = \frac{p/2}{\sqrt{(p/2)^2+H^2}} \end{gathered} \]</div>
+        <p class="eq-read">the sky view factor is the cosine-weighted fraction of the hemisphere above a point that is open sky; the model estimates it by sending N rays in cosine-weighted directions and counting those that are not blocked; for a point midway between two infinitely long walls of height H the integral has a closed form.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\theta_z\)</td><td>zenith angle of a sky direction</td><td>rad</td></tr>
+          <tr><td>\(b_i\)</td><td>1 if ray \(i\) hits a module row, 0 if it reaches the sky (Eq. A3)</td><td>–</td></tr>
+          <tr><td>\(N\)</td><td>number of rays: 8 rings × 24 azimuths = 192</td><td>–</td></tr>
+          <tr><td>\(H\)</td><td>height of the wall top above the crop (2D check)</td><td>m</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the 2D formula</summary>
+          <ol class="steps">
+            <li>For an isotropic sky, the diffuse irradiance on a horizontal element is \(\int L\cos\theta_z\,\mathrm{d}\Omega\); an unobstructed hemisphere gives \(\pi L\), which defines SVF = 1.</li>
+            <li>For obstacles that are infinitely long, integrate first along their length: the view factor from a horizontal strip to a sky slice between cross-section angles \(\varphi_1\) and \(\varphi_2\) (measured from the zenith) is \(\tfrac12(\sin\varphi_2-\sin\varphi_1)\).</li>
+            <li>Midway between two walls at distance \(p/2\), the open sky spans \(-\varphi_w \dots \varphi_w\) with \(\tan\varphi_w = (p/2)/H\), so \(\text{SVF} = \sin\varphi_w = (p/2)/\sqrt{(p/2)^2+H^2}\).</li>
+            <li>Stratified cosine-weighted sampling (rings of equal \(\sin^2\theta_z\)) gives every ray the same weight, so the integral becomes a simple average.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Isotropic sky: the bright circumsolar region is treated as part of the beam. Reflection from the undersides of the modules would add a little light under overhead systems.</p></details>
+        <div class="eq-units">\(\frac{1}{\pi}\,\text{sr}\) × dimensionless = dimensionless ✓; 2D form: m/m ✓</div>
+        <div class="mini-calc" data-formula="(p/2)/sqrt(pow(p/2,2) + H*H)" data-output="Sky view factor midway" data-digits="3" data-plot="p" data-ymin="0" data-ymax="1">
+          <div data-var="p" data-label="Row pitch p" data-min="2" data-max="25" data-step="0.1" data-value="10" data-unit="m"></div>
+          <div data-var="H" data-label="Fence top above the crop H" data-min="0.5" data-max="5" data-step="0.1" data-value="2.5" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-av-ppfd">
+        <div class="eq-head"><span class="eq-label">Light at the crop and daily light integral</span><span class="eq-num">(A5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} I(\mathbf{P},t) = c_{\text{PAR}}\Big[B_n\sin\alpha\,\big(1-(1-\tau)S(\mathbf{P},t)\big) + D_h\,\text{SVF}(\mathbf{P})\Big] \\[6pt] \text{DLI} = \frac{1}{10^{6}}\int_{\text{day}} I\,\mathrm{d}t \end{gathered} \]</div>
+        <p class="eq-read">the photosynthetic photon flux density at a crop point is the conversion factor times the sum of the horizontal beam, removed where the point is shaded except for the light transmitted through the modules, and the diffuse light weighted by the sky view factor; the daily light integral adds this up over the day.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(I\)</td><td>PPFD at canopy height</td><td>µmol m⁻² s⁻¹</td></tr>
+          <tr><td>\(c_{\text{PAR}}\)</td><td>2.02 µmol J⁻¹: sunlight PAR photons per joule of global radiation (≈ 44 % PAR × 4.57 µmol J⁻¹)</td><td>µmol J⁻¹</td></tr>
+          <tr><td>\(S\)</td><td>1 if the point is shaded (Eq. A3), else 0</td><td>–</td></tr>
+          <tr><td>\(\tau\)</td><td>transmission through the modules</td><td>–</td></tr>
+          <tr><td>DLI</td><td>daily light integral</td><td>mol m⁻² d⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>The beam on a horizontal surface is \(B_n\sin\alpha\) (cosine law with the zenith angle).</li>
+            <li>Diffuse and beam add linearly; shading removes the beam only.</li>
+            <li>The season light (Season % map) is the sum of DLI over representative days of the crop's growing months, each weighted by the number of days in its month, divided by the same sum for the open field.</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(\mu\text{mol J}^{-1}\times\text{W m}^{-2} = \mu\text{mol m}^{-2}\,\text{s}^{-1}\) ✓; integrating over seconds and dividing by \(10^6\): mol m⁻² d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="2.02*(B*sin(a*PI/180)*(1-(1-tau)*S) + D*svf)" data-output="PPFD at the crop point" data-unit="µmol m⁻² s⁻¹" data-digits="0" data-plot="svf">
+          <div data-var="B" data-label="Beam B<sub>n</sub>" data-min="0" data-max="1000" data-step="10" data-value="700" data-unit="W m⁻²"></div>
+          <div data-var="D" data-label="Diffuse D<sub>h</sub>" data-min="0" data-max="400" data-step="5" data-value="150" data-unit="W m⁻²"></div>
+          <div data-var="a" data-label="Solar elevation α" data-min="1" data-max="90" data-step="1" data-value="45" data-unit="°"></div>
+          <div data-var="S" data-label="Shaded? S (0 or 1)" data-min="0" data-max="1" data-step="1" data-value="1"></div>
+          <div data-var="tau" data-label="Module transmission τ" data-min="0" data-max="0.5" data-step="0.01" data-value="0"></div>
+          <div data-var="svf" data-label="Sky view factor" data-min="0" data-max="1" data-step="0.01" data-value="0.8"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-av-poa">
+        <div class="eq-head"><span class="eq-label">Irradiance on the front and rear of a module</span><span class="eq-num">(A6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} G_{f} = B_n\cos\theta\;K(\theta)\,(1-f_{sh}) + D_h F_{\text{sky}} + \rho\,\bar E_g F_{\text{gnd}} \\[4pt] f_{sh} = \max\!\left(0,\ 1-\frac{p}{w}\,\frac{\sin\alpha_p}{\sin(\alpha_p+\beta)}\right) \end{gathered} \]</div>
+        <p class="eq-read">the irradiance on a module face is the beam times the cosine of the angle of incidence, reduced by reflection at the glass and by the fraction shaded by the next row, plus the diffuse sky the face can see, plus light reflected from the ground below; the rear face is treated in the same way with its own angles and view factors.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\cos\theta\)</td><td>\(\mathbf{n}\cdot\mathbf{s}\), angle of incidence on the face</td><td>–</td></tr>
+          <tr><td>\(K(\theta)\)</td><td>ASHRAE incidence-angle modifier \(1-b_0(1/\cos\theta-1)\), \(b_0=0.05\)</td><td>–</td></tr>
+          <tr><td>\(f_{sh}\)</td><td>fraction of the face shaded by the neighbouring row</td><td>–</td></tr>
+          <tr><td>\(\alpha_p\)</td><td>profile angle: solar elevation projected on the plane across the rows</td><td>rad</td></tr>
+          <tr><td>\(F_{\text{sky}}, F_{\text{gnd}}\)</td><td>view factors of the face to sky and ground, computed with the ray caster (≈ \((1\pm\cos\beta)/2\) when unobstructed)</td><td>–</td></tr>
+          <tr><td>\(\rho,\ \bar E_g\)</td><td>ground albedo (0.2); mean irradiance on the ground between the rows</td><td>–; W m⁻²</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the row-shading fraction</summary>
+          <ol class="steps">
+            <li>Work in the plane across the rows. Row \(k\) is a segment of length \(w\) tilted by \(\beta\); the next row is the same segment shifted by \(p\).</li>
+            <li>A point a fraction \(u\) up row \(k\) sends a ray towards the sun at profile angle \(\alpha_p\). Solving for where that ray meets the line of the next row gives a shift \(D = (p/w)\sin\alpha_p/\sin(\alpha_p+\beta)\) along the module.</li>
+            <li>The ray is blocked if it meets the next row within the module, i.e. if \(u + D \le 1\). The blocked (shaded) part is therefore \(1-D\), or zero when \(D\ge1\).</li>
+            <li>For vertical modules (\(\beta=90^{\circ}\)) this becomes \(f_{sh}=1-(p/w)\tan\alpha_p\): with \(p = 10\) m and \(w = 2.3\) m the east faces are shaded only while the sun is lower than about 13° across the rows.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The diffuse sky is isotropic and the face view factors reduce to \((1\pm\cos\beta)/2\) without neighbouring rows (Duffie &amp; Beckman, 2013). Rows are long compared with their spacing (the sun's along-row component does not matter); shading reduces the beam in proportion to the shaded area, whereas a real module with bypass diodes can lose more (partial shading of strings). The ground under the array is assumed to reflect uniformly with \(\rho = 0.2\).</p></details>
+        <div class="eq-units">\(\text{W m}^{-2}\times\) dimensionless factors = W m⁻² ✓; \(f_{sh}\): m/m × (–) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*max(0, min(1, 1 - (p/w)*sin(ap*PI/180)/sin((ap+b)*PI/180)))" data-output="Shaded fraction of the module f_sh" data-unit="%" data-digits="0" data-plot="ap" data-ymin="0" data-ymax="100">
+          <div data-var="p" data-label="Pitch p" data-min="2" data-max="20" data-step="0.1" data-value="5" data-unit="m"></div>
+          <div data-var="w" data-label="Collector width w" data-min="1" data-max="5" data-step="0.1" data-value="2.3" data-unit="m"></div>
+          <div data-var="b" data-label="Tilt β" data-min="0" data-max="90" data-step="1" data-value="30" data-unit="°"></div>
+          <div data-var="ap" data-label="Profile angle α<sub>p</sub>" data-min="1" data-max="60" data-step="0.5" data-value="10" data-unit="°"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-av-power">
+        <div class="eq-head"><span class="eq-label">Module temperature and electrical output</span><span class="eq-num">(A7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} G_{\text{eff}} = G_f + \varphi\,G_b,\qquad T_c = T_a + \frac{\text{NOCT}-20}{800}\,G_{\text{eff}} \\[4pt] P = \eta\,G_{\text{eff}}\big[1+\gamma_T\,(T_c-25)\big](1-L) \end{gathered} \]</div>
+        <p class="eq-read">the cell temperature rises above the air temperature in proportion to the absorbed irradiance; the power per square metre of module is the efficiency times the effective irradiance of both faces, corrected for temperature and for system losses.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value used</th></tr>
+          <tr><td>\(T_a\)</td><td>air temperature: NASA POWER monthly mean with a cosine daily cycle of the mean daily range</td><td>°C</td><td>site-specific</td></tr>
+          <tr><td>NOCT</td><td>nominal operating cell temperature</td><td>°C</td><td>45</td></tr>
+          <tr><td>\(\eta\)</td><td>module efficiency at standard test conditions</td><td>–</td><td>0.215</td></tr>
+          <tr><td>\(\gamma_T\)</td><td>temperature coefficient of power</td><td>K⁻¹</td><td>−0.0035</td></tr>
+          <tr><td>\(\varphi\)</td><td>bifaciality factor (rear/front efficiency)</td><td>–</td><td>0–0.95 (slider)</td></tr>
+          <tr><td>\(L\)</td><td>system losses (inverter, wiring, soiling, mismatch)</td><td>–</td><td>0.14</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>The NOCT model assumes that the temperature rise is proportional to irradiance: at 800 W m⁻², 20 °C air and 1 m s⁻¹ wind, the cell reaches NOCT (Skoplaki &amp; Palyvos, 2009).</li>
+            <li>Crystalline silicon loses about 0.35 % of power per kelvin above 25 °C.</li>
+            <li>Annual energy: the power is summed every 15 minutes over a representative day of each month and multiplied by the number of days in the month. Dividing by the rated power (\(\eta \times 1\) kW m⁻²) gives the specific yield in kWh kWp⁻¹.</li>
+            <li>The electricity per hectare is the energy per m² of module times the module area per m² of land, which is the GCR (Eq. A10).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>No wind dependence of cell temperature and no snow cover (important in Sweden in winter, when output is small anyway). The rear side's contribution to heating is included through \(G_{\text{eff}}\).</p></details>
+        <div class="eq-units">\([T_c]\): °C + (K)/(W m⁻²) × W m⁻² = °C ✓; \([P]\) = (–) × W m⁻² × (–) = W m⁻² ✓</div>
+        <div class="mini-calc" data-formula="eta/100*G*(1 + gT/100*(Ta + (45-20)/800*G - 25))*(1-0.14)" data-output="Module output" data-unit="W m⁻²" data-digits="0" data-plot="G">
+          <div data-var="G" data-label="Effective irradiance G<sub>eff</sub>" data-min="0" data-max="1200" data-step="10" data-value="800" data-unit="W m⁻²"></div>
+          <div data-var="Ta" data-label="Air temperature T<sub>a</sub>" data-min="-10" data-max="45" data-step="1" data-value="20" data-unit="°C"></div>
+          <div data-var="eta" data-label="Efficiency η" data-min="15" data-max="25" data-step="0.1" data-value="21.5" data-unit="%"></div>
+          <div data-var="gT" data-label="Temperature coefficient γ<sub>T</sub>" data-min="-0.5" data-max="-0.2" data-step="0.01" data-value="-0.35" data-unit="% K⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-av-light-response">
+        <div class="eq-head"><span class="eq-label">Crop light response and relative yield</span><span class="eq-num">(A8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} A(I) = \frac{I + I_k - \sqrt{(I+I_k)^2 - 4\theta I I_k}}{2\theta} \\[6pt] y(\mathbf{P}) = \left(\frac{\sum_{d,t} A\big(I(\mathbf{P},t)\big)}{\sum_{d,t} A\big(I_{\text{open}}(t)\big)}\right)^{\gamma} \end{gathered} \]</div>
+        <p class="eq-read">canopy photosynthesis rises with light and saturates according to a non-rectangular hyperbola; the relative yield at a crop point is the season's photosynthesis there divided by that of the open field, raised to a harvest-sensitivity exponent.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Crop values</th></tr>
+          <tr><td>\(A\)</td><td>canopy gross photosynthesis (relative units, initial slope 1)</td><td>–</td><td>–</td></tr>
+          <tr><td>\(I_k\)</td><td>light at which the response starts to saturate (effective, includes acclimation)</td><td>µmol m⁻² s⁻¹</td><td>ley 140 · lettuce 330 · potato 820 · cereal 900 · maize 2500</td></tr>
+          <tr><td>\(\theta\)</td><td>curvature (Thornley)</td><td>–</td><td>0.7</td></tr>
+          <tr><td>\(\gamma\)</td><td>harvest sensitivity: 1 for vegetative or tuber yield; 1.75 for maize grain</td><td>–</td><td>see left</td></tr>
+          <tr><td>\(d, t\)</td><td>representative days of the growing months; half-hour steps</td><td>–</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the reasoning and the calibration</summary>
+          <ol class="steps">
+            <li>A leaf (and, less sharply, a canopy) converts light efficiently at low PPFD and ever less efficiently at high PPFD. The non-rectangular hyperbola is the standard empirical form; \(\theta\to 0\) gives a rectangular hyperbola, \(\theta\to1\) a sharp corner at \(I_k\).</li>
+            <li>Because \(A\) is concave, removing light at bright hours costs little: a crop that saturates early (small \(I_k\)) loses much less yield than light.</li>
+            <li>Canopy acclimation (larger, thinner leaves, more leaf area) is not modelled explicitly; it is absorbed into \(I_k\), which was calibrated so that a uniform shade reproduces published responses: forages 93 % and leafy vegetables 86 % of the unshaded yield at 40 % shade (Laub et al., 2022); potato 82 % and winter wheat 81 % with about 30 % less radiation at Heggelbach in 2017 (Fraunhofer ISE, 2017).</li>
+            <li>No value of \(I_k\) can make yield fall faster than light. Maize grain does (45 % at 40 % shade; Laub et al., 2022) because shade reduces kernel set and the harvest index; \(\gamma = 1.75\) on a near-linear C₄ response reproduces this.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Light is the only factor: water, temperature, nutrients and diseases are equal under and outside the panels. In dry or hot climates this underestimates the benefit of shade. Yield gains from shade (berries, fruit) cannot be produced by this model.</p></details>
+        <div class="eq-units">\(A\) has the units of \(I\) (initial slope 1); the ratio \(y\) is dimensionless ✓</div>
+        <div class="mini-calc" data-fn="avRelYield" data-output="Relative yield under uniform shade" data-unit="%" data-digits="0" data-plot="s" data-ymin="0" data-ymax="100" data-title="Try it — one sunny day, uniform shade">
+          <div data-var="s" data-label="Shade (light reduction)" data-min="0" data-max="80" data-step="1" data-value="40" data-unit="%"></div>
+          <div data-var="Ik" data-label="Saturation onset I<sub>k</sub>" data-min="50" data-max="4000" data-step="10" data-value="330" data-unit="µmol m⁻² s⁻¹" data-scale="log"></div>
+          <div data-var="Imax" data-label="Midday PPFD" data-min="300" data-max="2200" data-step="10" data-value="1400" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="gamma" data-label="Harvest exponent γ" data-min="1" data-max="2.5" data-step="0.05" data-value="1"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-av-ler">
+        <div class="eq-head"><span class="eq-label">Land equivalent ratio</span><span class="eq-num">(A9)</span></div>
+        <div class="eq-main">\[ \text{LER} = \underbrace{(1-\lambda)\,\bar y}_{Y_{\text{AV}}/Y_{\text{ref}}} + \underbrace{\frac{E_{\text{AV}}}{E_{\text{PV,ref}}}}_{\text{electricity}} \]</div>
+        <p class="eq-read">the land equivalent ratio is the crop yield of the agrivoltaic hectare relative to an open-field hectare plus its electricity relative to a hectare of conventional photovoltaics.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\bar y\)</td><td>mean relative yield over the cultivated area (Eq. A8)</td><td>–</td></tr>
+          <tr><td>\(\lambda\)</td><td>fraction of land not cultivated (strip width / pitch)</td><td>–</td></tr>
+          <tr><td>\(E_{\text{AV}}, E_{\text{PV,ref}}\)</td><td>annual electricity per hectare of the agrivoltaic system and of the reference PV park (monofacial, facing south, tilt 30°, GCR 0.45)</td><td>MWh ha⁻¹ yr⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>To produce the agrivoltaic hectare's crop on an open field you need \(Y_{\text{AV}}/Y_{\text{ref}}\) ha; to produce its electricity in a PV park you need \(E_{\text{AV}}/E_{\text{PV,ref}}\) ha.</li>
+            <li>The sum is the land that separate single-use systems would need to match one hectare of agrivoltaics (Dupraz et al., 2011). LER &gt; 1 means sharing saves land.</li>
+            <li>Example (Kärrbo-like defaults): \(\bar y = 0.95\), \(\lambda = 0.1\), electricity 0.49 → LER = 0.855 + 0.49 ≈ 1.35.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>LER weights a tonne of forage and a megawatt-hour equally in land terms; it says nothing about economic value, food security, landscape or biodiversity. It is sensitive to the references: an optimally tilted, denser PV park lowers the electricity term, a better-managed reference field lowers the crop term.</p></details>
+        <div class="eq-units">(ha/ha) + (MWh/MWh) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="(1-lam/100)*y/100 + e/100" data-output="LER" data-digits="2" data-plot="e">
+          <div data-var="y" data-label="Mean relative yield ȳ" data-min="0" data-max="120" data-step="1" data-value="95" data-unit="%"></div>
+          <div data-var="lam" data-label="Uncultivated land λ" data-min="0" data-max="30" data-step="0.5" data-value="10" data-unit="%"></div>
+          <div data-var="e" data-label="Electricity vs reference" data-min="0" data-max="120" data-step="1" data-value="49" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-av-gcr">
+        <div class="eq-head"><span class="eq-label">Ground-coverage ratio, capacity and electricity per hectare</span><span class="eq-num">(A10)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{GCR} = \frac{w}{p},\qquad E_{\text{AV}} = \text{GCR}\;e_{\text{mod}} \\[4pt] P_{\text{inst}} = \text{GCR}\;\eta\;(1\ \text{kW m}^{-2})\times10^{4}\ \text{m}^2\,\text{ha}^{-1} \end{gathered} \]</div>
+        <p class="eq-read">the ground-coverage ratio is the module width divided by the row pitch; it fixes the installed peak power per hectare and, multiplied by the energy per square metre of module, the electricity per hectare.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(P_{\text{inst}}\)</td><td>installed capacity</td><td>kWp ha⁻¹</td></tr>
+          <tr><td>\(e_{\text{mod}}\)</td><td>annual output per m² of module (Eq. A7)</td><td>kWh m⁻² yr⁻¹</td></tr>
+        </table>
+        <details><summary>Why GCR is the master variable</summary><p>For rows that are long compared with the field width, module area per land area is exactly \(w\,L/(p\,L) = w/p\). The same ratio sets, to first order, the share of the beam intercepted by modules (Eq. A3), so GCR simultaneously raises electricity and lowers crop light — the central trade-off drawn in the last chart.</p></details>
+        <div class="eq-units">m/m = dimensionless; (–)(–)(kW m⁻²)(m² ha⁻¹) = kW ha⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="w/p*eta/100*1e4" data-output="Installed capacity" data-unit="kWp ha⁻¹" data-digits="0" data-plot="p">
+          <div data-var="w" data-label="Collector width w" data-min="1" data-max="6" data-step="0.1" data-value="2.3" data-unit="m"></div>
+          <div data-var="p" data-label="Pitch p" data-min="2" data-max="25" data-step="0.1" data-value="10" data-unit="m"></div>
+          <div data-var="eta" data-label="Efficiency η" data-min="15" data-max="25" data-step="0.1" data-value="21.5" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-av-laub">
+        <div class="eq-head"><span class="eq-label">Empirical yield response to shade (meta-analysis)</span><span class="eq-num">(A11)</span></div>
+        <div class="eq-main">\[ Y_{\text{rel}} = 10^{\,b\,r + c\,r^{2}}, \qquad c \approx -7.2\times10^{-5}\ \%^{-2} \]</div>
+        <p class="eq-read">the yield relative to the unshaded control is ten to the power of a crop-specific slope times the reduction in solar radiation plus a common curvature times its square.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Values</th></tr>
+          <tr><td>\(r\)</td><td>reduction in solar radiation</td><td>%</td><td>0–80</td></tr>
+          <tr><td>\(b\)</td><td>crop-type slope</td><td>%⁻¹</td><td>berries +0.0043 · forages +0.0021 · leafy veg. +0.0012 · C₃ cereals −0.0024 · grain legumes −0.0047 · maize −0.0058</td></tr>
+          <tr><td>\(c\)</td><td>common curvature</td><td>%⁻²</td><td>−7.2 × 10⁻⁵</td></tr>
+        </table>
+        <details><summary>Where the coefficients come from</summary>
+          <ol class="steps">
+            <li>Laub et al. (2022) regressed \(\log_{10}\) of relative yield on the reduction in solar radiation and its square, forced through 100 % at zero shade, with a crop-type-specific linear term and a common quadratic term.</li>
+            <li>The coefficients here were reconstructed from their reported point estimates: berries 114 % at both 20 and 40 % shade, forages 103 % and 93 %, leafy vegetables 86 % at 40 %, maize 45 % and grain legumes 50 % at 40 %; the C₃-cereal slope from their statement that cereals are shade tolerant up to 50 % shade. Solving the berry and forage pairs gives the same curvature \(c\) within 5 %, a consistency check.</li>
+            <li>Use it to compare with the mechanistic model (Eq. A8): the meta-analysis includes water and temperature effects that Eq. A8 lacks, but it describes uniform shade from nets and cloths more than the moving shade of panels.</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(b\,r\): %⁻¹ × % = dimensionless; \(c\,r^2\): %⁻² × %² = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*pow(10, b/1000*r - 7.2e-5*r*r)" data-output="Relative yield" data-unit="%" data-digits="0" data-plot="r" data-ymin="0" data-ymax="130">
+          <div data-var="b" data-label="Slope b (× 10⁻³ %⁻¹)" data-min="-6" data-max="5" data-step="0.01" data-value="1.24"></div>
+          <div data-var="r" data-label="Reduction in solar radiation r" data-min="0" data-max="80" data-step="1" data-value="40" data-unit="%"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator. Record the settings of each answer with <em>Save investigation</em> (they go into your notebook with a link that restores the settings).</p>
+      <ol class="task-list">
+        <li><h4>Check the model against Kärrbo</h4><p>Apply the preset <em>Kärrbo-like vertical (Västerås)</em>. Compare the model's season light reduction and LER with the measurements at the real site: about 25 % less PAR for the crop and LER 1.27 (2021) and 1.39 (2022) (Campana et al., 2024). The real module height and the supporting structure are not given in this laboratory — which of the model's simplifications (Sources tab) would make the model under- or overestimate the measured light reduction? Change the clearance, collector width and transmission within plausible ranges: how sensitive is the conclusion?</p></li>
+        <li><h4>How close can the fences be?</h4><p>Keep the Kärrbo-like design and change only the pitch from 20 m to 5 m. Plot (in your notebook) crop yield, electricity and LER against pitch for ley grass and for a spring cereal. At which pitch does the crop drop below 80 % and below the 66 % required by DIN SPEC 91434? Campana et al. (2021) suggested 9 m for oats and 8.5 m for potatoes at this latitude — does your analysis agree, and why might it differ?</p></li>
+        <li><h4>Height, orientation and uniformity</h4><p>With the <em>Heggelbach-like overhead</em> preset, change the clearance from 3 to 7 m and the azimuth from 180° to 210° and 240°. Record the uniformity (min/max) of the season light and the annual electricity. Explain with the geometry of Eq. A3 why height improves uniformity without changing the mean, and why a south-west orientation was chosen at Heggelbach (Trommsdorff et al., 2021).</p></li>
+        <li><h4>Rank the crops</h4><p>For one design of your choice, find for each of the five crops the densest row spacing (largest GCR) that still gives at least 66 % of the open-field yield. Rank the crops and relate the ranking to the light-response parameters (Eq. A8) and to the meta-analysis of Laub et al. (2022, Eq. A11).</p></li>
+        <li><h4>Sweden versus Arizona</h4><p>Take the same overhead design with lettuce to Västerås and to Tucson (use the same day in June and then the season). Compare light reduction, relative yield, specific PV yield and LER. The model says shading costs lettuce yield in both places, but field studies in drylands report benefits (Barron-Gafford et al., 2019). Which processes are missing from this model, and how would they change the conclusion?</p></li>
+        <li><h4>Design for a Mälardalen farm</h4><p>A farm near Västerås wants at least 300 kWp per hectare, a crop yield of at least 80 % of the open field and an LER of at least 1.3, while keeping machinery access (overhead ≥ 2.1 m or ≥ 8 m between fences). Find a design, justify every parameter, and state the uncertainties that you would want a field trial to resolve.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-agrivoltaics-lab">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Vertical bifacial fences 2.3 m high stand in rows 10 m apart. What is the ground-coverage ratio?","answer":0.23,"tol":0.02,"unit":"","hint":"GCR = collector width / pitch (Eq. A10).","explain":"<p>\\(\\text{GCR} = w/p = 2.3/10 = 0.23\\): 23 % of the land area is matched by module area.</p>"},
+          {"type":"numeric","q":"An agrivoltaic hectare gives 85 % of the open-field crop yield and 49 % of the electricity of a conventional PV park on one hectare. What is its land equivalent ratio?","answer":1.34,"tol":0.02,"unit":"","explain":"<p>\\(\\text{LER} = 0.85 + 0.49 = 1.34\\): separate fields would need 1.34 ha to produce the same.</p>"},
+          {"type":"numeric","q":"Long rows tilted 30° face the sun directly across the rows (ψ = 0) at a solar elevation of 40°. The GCR is 0.40. What percentage of the ground between the rows is in shadow? (Eq. A3: f = GCR·|cos θ|/sin α, cos θ = cos β sin α + sin β cos α cos ψ)","answer":58.5,"tol":0.03,"unit":"%","hint":"cos θ = cos30°·sin40° + sin30°·cos40°.","explain":"<p>\\(\\cos\\theta = 0.866\\times0.643 + 0.5\\times0.766 = 0.940\\); \\(f = 0.40\\times0.940/0.643 = 0.585\\), i.e. about 58 % of the ground is shaded at that moment — more than the GCR, because the tilted modules face the sun.</p>"},
+          {"type":"mcq","q":"In the simulator, you raise an overhead system from 3 m to 6 m clearance, keeping tilt, width and pitch fixed. What happens to the crop's season light?","options":["The mean stays about the same but the light becomes more uniform","The mean rises strongly because the panels are farther from the crop","The mean falls because a higher table casts a larger shadow","Nothing changes, because shading only depends on the GCR"],"answer":0,"feedback":["","A shadow of a parallel beam has the same area at any height: the modules intercept the same share of the beam.","The shadow of a parallel beam does not grow with height; it moves farther.","The GCR fixes the mean, but the height decides how far the shadow travels and therefore how evenly it is shared."],"explain":"<p>The direct beam is parallel, so the shadow area (and the intercepted light) does not depend on height. A high table's shadow travels farther across the field during the day, spreading the shade more evenly (check the uniformity readout). The sky view factor improves slightly with height, too.</p>"},
+          {"type":"multi","q":"Which changes increase the crop yield of a vertical bifacial fence system? (Select all that apply.)","options":["Increasing the row spacing","Choosing ley grass instead of maize","Raising the bifaciality factor from 0.7 to 0.9","Using modules that transmit 20 % of the light"],"answer":[0,1,3],"explain":"<p>Wider spacing and light transmission give the crop more light, and a shade-tolerant crop loses less yield for the same light. The bifaciality factor changes only the electricity from the rear face.</p>"},
+          {"type":"tf","q":"An LER of 1.35 means that each hectare of agrivoltaics produces 35 % more crop than an open field.","answer":false,"explain":"<p>False. LER adds two ratios; the crop ratio is normally below 1. LER 1.35 means separate systems would need 1.35 ha to deliver the same crop <em>and</em> electricity.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Geometry.</strong> Each row is one opaque rectangle (length 40 m, width = collector width) with an optional uniform transmission; the modules, posts, beams and inverters in the 3D scene are drawn for realism, but only the module rectangles cast shadows in the light model. Gaps between modules along a row are ignored.</li>
+        <li><strong>Light.</strong> Local solar time, no refraction or equation of time. One representative day per month (the 15th) with the NASA POWER monthly clearness index and a Haurwitz clear-sky shape; beam–diffuse split after Erbs et al. (1982); isotropic sky; no light reflected from panels or ground onto the crop. PAR = 2.02 µmol J⁻¹ × global irradiance.</li>
+        <li><strong>Crop.</strong> Light at canopy height only; no water, temperature, nutrient or disease effects of the panels. The season is fixed per crop (Northern-hemisphere months). Yield is the season's canopy photosynthesis relative to the open field (Eq. A8) with parameters calibrated to published uniform-shade responses — a calibrated, not a validated, model. Averages use the interior of the field (dashed box) excluding the uncultivated strips.</li>
+        <li><strong>PV.</strong> Front and rear irradiance with an isotropic sky, row-to-row beam shading for long rows (no partial-shading electrical losses), ASHRAE incidence-angle modifier, NOCT cell temperature, 14 % system losses, no snow, degradation or clipping. The PV energy is computed for a large array (no end or edge rows).</li>
+        <li><strong>Reference systems.</strong> Crop: the same crop in the open field. PV: a conventional ground-mounted park with monofacial modules facing the equator at 30° tilt and GCR 0.45, computed with the same model.</li>
+        <li><strong>Conventional PV park mode</strong> sets the crop yield to zero; grazing or mowing under such parks is not credited.</li>
+        <li><strong>Kärrbo-like preset.</strong> The research site's exact dimensions are not reproduced; the row spacing of 10 m and the 2.3 m module height are illustrative choices.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Barron-Gafford, G. A., Pavao-Zuckerman, M. A., Minor, R. L., Sutter, L. F., Barnett-Moreno, I., Blackett, D. T., Thompson, M., Dimond, K., Gerlak, A. K., Nabhan, G. P., &amp; Macknick, J. E. (2019). Agrivoltaics provide mutual benefits across the food–energy–water nexus in drylands. <em>Nature Sustainability</em>, 2, 848–855. <a href="https://doi.org/10.1038/s41893-019-0364-5" target="_blank" rel="noopener">doi:10.1038/s41893-019-0364-5</a></li>
+        <li>Campana, P. E., Stridh, B., Amaducci, S., &amp; Colauzzi, M. (2021). Optimisation of vertically mounted agrivoltaic systems. <em>Journal of Cleaner Production</em>, 325, 129091. <a href="https://doi.org/10.1016/j.jclepro.2021.129091" target="_blank" rel="noopener">doi:10.1016/j.jclepro.2021.129091</a></li>
+        <li>Campana, P. E., Stridh, B., Hörndahl, T., Svensson, S.-E., Zainali, S., Ma Lu, S., Zidane, T. E. K., De Luca, P., Amaducci, S., &amp; Colauzzi, M. (2024). Experimental results, integrated model validation, and economic aspects of agrivoltaic systems at northern latitudes. <em>Journal of Cleaner Production</em>, 437, 140235. <a href="https://doi.org/10.1016/j.jclepro.2023.140235" target="_blank" rel="noopener">doi:10.1016/j.jclepro.2023.140235</a></li>
+        <li>DIN. (2021). <em>DIN SPEC 91434:2021-05 Agri-Photovoltaik-Anlagen – Anforderungen an die landwirtschaftliche Hauptnutzung</em> [Agri-photovoltaic systems – Requirements for primary agricultural use]. DIN Media. <a href="https://www.dinmedia.de/en/technical-rule/din-spec-91434/337886742" target="_blank" rel="noopener">https://www.dinmedia.de/en/technical-rule/din-spec-91434/337886742</a></li>
+        <li>Dobos, A. P. (2014). <em>PVWatts version 5 manual</em> (NREL/TP-6A20-62641). National Renewable Energy Laboratory. <a href="https://doi.org/10.2172/1158421" target="_blank" rel="noopener">doi:10.2172/1158421</a></li>
+        <li>Duffie, J. A., &amp; Beckman, W. A. (2013). <em>Solar engineering of thermal processes</em> (4th ed.). Wiley. <a href="https://doi.org/10.1002/9781118671603" target="_blank" rel="noopener">doi:10.1002/9781118671603</a></li>
+        <li>Dupraz, C., Marrou, H., Talbot, G., Dufour, L., Nogier, A., &amp; Ferard, Y. (2011). Combining solar photovoltaic panels and food crops for optimising land use: Towards new agrivoltaic schemes. <em>Renewable Energy</em>, 36(10), 2725–2732. <a href="https://doi.org/10.1016/j.renene.2011.03.005" target="_blank" rel="noopener">doi:10.1016/j.renene.2011.03.005</a></li>
+        <li>Erbs, D. G., Klein, S. A., &amp; Duffie, J. A. (1982). Estimation of the diffuse radiation fraction for hourly, daily and monthly-average global radiation. <em>Solar Energy</em>, 28(4), 293–302. <a href="https://doi.org/10.1016/0038-092X(82)90302-4" target="_blank" rel="noopener">doi:10.1016/0038-092X(82)90302-4</a></li>
+        <li>Fraunhofer ISE. (2017, November 27). <em>Harvesting the sun for power and produce – agrophotovoltaics increases the land use efficiency by over 60 percent</em> [Press release]. <a href="https://www.ise.fraunhofer.de/en/press-media/press-releases/2017/harvesting-the-sun-for-power-and-produce-agrophotovoltaics-increases-the-land-use-efficiency-by-over-60-percent.html" target="_blank" rel="noopener">ise.fraunhofer.de</a></li>
+        <li>Fraunhofer ISE. (2019, April 12). <em>Agrophotovoltaics: High harvesting yield in hot summer of 2018</em> [Press release]. <a href="https://www.ise.fraunhofer.de/en/press-media/press-releases/2019/agrophotovoltaics-hight-harvesting-yield-in-hot-summer-of-2018.html" target="_blank" rel="noopener">ise.fraunhofer.de</a></li>
+        <li>Goetzberger, A., &amp; Zastrow, A. (1982). On the coexistence of solar-energy conversion and plant cultivation. <em>International Journal of Solar Energy</em>, 1(1), 55–69. <a href="https://doi.org/10.1080/01425918208909875" target="_blank" rel="noopener">doi:10.1080/01425918208909875</a></li>
+        <li>Haurwitz, B. (1945). Insolation in relation to cloudiness and cloud density. <em>Journal of Meteorology</em>, 2(3), 154–166. <a href="https://doi.org/10.1175/1520-0469(1945)002%3C0154:IIRTCA%3E2.0.CO;2" target="_blank" rel="noopener">doi:10.1175/1520-0469(1945)002&lt;0154:IIRTCA&gt;2.0.CO;2</a></li>
+        <li>Laub, M., Pataczek, L., Feuerbacher, A., Zikeli, S., &amp; Högy, P. (2022). Contrasting yield responses at varying levels of shade suggest different suitability of crops for dual land-use systems: A meta-analysis. <em>Agronomy for Sustainable Development</em>, 42, 51. <a href="https://doi.org/10.1007/s13593-022-00783-7" target="_blank" rel="noopener">doi:10.1007/s13593-022-00783-7</a></li>
+        <li>Ma Lu, S., Zainali, S., Zidane, T. E. K., Hörndahl, T., Tekie, S., Khosravi, A., Guezgouz, M., Stridh, B., Avelin, A., &amp; Campana, P. E. (2024). Data on the effects of a vertical agrivoltaic system on crop yield and nutrient content of barley (<em>Hordeum vulgare</em> L.) in Sweden. <em>Data in Brief</em>, 57, 110990. <a href="https://doi.org/10.1016/j.dib.2024.110990" target="_blank" rel="noopener">doi:10.1016/j.dib.2024.110990</a></li>
+        <li>Marrou, H., Wery, J., Dufour, L., &amp; Dupraz, C. (2013). Productivity and radiation use efficiency of lettuces grown in the partial shade of photovoltaic panels. <em>European Journal of Agronomy</em>, 44, 54–66. <a href="https://doi.org/10.1016/j.eja.2012.08.003" target="_blank" rel="noopener">doi:10.1016/j.eja.2012.08.003</a></li>
+        <li>NASA Langley Research Center. (2026). <em>POWER Climatology API, version 2.10</em> [Data set: ALLSKY_KT, T2M, T2M_RANGE; retrieved September 2026]. <a href="https://power.larc.nasa.gov/" target="_blank" rel="noopener">https://power.larc.nasa.gov/</a></li>
+        <li>Skoplaki, E., &amp; Palyvos, J. A. (2009). On the temperature dependence of photovoltaic module electrical performance: A review of efficiency/power correlations. <em>Solar Energy</em>, 83(5), 614–624. <a href="https://doi.org/10.1016/j.solener.2008.10.008" target="_blank" rel="noopener">doi:10.1016/j.solener.2008.10.008</a></li>
+        <li>Trommsdorff, M., Kang, J., Reise, C., Schindele, S., Bopp, G., Ehmann, A., Weselek, A., Högy, P., &amp; Obergfell, T. (2021). Combining food and energy production: Design of an agrivoltaic system applied in arable and vegetable farming in Germany. <em>Renewable and Sustainable Energy Reviews</em>, 140, 110694. <a href="https://doi.org/10.1016/j.rser.2020.110694" target="_blank" rel="noopener">doi:10.1016/j.rser.2020.110694</a></li>
+        <li>Weselek, A., Ehmann, A., Zikeli, S., Lewandowski, I., Schindele, S., &amp; Högy, P. (2019). Agrophotovoltaic systems: Applications, challenges, and opportunities. A review. <em>Agronomy for Sustainable Development</em>, 39, 35. <a href="https://doi.org/10.1007/s13593-019-0581-3" target="_blank" rel="noopener">doi:10.1007/s13593-019-0581-3</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

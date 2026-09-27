@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stirred-tank bioreactor · Future Food Production</title>
+<meta name="description" content="Run batch, fed-batch and continuous precision fermentation in a 3D stirred-tank bioreactor from 2 L to 100 m³: Monod–Pirt kinetics, Luedeking–Piret product formation, kLa, dissolved-oxygen cascade control and heat removal.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+</head>
+<body data-page="lab" data-slug="bioreactor">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Stirred-tank bioreactor</h1>
+    <p class="lead">Precision fermentation turns sugar into a food protein inside a steel tank full of yeast. Run a <em>Komagataella phaffii</em> (Pichia) culture that secretes a recombinant protein — in batch, fed-batch or continuous mode — and keep it alive the way a process engineer does: supply enough oxygen, remove enough heat and feed at the right rate. Then scale the same recipe from a 2 L glass fermenter to a 100 m³ production vessel and discover which physical limit bites first.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Growth, sugar and product</h3>
+      <div class="chart-sub">Biomass and glucose (left axis) and the secreted product titre (right axis). In fed-batch the sugar stays close to zero while the feed pump works; in continuous mode everything settles to a steady state — or washes out.</div>
+      <div class="chart" id="chart-time"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Oxygen: demand versus supply</h3>
+      <div class="chart-sub">Oxygen uptake rate of the cells (OUR), transfer rate from the bubbles (OTR) and the most the vessel can transfer at top stirrer speed (dashed). Dissolved O₂ on the right axis. When OUR reaches the ceiling, DO falls and growth becomes oxygen-limited.</div>
+      <div class="chart" id="chart-o2"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Heat load versus cooling capacity</h3>
+      <div class="chart-sub">Metabolic heat (460 kJ per mol O₂) plus stirrer power, per cubic metre of broth, against what the jacket and coils can remove. If the load exceeds the capacity the temperature (right axis) rises.</div>
+      <div class="chart" id="chart-heat"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Productivity</h3>
+      <div class="chart-sub">Space–time yield of the run so far: mass formed per litre of broth per hour of process time, for biomass (left) and the secreted product (right). This is the number that sets the size — and cost — of a factory.</div>
+      <div class="chart" id="chart-prod"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour</h2>
+      <ol>
+        <li><strong>Press ▶ Run</strong> with the default <em>2 L fed-batch</em>. For the first 20 h the culture grows exponentially on the 20 g L⁻¹ of glucose in the medium. Watch the broth turn from clear straw-yellow to an opaque, creamy suspension: at 30 g L⁻¹ of yeast you can no longer see the impellers.</li>
+        <li><strong>Watch the stirrer.</strong> The dissolved-oxygen (DO) controller speeds up the motor as the cells breathe harder, keeping DO at its 30 % set-point. The bubbles become finer and more numerous, and the magenta <em>OUR</em> curve climbs towards the dashed transfer ceiling.</li>
+        <li><strong>The feed starts</strong> as soon as the batch sugar is gone: the feed pump turns, the feed bottle empties and the level in the vessel rises. When the stirrer reaches top speed, the cascade switches to its second stage — O₂-enriched air. Near the end the feed protection throttles the pump because even enriched air is not enough.</li>
+        <li><strong>Open the <em>Probes</em> and <em>Impellers</em> views</strong> (buttons in the control panel). Click any component — probe, sparger, jacket, off-gas analyser — to read what it measures, live.</li>
+        <li><strong>Now choose <em>100 m³</em></strong> (or the preset <em>100 m³ fed-batch</em>) and run the same recipe. The vessel is 4 m wide and 10 m tall; a person on the platform gives the scale. This time the magenta <em>total heat load</em> curve hits the dashed blue <em>cooling capacity</em> long before oxygen runs short: the feed is throttled and the run takes far longer.</li>
+        <li><strong>Try the continuous mode</strong> at D = 0.10 h⁻¹ and then at 0.22 h⁻¹. At the higher dilution rate the cells cannot divide as fast as they are washed out, and the biomass curve slides towards zero.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A fermenter is a <strong>mass-transfer and heat-transfer machine</strong> that happens to contain living cells. The cells would happily grow at their maximum rate; what limits a real process is how fast the equipment can deliver <strong>oxygen</strong>, remove <strong>heat</strong> and <strong>mix</strong> — and all three get harder as the vessel gets bigger.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>What happens inside a fermenter</h2>
+      <p>An aerobic fermentation is a controlled combustion. The yeast oxidises glucose with oxygen to gain energy, uses part of the carbon to build new cells and — because it carries a gene for our product — secretes a protein. Every mole of oxygen consumed releases about 460 kJ of heat, and every watt of stirrer power also ends up as heat in the broth. The bioreactor has to <em>supply</em> glucose and oxygen, <em>remove</em> carbon dioxide and heat, and <em>mix</em> everything so that each cell sees the same conditions.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 680 330" role="img" aria-label="Mass and energy flows of an aerobic fed-batch fermenter">
+          <defs><marker id="br-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <rect x="250" y="70" width="180" height="200" rx="18" class="fill-sunk" stroke="currentColor" stroke-width="1.5"/>
+          <rect x="258" y="130" width="164" height="132" rx="12" class="fill-accent-soft"/>
+          <line x1="340" y1="40" x2="340" y2="240" class="stroke" stroke-width="3"/>
+          <rect x="310" y="180" width="60" height="6" class="fill-accent"/><rect x="310" y="222" width="60" height="6" class="fill-accent"/>
+          <circle cx="325" cy="255" r="3" class="fill-water"/><circle cx="340" cy="255" r="3" class="fill-water"/><circle cx="355" cy="255" r="3" class="fill-water"/>
+          <rect x="320" y="20" width="40" height="22" rx="4" class="fill-bg" stroke="currentColor"/>
+          <text x="340" y="15" text-anchor="middle" class="t-small">motor: shaft power P_g → heat</text>
+          <line x1="90" y1="100" x2="245" y2="100" class="stroke-amber" stroke-width="2.4" marker-end="url(#br-ar)"/>
+          <text x="20" y="92" class="t-small">glucose feed F·S_F</text><text x="20" y="116" class="t-small t-muted">(ammonia for pH and N)</text>
+          <line x1="90" y1="292" x2="330" y2="292" class="stroke-water" stroke-width="2.4"/><line x1="330" y1="292" x2="330" y2="266" class="stroke-water" stroke-width="2.4" marker-end="url(#br-ar)"/>
+          <text x="20" y="310" class="t-small">air or O₂-enriched air, ṅ_G, y_in</text>
+          <line x1="410" y1="68" x2="410" y2="40" class="stroke-muted" stroke-width="2.4"/><line x1="410" y1="40" x2="600" y2="40" class="stroke-muted" stroke-width="2.4" marker-end="url(#br-ar)"/>
+          <text x="440" y="30" class="t-small">exhaust: less O₂, more CO₂ → OUR, CER, RQ</text>
+          <line x1="435" y1="200" x2="600" y2="200" class="stroke-danger" stroke-width="2.4" marker-end="url(#br-ar)"/>
+          <text x="450" y="190" class="t-small">heat to cooling water</text><text x="450" y="218" class="t-small t-muted">Q ≤ U·A·(T − T_cw)</text>
+          <line x1="435" y1="250" x2="600" y2="250" class="stroke-magenta" stroke-width="2.4" stroke-dasharray="6 4" marker-end="url(#br-ar)"/>
+          <text x="450" y="270" class="t-small">harvest (continuous): F·X, F·P</text>
+          <text x="263" y="152" class="t-small">broth:</text><text x="263" y="168" class="t-small">X, S, P, O₂</text>
+          <text x="263" y="100" class="t-small t-muted">head</text><text x="263" y="116" class="t-small t-muted">space</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The flows the process engineer has to balance. Each arrow corresponds to a term in the balances of the Derive tab: feed and harvest in Eq. B2, oxygen transfer in Eq. B7, exhaust gas in Eq. B8, heat in Eq. B11.</figcaption>
+      </figure>
+
+      <h3>Growth, maintenance and the product</h3>
+      <p>Cells take up glucose at a specific rate \(q_S\) that saturates at high sugar concentration (the Monod form). Most of that sugar is turned into new cells with the <em>true yield</em> \(Y_{X/S}\), but a small, constant slice — the <em>maintenance</em> \(m_S\) — is burned just to keep existing cells alive (Pirt, 1965). The consequence matters in fed-batch and continuous culture: the slower the cells grow, the larger the fraction of sugar lost to maintenance. The secreted product follows the Luedeking–Piret law: part is made in proportion to growth (\(\alpha\mu\)) and part at a constant background rate (\(\beta\)). For the Fab antibody fragment studied by Maurer et al. (2006), production is strongly growth-associated — which is why the protein titre rises only while the cells grow.</p>
+
+      <h3>Oxygen: the first bottleneck</h3>
+      <p>Oxygen dissolves poorly in water: air-saturated broth at 25 °C holds only about 8 mg L⁻¹, i.e. 0.26 mmol L⁻¹. A dense culture can consume that in a few seconds, so oxygen must be transferred continuously from bubbles into the liquid. The rate is \(\text{OTR} = k_La\,(C^{*} - C)\): a mass-transfer coefficient times a driving force. The engineer can raise \(k_La\) with more stirrer power and more gas (Eq. B10), or raise the driving force with a higher head pressure or O₂-enriched air (Eq. B8). The DO controller does this automatically in a <em>cascade</em>: stirrer speed first, O₂ enrichment second (Figure 2).</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 680 212" role="img" aria-label="Cascade control of dissolved oxygen">
+          <defs><marker id="br-ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <rect x="20" y="70" width="110" height="50" rx="8" class="fill-water-soft" stroke="currentColor"/><text x="75" y="92" text-anchor="middle" class="t-small">DO probe</text><text x="75" y="110" text-anchor="middle" class="t-small t-muted">% air sat.</text>
+          <rect x="175" y="70" width="130" height="50" rx="8" class="fill-sunk" stroke="currentColor"/><text x="240" y="92" text-anchor="middle" class="t-small">PI controller</text><text x="240" y="110" text-anchor="middle" class="t-small t-muted">error = set-point − DO</text>
+          <rect x="360" y="20" width="150" height="50" rx="8" class="fill-accent-soft" stroke="currentColor"/><text x="435" y="42" text-anchor="middle" class="t-small">stage 1: stirrer speed</text><text x="435" y="60" text-anchor="middle" class="t-small t-muted">N_min → N_max</text>
+          <rect x="360" y="120" width="150" height="50" rx="8" class="fill-magenta-soft" stroke="currentColor"/><text x="435" y="142" text-anchor="middle" class="t-small">stage 2: O₂ enrichment</text><text x="435" y="160" text-anchor="middle" class="t-small t-muted">21 % → 50 % O₂</text>
+          <rect x="555" y="70" width="110" height="50" rx="8" class="fill-sunk" stroke="currentColor"/><text x="610" y="92" text-anchor="middle" class="t-small">OTR = k_La(C* − C)</text><text x="610" y="110" text-anchor="middle" class="t-small t-muted">broth</text>
+          <line x1="130" y1="95" x2="170" y2="95" class="stroke" stroke-width="1.6" marker-end="url(#br-ar2)"/>
+          <path d="M305 85 L340 45 L356 45" class="stroke" fill="none" stroke-width="1.6" marker-end="url(#br-ar2)"/>
+          <path d="M305 105 L340 145 L356 145" class="stroke" fill="none" stroke-width="1.6" marker-end="url(#br-ar2)"/>
+          <text x="296" y="60" class="t-small t-muted">u ≤ 1</text><text x="296" y="140" class="t-small t-muted">u > 1</text>
+          <path d="M510 45 L540 45 L555 88" class="stroke-accent" fill="none" stroke-width="1.6" marker-end="url(#br-ar2)"/>
+          <path d="M510 145 L540 145 L555 102" class="stroke-magenta" fill="none" stroke-width="1.6" marker-end="url(#br-ar2)"/>
+          <path d="M610 120 L610 190 L75 190 L75 124" class="stroke-muted" fill="none" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#br-ar2)"/>
+          <text x="340" y="206" text-anchor="middle" class="t-small t-muted">measured DO closes the loop</text>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> The dissolved-oxygen cascade (Eq. B13). One controller output \(u\) drives two actuators in sequence: below 1 it sets the stirrer speed, above 1 (with enrichment enabled) it adds oxygen to the inlet gas. In fed-batch the feed protection is a third, slower stage: when neither can keep up, the feed — and with it the oxygen demand — is reduced.</figcaption>
+      </figure>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"If DO is at the set-point, oxygen is not limiting." The DO reading only tells you that the controller is winning <em>for now</em>. The real margin is the gap between OUR and the transfer ceiling (dashed line in the oxygen chart). A process running at 95 % of its ceiling will crash the moment the feed rises a little.</p></div>
+
+      <h3>Heat: the second bottleneck</h3>
+      <p>The metabolic heat is proportional to the oxygen uptake: \(\dot Q = 460\ \text{kJ mol}^{-1}\times\text{OUR}\times V\) (Doran, 2013; Cooney et al., 1969). An OUR of 100 mmol L⁻¹ h⁻¹ releases 12.8 kW in every cubic metre — the output of a large domestic boiler per m³ of broth. The jacket can remove \(U A (T - T_{cw})\), and here geometry is merciless: for geometrically similar vessels with \(H = 2T\) the wall area per volume is \(A/V = 4/T\). A 2 L fermenter has 37 m² of wall per m³ of broth; a 100 m³ vessel has 1 m² m⁻³. Heat removal per volume therefore falls about 37-fold on scale-up, while the oxygen transfer per volume can be kept roughly constant by keeping the power per volume constant.</p>
+
+      <h3>Scaling up at constant power per volume</h3>
+      <p>The most common scale-up rule for microbial fermentations is to keep the power input per volume \(P/V\) constant, because \(k_La\) depends mainly on \(P/V\) and the gas velocity (Eq. B10). The live comparison below applies the current settings (maximum P/V, set-point, cooling water, coils) to three geometrically similar vessels with the aeration, head pressure and \(U\) typical of each scale.</p>
+      <figure class="figure wide">
+        <div class="fig-body"><div id="chart-scale" style="min-height:300px"></div></div>
+        <figcaption><b>Figure 3.</b> Oxygen-transfer ceiling (at top stirrer speed with air, DO held at 10 %) and heat-removal ceiling (the OUR whose heat, plus the stirrer power, the jacket and coils can remove at the set-point) for the three scales. The lower bar of each pair is the process limit.</figcaption>
+      </figure>
+      <table id="scale-table"><caption>Scale-up at constant P/V (current settings). Mixing time is relative to the 2 L vessel, using \(N t_m\) = constant for geometrically similar tanks.</caption>
+        <thead><tr><th>Quantity</th><th class="num">2 L</th><th class="num">1 m³</th><th class="num">100 m³</th></tr></thead><tbody></tbody></table>
+      <div class="callout note"><div class="callout-title">Why does the O₂ ceiling rise with scale?</div><p>At constant P/V, a tall vessel helps oxygen transfer in two ways: the hydrostatic pressure at mid-depth raises the solubility \(C^{*}\) (Henry's law), and the same vvm pushes gas faster through the liquid (higher \(v_s\)). Large vessels also run with head-space overpressure. What they cannot escape is the shrinking wall area per volume — and the long mixing times, which create sugar and oxygen gradients that this well-mixed model cannot show.</p></div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">Oxygen and heat at 100 g L⁻¹</span></div>
+        <div class="we-problem"><p>A <em>K. phaffii</em> fed-batch (\(Y_{X/S} = 0.559\) g g⁻¹, \(m_S = 0.0161\) g g⁻¹ h⁻¹) grows at \(\mu = 0.10\) h⁻¹ at \(X = 100\) g L⁻¹ and 25 °C. (a) What is the oxygen uptake rate? (b) What \(k_La\) is needed with air and with 50 % O₂, if DO is held at 30 % of air saturation (\(C^{*}_{\text{air}} = 0.258\) mmol L⁻¹)? (c) What is the heat load per m³, and can a jacket remove it in a 2 L and in a 100 m³ vessel with \(H = 2T\), \(U = 500\) W m⁻² K⁻¹ and ΔT = 10 K?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Sugar uptake (Eq. B1).</strong> \(q_S = \mu/Y_{X/S} + m_S = 0.10/0.559 + 0.0161 = 0.195\) g g⁻¹ h⁻¹.</li>
+            <li><strong>Oxygen by electron balance (Eq. B6).</strong> \(q_{O_2} = \tfrac14\left(4\times0.195/30.03 - 4.2\times0.10/24.6\right) = \tfrac14(0.02597 - 0.01707) = 2.23\times10^{-3}\) mol g⁻¹ h⁻¹. OUR \(= q_{O_2}X = 0.223\) mol L⁻¹ h⁻¹ = 223 mmol L⁻¹ h⁻¹.</li>
+            <li><strong>Required \(k_La\) (Eq. B7).</strong> With air: \(k_La = 223/(0.258 - 0.3\times0.258) = 223/0.181 = 1230\) h⁻¹ — far above what stirred tanks reach. With 50 % O₂: \(C^{*} = 0.258\times0.50/0.2095 = 0.616\) mmol L⁻¹, driving force \(0.616 - 0.077 = 0.539\), so \(k_La = 414\) h⁻¹ — achievable.</li>
+            <li><strong>Heat (Eq. B11).</strong> \(223\ \text{mol m}^{-3}\text{h}^{-1}\times460\ \text{kJ mol}^{-1}/3600 = 28.5\) kW m⁻³ (plus stirrer power).</li>
+            <li><strong>Jacket capacity per volume (Eq. B12).</strong> \(A/V = 4/T\). At 2 L (\(T = 0.108\) m): \(37\ \text{m}^2\text{m}^{-3}\times500\times10 = 185\) kW m⁻³ — plenty. At 100 m³ (\(T = 3.99\) m): \(1.0\times500\times10 = 5.0\) kW m⁻³ — less than a fifth of the load.</li>
+          </ol>
+          <span class="answer">OUR ≈ 223 mmol L⁻¹ h⁻¹; k_La ≈ 1230 h⁻¹ (air) or 414 h⁻¹ (50 % O₂); heat ≈ 28.5 kW m⁻³ — easy at 2 L, impossible with a jacket alone at 100 m³.</span>
+          <p>Sanity check: the lesson's rule of thumb, 12.8 kW m⁻³ per 100 mmol L⁻¹ h⁻¹, gives 28.5 kW m⁻³ for 223 ✓. Try the preset <em>100 m³ with coils + chilled water</em> to see how much extra surface is needed.</p>
+        </div></details>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Maintenance lowers the yield of a chemostat</span></div>
+        <div class="we-problem"><p>The same yeast (\(\mu_{\max} = 0.20\) h⁻¹, \(K_S = 0.05\) g L⁻¹) grows in a chemostat on \(S_R = 20\) g L⁻¹ glucose at \(D = 0.10\) h⁻¹. Find the steady-state sugar, biomass, productivity and the <em>observed</em> yield. Then find the washout dilution rate.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li>At steady state \(\mu = D\), so \(q_S = D/Y_{X/S} + m_S = 0.10/0.559 + 0.0161 = 0.195\) g g⁻¹ h⁻¹, and \(q_{S,\max} = 0.20/0.559 + 0.0161 = 0.374\) g g⁻¹ h⁻¹.</li>
+            <li>Sugar (Eq. B5): \(\bar S = K_S q_S/(q_{S,\max} - q_S) = 0.05\times0.195/0.179 = 0.054\) g L⁻¹.</li>
+            <li>Biomass: \(\bar X = D(S_R - \bar S)/q_S = 0.10\times19.95/0.195 = 10.2\) g L⁻¹; productivity \(D\bar X = 1.02\) g L⁻¹ h⁻¹.</li>
+            <li>Observed yield: \(\bar X/(S_R - \bar S) = 10.2/19.95 = 0.513\) g g⁻¹ — 8 % below the true yield, because 8 % of the sugar is burned for maintenance.</li>
+            <li>Washout: \(D_{\text{crit}} = Y_{X/S}\left(q_{S,\max}S_R/(K_S + S_R) - m_S\right) = 0.559\times(0.373 - 0.0161) = 0.200\) h⁻¹.</li>
+          </ol>
+          <span class="answer">S̄ = 0.054 g L⁻¹, X̄ = 10.2 g L⁻¹, D·X̄ = 1.02 g L⁻¹ h⁻¹, Y_obs = 0.51 g g⁻¹, D_crit = 0.200 h⁻¹.</span>
+          <p>The simulator gives X̄ ≈ 10.3 g L⁻¹ and S̄ ≈ 0.07 g L⁻¹ — slightly different because the cells also see a small oxygen limitation at DO = 30 % (the \(C/(K_O + C)\) term in Eq. B1).</p>
+        </div></details>
+      </div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The simulator integrates six state variables — biomass \(X\), glucose \(S\), product \(P\), dissolved oxygen \(C\), volume \(V\) and temperature \(T\) — with a fourth-order Runge–Kutta method and a 5 s time step, while the controllers act between steps. Units: concentrations in g L⁻¹ (= kg m⁻³), dissolved O₂ in mmol L⁻¹ (= mol m⁻³), time in hours.</p>
+
+      <div class="eq-box" id="eq-br-kinetics">
+        <div class="eq-head"><span class="eq-label">Monod uptake with maintenance (Herbert–Pirt)</span><span class="eq-num">(B1)</span></div>
+        <div class="eq-main">\[ \begin{aligned} q_S &= q_{S,\max}\,\frac{S}{K_S+S}\,\frac{C}{K_O+C}, \qquad q_{S,\max} = \frac{\mu_{\max}}{Y_{X/S}} + m_S \\ \mu &= Y_{X/S}\left(q_S - m_S\,\frac{C}{K_O+C}\right) \end{aligned} \]</div>
+        <p class="eq-read">the cells take up sugar at a rate that saturates with sugar and with dissolved oxygen; what is left after paying the maintenance "tax" is turned into new cells with the true yield.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value used</th></tr>
+          <tr><td>\(q_S\)</td><td>specific glucose uptake rate</td><td>g g⁻¹ h⁻¹</td><td>—</td></tr>
+          <tr><td>\(\mu\)</td><td>specific growth rate (negative = endogenous decay)</td><td>h⁻¹</td><td>—</td></tr>
+          <tr><td>\(\mu_{\max}\)</td><td>maximum specific growth rate</td><td>h⁻¹</td><td>0.20 (Maurer et al., 2006)</td></tr>
+          <tr><td>\(Y_{X/S}\)</td><td>true biomass yield on glucose</td><td>g g⁻¹</td><td>0.559 (Maurer et al., 2006)</td></tr>
+          <tr><td>\(m_S\)</td><td>maintenance coefficient</td><td>g g⁻¹ h⁻¹</td><td>0.0161 (Maurer et al., 2006)</td></tr>
+          <tr><td>\(K_S\)</td><td>half-saturation constant for glucose</td><td>g L⁻¹</td><td>0.05 (assumed; sugars are typically mg L⁻¹ to 0.1 g L⁻¹)</td></tr>
+          <tr><td>\(K_O\)</td><td>half-saturation constant for dissolved O₂</td><td>mmol L⁻¹</td><td>0.01 (≈ 4 % of air saturation, assumed)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Monod (1949) observed that growth saturates with the limiting substrate: \(\mu = \mu_{\max}S/(K_S+S)\). Writing the same law for the <em>uptake</em> rate is more mechanistic: transporters saturate, \(q_S = q_{S,\max}S/(K_S+S)\).</li>
+            <li>Pirt (1965) split the uptake into a part for growth and a part for maintenance: \(q_S = \mu/Y_{X/S} + m_S\). Solving for \(\mu\) gives \(\mu = Y_{X/S}(q_S - m_S)\).</li>
+            <li>For \(\mu\) to reach \(\mu_{\max}\) when sugar is in excess, \(q_{S,\max} = \mu_{\max}/Y_{X/S} + m_S\).</li>
+            <li>Without oxygen the (strictly aerobic) cells can neither take up sugar nor respire for maintenance, so both terms are multiplied by \(C/(K_O + C)\).</li>
+            <li>When the sugar runs out (\(q_S \to 0\)) the formula gives \(\mu = -Y_{X/S}m_S\): the cells burn their own mass (endogenous metabolism) — visible as a slow decline of \(X\) after a batch ends.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Unstructured, unsegregated model: all cells are identical and the population is described by its total mass. Kinetic constants of Maurer et al. were measured for a GAP-promoter <i>K. phaffii</i> strain on glucose at 25 °C and pH 5; other strains, substrates (glycerol, methanol) and temperatures have different values. No overflow metabolism (<i>K. phaffii</i> is Crabtree-negative) and no substrate inhibition.</p></details>
+        <div class="eq-units">\([q_S] = \text{g g}^{-1}\text{h}^{-1}\); \(Y_{X/S}\,q_S\): (g g⁻¹)(g g⁻¹ h⁻¹) = h⁻¹ = \([\mu]\) ✓</div>
+        <div class="mini-calc" data-formula="Y*((mu/Y+m)*S/(Ks+S) - m)" data-output="Specific growth rate μ" data-unit="h⁻¹" data-digits="3" data-plot="S" data-ymin="-0.02">
+          <div data-var="S" data-label="Glucose S" data-min="0" data-max="0.5" data-step="0.005" data-value="0.1" data-unit="g L⁻¹"></div>
+          <div data-var="mu" data-label="μ<sub>max</sub>" data-min="0.05" data-max="0.4" data-step="0.01" data-value="0.2" data-unit="h⁻¹"></div>
+          <div data-var="Y" data-label="Y<sub>X/S</sub>" data-min="0.3" data-max="0.7" data-step="0.01" data-value="0.56" data-unit="g g⁻¹"></div>
+          <div data-var="m" data-label="m<sub>S</sub>" data-min="0" data-max="0.05" data-step="0.001" data-value="0.016" data-unit="g g⁻¹ h⁻¹"></div>
+          <div data-var="Ks" data-label="K<sub>S</sub>" data-min="0.005" data-max="0.3" data-step="0.005" data-value="0.05" data-unit="g L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-br-balances">
+        <div class="eq-head"><span class="eq-label">Mass balances for batch, fed-batch and continuous culture</span><span class="eq-num">(B2)</span></div>
+        <div class="eq-main">\[ \begin{aligned} \frac{\mathrm{d}X}{\mathrm{d}t} &= \mu X - \frac{F_{\text{in}}}{V}X, &\qquad \frac{\mathrm{d}S}{\mathrm{d}t} &= -q_S X + \frac{F_{\text{in}}}{V}\left(S_F - S\right), \\ \frac{\mathrm{d}P}{\mathrm{d}t} &= q_P X - \frac{F_{\text{in}}}{V}P, &\qquad \frac{\mathrm{d}V}{\mathrm{d}t} &= F_{\text{in}} - F_{\text{out}} \end{aligned} \]</div>
+        <p class="eq-read">biomass grows at μX and is diluted by incoming feed; sugar is consumed by the cells and replenished by the feed; product is made at q_P·X and diluted; the volume changes by feed in minus harvest out.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(F_{\text{in}}, F_{\text{out}}\)</td><td>feed and harvest flow rates (batch: both 0; fed-batch: \(F_{\text{out}} = 0\); chemostat: \(F_{\text{out}} = F_{\text{in}} = DV\))</td><td>m³ h⁻¹</td></tr>
+          <tr><td>\(S_F\)</td><td>glucose in the feed: 550 g L⁻¹ in fed-batch (Maurer et al., 2006); the medium \(S_R = S_0\) in continuous culture</td><td>g L⁻¹</td></tr>
+          <tr><td>\(D = F/V\)</td><td>dilution rate</td><td>h⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Balance the total amount of biomass \(XV\): accumulation = production − outflow, \(\mathrm{d}(XV)/\mathrm{d}t = \mu XV - F_{\text{out}}X\) (the feed contains no cells).</li>
+            <li>Product rule: \(\mathrm{d}(XV)/\mathrm{d}t = V\,\mathrm{d}X/\mathrm{d}t + X\,\mathrm{d}V/\mathrm{d}t = V\,\mathrm{d}X/\mathrm{d}t + X(F_{\text{in}} - F_{\text{out}})\).</li>
+            <li>Equate and divide by \(V\): \(\mathrm{d}X/\mathrm{d}t = \mu X - (F_{\text{in}}/V)X\). The harvest drops out: <em>only incoming liquid dilutes</em> the concentration — a neat result that holds in every mode.</li>
+            <li>The same steps for \(SV\), with an inflow term \(F_{\text{in}}S_F\) and consumption \(q_SXV\), give the sugar balance; for \(PV\) the product balance.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ideally mixed liquid (no gradients). Sampling, base and antifoam additions and evaporation are neglected in the volume balance. Protein degradation by proteases is ignored.</p></details>
+        <div class="eq-units">\([\mu X] = \text{h}^{-1}\,\text{g L}^{-1}\); \([(F/V)X] = (\text{m}^3\text{h}^{-1}/\text{m}^3)\,\text{g L}^{-1}\) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-br-lp">
+        <div class="eq-head"><span class="eq-label">Product formation (Luedeking–Piret)</span><span class="eq-num">(B3)</span></div>
+        <div class="eq-main">\[ q_P = \alpha\,\mu + \beta \]</div>
+        <p class="eq-read">the specific rate of product formation has a growth-associated part, proportional to the growth rate, and a non-growth-associated part that continues while the cells are active.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value used</th></tr>
+          <tr><td>\(q_P\)</td><td>specific product formation rate</td><td>g g⁻¹ h⁻¹</td><td>—</td></tr>
+          <tr><td>\(\alpha\)</td><td>growth-associated coefficient</td><td>g g⁻¹</td><td>0.2051 mg g⁻¹ (Fab); ×100 for the hypothetical food strain</td></tr>
+          <tr><td>\(\beta\)</td><td>non-growth-associated rate</td><td>g g⁻¹ h⁻¹</td><td>0.002 mg g⁻¹ h⁻¹ (Fab); ×100 for the food strain</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Luedeking and Piret (1959) found for lactic acid that \(\mathrm{d}P/\mathrm{d}t = \alpha\,\mathrm{d}X/\mathrm{d}t + \beta X\). Dividing by \(X\) gives the specific form above.</li>
+            <li>Maurer et al. (2006) measured \(q_P\) of a secreted Fab fragment in chemostats at several growth rates. At low growth rates (\(\mu \le 0.05\) h⁻¹) their data follow \(q_P = 0.2051\mu + 0.002\) (mg g⁻¹ h⁻¹, μ in h⁻¹); at higher μ the increase saturates (their Monod-type fit, \(q_{P,\max} = 0.0735\) mg g⁻¹ h⁻¹). The simulator uses the linear form throughout, so it slightly over-predicts \(q_P\) at μ above ≈ 0.1 h⁻¹.</li>
+            <li>In the model \(\beta\) is multiplied by the sugar and oxygen saturation terms — starving cells make no product — and \(\alpha\mu\) counts only positive growth.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The "food protein" strain is a thought experiment (all rates of the Fab strain multiplied by 100), not a published strain: it shows what specific productivity a commercial food-ingredient process must reach. Substrate and oxygen used to make the product are lumped into \(Y_{X/S}\) and \(m_S\).</p></details>
+        <div class="eq-units">\([\alpha\mu] = \text{g g}^{-1}\cdot\text{h}^{-1}\) = \([\beta]\) = g g⁻¹ h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="(a*mu+b)*X*t" data-output="Product formed at constant μ and X" data-unit="mg L⁻¹" data-digits="1" data-plot="mu">
+          <div data-var="mu" data-label="Growth rate μ" data-min="0" data-max="0.2" data-step="0.005" data-value="0.05" data-unit="h⁻¹"></div>
+          <div data-var="a" data-label="α" data-min="0" data-max="1" data-step="0.01" data-value="0.21" data-unit="mg g⁻¹"></div>
+          <div data-var="b" data-label="β" data-min="0" data-max="0.02" data-step="0.0005" data-value="0.002" data-unit="mg g⁻¹ h⁻¹"></div>
+          <div data-var="X" data-label="Biomass X" data-min="1" data-max="120" data-step="1" data-value="50" data-unit="g L⁻¹"></div>
+          <div data-var="t" data-label="Duration" data-min="1" data-max="100" data-step="1" data-value="10" data-unit="h"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-br-feed">
+        <div class="eq-head"><span class="eq-label">Exponential feed for a set growth rate</span><span class="eq-num">(B4)</span></div>
+        <div class="eq-main">\[ F(t) = \frac{\left(\mu_{\text{set}}/Y_{X/S} + m_S\right)X_fV_f}{S_F}\;e^{\mu_{\text{set}}\,(t - t_f)} \]</div>
+        <p class="eq-read">to keep the cells growing at μ_set, feed exactly the sugar they need for growth plus maintenance; since the biomass grows exponentially, so must the feed.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\mu_{\text{set}}\)</td><td>chosen growth rate (must be below \(\mu_{\max}\))</td><td>h⁻¹</td></tr>
+          <tr><td>\(X_f, V_f, t_f\)</td><td>biomass, volume and time at the start of feeding (end of the batch phase)</td><td>g L⁻¹, m³, h</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Quasi-steady state for sugar: the residual \(S\) stays small and constant, so feed = uptake: \(F S_F = q_S XV\).</li>
+            <li>For growth at \(\mu_{\text{set}}\): \(q_S = \mu_{\text{set}}/Y_{X/S} + m_S\) (Eq. B1), and the total biomass grows as \(XV = X_fV_f e^{\mu_{\text{set}}(t - t_f)}\).</li>
+            <li>Combine: \(F = (\mu_{\text{set}}/Y_{X/S} + m_S)X_fV_fe^{\mu_{\text{set}}(t-t_f)}/S_F\). (Strictly, maintenance makes \(XV\) grow slightly slower than assumed; the error is small.)</li>
+            <li>In the simulator the <em>feed protection</em> multiplies \(F\) by a factor between 0 and 1 that falls when DO drops below 15 % or the temperature rises more than 0.3 K above set-point.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Open-loop (feed-forward) control: if the real yield differs from the assumed one, sugar accumulates or the culture starves. Industry therefore often combines exponential feeding with feedback on DO (DO-stat) or off-gas signals.</p></details>
+        <div class="eq-units">\(\dfrac{(\text{h}^{-1}\,\text{g g}^{-1})(\text{g L}^{-1})(\text{m}^3)}{\text{g L}^{-1}} = \text{m}^3\,\text{h}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="(mu/0.559+0.0161)*Xf*Vf/550*exp(mu*t)*1000" data-output="Feed rate F" data-unit="L h⁻¹" data-digits="3" data-plot="t">
+          <div data-var="t" data-label="Time since feed start" data-min="0" data-max="40" data-step="0.5" data-value="10" data-unit="h"></div>
+          <div data-var="mu" data-label="μ<sub>set</sub>" data-min="0.02" data-max="0.18" data-step="0.005" data-value="0.1" data-unit="h⁻¹"></div>
+          <div data-var="Xf" data-label="X<sub>f</sub>" data-min="1" data-max="30" data-step="0.5" data-value="11" data-unit="g L⁻¹"></div>
+          <div data-var="Vf" data-label="V<sub>f</sub>" data-min="0.0005" data-max="0.002" data-step="0.0001" data-value="0.0012" data-unit="m³"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-br-chemostat">
+        <div class="eq-head"><span class="eq-label">Chemostat steady state and washout (with maintenance)</span><span class="eq-num">(B5)</span></div>
+        <div class="eq-main">\[ \begin{aligned} \mu &= D, \qquad q_S = \frac{D}{Y_{X/S}} + m_S, \qquad \bar S = \frac{K_S\,q_S}{q_{S,\max} - q_S}, \\ \bar X &= \frac{D\,(S_R - \bar S)}{q_S}, \qquad D_{\text{crit}} = Y_{X/S}\left(\frac{q_{S,\max}S_R}{K_S + S_R} - m_S\right) \end{aligned} \]</div>
+        <p class="eq-read">in a steady chemostat the cells grow exactly as fast as they are washed out; the residual sugar is whatever gives that growth rate, and all the sugar consumed ends up in the cells or is burned for maintenance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\bar S, \bar X\)</td><td>steady-state sugar and biomass</td><td>g L⁻¹</td></tr>
+          <tr><td>\(S_R\)</td><td>sugar in the incoming medium</td><td>g L⁻¹</td></tr>
+          <tr><td>\(D_{\text{crit}}\)</td><td>dilution rate above which the culture washes out</td><td>h⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Steady state of Eq. B2 with \(F_{\text{in}} = F_{\text{out}}\): \(0 = \mu\bar X - D\bar X\) → \(\mu = D\) (or \(\bar X = 0\), washout).</li>
+            <li>From Eq. B1 (oxygen in excess), \(\mu = D\) requires \(q_S = D/Y_{X/S} + m_S\); inverting \(q_S = q_{S,\max}S/(K_S + S)\) gives \(\bar S\).</li>
+            <li>Sugar balance at steady state: \(0 = -q_S\bar X + D(S_R - \bar S)\) → \(\bar X = D(S_R - \bar S)/q_S\).</li>
+            <li>Washout begins when even \(S = S_R\) (no consumption) cannot support \(\mu = D\): \(D_{\text{crit}} = Y_{X/S}(q_{S,\max}S_R/(K_S+S_R) - m_S)\) ≈ \(\mu_{\max}\) when \(S_R \gg K_S\).</li>
+            <li>The observed yield \(\bar X/(S_R - \bar S) = Y_{X/S}D/(D + Y_{X/S}m_S)\) falls at low \(D\): at slow growth, maintenance takes a larger share.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ideal mixing, sterile feed, no wall growth, no mutation. The simulated chemostat starts as a batch and switches to continuous flow when the sugar is used up, so the approach to steady state is visible.</p></details>
+        <div class="eq-units">\(\bar X\): (h⁻¹)(g L⁻¹)/(g g⁻¹ h⁻¹) = g L⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="D < Y*((mu/Y+m)*SR/(0.05+SR) - m) ? D*(SR - 0.05*(D/Y+m)/((mu/Y+m)-(D/Y+m)))/(D/Y+m) : 0" data-output="Steady-state biomass X̄" data-unit="g L⁻¹" data-digits="2" data-plot="D" data-ymin="0">
+          <div data-var="D" data-label="Dilution rate D" data-min="0.005" data-max="0.25" data-step="0.005" data-value="0.1" data-unit="h⁻¹"></div>
+          <div data-var="mu" data-label="μ<sub>max</sub>" data-min="0.1" data-max="0.3" data-step="0.01" data-value="0.2" data-unit="h⁻¹"></div>
+          <div data-var="Y" data-label="Y<sub>X/S</sub>" data-min="0.3" data-max="0.7" data-step="0.01" data-value="0.56" data-unit="g g⁻¹"></div>
+          <div data-var="m" data-label="m<sub>S</sub>" data-min="0" data-max="0.05" data-step="0.001" data-value="0.016" data-unit="g g⁻¹ h⁻¹"></div>
+          <div data-var="SR" data-label="S<sub>R</sub>" data-min="5" data-max="60" data-step="1" data-value="20" data-unit="g L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-br-electron">
+        <div class="eq-head"><span class="eq-label">Oxygen demand from an electron balance</span><span class="eq-num">(B6)</span></div>
+        <div class="eq-main">\[ \begin{aligned} q_{O_2} &= \frac{1}{4}\left(\frac{\gamma_S\,q_S}{M_S} - \frac{\gamma_X\,\mu}{M_X}\right), \qquad \text{OUR} = q_{O_2}X, \\ \text{CER} &= \left(\frac{q_S}{M_S} - \frac{\mu}{M_X}\right)X, \qquad \text{RQ} = \frac{\text{CER}}{\text{OUR}} \end{aligned} \]</div>
+        <p class="eq-read">the electrons in the sugar that do not end up in new biomass must be passed to oxygen, four per O₂ molecule; the carbon that does not end up in biomass leaves as CO₂.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\gamma_S, \gamma_X\)</td><td>degree of reduction of glucose (CH₂O) and biomass (CH₁.₈O₀.₅N₀.₂, N from NH₃)</td><td>e⁻ per C-mol</td><td>4.0; 4.2</td></tr>
+          <tr><td>\(M_S, M_X\)</td><td>C-molar masses of glucose and biomass</td><td>g C-mol⁻¹</td><td>30.03; 24.6</td></tr>
+          <tr><td>OUR, CER</td><td>oxygen uptake and CO₂ evolution rates</td><td>mmol L⁻¹ h⁻¹</td><td>—</td></tr>
+          <tr><td>RQ</td><td>respiratory quotient</td><td>–</td><td>≈ 1.1 during growth on glucose</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Per gram of biomass per hour, the cells take up \(q_S/M_S\) C-mol of glucose carrying \(\gamma_Sq_S/M_S\) mol of available electrons.</li>
+            <li>New biomass keeps \(\gamma_X\mu/M_X\) mol of electrons (the product is small and lumped with biomass).</li>
+            <li>The rest goes to O₂, which accepts 4 electrons per molecule → \(q_{O_2}\). With \(\mu = 0.10\) h⁻¹ this gives 2.23 mmol g⁻¹ h⁻¹ — the same as a biomass yield on O₂ of about 1.4 g g⁻¹ including maintenance.</li>
+            <li>A carbon balance gives CER; the ratio CER/OUR is the RQ that off-gas analysers display. During endogenous metabolism (after the sugar is gone) the cells oxidise biomass and the RQ drops to about 0.95.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Fixed elemental composition of biomass; ammonia as nitrogen source; no by-products. The same balance underlies Eq. 12.3.4 of the lesson <a href="/lessons/fermentation/">Biomass and precision fermentation</a> (Villadsen et al., 2011).</p></details>
+        <div class="eq-units">\((\text{e}^-\,\text{C-mol}^{-1})(\text{g g}^{-1}\text{h}^{-1})/(\text{g C-mol}^{-1}) = \text{mol e}^-\,\text{g}^{-1}\text{h}^{-1}\); ÷ 4 e⁻ per O₂ → mol O₂ g⁻¹ h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="((4*(mu/Y+m)/30.03 - 4.2*mu/24.6)/4)*X*1000" data-output="Oxygen uptake rate OUR" data-unit="mmol L⁻¹ h⁻¹" data-digits="0" data-plot="X">
+          <div data-var="X" data-label="Biomass X" data-min="1" data-max="120" data-step="1" data-value="40" data-unit="g L⁻¹"></div>
+          <div data-var="mu" data-label="Growth rate μ" data-min="0" data-max="0.2" data-step="0.005" data-value="0.1" data-unit="h⁻¹"></div>
+          <div data-var="Y" data-label="Y<sub>X/S</sub>" data-min="0.3" data-max="0.7" data-step="0.01" data-value="0.56" data-unit="g g⁻¹"></div>
+          <div data-var="m" data-label="m<sub>S</sub>" data-min="0" data-max="0.05" data-step="0.001" data-value="0.016" data-unit="g g⁻¹ h⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-br-otr">
+        <div class="eq-head"><span class="eq-label">Oxygen transfer and the dissolved-oxygen balance</span><span class="eq-num">(B7)</span></div>
+        <div class="eq-main">\[ \begin{aligned} \text{OTR} &= k_La\left(C^{*} - C\right), \qquad \text{DO} = 100\,\frac{C}{C^{*}_{\text{air}}}\ \% \\ \frac{\mathrm{d}C}{\mathrm{d}t} &= \text{OTR} - \text{OUR} - \frac{F_{\text{in}}}{V}C \end{aligned} \]</div>
+        <p class="eq-read">oxygen moves from the bubbles into the liquid in proportion to how far the liquid is from saturation; dissolved oxygen rises when transfer beats consumption and falls otherwise.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(k_La\)</td><td>volumetric mass-transfer coefficient (Eq. B10)</td><td>h⁻¹</td></tr>
+          <tr><td>\(C^{*}\)</td><td>O₂ concentration in equilibrium with the (mean) gas phase (Eq. B8)</td><td>mmol L⁻¹</td></tr>
+          <tr><td>\(C\)</td><td>dissolved O₂ in the broth</td><td>mmol L⁻¹</td></tr>
+          <tr><td>\(C^{*}_{\text{air}}\)</td><td>saturation with air at the vessel's mean pressure (the probe's 100 % calibration)</td><td>mmol L⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Two-film theory: the resistance to O₂ transfer sits in a thin liquid film around each bubble; the flux per unit bubble area is \(k_L(C^{*} - C)\).</li>
+            <li>Multiply by the interfacial area per volume \(a\) to get the rate per volume of broth; \(k_L\) and \(a\) are measured together as \(k_La\).</li>
+            <li>The DO balance: accumulation = transfer in − uptake − dilution by oxygen-free feed.</li>
+            <li>Because \(k_La\) is 10²–10³ h⁻¹, DO responds within seconds — much faster than the biology — which is why the simulation uses a 5 s time step.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Well-mixed liquid; the gas phase is represented by the mean of inlet and outlet O₂ fractions at the mid-depth pressure. Real large vessels have DO gradients: high near the sparger, low at the top.</p></details>
+        <div class="eq-units">h⁻¹ × mmol L⁻¹ = mmol L⁻¹ h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="our/(cs*(1-dox/100))" data-output="Required k_La" data-unit="h⁻¹" data-digits="0" data-plot="our">
+          <div data-var="our" data-label="OUR" data-min="5" data-max="250" data-step="1" data-value="100" data-unit="mmol L⁻¹ h⁻¹"></div>
+          <div data-var="cs" data-label="C* (air 25 °C ≈ 0.258)" data-min="0.1" data-max="1.2" data-step="0.01" data-value="0.26" data-unit="mmol L⁻¹"></div>
+          <div data-var="dox" data-label="DO held at" data-min="0" data-max="80" data-step="1" data-value="30" data-unit="% of C*"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-br-cstar">
+        <div class="eq-head"><span class="eq-label">Oxygen solubility, pressure and gas-phase depletion</span><span class="eq-num">(B8)</span></div>
+        <div class="eq-main">\[ \begin{aligned} C^{*} &= C^{*}_{\text{sat}}\!\left(T,\bar p\right)\frac{\bar y_{O_2}}{0.2095}, \qquad \bar p = p_{\text{top}} + \frac{\rho g H}{2}, \\ y_{\text{out}} &= y_{\text{in}} - \frac{\text{OTR}\;V}{\dot n_G}, \qquad \bar y_{O_2} = \frac{y_{\text{in}} + y_{\text{out}}}{2} \end{aligned} \]</div>
+        <p class="eq-read">the saturation concentration grows with the oxygen partial pressure: with the O₂ fraction in the gas and with the absolute pressure, which in a tall vessel includes the weight of the liquid above the bubbles.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(C^{*}_{\text{sat}}(T,\bar p)\)</td><td>O₂ solubility for air (Benson &amp; Krause, 1984; <code>doSaturation</code> in physics.js)</td><td>mmol L⁻¹</td></tr>
+          <tr><td>\(p_{\text{top}}\)</td><td>head-space pressure (1 atm + overpressure)</td><td>kPa</td></tr>
+          <tr><td>\(H\)</td><td>liquid height</td><td>m</td></tr>
+          <tr><td>\(y_{\text{in}}, y_{\text{out}}\)</td><td>O₂ mole fraction in inlet and exhaust gas</td><td>–</td></tr>
+          <tr><td>\(\dot n_G\)</td><td>molar gas flow = vvm·V/60 s⁻¹ ÷ 0.022414 m³ mol⁻¹ (normal conditions)</td><td>mol h⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Henry's law: \(C^{*} = p_{O_2}/H_{O_2}\), with \(p_{O_2} = y_{O_2}\,p\). The table value for air at 1 atm is scaled by the ratio of partial pressures.</li>
+            <li>A bubble at depth \(z\) is at pressure \(p_{\text{top}} + \rho g z\); the mid-depth value is a simple average over the rise path. In a 100 m³ vessel (\(H\) = 8 m) it is about 0.4 bar higher than at the top.</li>
+            <li>An O₂ balance over the gas phase: what enters minus what leaves equals what was transferred, \(\dot n_G(y_{\text{in}} - y_{\text{out}}) = \text{OTR}\,V\) (assuming the total molar flow is constant, which is accurate for RQ ≈ 1).</li>
+            <li>The same relation, read backwards, is how plants <em>measure</em> OUR: gas flow × (O₂ in − O₂ out) from the off-gas analyser.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Solubility in pure water (salts lower it by a few per cent); arithmetic mean of inlet and outlet gas composition and of top and bottom pressure (a log-mean is more exact for tall vessels).</p></details>
+        <div class="eq-units">\(\text{OTR}\,V/\dot n_G\): (mol m⁻³ h⁻¹)(m³)/(mol h⁻¹) = dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-br-power">
+        <div class="eq-head"><span class="eq-label">Stirrer power, tip speed and Reynolds number</span><span class="eq-num">(B9)</span></div>
+        <div class="eq-main">\[ \begin{aligned} P_0 &= n_i\,N_P\,\rho\,N^3D^5, \qquad P_g = 0.5\,P_0, \\ v_{\text{tip}} &= \pi N D, \qquad Re = \frac{\rho N D^2}{\eta} \end{aligned} \]</div>
+        <p class="eq-read">the power drawn by a turbine grows with the cube of its speed and the fifth power of its diameter; gassing roughly halves it.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(n_i\)</td><td>number of submerged impellers (upper one only when covered by liquid)</td><td>–</td><td>1–2</td></tr>
+          <tr><td>\(N_P\)</td><td>power number of a Rushton turbine in a baffled tank, turbulent flow</td><td>–</td><td>≈ 5 (Doran, 2013)</td></tr>
+          <tr><td>\(N\)</td><td>stirrer speed</td><td>s⁻¹</td><td>—</td></tr>
+          <tr><td>\(D\)</td><td>impeller diameter = \(T/3\)</td><td>m</td><td>—</td></tr>
+          <tr><td>\(P_g/P_0\)</td><td>gassed-to-ungassed power ratio</td><td>–</td><td>0.5 (assumed; 30–60 % reductions are typical)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Dimensional analysis: \(P\) depends on \(\rho, \eta, N, D\) and geometry → \(N_P = P/(\rho N^3D^5) = f(Re)\).</li>
+            <li>For \(Re > 10^4\) (all scales here) \(N_P\) is constant, so \(P = N_P\rho N^3D^5\).</li>
+            <li>Gas collects in cavities behind the blades and lowers the power the impeller can transmit; the model uses a fixed ratio \(P_g/P_0 = 0.5\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Water-like (Newtonian, low-viscosity) broth; impellers far enough apart (spacing \(T\)) for their powers to add. Filamentous or very dense broths are viscous and need different correlations.</p></details>
+        <div class="eq-units">\((\text{kg m}^{-3})(\text{s}^{-3})(\text{m}^5) = \text{kg m}^2\text{s}^{-3} = \text{W}\) ✓</div>
+        <div class="mini-calc" data-formula="2*5*1000*pow(rpm/60,3)*pow(D,5)/V/1000" data-output="Ungassed P/V (two impellers)" data-unit="kW m⁻³" data-digits="2" data-plot="rpm">
+          <div data-var="rpm" data-label="Stirrer speed" data-min="20" data-max="1500" data-step="5" data-value="800" data-unit="rpm"></div>
+          <div data-var="D" data-label="Impeller diameter D" data-min="0.02" data-max="1.5" data-step="0.001" data-value="0.036" data-unit="m"></div>
+          <div data-var="V" data-label="Liquid volume" data-min="0.001" data-max="100" data-step="0.001" data-value="0.002" data-unit="m³" data-scale="log"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-br-kla">
+        <div class="eq-head"><span class="eq-label">k<sub>L</sub>a correlations for stirred vessels (van 't Riet)</span><span class="eq-num">(B10)</span></div>
+        <div class="eq-main">\[ \begin{aligned} k_La &= 0.002\left(\frac{P_g}{V}\right)^{0.7}v_s^{0.2} \quad \text{(non-coalescing)} \\ k_La &= 0.026\left(\frac{P_g}{V}\right)^{0.4}v_s^{0.5} \quad \text{(coalescing)}, \qquad v_s = \frac{Q_G}{\pi T^2/4} \end{aligned} \]</div>
+        <p class="eq-read">the transfer coefficient rises with the gassed power per volume and with the superficial gas velocity; in salty broths, where bubbles do not merge, power helps even more.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(k_La\)</td><td>volumetric mass-transfer coefficient</td><td>s⁻¹ (× 3600 → h⁻¹)</td></tr>
+          <tr><td>\(P_g/V\)</td><td>gassed power per volume</td><td>W m⁻³</td></tr>
+          <tr><td>\(v_s\)</td><td>superficial gas velocity at operating pressure and temperature</td><td>m s⁻¹</td></tr>
+          <tr><td>\(Q_G\)</td><td>actual gas flow rate</td><td>m³ s⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>These are empirical power laws fitted to many measurements (van 't Riet, 1979); the constants carry hidden units, so use exactly the units above.</li>
+            <li>More power breaks bubbles into smaller ones (larger \(a\)); more gas adds more bubbles. In coalescing liquids (pure water) small bubbles quickly merge again, so extra power pays off less (exponent 0.4 instead of 0.7).</li>
+            <li>The actual gas flow at the sparger follows from vvm by the ideal-gas law: \(Q_G = Q_N\,(T/273.15\,\text{K})(101.3\,\text{kPa}/\bar p)\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Van 't Riet's data covered vessels from a few litres to a few cubic metres and 500–10 000 W m⁻³, with an accuracy of roughly ±20–40 %. Applying the correlation to 100 m³ is an extrapolation, as is common in first design estimates; measure \(k_La\) in the real vessel (Garcia-Ochoa &amp; Gomez, 2009).</p></details>
+        <div class="eq-units">\((\text{W m}^{-3})^{0.7}(\text{m s}^{-1})^{0.2}\) × constant (s⁻¹ in these units) — empirical, not dimensionally homogeneous.</div>
+        <div class="mini-calc" data-formula="3600*0.002*pow(pv,0.7)*pow(vs/1000,0.2)" data-output="k_La (non-coalescing)" data-unit="h⁻¹" data-digits="0" data-plot="pv">
+          <div data-var="pv" data-label="P<sub>g</sub>/V" data-min="100" data-max="5000" data-step="50" data-value="1500" data-unit="W m⁻³"></div>
+          <div data-var="vs" data-label="v<sub>s</sub>" data-min="1" data-max="60" data-step="0.5" data-value="10" data-unit="mm s⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-br-heat">
+        <div class="eq-head"><span class="eq-label">Heat balance and cooling capacity</span><span class="eq-num">(B11)</span></div>
+        <div class="eq-main">\[ \begin{aligned} \dot Q_{\text{met}} &= \Delta h_{O_2}\,\text{OUR}\,V, \qquad \dot Q_{\text{cool,max}} = U A\left(T - T_{cw}\right), \qquad A = \pi T H + a_c V \\ \rho c_p V\frac{\mathrm{d}T}{\mathrm{d}t} &= \dot Q_{\text{met}} + P_g - \dot Q_{\text{cool}} \end{aligned} \]</div>
+        <p class="eq-read">the culture releases 460 kJ for every mole of oxygen it consumes; together with the stirrer power this heat must leave through the jacket and coils, or the broth warms up.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\Delta h_{O_2}\)</td><td>heat released per mol O₂ consumed</td><td>kJ mol⁻¹</td><td>460 (Doran, 2013; Cooney et al., 1969)</td></tr>
+          <tr><td>\(U\)</td><td>overall heat-transfer coefficient</td><td>W m⁻² K⁻¹</td><td>250 (glass, 2 L); 500 (steel), assumed</td></tr>
+          <tr><td>\(A\)</td><td>wetted jacket area plus extra coil area \(a_cV\)</td><td>m²</td><td>—</td></tr>
+          <tr><td>\(T_{cw}\)</td><td>cooling-water temperature</td><td>°C</td><td>15 (default)</td></tr>
+          <tr><td>\(\dot Q_{\text{cool}}\)</td><td>heat removed; the controller sets it to hold \(T\), up to \(\dot Q_{\text{cool,max}}\)</td><td>W</td><td>—</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Aerobic metabolism transfers electrons from substrate to O₂. About 115 kJ is released per mole of electrons reaching oxygen, so 4 × 115 ≈ 460 kJ per mol O₂, largely independent of the substrate — confirmed calorimetrically by Cooney et al. (1969) (Doran, 2013).</li>
+            <li>All shaft power is dissipated by viscous friction and ends up as heat, so \(P_g\) is added.</li>
+            <li>Energy balance on the broth: \(\rho c_pV\,\mathrm{d}T/\mathrm{d}t\) = heat in − heat out. The controller removes exactly the load (plus a correction to return to set-point) as long as \(\dot Q_{\text{cool,max}}\) allows.</li>
+            <li>Rule of thumb: OUR in mmol L⁻¹ h⁻¹ × 0.128 = heat in kW m⁻³.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Coolant temperature taken as its inlet value (high flow); evaporation, sensible heat of feed and gas, and heat losses to the room are neglected. The kinetic model does not include the effect of an overheated broth on the cells: the red readouts tell you when a real culture would be in trouble.</p></details>
+        <div class="eq-units">\((\text{J mol}^{-1})(\text{mol m}^{-3}\text{s}^{-1})(\text{m}^3) = \text{W}\) ✓ · \((\text{W m}^{-2}\text{K}^{-1})(\text{m}^2)(\text{K}) = \text{W}\) ✓</div>
+        <div class="mini-calc" data-formula="our*V*460/3600" data-output="Metabolic heat" data-unit="kW" data-digits="1" data-plot="our">
+          <div data-var="our" data-label="OUR" data-min="5" data-max="250" data-step="1" data-value="50" data-unit="mmol L⁻¹ h⁻¹"></div>
+          <div data-var="V" data-label="Broth volume" data-min="0.002" data-max="200" data-step="0.001" data-value="100" data-unit="m³" data-scale="log"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-br-scaleup">
+        <div class="eq-head"><span class="eq-label">Scale-up at constant power per volume</span><span class="eq-num">(B12)</span></div>
+        <div class="eq-main">\[ \begin{aligned} \frac{P}{V}\propto N^3D^2 = \text{const} \ &\Rightarrow\ N\propto D^{-2/3}, \quad v_{\text{tip}}\propto D^{1/3}, \quad t_m\propto\frac{1}{N}\propto D^{2/3} \\ \frac{A}{V} = \frac{4}{T}, \qquad &\text{OUR}_{\text{heat}} = \frac{U\,\frac{A}{V}\,(T - T_{cw}) - \frac{P_g}{V}}{\Delta h_{O_2}} \end{aligned} \]</div>
+        <p class="eq-read">keeping the power per volume constant slows the stirrer as the vessel grows, speeds up the blade tips and lengthens the mixing time; the cooling surface per volume shrinks in inverse proportion to the tank diameter, and with it the oxygen uptake the vessel can afford.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(t_m\)</td><td>mixing time (\(Nt_m\) = constant for geometrically similar tanks, turbulent flow)</td><td>s</td></tr>
+          <tr><td>\(A/V\)</td><td>jacket area per volume for \(H = 2T\)</td><td>m² m⁻³</td></tr>
+          <tr><td>\(\text{OUR}_{\text{heat}}\)</td><td>largest oxygen uptake whose heat can be removed at the set-point</td><td>mol m⁻³ s⁻¹ (× 3600 → mmol L⁻¹ h⁻¹)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>From Eq. B9, \(P/V \propto N^3D^5/D^3 = N^3D^2\) for geometrically similar vessels (\(V \propto D^3\)). Constant \(P/V\) → \(N \propto D^{-2/3}\).</li>
+            <li>Tip speed \(\pi ND \propto D^{1/3}\): a 37-fold larger diameter (2 L → 100 m³) gives a 3.3-fold higher tip speed at the same P/V.</li>
+            <li>Wall area \(\pi TH = 2\pi T^2\), volume \((\pi/4)T^2\cdot2T = (\pi/2)T^3\) → \(A/V = 4/T\).</li>
+            <li>Setting \(\dot Q_{\text{met}} + P_g = UA(T - T_{cw})\) and solving for OUR gives the heat ceiling.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Strict geometric similarity (real production vessels are often taller, H/T = 2.5–3, with three or four impellers, and use internal coils or external heat exchangers). The mixing-time rule ignores the effect of aspect ratio and multiple impellers.</p></details>
+        <div class="eq-units">\((\text{W m}^{-2}\text{K}^{-1})(\text{m}^2\text{m}^{-3})(\text{K})/(\text{J mol}^{-1}) = \text{mol m}^{-3}\text{s}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="(U*4/T*dT - pv)/460000*3600" data-output="Heat-limited OUR" data-unit="mmol L⁻¹ h⁻¹" data-digits="0" data-plot="T" data-ymin="0">
+          <div data-var="T" data-label="Tank diameter T" data-min="0.1" data-max="5" data-step="0.01" data-value="4" data-unit="m" data-scale="log"></div>
+          <div data-var="U" data-label="U" data-min="100" data-max="1000" data-step="10" data-value="500" data-unit="W m⁻² K⁻¹"></div>
+          <div data-var="dT" data-label="T − T<sub>cw</sub>" data-min="2" data-max="25" data-step="0.5" data-value="10" data-unit="K"></div>
+          <div data-var="pv" data-label="P<sub>g</sub>/V" data-min="0" data-max="3000" data-step="50" data-value="1000" data-unit="W m⁻³"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-br-cascade">
+        <div class="eq-head"><span class="eq-label">Dissolved-oxygen cascade controller</span><span class="eq-num">(B13)</span></div>
+        <div class="eq-main">\[ \begin{aligned} e &= \frac{\text{DO}_{\text{sp}} - \text{DO}}{100}, \qquad u = K_p\,e + K_i\!\int e\,\mathrm{d}t, \\ N &= N_{\min} + (N_{\max} - N_{\min})\min(u,1), \qquad y_{\text{in}} = 0.2095 + 0.29\,\mathrm{clip}(u-1,\,0,\,1) \end{aligned} \]</div>
+        <p class="eq-read">a proportional-integral controller turns the DO error into one output u; the first half of its range sets the stirrer speed, the second half adds oxygen to the inlet gas.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(K_p, K_i\)</td><td>proportional gain; integral gain</td><td>–; h⁻¹</td><td>1.2; 40</td></tr>
+          <tr><td>\(N_{\max}\)</td><td>speed giving the chosen maximum ungassed P/V with both impellers covered</td><td>s⁻¹</td><td>—</td></tr>
+          <tr><td>\(N_{\min}\)</td><td>minimum speed (keeps the broth mixed and the gas dispersed)</td><td>s⁻¹</td><td>\(0.25N_{\max}\)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Proportional action reacts to the current error; integral action removes the steady offset by accumulating past error.</li>
+            <li>The integral is clamped between 0 and the top of the range (anti-windup), so the controller does not "wind up" while an actuator is saturated.</li>
+            <li>Split-range (cascade) operation lets one controller drive several actuators in a chosen order: cheap agitation first, expensive pure oxygen last.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ideal, noise-free DO measurement without probe lag (real membrane probes respond in 10–60 s). The gains were tuned by trial in this simulator; see the module on control for systematic tuning.</p></details>
+        <div class="eq-units">\(e\), \(u\) dimensionless; \(K_i\) in h⁻¹ multiplies ∫e dt (h) ✓</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Record settings and results with <em>Save investigation</em>, or download the full time series as CSV for your own plots.</p>
+      <ol class="task-list">
+        <li><h4>Read the growth rate from the data</h4><p>Run the <em>Lab batch (2 L)</em> preset. Download the CSV and plot ln X against time. Fit a straight line to the exponential phase: is the slope equal to μ<sub>max</sub> = 0.20 h⁻¹? Explain any difference (hint: look at the oxygen term in Eq. B1 and at the early DO). Why does X slowly decline after the sugar is gone, and why does the RQ change at that moment?</p></li>
+        <li><h4>Find the oxygen-transfer limit</h4><p>Switch to <em>Manual speed</em> and run batches at 30, 40, 60 and 80 % of maximum speed. For each, record the minimum DO and the maximum OUR. Plot the maximum OUR against P<sub>g</sub>/V and compare with the transfer ceiling predicted by Eqs. B7 and B10. At what speed does the culture just avoid oxygen limitation (DO &gt; 10 %)?</p></li>
+        <li><h4>Design a fed-batch</h4><p>At 2 L, find the set growth rate μ<sub>set</sub> that gives the highest product space–time yield within the run, (a) with and (b) without O₂ enrichment. Tabulate μ<sub>set</sub>, final X, final titre and run time. Why is the fastest feed not the best? What happens to the glucose readout if you switch the feed protection off at μ<sub>set</sub> = 0.18 h⁻¹?</p></li>
+        <li><h4>Map the chemostat</h4><p>In continuous mode, measure the steady-state X̄, S̄ and D·X̄ at D = 0.02, 0.05, 0.10, 0.15, 0.18 and 0.20 h⁻¹ (wait at least five residence times, 5/D). Plot them against D together with Eq. B5 (mini-calculator). Where is the productivity maximum, how close is it to washout, and why is the observed yield lower at D = 0.02 h⁻¹?</p></li>
+        <li><h4>Scale it up</h4><p>Run the same fed-batch recipe at 2 L, 1 m³ and 100 m³ (constant P/V = 3 kW m⁻³). For each scale record the run time, final X, titre, space–time yield, peak OUR and which limit was active (oxygen or heat). Then, at 100 m³, find the combination of extra cooling surface and cooling-water temperature that restores the 2 L productivity. Estimate the coil area in m² for the whole vessel.</p></li>
+        <li><h4>Is it a food process?</h4><p>Switch to the hypothetical <em>food protein</em> strain and run the best 100 m³ process you found. From the final titre and run time (add 12 h for cleaning, sterilisation and filling), estimate how many 100 m³ fermenters a factory would need to produce 10 000 t of protein per year, assuming 90 % recovery in downstream processing. Discuss what would have to change — strain, process or equipment — to halve that number.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-bioreactor">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A culture needs an OUR of 100 mmol L⁻¹ h⁻¹. With C* = 0.258 mmol L⁻¹ (air, 25 °C) and DO held at 30 % of saturation, what k_La is required? (Eq. B7)","answer":553.7,"tol":0.02,"unit":"h⁻¹","hint":"The driving force is C* − C = 0.258 × (1 − 0.30).","explain":"<p>\\(k_La = 100/(0.258\\times0.70) = 554\\) h⁻¹.</p>"},
+          {"type":"numeric","q":"A 100 m³ fermenter runs at an OUR of 50 mmol L⁻¹ h⁻¹. Using 460 kJ per mol O₂, what is the metabolic heat load?","answer":638.9,"tol":0.02,"unit":"kW","hint":"50 mmol L⁻¹ h⁻¹ = 50 mol m⁻³ h⁻¹.","explain":"<p>\\(50\\times100 = 5000\\) mol h⁻¹; \\(5000\\times460/3600 = 639\\) kW.</p>"},
+          {"type":"mcq","q":"You scale a geometrically similar fermenter (H = 2T) from 2 L to 100 m³. By roughly how much does the jacket area per unit volume change? (Check the scale-up table in the Explain tab.)","options":["It stays the same, because the geometry is similar","It falls about 37-fold (from ≈ 37 to ≈ 1 m² m⁻³)","It falls about 50 000-fold, like the volume ratio","It rises, because a large vessel has much more steel"],"answer":1,"feedback":["Similar shape does not mean similar ratios: area scales with length², volume with length³.","","That is the volume ratio; area per volume scales with 1/T, and T grows only by (50 000)^(1/3) ≈ 37.","The total area rises, but far less than the volume."],"explain":"<p>\\(A/V = 4/T\\); T grows from 0.108 m to 3.99 m, so A/V falls from 37 to 1.0 m² m⁻³.</p>"},
+          {"type":"numeric","q":"For the default host (μ_max = 0.20 h⁻¹, Y_X/S = 0.559 g g⁻¹, m_S = 0.0161 g g⁻¹ h⁻¹, K_S = 0.05 g L⁻¹) and S_R = 20 g L⁻¹, at what dilution rate does the chemostat wash out? (Eq. B5)","answer":0.1995,"tol":0.02,"unit":"h⁻¹","hint":"q_S,max = μ_max/Y + m_S; D_crit = Y (q_S,max S_R/(K_S+S_R) − m_S).","explain":"<p>\\(q_{S,\\max} = 0.3739\\); \\(D_{\\text{crit}} = 0.559\\,(0.3739\\times20/20.05 - 0.0161) = 0.200\\) h⁻¹ — try D = 0.22 h⁻¹ in the simulator.</p>"},
+          {"type":"tf","q":"In the DO cascade, oxygen enrichment of the inlet gas starts before the stirrer has reached its maximum speed.","answer":false,"explain":"<p>Enrichment is the second stage: the controller output must exceed 1, which happens only after the stirrer speed has saturated at N_max (Eq. B13). Watch the stirrer readout turn amber before the inlet O₂ rises.</p>"},
+          {"type":"multi","q":"At 100 m³ the fed-batch is limited by heat removal. Which changes raise the heat-limited OUR ceiling (Eq. B12)? Select all that apply.","options":["Colder cooling water","Adding internal cooling coils","A higher maximum stirrer power per volume","A higher head-space overpressure","A higher temperature set-point (if the organism tolerates it)"],"answer":[0,1,4],"explain":"<p>Colder water and a higher set-point both increase T − T_cw; coils add area A. More stirrer power adds heat (it lowers the ceiling), and overpressure helps oxygen transfer, not heat removal.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Organism and product.</strong> <i>Komagataella phaffii</i> (Pichia pastoris) X-33 with the constitutive GAP promoter, growing on glucose at 25 °C and pH 5 and secreting a Fab antibody fragment (Maurer et al., 2006). Its kinetic constants stand in for a precision-fermentation host; the "food protein" strain is a hypothetical ×100 version.</li>
+        <li><strong>Kinetics.</strong> Unstructured Herbert–Pirt model (Eq. B1) with dual (sugar, oxygen) saturation; endogenous decay when sugar is absent; no overflow metabolism, inhibition, death or morphology changes; kinetics independent of temperature (temperature excursions are flagged, not simulated).</li>
+        <li><strong>Mixing.</strong> Ideal mixing of the liquid at every scale. Real large vessels have mixing times of tens of seconds to minutes and gradients of sugar, oxygen and CO₂ that affect the cells — the main reason why processes often perform worse after scale-up.</li>
+        <li><strong>Oxygen transfer.</strong> van 't Riet (1979) correlations with gassed power \(P_g = 0.5P_0\), Rushton power number 5, two impellers (the upper one only when submerged); solubility from Benson &amp; Krause (1984) for pure water, corrected for pressure and gas composition; mean of inlet/outlet gas and top/bottom pressure; O₂ enrichment up to 50 %.</li>
+        <li><strong>Heat.</strong> 460 kJ per mol O₂ plus all shaft power; heat-transfer coefficient 250 W m⁻² K⁻¹ (glass jacket) or 500 W m⁻² K⁻¹ (steel), assumed typical values; coolant at its inlet temperature; no evaporation or heat losses.</li>
+        <li><strong>Geometry.</strong> Geometrically similar vessels with H = 2T, two Rushton turbines D = T/3 at 0.5T and 1.5T, four baffles T/10, ring sparger under the lower impeller. Fed-batch starts at 60 % of the working volume.</li>
+        <li><strong>Visual elements.</strong> Bubble size and number, foam height and impeller rotation (capped at about 2 rev s⁻¹ with a motion-blur disc above that) are illustrative. The foam index grows with gas velocity and protein content; the antifoam pump resets it. Bubbles at 1 m³ and 100 m³ are drawn much larger than real bubbles so that they remain visible.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Benson, B. B., &amp; Krause, D., Jr. (1984). The concentration and isotopic fractionation of oxygen dissolved in freshwater and seawater in equilibrium with the atmosphere. <em>Limnology and Oceanography</em>, 29(3), 620–632. <a href="https://doi.org/10.4319/lo.1984.29.3.0620" target="_blank" rel="noopener">doi:10.4319/lo.1984.29.3.0620</a></li>
+        <li>Cooney, C. L., Wang, D. I. C., &amp; Mateles, R. I. (1969). Measurement of heat evolution and correlation with oxygen consumption during microbial growth. <em>Biotechnology and Bioengineering</em>, 11(3), 269–281. <a href="https://doi.org/10.1002/bit.260110302" target="_blank" rel="noopener">doi:10.1002/bit.260110302</a></li>
+        <li>Doran, P. M. (2013). <em>Bioprocess Engineering Principles</em> (2nd ed.). Academic Press. <a href="https://doi.org/10.1016/C2009-0-22348-8" target="_blank" rel="noopener">doi:10.1016/C2009-0-22348-8</a></li>
+        <li>Garcia-Ochoa, F., &amp; Gomez, E. (2009). Bioreactor scale-up and oxygen transfer rate in microbial processes: an overview. <em>Biotechnology Advances</em>, 27(2), 153–176. <a href="https://doi.org/10.1016/j.biotechadv.2008.10.006" target="_blank" rel="noopener">doi:10.1016/j.biotechadv.2008.10.006</a></li>
+        <li>Luedeking, R., &amp; Piret, E. L. (1959). A kinetic study of the lactic acid fermentation. Batch process at controlled pH. <em>Journal of Biochemical and Microbiological Technology and Engineering</em>, 1(4), 393–412. <a href="https://doi.org/10.1002/jbmte.390010406" target="_blank" rel="noopener">doi:10.1002/jbmte.390010406</a></li>
+        <li>Maurer, M., Kühleitner, M., Gasser, B., &amp; Mattanovich, D. (2006). Versatile modeling and optimization of fed batch processes for the production of secreted heterologous proteins with <i>Pichia pastoris</i>. <em>Microbial Cell Factories</em>, 5, 37. <a href="https://doi.org/10.1186/1475-2859-5-37" target="_blank" rel="noopener">doi:10.1186/1475-2859-5-37</a></li>
+        <li>Monod, J. (1949). The growth of bacterial cultures. <em>Annual Review of Microbiology</em>, 3, 371–394. <a href="https://doi.org/10.1146/annurev.mi.03.100149.002103" target="_blank" rel="noopener">doi:10.1146/annurev.mi.03.100149.002103</a></li>
+        <li>Pirt, S. J. (1965). The maintenance energy of bacteria in growing cultures. <em>Proceedings of the Royal Society of London. Series B</em>, 163(991), 224–231. <a href="https://doi.org/10.1098/rspb.1965.0069" target="_blank" rel="noopener">doi:10.1098/rspb.1965.0069</a></li>
+        <li>van 't Riet, K. (1979). Review of measuring methods and results in nonviscous gas–liquid mass transfer in stirred vessels. <em>Industrial &amp; Engineering Chemistry Process Design and Development</em>, 18(3), 357–364. <a href="https://doi.org/10.1021/i260071a001" target="_blank" rel="noopener">doi:10.1021/i260071a001</a></li>
+        <li>Villadsen, J., Nielsen, J., &amp; Lidén, G. (2011). <em>Bioreaction Engineering Principles</em> (3rd ed.). Springer. <a href="https://doi.org/10.1007/978-1-4419-9688-6" target="_blank" rel="noopener">doi:10.1007/978-1-4419-9688-6</a></li>
+      </ol>
+      <p>Related course material: lesson <a href="/lessons/fermentation/">Biomass and precision fermentation</a> (Eqs. 12.3.1–12.3.10 use the same notation).</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

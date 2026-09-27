@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CO₂ enrichment balance · Future Food Production</title>
+<meta name="description" content="A dynamic CO₂ mass balance of a greenhouse or closed growing room: injection, crop uptake from the van Henten lettuce model, ventilation losses and the economically optimal enrichment set-point as a function of the ventilation rate.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* Live calculators for the Derive tab — the same equations as model.js (van Henten, 1994). */
+window.FFP_CALC = window.FFP_CALC || {};
+(function (C) {
+  var EPS = 17e-9 / 4.57e-6;                                   // kg CO₂ per mol photons
+  function k(T) { return 44.01 * 101325 / (8.314462618 * (T + 273.15)) * 1e-6; }   // g m⁻³ ppm⁻¹
+  function sig(T) { return Math.max(0, -5.11e-6 * T * T + 2.30e-4 * T - 6.29e-4); }
+  function gam(T) { return 5.2e-5 * Math.pow(2, (T - 20) / 10) / (k(T) * 1e-3); }
+  function up(I, Cc, T, cover) { var PI = EPS * I * 1e-6, PC = sig(T) * Math.max(0, Cc - gam(T)) * k(T) * 1e-3; return (cover / 100) * (PI + PC > 0 ? PI * PC / (PI + PC) : 0) * 3.6e6; }
+  C.cbUptake = function (v) { return up(v.I, v.C, v.T, v.cover); };
+  C.cbK = function (v) { return (17e-9 / 4.57e-6) * v.I * 1e-6 / (sig(v.T) * k(v.T) * 1e-3); };
+  C.cbOpt = function (v) {
+    var T = 20, kk = k(T) * 1e-3, sK = sig(T) * kk, PI = EPS * v.I * 1e-6, K = PI / sK, g = kk * v.N * v.h / 3600;
+    var val = 0.544 * v.price * 0.9 / 0.05, p = v.p;
+    var Cs = gam(T) + K * (Math.sqrt((val - p) * (v.cover / 100) * sK / (p * g)) - 1);
+    return Math.max(0, Math.min(2000, Cs));
+  };
+})(window.FFP_CALC);
+</script>
+<style>
+  .cb-sk svg text { paint-order: stroke fill; stroke: var(--bg-elev); stroke-width: 3.5px; stroke-linejoin: round; }
+</style>
+</head>
+<body data-page="lab" data-slug="co2-balance">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>CO₂ enrichment balance</h1>
+    <p class="lead">Every greenhouse grower faces the same question on every sunny morning: how much CO₂ should I buy? Extra CO₂ makes the crop grow faster, but whatever the plants do not take up disappears through the vents within minutes. In this laboratory you run the dynamic CO₂ mass balance of a greenhouse — or of a closed plant factory — through a whole day, watch the CO₂ molecules pour in from the dosing tubes, vanish into the leaves and escape through the vents, and find the set-point that makes the most money. You will rediscover a classic result of greenhouse engineering: when the vents are wide open, enrichment does not pay.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage" role="img" aria-label="Animated cross-section of a greenhouse with CO₂ molecules whose density follows the simulated concentration, dosing tubes, roof vents that open with the sun and an NDIR sensor"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>CO₂ concentration over the day</h3>
+      <div class="chart-sub">Simulated concentration with dosing (magenta) and without (dashed), the controller's set-point and the light at the canopy (amber area, right axis). Without dosing a closed, sunlit greenhouse falls well below outdoor air.</div>
+      <div class="chart" id="chart-conc"></div>
+    </div>
+    <div class="chart-card">
+      <h3>The fluxes that make up the balance</h3>
+      <div class="chart-sub">CO₂ supply, crop uptake and the net loss through vents and leaks (negative when outdoor air brings CO₂ in), with the air exchange rate on the right axis.</div>
+      <div class="chart" id="chart-flux"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Cost and benefit of a fixed daylight set-point</h3>
+      <div class="chart-sub">Value of the extra growth, cost of the CO₂ bought and their difference for this day, crop and ventilation pattern. The dot marks the best fixed set-point; the amber line is yours.</div>
+      <div class="chart" id="chart-econ"></div>
+    </div>
+    <div class="chart-card">
+      <h3>The optimal set-point falls as ventilation rises</h3>
+      <div class="chart-sub">Economic controller (Eq. CB9) at a constant air exchange rate for the same day, crop and prices. Where the optimum falls below the concentration the greenhouse has anyway, it stops dosing.</div>
+      <div class="chart" id="chart-opt"></div>
+    </div>
+    <div class="chart-card" style="grid-column:1/-1">
+      <h3>Daily CO₂ budget</h3>
+      <div class="chart-sub">kg CO₂ per hectare of floor over the whole day. <span id="budget-note"></span></div>
+      <div class="chart cb-sk" id="chart-budget" style="height:auto"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ================================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Watch an April day in Västerås.</strong> Before sunrise the greenhouse is closed and the crop respires: the grey molecules become slightly denser. When the sun comes up, dosing starts: pink molecules rise from the tubes under the crop, and green rings mark molecules taken up by leaves. Around midday the vents open with the sun and blue molecules stream out of the roof. Read the NDIR sensor: the concentration sags below the set-point of 800 µmol mol⁻¹ because the dosing system runs at its full capacity of 200 kg ha⁻¹ h⁻¹.</li>
+        <li><strong>Compare the two curves in the first chart.</strong> Without dosing the concentration falls to about 320 µmol mol⁻¹ in the morning, when the crop is photosynthesising in a closed greenhouse: CO₂ <em>depletion</em> costs growth even before we think about enrichment.</li>
+        <li><strong>Read the budget.</strong> About 1.9 t of CO₂ is dosed per hectare on this day, but the crop takes up only about 50 kg more than it would have without dosing: about 88 % of the dosed CO₂ leaves through the vents. Van Tuyll et al. (2022) estimated that about 85 % of the CO₂ supplied to Dutch greenhouses is lost by ventilation.</li>
+        <li><strong>Try the three strategies.</strong> <em>Lower when vents open</em> cuts the CO₂ bill by almost three quarters and still gives a positive margin; the <em>Economic optimum</em> doses hard in the morning while the vents are closed and throttles back when they open.</li>
+        <li><strong>Open the vents wide.</strong> Choose <em>Summer, vents wide open</em>: a fixed set-point of 800 µmol mol⁻¹ now loses money every day, whereas the economic controller still earns a little. The fourth chart shows why: the optimal set-point falls from about 1180 µmol mol⁻¹ at 2 air changes per hour to about 970 at 10 h⁻¹ and below 500 at 20 h⁻¹, and above about 25–30 h⁻¹ it is not worth dosing at all.</li>
+        <li><strong>Close the room.</strong> Choose <em>Plant factory room</em>: with 0.02 air changes per hour almost all dosed CO₂ ends up in the crop, which is why every plant factory enriches to 1000 µmol mol⁻¹ or more.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>CO₂ enrichment is a trade-off between two rates that both depend on the concentration: the crop's extra uptake, which grows with <strong>diminishing returns</strong>, and the loss to the outside, which grows <strong>linearly</strong> with the enrichment above outdoor air and in proportion to the ventilation rate. The economic optimum is where one extra µmol mol⁻¹ adds as much value in growth as it costs in lost CO₂.</p></div>
+    </section>
+
+    <!-- ================================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>A tank with a leak and a sink</h2>
+      <p>Think of the greenhouse air as a tank of CO₂ (Figure 1). The dosing system fills it, the crop drains it by photosynthesis (and refills it a little by respiration), and the air exchange with the outside pulls it towards the outdoor concentration of 427 µmol mol⁻¹. The concentration you measure is the level in that tank. Because the tank is small — about 10 g of CO₂ per square metre at 1000 µmol mol⁻¹ in a 5.5 m-high greenhouse — it responds within minutes to a change in any of the three flows. That is why a greenhouse without dosing is <em>depleted</em> on a sunny morning, and why CO₂ dosed with the vents open is gone in minutes.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 660 300" role="img" aria-label="The CO₂ balance of a greenhouse as a tank with a supply, a crop sink and an exchange with outdoor air">
+            <defs>
+              <marker id="cb-a-mag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-magenta"/></marker>
+              <marker id="cb-a-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-accent"/></marker>
+              <marker id="cb-a-wat" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-water"/></marker>
+              <marker id="cb-a-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <path d="M190 250 L190 120 L250 80 L310 120 L370 80 L430 120 L430 250 Z" class="fill-sunk" stroke="currentColor" stroke-width="2"/>
+            <path d="M310 120 L292 96" class="stroke" stroke-width="3"/>
+            <path d="M430 120 L412 96" class="stroke" stroke-width="3"/>
+            <rect x="200" y="175" width="220" height="70" class="fill-water-soft" opacity=".55"/>
+            <text x="275" y="200" text-anchor="middle" class="t-small">air: k · h̄ · C  (≈ 10 g m⁻²)</text>
+            <g class="fill-accent"><rect x="215" y="232" width="14" height="18" rx="5"/><rect x="260" y="230" width="14" height="20" rx="5"/><rect x="305" y="232" width="14" height="18" rx="5"/><rect x="350" y="230" width="14" height="20" rx="5"/><rect x="395" y="232" width="14" height="18" rx="5"/></g>
+            <line x1="40" y1="215" x2="188" y2="215" class="stroke-magenta" stroke-width="3" marker-end="url(#cb-a-mag)"/>
+            <text x="40" y="203" class="t-small" style="fill:var(--magenta)">supply Φ<tspan baseline-shift="sub" font-size="9">inj</tspan> ≤ capacity</text>
+            <line x1="390" y1="182" x2="390" y2="226" class="stroke-accent" stroke-width="3" marker-end="url(#cb-a-acc)"/>
+            <text x="438" y="214" class="t-small" style="fill:var(--accent)">← crop uptake Φ<tspan baseline-shift="sub" font-size="9">up</tspan>(I, C)</text>
+            <path d="M300 104 C 290 70, 300 50, 330 36" class="stroke-water" stroke-width="3" fill="none" marker-end="url(#cb-a-wat)"/>
+            <text x="338" y="36" class="t-small" style="fill:var(--water)">out: k · N · h̄ · C</text>
+            <path d="M520 60 C 480 70, 450 90, 428 104" class="stroke-muted" stroke-width="2" fill="none" marker-end="url(#cb-a-ink)"/>
+            <text x="470" y="52" class="t-small t-muted">in: k · N · h̄ · C<tspan baseline-shift="sub" font-size="9">out</tspan></text>
+            <text x="470" y="150" class="t-small t-muted">outdoor air</text>
+            <text x="470" y="164" class="t-small t-muted">C<tspan baseline-shift="sub" font-size="9">out</tspan> = 427 µmol mol⁻¹</text>
+            <text x="310" y="280" text-anchor="middle" class="t-small t-muted">k = mass of CO₂ per m³ per µmol mol⁻¹ · h̄ = air volume per m² of floor · N = air changes per hour</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The CO₂ balance per square metre of floor (Eq. CB2). The ventilation term is the net result of air leaving at the inside concentration and air entering at the outdoor concentration; it is a loss when the greenhouse is enriched and a gain when it is depleted.</figcaption>
+      </figure>
+
+      <h2 data-nonum>How much CO₂ does the crop take?</h2>
+      <p>The crop model is the canopy photosynthesis of the lettuce model of van Henten (1994), which has been used for three decades to study the optimal control of greenhouse climate. It combines two limits in the way first proposed by Acock et al. (1978): a <strong>light-limited</strong> rate, proportional to the photons reaching the canopy, and a <strong>CO₂-limited</strong> rate, proportional to the CO₂ concentration above the compensation point. The canopy follows the smaller of the two, smoothly: \(\Phi = P_I P_C/(P_I + P_C)\).</p>
+      <p>This co-limitation has an important consequence. In dim light the crop is light-limited and extra CO₂ achieves little; in bright light the crop is CO₂-limited and enrichment pays. In the model, raising CO₂ from 427 to 1000 µmol mol⁻¹ increases canopy uptake by about 26 % at 200 µmol m⁻² s⁻¹ but by about 57 % at 600 µmol m⁻² s⁻¹. At a fixed light level the co-limitation curve has exactly the shape of the empirical response of <a href="/lessons/co2-enrichment/">Lesson 8.3</a> (Eq. 8.3.2), with a half-saturation constant \(K\) that increases with light (Eq. CB4). Kimball's (1983) average of +33 % for a doubling of CO₂ corresponds to a moderately bright day.</p>
+      <div class="callout note"><div class="callout-title">Why growers dose in the morning</div><p>On a sunny spring morning the light is already strong, the vents are still closed, and the crop quickly depletes the air. The marginal value of CO₂ is high and its marginal cost low: this is the most profitable hour of the day for enrichment. Wang et al. (2022) review strategies that concentrate dosing in these hours, and Kläring et al. (2007) showed that simply keeping the concentration at the outdoor level with the vents open increased cucumber yield.</p></div>
+
+      <h2 data-nonum>Where the dosed CO₂ goes</h2>
+      <p>In steady state the supply needed to hold a set-point \(C\) is the crop's uptake plus \(kN\bar h\,(C - C_{\text{out}})\). The second term is proportional to both the enrichment and the ventilation rate. With \(\bar h\) = 5.5 m, holding 800 µmol mol⁻¹ costs 3.8 g m⁻² h⁻¹ of ventilation loss at 1 air change per hour — about the crop's uptake — but 75 g m⁻² h⁻¹ at 20 air changes per hour, twenty-five times what the crop can take up. Greenhouses ventilate at 20–60 air changes per hour on warm days (Lesson 8.1), whereas plant factories leak only 0.01–0.02 (Kozai, 2013). That factor of a thousand explains why plant factories enrich to 1000–2000 µmol mol⁻¹ with a CO₂-use efficiency near 90 %, while summer enrichment in a ventilated greenhouse is mostly a way of enriching the atmosphere.</p>
+      <table>
+        <caption>Table 1. The same crop on the same April day under different ventilation, fixed set-point 800 µmol mol⁻¹ (model defaults).</caption>
+        <thead><tr><th>Situation</th><th class="num">CO₂ supplied, kg ha⁻¹ d⁻¹</th><th class="num">Lost to outside</th><th class="num">Net margin, € ha⁻¹ d⁻¹</th></tr></thead>
+        <tbody>
+          <tr><td>Constant 0.5 air changes per hour</td><td class="num">≈ 540</td><td class="num">≈ 53 %</td><td class="num">≈ +1130</td></tr>
+          <tr><td>Vents open with the sun (0.5 → 20 h⁻¹)</td><td class="num">≈ 1910</td><td class="num">≈ 88 %</td><td class="num">≈ +190</td></tr>
+          <tr><td>Constant 5 air changes per hour</td><td class="num">≈ 2650</td><td class="num">≈ 90 %</td><td class="num">≈ +270</td></tr>
+          <tr><td>Plant factory room, 0.02 h⁻¹ (1000 µmol mol⁻¹)</td><td class="num">≈ 1090</td><td class="num">≈ 2 %</td><td class="num">(always positive)</td></tr>
+        </tbody>
+      </table>
+
+      <h2 data-nonum>Finding the economic optimum</h2>
+      <p>Raise the set-point by one µmol mol⁻¹. The crop takes up a little more CO₂ — worth \(v\) euros per kg, the value of the lettuce this CO₂ becomes — and the vents lose a little more — costing \(p\) euros per kg. The optimum is where the two marginal effects balance (Eq. CB9). Because the marginal gain falls with concentration and the marginal loss is constant, the balance point moves down as ventilation rises, and eventually falls below the concentration the greenhouse would have anyway. There, the best decision is not to dose at all — the classic result reproduced in the fourth chart. The same analysis explains why the optimum rises with light, with the product price and with cheaper CO₂.</p>
+      <p>Van Henten (1994) solved this problem properly, as an optimal-control problem over a whole growing season with heating, ventilation and CO₂ as controls; our economic controller is the "quasi-steady" simplification that applies the marginal rule instant by instant. It is a good approximation because the air responds in minutes, much faster than the crop grows (the time-scale decomposition of Van Henten &amp; Bontsema, 2009, rests on the same idea).</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"If CO₂ increases yield, more CO₂ is always better." The yield response saturates (Lesson 8.3), and every extra µmol mol⁻¹ above outdoor air increases the loss through the vents in proportion. With open vents the best set-point can be <em>below</em> the outdoor concentration — meaning: do not dose.</p></div>
+      <div class="callout frontier"><div class="callout-title">Research frontier</div><p>As natural gas disappears from greenhouse heating, CO₂ no longer comes "for free" with the heat. Growers must buy it from industry, biogas plants or direct air capture (Lesson 8.3), so dosing is becoming a purchase decision that must be optimised hour by hour — exactly the calculation of this laboratory. Van Tuyll et al. (2022) explore lower set-points, targeted dosing under the canopy and more closed greenhouses for a decarbonised future.</p></div>
+    </section>
+
+    <!-- ================================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The day is integrated with a 60 s time step, after a warm-up day so that the result is periodic. All fluxes are per m² of floor; multiply g m⁻² h⁻¹ by 10 to obtain kg ha⁻¹ h⁻¹.</p>
+
+      <div class="eq-box" id="eq-cb-units">
+        <div class="eq-head"><span class="eq-label">From µmol mol⁻¹ to grams per cubic metre</span><span class="eq-num">(CB1)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \rho_{\text{CO}_2} = k\,C, \qquad k = \frac{M_{\text{CO}_2}\,P}{R\,T}\times 10^{-6} \\[6pt] k \approx 1.83\times10^{-3}\ \text{g m}^{-3}\,(\mu\text{mol mol}^{-1})^{-1}\ \ (20^{\circ}\text{C}) \end{gathered} \]</div>
+        <p class="eq-read">the mass concentration of CO₂ is the mole fraction times a conversion factor that follows from the ideal-gas law.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(C\)</td><td>CO₂ mole fraction (µmol mol⁻¹ = ppm)</td><td>µmol mol⁻¹</td><td></td></tr>
+          <tr><td>\(M_{\text{CO}_2}\)</td><td>molar mass of CO₂</td><td>g mol⁻¹</td><td>44.01</td></tr>
+          <tr><td>\(P, T\)</td><td>air pressure; absolute temperature</td><td>Pa; K</td><td>101 325; 293.15</td></tr>
+          <tr><td>\(k\)</td><td>g of CO₂ per m³ per µmol mol⁻¹</td><td>g m⁻³</td><td>1.83 × 10⁻³ at 20 °C</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Moles of air per m³: \(n/V = P/(RT)\) = 41.6 mol m⁻³ at 20 °C.</li><li>Moles of CO₂ per m³: \(C\times10^{-6}\cdot P/(RT)\); multiply by \(M_{\text{CO}_2}\) for grams. The same factor appears in Lesson 8.3 (Eq. 8.3.1).</li></ol></details>
+        <div class="eq-units">\(\dfrac{\text{g mol}^{-1}\cdot\text{Pa}}{\text{J mol}^{-1}\text{K}^{-1}\cdot\text{K}} = \text{g m}^{-3}\) (Pa = J m⁻³) ✓</div>
+        <div class="mini-calc" data-formula="44.01*101325/(8.314462618*(T+273.15))*1e-6*C" data-output="CO₂ mass concentration" data-unit="g m⁻³" data-digits="3" data-plot="C">
+          <div data-var="C" data-label="Mole fraction C" data-min="300" data-max="2000" data-step="10" data-value="1000" data-unit="µmol mol⁻¹"></div>
+          <div data-var="T" data-label="Air temperature" data-min="0" data-max="35" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cb-balance">
+        <div class="eq-head"><span class="eq-label">Dynamic CO₂ mass balance</span><span class="eq-num">(CB2)</span></div>
+        <div class="eq-main">\[ k\,\bar h\,\frac{\mathrm{d}C}{\mathrm{d}t} = \Phi_{\text{inj}} + \Phi_{\text{resp}} - \Phi_{\text{up}}(I, C) - k\,N\,\bar h\,\left(C - C_{\text{out}}\right) \]</div>
+        <p class="eq-read">the change in the CO₂ stored in the air above each square metre equals the supply plus the crop's respiration minus the crop's photosynthetic uptake minus the net loss by air exchange with the outside.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(\bar h\)</td><td>air volume per m² of floor (mean height)</td><td>m</td><td>5.5</td></tr>
+          <tr><td>\(\Phi_{\text{inj}}\)</td><td>CO₂ supply</td><td>g m⁻² h⁻¹</td><td>≤ 20 (200 kg ha⁻¹ h⁻¹)</td></tr>
+          <tr><td>\(\Phi_{\text{up}}, \Phi_{\text{resp}}\)</td><td>gross canopy uptake; maintenance respiration (CB3, CB5)</td><td>g m⁻² h⁻¹</td><td></td></tr>
+          <tr><td>\(N\)</td><td>air exchange rate</td><td>h⁻¹</td><td>0.5–20</td></tr>
+          <tr><td>\(C_{\text{out}}\)</td><td>outdoor concentration (Mauna Loa 2025 annual mean)</td><td>µmol mol⁻¹</td><td>427</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Mass conservation for the CO₂ in the air above 1 m² of floor: stored mass \(k\bar hC\) changes by sources minus sinks.</li>
+            <li>Air exchange replaces \(N\bar h\) m³ per m² per hour; it takes away \(kN\bar hC\) and brings \(kN\bar hC_{\text{out}}\) (Lesson 8.3, Eq. 8.3.3; Kozai, 2013).</li>
+            <li>Numerically, the ventilation term is treated implicitly, which keeps the scheme stable even at 60 air changes per hour: \(C_{n+1} = \dfrac{C_n + \frac{\Delta t}{k\bar h}(\Phi_{\text{inj}}-\Phi_{\text{up}}+\Phi_{\text{resp}}) + \Delta t\,N\,C_{\text{out}}}{1+\Delta t\,N}\).</li>
+            <li>Time constant: \(\tau \approx 1/N\) — one hour at 1 h⁻¹, three minutes at 20 h⁻¹ (Lesson 8.3, Eq. 8.3.5).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Well-mixed air; CO₂ absorbed by condensate, soil or substrate and respiration of workers are neglected. Real greenhouses have vertical gradients: CO₂ dosed under the canopy is used before it reaches the vents.</p></details>
+        <div class="eq-units">g m⁻³ ppm⁻¹ · m · ppm h⁻¹ = g m⁻² h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="(inj/10 - A + 0.1 - 1.83e-3*N*h*(C-427))/(1.83e-3*h)" data-output="Rate of change dC/dt" data-unit="µmol mol⁻¹ h⁻¹" data-digits="0" data-plot="C" data-title="Try it — rising or falling? (respiration 0.1 g m⁻² h⁻¹)">
+          <div data-var="C" data-label="Concentration C" data-min="200" data-max="1500" data-step="10" data-value="800" data-unit="µmol mol⁻¹"></div>
+          <div data-var="inj" data-label="Supply" data-min="0" data-max="400" data-step="5" data-value="200" data-unit="kg ha⁻¹ h⁻¹"></div>
+          <div data-var="A" data-label="Crop uptake" data-min="0" data-max="6" data-step="0.1" data-value="2.5" data-unit="g m⁻² h⁻¹"></div>
+          <div data-var="N" data-label="Air exchange N" data-min="0.1" data-max="40" data-scale="log" data-value="2" data-unit="h⁻¹"></div>
+          <div data-var="h" data-label="Mean height h̄" data-min="2" data-max="8" data-step="0.1" data-value="5.5" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cb-uptake">
+        <div class="eq-head"><span class="eq-label">Canopy CO₂ uptake (van Henten, 1994)</span><span class="eq-num">(CB3)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \Phi_{\text{up}} = \left(1 - e^{-c_{\text{pl}}X}\right)\frac{P_I\,P_C}{P_I + P_C} \\[6pt] P_I = \varepsilon\,I, \qquad P_C = \sigma(T)\,k\,\left(C - \Gamma(T)\right) \end{gathered} \]</div>
+        <div class="eq-main">\[ \sigma(T) = -c_1T^2 + c_2T - c_3, \qquad \Gamma(T) = \frac{c_\Gamma}{k}\,2^{(T-20)/10} \]</div>
+        <p class="eq-read">canopy uptake equals the canopy closure times a smooth minimum of a light-limited rate, proportional to the photon flux, and a CO₂-limited rate, proportional to the CO₂ above the compensation point; the canopy conductance for CO₂ and the compensation point depend on temperature.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\varepsilon\)</td><td>light-use efficiency at high CO₂, \(17\times10^{-9}\) kg J⁻¹ PAR ÷ 4.57 µmol J⁻¹</td><td>kg CO₂ mol⁻¹</td><td>3.72 × 10⁻³</td></tr>
+          <tr><td>\(I\)</td><td>PPFD at the canopy</td><td>µmol m⁻² s⁻¹</td><td></td></tr>
+          <tr><td>\(c_1, c_2, c_3\)</td><td>canopy conductance polynomial</td><td>m s⁻¹ (°C⁻², °C⁻¹, –)</td><td>5.11 × 10⁻⁶, 2.30 × 10⁻⁴, 6.29 × 10⁻⁴</td></tr>
+          <tr><td>\(c_\Gamma\)</td><td>compensation point at 20 °C</td><td>kg m⁻³</td><td>5.2 × 10⁻⁵ (≈ 28 µmol mol⁻¹)</td></tr>
+          <tr><td>\(c_{\text{pl}}X\)</td><td>effective canopy surface: 53 m² kg⁻¹ × crop dry weight</td><td>–</td><td>closure 65 % (default)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A canopy is limited either by light (few photons, CO₂ plentiful) or by CO₂ transport into the leaves (plenty of light). Acock et al. (1978) combined the two limits as a rectangular hyperbola; van Henten (1994) added the temperature dependence of the carboxylation conductance and of the compensation point (Goudriaan et al., 1985).</li>
+            <li>\(\sigma(T)\) has its maximum of 1.96 × 10⁻³ m s⁻¹ at 22.5 °C. At 20 °C, 1000 µmol mol⁻¹: \(P_C = 1.93\times10^{-3}\times1.83\times10^{-6}\times972 = 3.4\times10^{-6}\) kg m⁻² s⁻¹ = 12.3 g m⁻² h⁻¹.</li>
+            <li>At 600 µmol m⁻² s⁻¹: \(P_I = 3.72\times10^{-3}\times600\times10^{-6} = 2.2\times10^{-6}\) kg m⁻² s⁻¹ = 8.0 g m⁻² h⁻¹. Co-limited: \(8.0\times12.3/20.3 = 4.8\) g m⁻² h⁻¹ for a closed canopy — about 48 kg CO₂ ha⁻¹ h⁻¹.</li>
+            <li>The factor \(1 - e^{-c_{\text{pl}}X}\) represents the fraction of the ground covered by leaves; the laboratory sets it from the cycle-average canopy closure.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Calibrated for lettuce in Dutch greenhouses; it describes a well-watered, well-fed crop without photosynthetic acclimation. For a closed canopy it predicts high growth rates, so the absolute benefits of enrichment are an upper estimate; the location of the economic optimum is less sensitive than its size.</p></details>
+        <div class="eq-units">kg mol⁻¹ · mol m⁻² s⁻¹ = kg m⁻² s⁻¹ ✓ · m s⁻¹ · kg m⁻³ = kg m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="cbUptake" data-output="Canopy CO₂ uptake" data-unit="g m⁻² h⁻¹" data-digits="2" data-plot="C" data-title="Try it — light and CO₂ limit each other">
+          <div data-var="C" data-label="CO₂ concentration" data-min="100" data-max="2000" data-step="10" data-value="800" data-unit="µmol mol⁻¹"></div>
+          <div data-var="I" data-label="PPFD at the canopy" data-min="0" data-max="1500" data-step="10" data-value="600" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="T" data-label="Air temperature" data-min="8" data-max="35" data-step="0.5" data-value="20" data-unit="°C"></div>
+          <div data-var="cover" data-label="Canopy closure" data-min="10" data-max="100" data-step="1" data-value="65" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cb-K">
+        <div class="eq-head"><span class="eq-label">Link to the CO₂ response curve of Lesson 8.3</span><span class="eq-num">(CB4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \Phi_{\text{up}} = A_s\,\frac{C - \Gamma}{C - \Gamma + K} \\[6pt] A_s = \left(1-e^{-c_{\text{pl}}X}\right)P_I, \qquad K = \frac{P_I}{\sigma\,k} \end{gathered} \]</div>
+        <p class="eq-read">at a fixed light level the co-limitation equation is the same saturating curve as Eq. 8.3.2 of Lesson 8.3; its maximum is the light-limited rate and its half-saturation constant is the light-limited rate divided by the canopy CO₂ conductance, so it grows in proportion to the light.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(A_s\)</td><td>uptake at CO₂ saturation</td><td>g m⁻² h⁻¹</td></tr>
+          <tr><td>\(K\)</td><td>half-saturation constant</td><td>µmol mol⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Write \(x = C - \Gamma\) and \(s = \sigma k\): \(\dfrac{P_I\,s x}{P_I + s x} = P_I\,\dfrac{x}{x + P_I/s}\).</li>
+            <li>Hence \(K = P_I/s\): at 20 °C and 250 µmol m⁻² s⁻¹, \(K\) ≈ 260 µmol mol⁻¹, close to the 237 µmol mol⁻¹ that Lesson 8.3 calibrated on Kimball's (1983) data; at 600 µmol m⁻² s⁻¹, \(K\) ≈ 630 µmol mol⁻¹.</li>
+            <li>A larger \(K\) means the curve saturates later: in bright light the crop keeps responding to CO₂ at higher concentrations.</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(\dfrac{\text{kg m}^{-2}\text{s}^{-1}}{\text{m s}^{-1}\cdot\text{kg m}^{-3}\,\text{ppm}^{-1}} = \text{ppm}\) ✓</div>
+        <div class="mini-calc" data-fn="cbK" data-output="Half-saturation constant K" data-unit="µmol mol⁻¹" data-digits="0" data-plot="I">
+          <div data-var="I" data-label="PPFD at the canopy" data-min="20" data-max="1500" data-step="10" data-value="250" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="T" data-label="Air temperature" data-min="8" data-max="35" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cb-growth">
+        <div class="eq-head"><span class="eq-label">Respiration, growth and the value of CO₂</span><span class="eq-num">(CB5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \Phi_{\text{resp}} = c_{\text{resp}}\,X\,2^{(T-25)/10}, \qquad \Delta W = c_{\alpha\beta}\,\Delta\!\int\!\Phi_{\text{up}}\,\mathrm{d}t \\[6pt] v = c_{\alpha\beta}\,\frac{p_{\text{FW}}\,f_m}{x_{\text{DM}}} \end{gathered} \]</div>
+        <p class="eq-read">maintenance respiration is proportional to the crop's dry weight and doubles every 10 K; the extra dry matter formed equals a conversion factor times the extra CO₂ taken up; the value of one kilogram of CO₂ taken up is that factor times the price of the fresh product divided by its dry-matter content.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(c_{\text{resp}}\)</td><td>maintenance respiration (CO₂ units, 25 °C)</td><td>s⁻¹</td><td>4.87 × 10⁻⁷</td></tr>
+          <tr><td>\(c_{\alpha\beta}\)</td><td>dry matter formed per CO₂ assimilated</td><td>kg kg⁻¹</td><td>0.544</td></tr>
+          <tr><td>\(p_{\text{FW}}\)</td><td>price of fresh lettuce (an assumption — use your own)</td><td>€ kg⁻¹</td><td>1.0</td></tr>
+          <tr><td>\(f_m, x_{\text{DM}}\)</td><td>marketable share; dry-matter content</td><td>–</td><td>0.9; 0.05</td></tr>
+          <tr><td>\(v\)</td><td>value of one extra kg of CO₂ assimilated</td><td>€ kg⁻¹</td><td>9.8</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>\(c_{\alpha\beta} = c_\alpha c_\beta\): 0.68 kg of CH₂O per kg CO₂ (30/44) times 0.8 kg of structural dry matter per kg CH₂O (van Henten, 1994).</li>
+            <li>Respiration does not change with the CO₂ concentration, so the <em>extra</em> dry matter due to dosing is \(c_{\alpha\beta}\) times the extra uptake.</li>
+            <li>1 kg CO₂ → 0.544 kg DW → 0.544 × 0.9/0.05 = 9.8 kg of marketable lettuce → €9.8 at €1 kg⁻¹. For tomato, Lesson 8.3 estimated about €5 per kg CO₂.</li>
+          </ol>
+        </details>
+        <div class="eq-units">kg kg⁻¹ · € kg⁻¹ / (kg kg⁻¹) = € kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="0.544*price*fm/(dm/100)" data-output="Value of CO₂ assimilated v" data-unit="€ kg⁻¹" data-digits="2" data-plot="price">
+          <div data-var="price" data-label="Lettuce price" data-min="0.2" data-max="5" data-step="0.05" data-value="1" data-unit="€ kg⁻¹"></div>
+          <div data-var="fm" data-label="Marketable share" data-min="0.5" data-max="1" data-step="0.01" data-value="0.9"></div>
+          <div data-var="dm" data-label="Dry-matter content" data-min="3" data-max="8" data-step="0.1" data-value="5" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cb-drivers">
+        <div class="eq-head"><span class="eq-label">Light and ventilation through the day</span><span class="eq-num">(CB6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} I = 2.02\,\tau\,G, \qquad G = f_{\text{clear}}\,G_{\text{clear}}(\beta) \\[6pt] N = N_{\min} + (N_{\max}-N_{\min})\,\min\!\left(1, \max\!\left(0, \frac{G-150}{400}\right)\right) \end{gathered} \]</div>
+        <p class="eq-read">the PPFD at the canopy is 2.02 µmol per joule times the greenhouse transmission times the outdoor global radiation, which is a fraction of the clear-sky radiation at the sun's elevation; the vents open linearly between 150 and 550 W m⁻² of outdoor radiation.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(\beta\)</td><td>solar elevation from latitude, date and hour (course library)</td><td>rad</td><td></td></tr>
+          <tr><td>\(f_{\text{clear}}\)</td><td>fraction of clear-sky radiation (cloudiness)</td><td>–</td><td>0.6</td></tr>
+          <tr><td>\(\tau\)</td><td>light transmission of the greenhouse</td><td>–</td><td>0.7</td></tr>
+          <tr><td>\(N_{\min}, N_{\max}\)</td><td>leakage with closed vents; vents fully open</td><td>h⁻¹</td><td>0.5; 20</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The vents are a proxy for temperature control: in reality they open when the air exceeds the ventilation temperature, which depends on radiation, outdoor temperature and heating (the <a href="/laboratories/greenhouse-climate/">Greenhouse climate simulator</a> models this properly). 2.02 µmol J⁻¹ converts global radiation to PPFD (course library). Supplementary lamps add their PPFD from 05:00 to 21:00 whenever the outdoor radiation is below 150 W m⁻².</p></details>
+        <div class="eq-units">µmol J⁻¹ · W m⁻² = µmol m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="nmin + (nmax-nmin)*min(1,max(0,(G-150)/400))" data-output="Air exchange rate N" data-unit="h⁻¹" data-digits="1" data-plot="G">
+          <div data-var="G" data-label="Outdoor global radiation G" data-min="0" data-max="900" data-step="10" data-value="400" data-unit="W m⁻²"></div>
+          <div data-var="nmin" data-label="N<sub>min</sub>" data-min="0.05" data-max="5" data-step="0.05" data-value="0.5" data-unit="h⁻¹"></div>
+          <div data-var="nmax" data-label="N<sub>max</sub>" data-min="1" data-max="60" data-step="1" data-value="20" data-unit="h⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cb-control">
+        <div class="eq-head"><span class="eq-label">The dosing controller</span><span class="eq-num">(CB7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \Phi_{\text{inj}} = \min\!\left(\Phi_{\max},\ \max\!\left(0,\ \Phi_{\text{req}}\right)\right) \\[6pt] \Phi_{\text{req}} = \Phi_{\text{up}} - \Phi_{\text{resp}} + k N \bar h\,(C_s - C_{\text{out}}) + k\bar h\,\frac{C_s - C}{\Delta t} \end{gathered} \]</div>
+        <p class="eq-read">the controller supplies what the crop takes up, what the vents lose at the set-point and what is needed to close the remaining gap within one time step — but never more than the capacity of the dosing system and never a negative amount.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(C_s\)</td><td>set-point (fixed; lowered when \(N\) exceeds a threshold; or the economic optimum CB9)</td><td>µmol mol⁻¹</td><td>800</td></tr>
+          <tr><td>\(\Phi_{\max}\)</td><td>dosing capacity</td><td>g m⁻² h⁻¹</td><td>20 (200 kg ha⁻¹ h⁻¹)</td></tr>
+          <tr><td>\(\Phi_{\text{req}}\)</td><td>supply that would bring the concentration exactly to \(C_s\) in one time step \(\Delta t\)</td><td>g m⁻² h⁻¹</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Set \(C_{n+1} = C_s\) in the discrete balance of CB2 and solve for \(\Phi_{\text{inj}}\).</li>
+            <li>In steady state (\(C = C_s\)) the last term vanishes and we recover Lesson 8.3, Eq. 8.3.4: \(\Phi_{\text{inj,req}} = \Phi_{\text{up}} - \Phi_{\text{resp}} + kN\bar h(C_s - C_{\text{out}})\).</li>
+            <li>Dosing is allowed only in daylight (PPFD &gt; 20 µmol m⁻² s⁻¹).</li>
+          </ol>
+        </details>
+        <div class="eq-units">every term g m⁻² h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="10*(A + 1.83e-3*N*h*(Cs-427))" data-output="Steady-state supply needed" data-unit="kg ha⁻¹ h⁻¹" data-digits="0" data-plot="N">
+          <div data-var="Cs" data-label="Set-point" data-min="430" data-max="1500" data-step="10" data-value="800" data-unit="µmol mol⁻¹"></div>
+          <div data-var="N" data-label="Air exchange N" data-min="0.1" data-max="40" data-scale="log" data-value="5" data-unit="h⁻¹"></div>
+          <div data-var="A" data-label="Crop uptake" data-min="0" data-max="6" data-step="0.1" data-value="2.9" data-unit="g m⁻² h⁻¹"></div>
+          <div data-var="h" data-label="Mean height h̄" data-min="2" data-max="8" data-step="0.1" data-value="5.5" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cb-margin">
+        <div class="eq-head"><span class="eq-label">Daily margin and efficiency of enrichment</span><span class="eq-num">(CB8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \Pi = v\left(\int\Phi_{\text{up}}\,\mathrm{d}t - \int\Phi_{\text{up},0}\,\mathrm{d}t\right) - p\int\Phi_{\text{inj}}\,\mathrm{d}t \\[6pt] \eta_{\text{dose}} = \frac{\int(\Phi_{\text{up}} - \Phi_{\text{up},0})\,\mathrm{d}t}{\int\Phi_{\text{inj}}\,\mathrm{d}t} \end{gathered} \]</div>
+        <p class="eq-read">the daily margin of enrichment is the value of the extra CO₂ taken up, compared with the same day without dosing, minus the cost of all CO₂ bought; the dosing efficiency is the extra uptake per unit of CO₂ bought.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\Phi_{\text{up},0}\)</td><td>uptake in the same day without dosing (depleted air)</td><td>g m⁻² h⁻¹</td></tr>
+          <tr><td>\(p\)</td><td>price of CO₂ delivered</td><td>€ kg⁻¹ (default 0.15)</td></tr>
+          <tr><td>\(\eta_{\text{dose}}\)</td><td>share of the dosed CO₂ that became extra uptake</td><td>–</td></tr>
+        </table>
+        <details><summary>Why the break-even cost is \(v\) per kg of extra CO₂</summary><p>Enrichment pays if the cost per extra kg of CO₂ fixed, \(p/\eta_{\text{dose}}\), is smaller than its value \(v\). With \(v\) = €9.8 kg⁻¹ and \(p\) = €0.15 kg⁻¹ this requires \(\eta_{\text{dose}} &gt; 1.5\) % — a low bar that open vents nevertheless fail to clear on warm days.</p></details>
+        <div class="eq-units">€ kg⁻¹ · kg m⁻² d⁻¹ = € m⁻² d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="100*p/v" data-output="Minimum dosing efficiency for a profit" data-unit="%" data-digits="2" data-plot="p">
+          <div data-var="p" data-label="CO₂ price p" data-min="0.03" data-max="0.8" data-step="0.01" data-value="0.15" data-unit="€ kg⁻¹"></div>
+          <div data-var="v" data-label="Value of CO₂ assimilated v" data-min="1" data-max="30" data-step="0.1" data-value="9.8" data-unit="€ kg⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cb-optimum">
+        <div class="eq-head"><span class="eq-label">The economically optimal set-point</span><span class="eq-num">(CB9)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \frac{\partial \pi}{\partial C} = (v-p)\,\Phi_{\text{up}}^{\prime}(C) - p\,kN\bar h = 0 \\[6pt] \Longrightarrow\quad C^{*} = \Gamma - K + \sqrt{\frac{(v-p)\,A_s\,K}{p\,k\,N\,\bar h}} \end{gathered} \]</div>
+        <p class="eq-read">at each moment the best set-point is the one where the value of the extra photosynthesis from one more µmol mol⁻¹, net of its purchase price, equals the cost of the extra CO₂ lost by ventilation; with the co-limitation curve this gives a closed formula in which the optimum rises with light and product value and falls with the CO₂ price and the ventilation rate.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\pi\)</td><td>instantaneous margin, \(v\,\Phi_{\text{up}} - p\,\Phi_{\text{inj}}\)</td><td>€ m⁻² h⁻¹</td></tr>
+          <tr><td>\(A_s, K\)</td><td>from Eq. CB4 at the current light</td><td>g m⁻² h⁻¹; µmol mol⁻¹</td></tr>
+          <tr><td>\(C^{*}\)</td><td>optimal set-point, capped at the physiological limit (1200 µmol mol⁻¹)</td><td>µmol mol⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>In quasi-steady state all uptake and all ventilation loss must be bought: \(\Phi_{\text{inj}} = \Phi_{\text{up}} - \Phi_{\text{resp}} + kN\bar h(C - C_{\text{out}})\) (CB7). Then \(\pi(C) = v\Phi_{\text{up}} - p[\Phi_{\text{up}} - \Phi_{\text{resp}} + kN\bar h(C - C_{\text{out}})]\).</li>
+            <li>Differentiate: \(\pi'(C) = (v - p)\Phi_{\text{up}}'(C) - pkN\bar h\).</li>
+            <li>With \(\Phi_{\text{up}} = A_s(C-\Gamma)/(C-\Gamma+K)\): \(\Phi_{\text{up}}' = A_sK/(C-\Gamma+K)^2\). Setting \(\pi' = 0\) and solving gives the formula — identical to Lesson 8.3, Eq. 8.3.7, but with \(A_s\) and \(K\) now following the light hour by hour.</li>
+            <li>If \(C^{*}\) is below the concentration the greenhouse has without dosing, dosing loses money: the controller does nothing. Because \(C^{*} \propto 1/\sqrt{N}\) for large \(N\), this always happens when the vents are open wide enough.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Instantaneous optimisation ignores CO₂ stored in the air between hours and the effect of CO₂ on transpiration, temperature and quality; the full dynamic problem is solved by optimal control (van Henten, 1994; Van Henten, 2003). Prices are assumed constant.</p></details>
+        <div class="eq-units">\(\sqrt{\dfrac{\text{EUR kg}^{-1}\cdot\text{kg m}^{-2}\text{s}^{-1}\cdot\text{ppm}}{\text{EUR kg}^{-1}\cdot\text{kg m}^{-2}\text{s}^{-1}\text{ppm}^{-1}}} = \text{ppm}\) ✓</div>
+        <div class="mini-calc" data-fn="cbOpt" data-output="Optimal set-point C* (before the 1200 cap)" data-unit="µmol mol⁻¹" data-digits="0" data-plot="N" data-title="Try it — the optimum falls as the vents open">
+          <div data-var="N" data-label="Air exchange N" data-min="0.2" data-max="60" data-scale="log" data-value="5" data-unit="h⁻¹"></div>
+          <div data-var="I" data-label="PPFD at the canopy" data-min="50" data-max="1500" data-step="10" data-value="600" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="p" data-label="CO₂ price" data-min="0.03" data-max="0.8" data-step="0.01" data-value="0.15" data-unit="€ kg⁻¹"></div>
+          <div data-var="price" data-label="Lettuce price" data-min="0.2" data-max="5" data-step="0.05" data-value="1" data-unit="€ kg⁻¹"></div>
+          <div data-var="cover" data-label="Canopy closure" data-min="10" data-max="100" data-step="1" data-value="65" data-unit="%"></div>
+          <div data-var="h" data-label="Mean height h̄" data-min="2" data-max="8" data-step="0.1" data-value="5.5" data-unit="m"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Start each task from the preset <em>Swedish spring day</em> unless stated otherwise. Use <em>CSV (day)</em> to export the time series and <em>Save investigation</em> to store your settings.</p>
+      <ol class="task-list">
+        <li><h4>Depletion first</h4><p>Switch the strategy to a set-point of 430 µmol mol⁻¹ (just above outdoor air). How much CO₂ does it take per day simply to prevent depletion, and what share of it ends up in the crop? Compare the dosing efficiency with that of 800 µmol mol⁻¹. Relate your answer to Kläring et al. (2007), who kept cucumbers at the ambient level.</p></li>
+        <li><h4>The season</h4><p>With the economic controller, record the daily margin, the CO₂ supplied and the mean concentration in January, April, July and October. When in the year is enrichment most profitable per kg of CO₂, and why? What changes if you add 150 µmol m⁻² s⁻¹ of supplementary light in January?</p></li>
+        <li><h4>Rediscover the classic result</h4><p>In the fourth chart, read the optimal set-point at 1, 5, 10 and 20 air changes per hour. Check two of the values with the closed formula of Eq. CB9 (use the mini-calculator at 600 µmol m⁻² s⁻¹). Then double the CO₂ price and halve it: how does the air exchange rate at which dosing stops move? Explain with the \(1/\sqrt{N}\) dependence.</p></li>
+        <li><h4>Strategies compared</h4><p>For a July day with vents opening to 40 h⁻¹, compare the fixed set-point (800), the vent-coupled strategy (450 above 2 h⁻¹) and the economic controller: CO₂ supplied, extra yield, margin and share lost through the vents. Which would you recommend to a Swedish lettuce grower buying liquid CO₂? What information would you need to be confident?</p></li>
+        <li><h4>Capacity</h4><p>On the spring day, reduce the dosing capacity from 200 to 50 kg ha⁻¹ h⁻¹ and increase it to 400. How do the achieved concentration and the margin change? Is a bigger dosing system worth buying if it costs €2 000 per hectare per year more in capital charges?</p></li>
+        <li><h4>Plant factory versus greenhouse</h4><p>Choose <em>Plant factory room</em>. Record the dosing efficiency and the CO₂ lost at 0.02, 0.2 and 2 air changes per hour. At what leakage rate would a plant factory become as wasteful as a closed greenhouse? Compare with Kozai's (2013) CUE of 0.87–0.89.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="co2-balance-lab">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Select the preset <em>Swedish spring day</em>. What percentage of the CO₂ entering the greenhouse air is lost through the vents?","answer":87.7,"tol":0.05,"unit":"%","hint":"Readout <em>CO₂ lost through vents and leaks</em>.","explain":"<p>About 88 %: most of the CO₂ is dosed while the vents are opening. Van Tuyll et al. (2022) estimated that about 85 % of the CO₂ supplied to Dutch greenhouses is lost by ventilation.</p>"},
+          {"type":"numeric","q":"A greenhouse (h̄ = 5.5 m, 20 °C, k = 1.83 × 10⁻³ g m⁻³ per µmol mol⁻¹) ventilates at N = 5 h⁻¹. The crop takes up 2.9 g m⁻² h⁻¹. What supply is needed to hold 800 µmol mol⁻¹ in steady state? (Neglect respiration.)","answer":217,"tol":0.03,"unit":"kg ha⁻¹ h⁻¹","hint":"Supply = uptake + k·N·h̄·(C − C_out); 1 g m⁻² h⁻¹ = 10 kg ha⁻¹ h⁻¹.","explain":"<p>\\(1.83\\times10^{-3}\\times5\\times5.5\\times(800-427) = 18.8\\) g m⁻² h⁻¹ of ventilation loss plus 2.9 g m⁻² h⁻¹ uptake = 21.7 g m⁻² h⁻¹ ≈ 217 kg ha⁻¹ h⁻¹ — more than a 200 kg ha⁻¹ h⁻¹ dosing system can deliver.</p>"},
+          {"type":"mcq","q":"Choose <em>Summer, vents wide open</em>. Which statement matches the simulation?","options":["A fixed set-point of 800 µmol mol⁻¹ loses money, while the economic controller still makes a small profit","Enrichment is profitable at any set-point because the crop grows fastest in summer","The economic controller doses more CO₂ than the fixed set-point","Without dosing the greenhouse stays above the outdoor concentration all day"],"answer":0,"feedback":["","More light raises the value of CO₂, but with 40 air changes per hour the ventilation loss dominates.","It doses far less: it throttles back when the vents open.","The crop still depletes the air slightly below 427 µmol mol⁻¹ in the morning."],"explain":"<p>The fixed set-point buys ≈ 2.75 t ha⁻¹ d⁻¹ and loses ≈ €70 ha⁻¹ d⁻¹; the economic controller buys ≈ 0.44 t and earns ≈ €50 ha⁻¹ d⁻¹.</p>"},
+          {"type":"tf","q":"In the preset <em>Plant factory room</em> (0.02 air changes per hour) more than 90 % of the dosed CO₂ becomes extra crop uptake.","answer":true,"explain":"<p>True: ≈ 97 %. With 0.02 h⁻¹ only about 2 % of the CO₂ leaks out — the reason plant factories can afford 1000–2000 µmol mol⁻¹ (Kozai, 2013).</p>"},
+          {"type":"mcq","q":"In the chart of the optimal set-point against a constant air exchange rate (default spring day), above roughly which rate does the economic controller stop dosing?","options":["≈ 0.5 h⁻¹","≈ 2 h⁻¹","≈ 5 h⁻¹","≈ 15–20 h⁻¹"],"answer":3,"feedback":["At 0.5 h⁻¹ the optimum is at the physiological cap of 1200.","At 2 h⁻¹ the optimum is still about 1150 µmol mol⁻¹.","At 5 h⁻¹ the optimum is about 1000 µmol mol⁻¹ in bright light.",""],"explain":"<p>The optimal set-point falls roughly as \\(1/\\sqrt{N}\\): ≈ 1000 µmol mol⁻¹ at 5 h⁻¹, ≈ 600 at 10 h⁻¹, ≈ 450 at 14 h⁻¹ and below the natural concentration from about 20 h⁻¹.</p>"},
+          {"type":"multi","q":"Which changes raise the economically optimal set-point C*? (Select all that apply.)","options":["A cheaper CO₂ source","A higher price for lettuce","Brighter light at the canopy","A higher air exchange rate"],"answer":[0,1,2],"explain":"<p>From Eq. CB9, \\(C^{*}\\) grows with \\(\\sqrt{(v-p)A_sK/(p\\,kN\\bar h)}\\): a lower \\(p\\), a higher \\(v\\) and more light (larger \\(A_s\\) and \\(K\\)) raise it; more ventilation lowers it.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ================================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>One representative day</strong> in the middle of the chosen month, integrated with a 60 s step after a warm-up day; the crop's dry weight (canopy closure) and the temperature are constant during the day.</li>
+        <li><strong>Light.</strong> Clear-sky global radiation from solar geometry (course library), scaled by a clearness factor; 2.02 µmol of PAR photons per joule of global radiation; greenhouse transmission 0.7 by default. The closed room has constant LED light over the photoperiod and the uptake of all tiers adds up per m² of floor.</li>
+        <li><strong>Crop.</strong> Canopy photosynthesis, respiration and conversion factors of the lettuce model of van Henten (1994), with the canopy light-use efficiency converted to photons (4.57 µmol J⁻¹). The model describes a healthy, well-fed crop without photosynthetic acclimation; for a fully closed canopy it gives high growth rates, so absolute benefits are an upper estimate.</li>
+        <li><strong>Ventilation.</strong> Vents open linearly with outdoor radiation between 150 and 550 W m⁻² (a proxy for temperature control), or a constant air exchange rate. The air is well mixed.</li>
+        <li><strong>Economics.</strong> Constant CO₂ price and lettuce price; the value of CO₂ is derived from the lettuce price, so it ignores quality effects, labour and the fact that growers are often paid per head rather than per kilogram. The default lettuce price of €1 kg⁻¹ is an assumption for illustration.</li>
+        <li><strong>Not included.</strong> Effects of CO₂ on stomata, transpiration and temperature; CO₂ from heating flue gases (free CO₂ in winter); worker respiration; CO₂ gradients within the crop; the carbon footprint of the CO₂ (see Lesson 8.3).</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Acock, B., Charles-Edwards, D. A., Fitter, D. J., Hand, D. W., Ludwig, L. J., Warren Wilson, J., &amp; Withers, A. C. (1978). The contribution of leaves from different levels within a tomato crop to canopy net photosynthesis: An experimental examination of two canopy models. <em>Journal of Experimental Botany</em>, 29(4), 815–827. <a href="https://doi.org/10.1093/jxb/29.4.815" target="_blank" rel="noopener">doi:10.1093/jxb/29.4.815</a></li>
+        <li>Goudriaan, J., van Laar, H. H., van Keulen, H., &amp; Louwerse, W. (1985). Photosynthesis, CO₂ and plant production. In W. Day &amp; R. K. Atkin (Eds.), <em>Wheat growth and modelling</em> (pp. 107–122). Springer. <a href="https://doi.org/10.1007/978-1-4899-3665-3_10" target="_blank" rel="noopener">doi:10.1007/978-1-4899-3665-3_10</a></li>
+        <li>Kimball, B. A. (1983). Carbon dioxide and agricultural yield: An assemblage and analysis of 430 prior observations. <em>Agronomy Journal</em>, 75(5), 779–788. <a href="https://doi.org/10.2134/agronj1983.00021962007500050014x" target="_blank" rel="noopener">doi:10.2134/agronj1983.00021962007500050014x</a></li>
+        <li>Kläring, H.-P., Hauschild, C., Heißner, A., &amp; Bar-Yosef, B. (2007). Model-based control of CO₂ concentration in greenhouses at ambient levels increases cucumber yield. <em>Agricultural and Forest Meteorology</em>, 143(3–4), 208–216. <a href="https://doi.org/10.1016/j.agrformet.2006.12.002" target="_blank" rel="noopener">doi:10.1016/j.agrformet.2006.12.002</a></li>
+        <li>Kozai, T. (2013). Resource use efficiency of closed plant production system with artificial light: Concept, estimation and application to plant factory. <em>Proceedings of the Japan Academy, Series B</em>, 89(10), 447–461. <a href="https://doi.org/10.2183/pjab.89.447" target="_blank" rel="noopener">doi:10.2183/pjab.89.447</a></li>
+        <li>NOAA Global Monitoring Laboratory. (2026). <em>Mauna Loa CO₂ annual mean data</em> (2025 annual mean 427.35 ppm). <a href="https://gml.noaa.gov/ccgg/trends/data.html" target="_blank" rel="noopener">gml.noaa.gov</a></li>
+        <li>Pennisi, G., Gianquinto, G., Marcelis, L. F. M., Martin, M., &amp; Orsini, F. (2025). Vertical farming: Productivity, environmental impact, and resource use. A review. <em>Agronomy for Sustainable Development</em>, 45(5), 57. <a href="https://doi.org/10.1007/s13593-025-01055-w" target="_blank" rel="noopener">doi:10.1007/s13593-025-01055-w</a></li>
+        <li>van Henten, E. J. (1994). <em>Greenhouse climate management: An optimal control approach</em> [Doctoral thesis, Wageningen Agricultural University]. <a href="https://doi.org/10.18174/205106" target="_blank" rel="noopener">doi:10.18174/205106</a></li>
+        <li>van Henten, E. J., &amp; van Straten, G. (1994). Sensitivity analysis of a dynamic growth model of lettuce. <em>Journal of Agricultural Engineering Research</em>, 59(1), 19–31. <a href="https://doi.org/10.1006/jaer.1994.1061" target="_blank" rel="noopener">doi:10.1006/jaer.1994.1061</a></li>
+        <li>Van Henten, E. J., &amp; Bontsema, J. (2009). Time-scale decomposition of an optimal control problem in greenhouse climate management. <em>Control Engineering Practice</em>, 17(1), 88–96. <a href="https://doi.org/10.1016/j.conengprac.2008.05.008" target="_blank" rel="noopener">doi:10.1016/j.conengprac.2008.05.008</a></li>
+        <li>Van Henten, E. J. (2003). Sensitivity analysis of an optimal control problem in greenhouse climate management. <em>Biosystems Engineering</em>, 85(3), 355–364. <a href="https://doi.org/10.1016/S1537-5110(03)00068-0" target="_blank" rel="noopener">doi:10.1016/S1537-5110(03)00068-0</a></li>
+        <li>van Tuyll, A., Graamans, L., &amp; Boedijn, A. (2022). <em>Carbon dioxide enrichment in a decarbonised future</em> (Report WPR-1189). Wageningen Plant Research. <a href="https://doi.org/10.18174/582215" target="_blank" rel="noopener">doi:10.18174/582215</a></li>
+        <li>Wang, A., Lv, J., Wang, J., &amp; Shi, K. (2022). CO₂ enrichment in greenhouse production: Towards a sustainable approach. <em>Frontiers in Plant Science</em>, 13, 1029901. <a href="https://doi.org/10.3389/fpls.2022.1029901" target="_blank" rel="noopener">doi:10.3389/fpls.2022.1029901</a></li>
+      </ol>
+      <p>Related course pages: <a href="/lessons/co2-enrichment/">Lesson 8.3 CO₂ enrichment and ventilation</a>, <a href="/lessons/energy-balance/">Lesson 8.1 Energy balances</a>, <a href="/laboratories/greenhouse-climate/">Greenhouse climate simulator</a>, <a href="/laboratories/plant-factory-balance/">Plant factory energy and water balance</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

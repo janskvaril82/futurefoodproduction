@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cultivated meat techno-economics · Future Food Production</title>
+<meta name="description" content="A transparent techno-economic model of cultivated meat after Humbird (2021): doubling time, cell density, medium cost and growth factors, fed-batch versus perfusion, reactor scaling, capital recovery, energy and carbon footprint, with tornado sensitivity, cost waterfall, Monte Carlo and a price-parity analysis.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+.cme-parity { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; }
+.cme-parity li { display: grid; grid-template-columns: 26px 1fr; gap: 8px; align-items: start; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-elev); font-size: .88rem; line-height: 1.45; }
+.cme-parity li > span { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: .8rem; color: #fff; }
+.cme-parity li.ok > span { background: var(--ok); }
+.cme-parity li.bad > span { background: var(--danger); }
+.cme-legend { position: relative; margin: 6px 58px 0 70px; }
+.cme-cbar { height: 10px; border-radius: 3px; }
+.cme-cticks { position: relative; height: 16px; font: 500 .7rem var(--font-mono); color: var(--muted); }
+.cme-cticks span { position: absolute; transform: translateX(-50%); top: 2px; }
+.cme-clab { font-size: .72rem; color: var(--muted); text-align: center; }
+.cme-stats { font-size: .8rem; color: var(--ink-2); margin: 6px 2px 2px; line-height: 1.5; }
+.cme-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+#stage .stage-hud { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 150px); }
+</style>
+</head>
+<body data-page="lab" data-slug="cultivated-meat-economics">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Cultivated meat techno-economics</h1>
+    <p class="lead">What would a kilogram of cultivated meat cost to make — and what would have to be true for it to compete with chicken or beef? This laboratory is a transparent techno-economic model built on the structure of Humbird's (2021) analysis: cells that double every day or two, reactors that can hold only so many of them, a culture medium whose growth factors cost millions of dollars per gram, a sterile plant that must be paid for, staffed and powered. Watch the plant run, then take it apart with a cost waterfall, a tornado chart, a Monte Carlo simulation and a price-parity map.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage" aria-label="Animated cultivated-meat plant"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Cost waterfall</h3>
+      <div class="chart-sub">How the cost of one kilogram of wet cell mass builds up (US$, price year of the source studies). Dashed lines: Humbird's affordability threshold and your price-parity target. Hover a bar for its share.</div>
+      <div class="chart" id="chart-waterfall" style="height:320px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Tornado: which assumptions matter?</h3>
+      <div class="chart-sub">One-at-a-time sensitivity around your settings. Each bar shows the cost when one input is moved to the low and high values printed at its ends; the longest bars are the assumptions worth fighting over.</div>
+      <div class="chart" id="chart-tornado" style="height:320px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Monte Carlo: how uncertain is the cost?</h3>
+      <div class="chart-sub">3,000 plants drawn from uncertainty ranges around your settings (Assumptions tab). Green bars reach the parity target, amber are below $25 kg⁻¹. The skew comes from asymmetric risks: cells grow slower and plants cost more, more often than the reverse.</div>
+      <div class="chart" id="chart-mc" style="height:270px"></div>
+      <div class="cme-row"><div class="cme-stats" id="mc-stats"></div><button class="btn btn-sm" id="mc-csv" type="button">Download draws (CSV)</button></div>
+    </div>
+    <div class="chart-card">
+      <h3>What would have to be true?</h3>
+      <div class="chart-sub">Cost of production for every combination of medium price and harvest cell density, all other settings as in the controls. The green line is your parity target, the brown line Humbird's $25 kg⁻¹; the dashed line marks the viscosity limit where cells fill a quarter of the reactor.</div>
+      <div class="chart" id="chart-map" style="height:330px"></div>
+      <div class="cme-legend" id="map-legend"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Economies of scale</h3>
+      <div class="chart-sub">Cost per kilogram as the plant grows (reactor size fixed, number of reactors rising). Capital follows the reactor count and the six-tenths rule of the rest of the plant; staff are kept fixed, so labour per kilogram falls in proportion.</div>
+      <div class="chart" id="chart-scale" style="height:290px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Carbon footprint in context</h3>
+      <div class="chart-sub">Your plant (electricity × grid factor + medium × upstream footprint) against the 2030 scenarios and "ambitious benchmarks" for conventional meat of Sinke et al. (2023), cradle to gate, kg CO₂e per kg.</div>
+      <div class="chart" id="chart-co2" style="height:340px"></div>
+    </div>
+  </div>
+
+  <div class="chart-card" style="margin:0 0 16px">
+    <h3>Price parity: what would have to change?</h3>
+    <div class="chart-sub">Each line asks whether one lever alone could close the gap to the target chosen under <em>Price parity</em> in the controls, holding everything else at your settings. Retail prices are converted to a target cost of wet cells with the mark-up factor.</div>
+    <div id="parity"></div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Watch one batch.</strong> The default is Humbird's fed-batch plant: 24 reactors of 20 m³ (16 m³ working volume) making 6.8 kt of wet cells a year. Follow the timeline under the reactors: each batch grows through about two doublings (the medium turns from straw to salmon as the cells multiply and the O₂ bubbles thicken), is harvested, cleaned in place and refilled — a cycle of about two days. The reactors are staggered, so harvests flow continuously to the centrifuge.</li>
+        <li><strong>Read the waterfall.</strong> At Humbird's assumptions the medium (amino acids and glucose, plus a little for growth factors) is the largest single item, about $22 of $37 kg⁻¹; the capital charge and the capital-linked maintenance and insurance together add another $11. Labour, electricity and consumables are small.</li>
+        <li><strong>Switch to the early-commercial preset.</strong> Bought at list prices (the lowest found in the last systematic public survey, December 2020; CE Delft, 2021), recombinant proteins and growth factors make the medium cost $16.6 per litre and the plant $150 kg⁻¹ — almost 90 % of it growth factors and recombinant proteins. Now open the tornado: the price of those proteins, the medium price and the cell density (which sets the litres needed per kilogram) dwarf every other assumption.</li>
+        <li><strong>Try the CE Delft optimistic preset.</strong> Growth factors are 1,000× cheaper, recombinant proteins 500× cheaper in use, the plant is food-grade and financed over 30 years: $6.5 kg⁻¹. Look at the waterfall again — no single item dominates any more, and electricity has become one of the larger bars.</li>
+        <li><strong>Switch fed-batch to perfusion</strong> (Humbird perfusion preset). The reactors stay full and cells are bled off continuously at the growth rate, reaching 195 g L⁻¹ — yet the cost rises to about $51 kg⁻¹, because small perfusion reactors, cell-retention filters and their membranes are expensive.</li>
+        <li><strong>Move the parity target.</strong> Choose ground beef, then whole chicken. With a mark-up of 2 (processing, distribution, retail), wet cells must cost about $7.6 kg⁻¹ to match ground beef and $2.2 kg⁻¹ to match whole chicken at US retail prices of August 2026. The parity panel and the map show which combinations of medium price and cell density could get there — and which cannot.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Cultivated meat is a bioprocess in which slow-growing, fragile animal cells are grown in expensive, sterile equipment. Its cost is set by four levers: the <strong>price of the medium</strong> (especially growth factors and recombinant proteins), the <strong>mass of cells a litre can hold</strong>, the <strong>capital cost</strong> of sterile capacity and the <strong>cost of money</strong>. Every published analysis that reaches meat-like prices assumes large improvements in all four at once.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From a vial of cells to a kilogram of meat</h2>
+      <p>In the bulk-production concept analysed by Humbird (2021), cells from a cell bank are expanded through a <em>seed train</em> of ever larger bioreactors and finally inoculate a production bioreactor. There they grow in suspension until a density limit is reached; the cell slurry is then harvested and dewatered by centrifugation into a wet cell paste (about 70 % water) that can be formulated into minced or nugget-type products, alone or blended with plant proteins. Structured cuts need scaffolds and further differentiation, which this model represents only as an optional maturation hold.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 250" role="img" aria-label="Process flow of a cultivated-meat plant with inputs and outputs">
+          <defs><marker id="cma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <rect x="16" y="96" width="92" height="56" rx="8" class="fill-sunk" stroke="currentColor"/>
+          <text x="62" y="120" text-anchor="middle" class="t-small">cell bank</text><text x="62" y="137" text-anchor="middle" class="t-small t-muted">vials, −196 °C</text>
+          <line x1="108" y1="124" x2="140" y2="124" stroke="currentColor" stroke-width="1.5" marker-end="url(#cma)"/>
+          <rect x="142" y="96" width="120" height="56" rx="8" class="fill-accent-soft" stroke="currentColor"/>
+          <text x="202" y="120" text-anchor="middle" class="t-small">seed train</text><text x="202" y="137" text-anchor="middle" class="t-small t-muted">×10 per stage</text>
+          <line x1="262" y1="124" x2="294" y2="124" stroke="currentColor" stroke-width="1.5" marker-end="url(#cma)"/>
+          <rect x="296" y="84" width="150" height="80" rx="10" class="fill-magenta-soft" stroke="currentColor"/>
+          <text x="371" y="112" text-anchor="middle" class="t-small">production bioreactors</text><text x="371" y="130" text-anchor="middle" class="t-small t-muted">fed-batch or perfusion</text><text x="371" y="147" text-anchor="middle" class="t-small t-muted">n reactors × V m³</text>
+          <line x1="446" y1="124" x2="478" y2="124" stroke="currentColor" stroke-width="1.5" marker-end="url(#cma)"/>
+          <rect x="480" y="96" width="100" height="56" rx="8" class="fill-sunk" stroke="currentColor"/>
+          <text x="530" y="120" text-anchor="middle" class="t-small">harvest &amp;</text><text x="530" y="137" text-anchor="middle" class="t-small">dewatering</text>
+          <line x1="580" y1="124" x2="600" y2="124" stroke="currentColor" stroke-width="1.5" marker-end="url(#cma)"/>
+          <rect x="602" y="96" width="92" height="56" rx="8" class="fill-amber-soft" stroke="currentColor"/>
+          <text x="648" y="120" text-anchor="middle" class="t-small">wet cells</text><text x="648" y="137" text-anchor="middle" class="t-small t-muted">≈ 70 % water</text>
+          <text x="371" y="22" text-anchor="middle" class="t-small" style="fill:var(--amber)">medium (glucose, amino acids, salts, growth factors)</text>
+          <line x1="371" y1="28" x2="371" y2="82" class="stroke-amber" stroke-width="1.8" marker-end="url(#cma)"/>
+          <text x="470" y="48" class="t-small" style="fill:var(--water)">O₂, electricity (cooling, agitation)</text>
+          <line x1="468" y1="52" x2="420" y2="82" class="stroke-water" stroke-width="1.5" marker-end="url(#cma)"/>
+          <line x1="330" y1="164" x2="300" y2="204" stroke="currentColor" stroke-width="1.5" marker-end="url(#cma)"/>
+          <text x="310" y="224" text-anchor="end" class="t-small t-muted">CO₂, lactate, ammonia, spent medium</text>
+          <line x1="410" y1="164" x2="440" y2="204" class="stroke-magenta" stroke-width="1.5" marker-end="url(#cma)"/>
+          <text x="428" y="224" class="t-small" style="fill:var(--magenta)">capital: sterile reactors, clean rooms, CIP/SIP</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> Process flow of bulk cell production. Every arrow is a cost in the model: medium (litres per kg × price per litre), electricity, the capital charge on sterile equipment, staff and consumables. Adapted from the fed-batch and perfusion designs of Humbird (2021).</figcaption>
+      </figure>
+      <h3>Why cells are expensive to grow</h3>
+      <p><strong>They are slow.</strong> Animal cells double roughly once a day (Humbird assumed 24 h, CE Delft 30 h), bacteria every half hour. A production reactor therefore spends days, not hours, on each batch, and needs sterile protection throughout: a contaminant that doubles every 30 minutes wins any race.</p>
+      <p><strong>They cannot be packed densely.</strong> A reactor becomes too viscous to mix once cells occupy about a quarter of its volume, about 86 × 10⁶ cells mL⁻¹ or 258 g L⁻¹ for 3,000 pg cells; in fed-batch culture, ammonia and CO₂ accumulation stop growth much earlier — at about 110 g L⁻¹ for Humbird's metabolically enhanced cells in a 20 m³ reactor, and only 7 g L⁻¹ for an unoptimised "wild-type" metabolism. Perfusion removes inhibitors continuously and reaches 195 g L⁻¹, but needs cell-retention filters that limit reactor size to about 2 m³.</p>
+      <p><strong>Their medium is a pharmaceutical.</strong> Besides glucose, amino acids, salts and vitamins, serum-free media contain proteins that tell cells to survive and divide: insulin, transferrin, albumin and growth factors such as FGF2 and TGF-β. In December 2020, CE Delft found list prices of $1.3–2.3 million per gram for FGF2 and $3.7–5.0 million per gram for TGF-β; recombinant proteins and growth factors made up more than 99 % of the medium cost. Humbird instead assumed that these proteins would be produced at food-industry scale and would add only $3 kg⁻¹, and that amino acids from a plant-protein hydrolysate could cost $2 kg⁻¹.</p>
+      <h3>Where the money goes</h3>
+      <p>A techno-economic analysis (TEA) adds up the cost of goods: variable costs that scale with every kilogram (medium, electricity, consumables), fixed operating costs (staff, maintenance, insurance) and the <em>capital charge</em>, the yearly payment that repays the investment with interest. Capital is converted to a yearly payment with the capital recovery factor (Eq. T7); Humbird used 7.5 % over 10 years (15 % of the investment each year), CE Delft simple payback times of 4 years ("commercial") or 30 years ("social").</p>
+      <p>Economies of scale enter twice. Larger plants spread fixed staff and shared infrastructure (media preparation, O₂ supply, CIP, buildings) over more kilograms; that part of the capital follows the classic <em>six-tenths rule</em>, cost ∝ capacity<sup>0.6</sup>. Larger reactors are cheaper per cubic metre — Humbird's installed cost of a sterile reactor system is $0.80 million plus $30.7 k per m³, because piping, instrumentation and sterile fittings cost almost the same for a small and a large vessel. But reactor size is capped: above about 20–50 m³, CO₂ removal limits the cell density in fed-batch culture (Humbird, 2021).</p>
+      <div class="callout note"><div class="callout-title">Humbird versus CE Delft</div><p>The two most cited analyses differ less in their arithmetic than in their assumptions. Humbird (2021) designed a plant like a biopharmaceutical factory — clean rooms, a 1.84× factor for engineering and contingency, 7.5 % interest — and concluded that metabolic efficiency and cheap hydrolysate media are "necessary but insufficient" for affordability. CE Delft (Vergeer et al., 2021), with data from more than 16 companies, assumed a food-grade plant without clean rooms, 1,000-fold cheaper growth factors, far less albumin and 30-year financing, and reached about $6 kg⁻¹. A scoping review of published TEAs concluded that under the current technological paradigm cultivated meat is unlikely to be competitive with conventional meat (Goodwin et al., 2024).</p></div>
+      <h3>Energy and climate</h3>
+      <p>Sinke et al. (2023) estimated about 22.3 kWh of energy per kg of cells for a 2030 commercial plant, three quarters of it for cooling the reactors. The carbon footprint then depends mostly on the electricity: over 14 kg CO₂e kg⁻¹ with global-average energy, about 4 with renewable energy at the plant and 2.8 when the medium suppliers also use renewable energy — below beef and pork, comparable to an efficient 2030 chicken (2.7). The model reproduces these numbers with a two-term footprint (Eq. T9).</p>
+      <h3>An honest look at price parity</h3>
+      <p>Retail and production costs must not be confused. A wet cell paste still has to be formulated, packaged, distributed and sold; Humbird estimated that $25 kg⁻¹ of wet cells becomes at least $50 kg⁻¹ at the supermarket. In August 2026 whole chickens cost $2.01 per pound ($4.44 kg⁻¹) and ground beef $6.92 per pound ($15.26 kg⁻¹) in US cities (BLS). With a mark-up of 2, parity with ground beef requires wet cells at about $7.6 kg⁻¹, and with whole chicken at about $2.2 kg⁻¹. In this model that means, <em>simultaneously</em>:</p>
+      <ul>
+        <li>growth factors and recombinant proteins at industrial-enzyme prices — at least a thousand-fold below 2020 list prices — and a medium below roughly $0.1–0.3 per litre;</li>
+        <li>harvest densities of 50–100 × 10⁶ cells mL⁻¹ or more (100–300 g L⁻¹), close to the viscosity limit, with metabolically efficient cell lines that neither poison themselves with ammonia and lactate nor lose their ability to differentiate;</li>
+        <li>food-grade rather than pharmaceutical plants, very large scale (10 kt a⁻¹ and more per plant, as in CE Delft's scenarios) and patient, low-cost capital;</li>
+        <li>contamination-free operation, cheap low-carbon electricity and efficient cooling.</li>
+      </ul>
+      <p>None of these is forbidden by physics, but no plant has demonstrated them together. Even the CE Delft optimistic scenario ($6.4 kg⁻¹) sits above the ≈ $2 kg⁻¹ production cost of conventional meat, and the same scenario with commercial 4-year payback costs about $13.5 kg⁻¹ in this model. Company-reported projections are lower — Pasitka et al. (2024) reported continuous perfusion at up to 130 × 10⁶ cells mL⁻¹ in a $0.63 L⁻¹ animal-free medium and projected $6.2 per pound ($13.7 kg⁻¹) for a hypothetical 50,000 L facility — but such projections have not yet been confirmed at commercial scale. See Lesson 12.4 <a href="/lessons/cultivated-meat/">Cultivated meat and cellular agriculture</a> for the biology, bioreactor physics, regulation and ethics.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the model</h2>
+      <p>Symbols follow the controls. Money is in US dollars of the source studies (2018–2020); kt a⁻¹ = 10⁶ kg per year.</p>
+
+      <div class="eq-box" id="eq-cme-growth">
+        <div class="eq-head"><span class="eq-label">Exponential growth and doublings</span><span class="eq-num">(T1)</span></div>
+        <div class="eq-main">\[ \mu = \frac{\ln 2}{t_{\mathrm d}}, \qquad N(t) = N_0\,e^{\mu t} = N_0\,2^{t/t_{\mathrm d}}, \qquad n_p = \log_2\frac{N_{\text{harvest}}}{N_{\text{seed}}} \]</div>
+        <p class="eq-read">the specific growth rate is the natural logarithm of two divided by the doubling time; the cell density grows exponentially; the number of doublings in the production vessel is the base-2 logarithm of the ratio of harvest to seeding density.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(t_{\mathrm d}\)</td><td>population doubling time</td><td>h</td><td>24 (Humbird), 30 (CE Delft)</td></tr>
+          <tr><td>\(\mu\)</td><td>specific growth rate</td><td>h⁻¹</td><td>0.029 at 24 h</td></tr>
+          <tr><td>\(n_p\)</td><td>doublings in the production reactor</td><td>–</td><td>≈ 2</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Balanced, uninhibited exponential growth until the harvest density; no lag phase or cell death. Humbird argued that any inhibition is economically unacceptable at such slow growth: it is cheaper to stop the batch and start a new one.</p></details>
+        <div class="eq-units">\([\mu] = 1/\text{h}\); \(2^{t/t_{\mathrm d}}\) is dimensionless ✓</div>
+        <div class="mini-calc" data-formula="log(2)/td" data-output="Specific growth rate μ" data-unit="h⁻¹" data-digits="4" data-plot="td">
+          <div data-var="td" data-label="Doubling time t<sub>d</sub>" data-min="10" data-max="72" data-step="1" data-value="24" data-unit="h"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cme-density">
+        <div class="eq-head"><span class="eq-label">Cell mass concentration and volume fraction</span><span class="eq-num">(T2)</span></div>
+        <div class="eq-main">\[ X = N\,m_c, \qquad \varphi = \frac{N\,m_c}{\rho_c} \le \varphi_{\max} \approx 0.25 \]</div>
+        <p class="eq-read">the wet cell mass per litre is the number density times the mass of one cell; the fraction of the reactor volume occupied by cells is that mass divided by the cell density, and it cannot exceed about a quarter before the culture becomes too viscous.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(N\)</td><td>cell number density at harvest</td><td>cells mL⁻¹</td><td>(37–65) × 10⁶</td></tr>
+          <tr><td>\(m_c\)</td><td>wet mass of one cell</td><td>pg</td><td>3,000</td></tr>
+          <tr><td>\(X\)</td><td>wet cell mass concentration</td><td>g L⁻¹ = kg m⁻³</td><td>110 (fed-batch), 195 (perfusion)</td></tr>
+          <tr><td>\(\rho_c\)</td><td>density of a wet cell</td><td>g mL⁻¹</td><td>1.03</td></tr>
+        </table>
+        <details><summary>Follow the numbers</summary><ol class="steps"><li>\(N = 36.7\times10^6\ \text{mL}^{-1}\) and \(m_c = 3000\) pg: \(X = 36.7\times10^6 \times 3.0\times10^{-9}\ \text{g} = 0.110\) g mL⁻¹ = 110 g L⁻¹.</li><li>Volume per cell \(3000\ \text{pg}/1.03\ \text{g mL}^{-1} = 2.9\times10^{-9}\) mL (a 17.7 µm sphere); \(\varphi = 36.7\times10^6\times2.9\times10^{-9} = 0.107\).</li><li>At \(\varphi = 0.25\): \(N_{\max} = 0.25/2.9\times10^{-9} = 86\times10^6\) mL⁻¹, i.e. 258 g L⁻¹ (Humbird, 2021).</li></ol></details>
+        <div class="eq-units">(cells mL⁻¹)(g cell⁻¹) = g mL⁻¹; (g mL⁻¹)/(g mL⁻¹) = – ✓</div>
+        <div class="mini-calc" data-formula="N*mc/1030000" data-output="Volume fraction φ" data-unit="" data-digits="3" data-plot="N" data-ymin="0" data-title="Try it — how full is the reactor?">
+          <div data-var="N" data-label="Cell density N" data-min="1" data-max="150" data-step="1" data-value="37" data-unit="10⁶ mL⁻¹"></div>
+          <div data-var="mc" data-label="Cell mass m<sub>c</sub>" data-min="1000" data-max="6000" data-step="50" data-value="3000" data-unit="pg"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cme-fedbatch">
+        <div class="eq-head"><span class="eq-label">Output of a fed-batch reactor</span><span class="eq-num">(T3)</span></div>
+        <div class="eq-main">\[ t_c = n_p\,t_{\mathrm d} + 24\,t_{\text{mat}} + t_{\text{turn}}, \qquad Q_R = V_w\,X\,\frac{8760\,a}{t_c}\,(1-f_{\text{fail}})\,y \]</div>
+        <p class="eq-read">a batch cycle lasts the growth time plus any maturation hold plus the turnaround; a reactor delivers its working volume times the harvest concentration once per cycle, as many cycles as fit into the available hours of the year, minus failed batches and harvest losses.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(V_w\)</td><td>working volume (80 % of the vessel)</td><td>m³</td></tr>
+          <tr><td>\(t_{\text{mat}}, t_{\text{turn}}\)</td><td>maturation hold; harvest, CIP/SIP and fill</td><td>d; h</td></tr>
+          <tr><td>\(a\)</td><td>plant availability</td><td>–</td></tr>
+          <tr><td>\(f_{\text{fail}}, y\)</td><td>fraction of batches lost; harvest and dewatering yield</td><td>–</td></tr>
+          <tr><td>\(Q_R\)</td><td>product per reactor and year</td><td>kg a⁻¹</td></tr>
+        </table>
+        <details><summary>Worked example — Humbird's fed-batch plant</summary><ol class="steps"><li>\(t_c = 1.8\times24 + 0 + 8 = 51.2\) h; cycles per year \(8760\times0.95/51.2 = 162.5\).</li><li>\(Q_R = 16\ \text{m}^3\times110\ \text{kg m}^{-3}\times162.5 = 286\) t a⁻¹.</li><li>24 reactors give 6.87 kt a⁻¹, the 6.8 kt a⁻¹ of Humbird's Table 2. (Humbird did not publish \(n_p\) and \(t_{\text{turn}}\); the values 1.8 and 8 h were chosen here to reproduce his capacity.)</li></ol></details>
+        <div class="eq-units">m³ × kg m⁻³ × (h a⁻¹ / h) = kg a⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="V*X*8760*a/(np*td + 24*tm + tt)/1000" data-output="Output per reactor Q<sub>R</sub>" data-unit="t a⁻¹" data-digits="0" data-plot="np" data-ymin="0">
+          <div data-var="V" data-label="Working volume V<sub>w</sub>" data-min="1" data-max="100" data-step="1" data-value="16" data-unit="m³"></div>
+          <div data-var="X" data-label="Harvest concentration X" data-min="5" data-max="250" data-step="1" data-value="110" data-unit="kg m⁻³"></div>
+          <div data-var="np" data-label="Doublings n<sub>p</sub>" data-min="0.5" data-max="6" data-step="0.1" data-value="1.8"></div>
+          <div data-var="td" data-label="Doubling time" data-min="10" data-max="72" data-step="1" data-value="24" data-unit="h"></div>
+          <div data-var="tm" data-label="Maturation hold" data-min="0" data-max="14" data-step="0.5" data-value="0" data-unit="d"></div>
+          <div data-var="tt" data-label="Turnaround" data-min="2" data-max="72" data-step="1" data-value="8" data-unit="h"></div>
+          <div data-var="a" data-label="Availability a" data-min="0.6" data-max="0.98" data-step="0.01" data-value="0.95"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cme-perfusion">
+        <div class="eq-head"><span class="eq-label">Perfusion: harvest by bleeding at the growth rate</span><span class="eq-num">(T4)</span></div>
+        <div class="eq-main">\[ Q_R = \mu\,X\,V_w\cdot 8760\,a\,(1-f_{\text{fail}})\,y, \qquad v_m = \frac{1000\,D}{24\,\mu\,X}\,(1 + f_x) \]</div>
+        <p class="eq-read">at steady state the cells must be removed as fast as they grow, so a perfused reactor delivers the growth rate times the cell concentration times its volume; the medium used per kilogram is the perfusion rate divided by the daily harvest per unit volume.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(D\)</td><td>perfusion rate (reactor volumes per day)</td><td>d⁻¹</td><td>1.0 (dual ATF, 2 m³)</td></tr>
+          <tr><td>\(v_m\)</td><td>medium used per kg of cells</td><td>L kg⁻¹</td><td>7–11</td></tr>
+          <tr><td>\(f_x\)</td><td>extra medium: seed train, initial fill, losses</td><td>–</td><td>0.2–0.6</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Cell balance of a well-mixed perfused reactor with total cell retention and a bleed stream \(F_b\): \(V\,\mathrm dX/\mathrm dt = \mu X V - F_b X\).</li><li>Steady state (\(\mathrm dX/\mathrm dt = 0\)) requires \(F_b = \mu V\): the bleed dilution rate equals the growth rate.</li><li>The mass harvested per hour is \(F_b X = \mu X V\). For Humbird's case, \(0.0289\ \text{h}^{-1}\times195\ \text{kg m}^{-3}\times1.6\ \text{m}^3 = 9.0\) kg h⁻¹ per reactor — his reported value.</li><li>Medium flows at \(D V\) per day while \(24\mu X V\) kg of cells leave, so \(v_m = D/(24\mu X)\) m³ kg⁻¹ = \(1000D/(24\mu X)\) L kg⁻¹ (7.4 L kg⁻¹ for Humbird's case, before extras).</li></ol></details>
+        <div class="eq-units">h⁻¹ × kg m⁻³ × m³ = kg h⁻¹; (L m⁻³ × d⁻¹)/(h d⁻¹ × h⁻¹ × kg m⁻³) = L kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="log(2)/td*X*V" data-output="Harvest rate" data-unit="kg h⁻¹" data-digits="2" data-plot="X" data-ymin="0">
+          <div data-var="td" data-label="Doubling time" data-min="10" data-max="72" data-step="1" data-value="24" data-unit="h"></div>
+          <div data-var="X" data-label="Steady-state X" data-min="10" data-max="300" data-step="1" data-value="195" data-unit="kg m⁻³"></div>
+          <div data-var="V" data-label="Working volume" data-min="0.2" data-max="10" data-step="0.1" data-value="1.6" data-unit="m³"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cme-medium">
+        <div class="eq-head"><span class="eq-label">Medium cost per kilogram</span><span class="eq-num">(T5)</span></div>
+        <div class="eq-main">\[ v_m = \frac{1000}{X}\,(1 + f_x)\quad\text{(fed-batch)} \] \[ c_{\text{med}} = \frac{v_m}{(1-f_{\text{fail}})\,y}\,p_{\text{med}}, \qquad c_{\text{GF}} = s_{\text{GF}}\,c_{\text{med}} \]</div>
+        <p class="eq-read">a fed-batch reactor uses its working volume of medium, plus extras for feeds and the seed train, for each batch of cells; the medium cost per kilogram of product is the litres used per kilogram, corrected for lost batches and harvest losses, times the price per litre; growth factors and recombinant proteins are a fraction of it.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Range</th></tr>
+          <tr><td>\(p_{\text{med}}\)</td><td>medium price</td><td>$ L⁻¹</td><td>0.1 (optimistic) – 17 (2020 low list prices) – 500</td></tr>
+          <tr><td>\(s_{\text{GF}}\)</td><td>share of growth factors and recombinant proteins in the medium cost</td><td>–</td><td>0.14 (Humbird) – 0.99 (CE Delft, 2020 prices)</td></tr>
+          <tr><td>\(v_m\)</td><td>medium use</td><td>L kg⁻¹</td><td>8–42 (CE Delft)</td></tr>
+        </table>
+        <details><summary>Where the medium prices come from</summary><ol class="steps"><li>CE Delft's low-medium formulation (8.0 L kg⁻¹) cost $133 per kg of cells at December 2020 low prices: $16.6 L⁻¹, of which recombinant proteins (albumin, insulin, transferrin) $98.9 kg⁻¹ and growth factors $33.1 kg⁻¹ — 99.3 % together.</li><li>Humbird's macronutrients cost $19 kg⁻¹ and micronutrients (growth factors) $3 kg⁻¹ at a 100 kt a⁻¹ market; at about 10.9 L kg⁻¹ this corresponds to ≈ $2.0 L⁻¹ with a 14 % growth-factor share.</li><li>With amino acids from a $2 kg⁻¹ hydrolysate the macronutrients fall by about $15 kg⁻¹ — ≈ $0.64 L⁻¹ in this model.</li></ol></details>
+        <div class="eq-units">L kg⁻¹ × $ L⁻¹ = $ kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="1000/X*(1+fx/100)*p" data-output="Medium cost" data-unit="$ kg⁻¹" data-digits="2" data-plot="X" data-ymin="0" data-title="Try it — the density lever on medium cost">
+          <div data-var="X" data-label="Harvest concentration X" data-min="5" data-max="250" data-step="1" data-value="110" data-unit="g L⁻¹"></div>
+          <div data-var="fx" data-label="Extra medium f<sub>x</sub>" data-min="0" data-max="300" data-step="1" data-value="20" data-unit="%"></div>
+          <div data-var="p" data-label="Medium price p<sub>med</sub>" data-min="0.05" data-max="50" data-value="2.02" data-unit="$ L⁻¹" data-scale="log"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cme-capital">
+        <div class="eq-head"><span class="eq-label">Reactor count and total capital investment</span><span class="eq-num">(T6)</span></div>
+        <div class="eq-main">\[ n_R = \frac{Q}{Q_R}, \qquad C_R(V) = \begin{cases} 0.80 + 0.0307\,V & \text{(Humbird, M\$, } V \ge 0.33\ \text{m}^3)\\ C_{20}\,(V/20)^{n} & \text{(power law)} \end{cases} \] \[ \text{TCI} = F_{\text{ind}}\left[\,n_R C_R (1 + f_{\text{seed}}) + n_R C_{\text{ATF}} + k_{\text{BOP}}\left(33.1\,Q_{\text{kt}}^{0.6} + 0.765\,n_R\right)\right] \]</div>
+        <p class="eq-read">the number of production reactors is the plant output divided by the output of one reactor; each installed sterile reactor system costs a fixed amount plus an amount per cubic metre (or scales with volume to the power \(n\)); the total investment adds the seed train, perfusion filters and the rest of the plant, and multiplies by a factor for engineering, construction and contingency.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Humbird FB</th></tr>
+          <tr><td>\(V\)</td><td>vessel volume = \(V_w/0.8\)</td><td>m³</td><td>20</td></tr>
+          <tr><td>\(C_{20}\)</td><td>installed cost of a 20 m³ system</td><td>M$</td><td>1.414</td></tr>
+          <tr><td>\(f_{\text{seed}}\)</td><td>seed train and auxiliary reactors / production reactors</td><td>–</td><td>0.68 (FB), 0.11 (perfusion)</td></tr>
+          <tr><td>\(C_{\text{ATF}}\)</td><td>perfusion cell-retention skid per reactor</td><td>M$</td><td>0.93 (perfusion only)</td></tr>
+          <tr><td>\(k_{\text{BOP}}\)</td><td>rest-of-plant factor (clean rooms, media prep, O₂, CIP, buildings)</td><td>–</td><td>1 (≈ 0.1 food-grade)</td></tr>
+          <tr><td>\(F_{\text{ind}}\)</td><td>indirect-cost factor</td><td>–</td><td>1.6 × 1.15 = 1.84</td></tr>
+        </table>
+        <details><summary>Where the coefficients come from</summary><ol class="steps"><li>The reactor line is Humbird's Eq. 9, a fit to Aspen Capital Cost Estimator data for sterile, electropolished stainless-steel reactors with piping, instrumentation, sparger, sterile seals and CIP connections (his Table 1: $0.77 M at 1 m³, $1.5 M at 20 m³, $6.8 M at 200 m³).</li><li>Bare vessels follow the six-tenths rule (Humbird's bare cost rises from $59 k to $330 k between 1 and 20 m³: exponent 0.58), but installed systems scale with an exponent of only ≈ 0.2 between 2 and 20 m³, because piping and instruments cost almost the same for every vessel.</li><li>The rest-of-plant term was fitted in this laboratory to Humbird's two plants: $123 M for 24 reactors at 6.8 kt a⁻¹ (fed-batch) and $179 M for 96 reactors at 6.9 kt a⁻¹ (perfusion). The capacity part follows the six-tenths rule; the per-reactor part represents clean-room area and dedicated media tanks.</li><li>With these values the model gives $330 M and $663 M, against Humbird's $328 M and $663 M.</li></ol></details>
+        <div class="eq-units">(kg a⁻¹)/(kg a⁻¹ reactor⁻¹) = reactors; M$ reactor⁻¹ × reactors = M$ ✓</div>
+        <div class="mini-calc" data-formula="C20*pow(V/20, n)" data-output="Installed reactor cost" data-unit="M$" data-digits="3" data-plot="V" data-ymin="0" data-title="Try it — the six-tenths rule">
+          <div data-var="V" data-label="Vessel volume V" data-min="0.5" data-max="200" data-value="20" data-unit="m³" data-scale="log"></div>
+          <div data-var="n" data-label="Exponent n" data-min="0.2" data-max="1" data-step="0.05" data-value="0.6"></div>
+          <div data-var="C20" data-label="Cost at 20 m³, C<sub>20</sub>" data-min="0.5" data-max="3" data-step="0.01" data-value="1.41" data-unit="M$"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cme-crf">
+        <div class="eq-head"><span class="eq-label">Capital recovery factor</span><span class="eq-num">(T7)</span></div>
+        <div class="eq-main">\[ \text{CRF} = \frac{i\,(1+i)^{n}}{(1+i)^{n} - 1} \quad\xrightarrow{\;i\,\to\,0\;}\quad \frac{1}{n} \]</div>
+        <p class="eq-read">the share of the investment that must be earned each year to repay it with interest \(i\) over \(n\) years; without interest it is simply one over the payback time.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Examples</th></tr>
+          <tr><td>\(i\)</td><td>interest or discount rate</td><td>a⁻¹</td><td>0.075 (Humbird)</td></tr>
+          <tr><td>\(n\)</td><td>plant life or payback time</td><td>a</td><td>10 (Humbird); 4 or 30 (CE Delft)</td></tr>
+          <tr><td>CRF</td><td>capital recovery factor</td><td>a⁻¹</td><td>0.146 (7.5 %, 10 a); 0.25 (4 a); 0.033 (30 a)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>A loan \(I\) is repaid by \(n\) equal annual payments \(A\). Their present value must equal the loan: \(I = \sum_{k=1}^{n} A(1+i)^{-k}\).</li><li>Geometric series: \(\sum_{k=1}^{n}(1+i)^{-k} = [1-(1+i)^{-n}]/i\).</li><li>So \(A = I\,i/[1-(1+i)^{-n}] = I\,i(1+i)^n/[(1+i)^n-1] = \text{CRF}\cdot I\). Humbird wrote the same factor as \(i/(1-(1+i)^{-n})\) = 14.6 % for 7.5 % over 10 years.</li><li>As \(i\to0\), \((1+i)^n \approx 1 + ni\) and CRF → \(1/n\): CE Delft's payback criterion is the zero-interest case.</li></ol></details>
+        <div class="eq-units">a⁻¹ × (–)/(–) = a⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="i>0 ? (i/100*pow(1+i/100,n)/(pow(1+i/100,n)-1)) : 1/n" data-output="CRF" data-unit="a⁻¹" data-digits="4" data-plot="n" data-ymin="0">
+          <div data-var="i" data-label="Interest rate i" data-min="0" data-max="20" data-step="0.5" data-value="7.5" data-unit="%"></div>
+          <div data-var="n" data-label="Life n" data-min="2" data-max="30" data-step="1" data-value="10" data-unit="a"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cme-cost">
+        <div class="eq-head"><span class="eq-label">Cost of production per kilogram</span><span class="eq-num">(T8)</span></div>
+        <div class="eq-main">\[ c = \frac{(\text{CRF} + f_{\text{fix}})\,\text{TCI} + N_{\text{FTE}}\,w}{Q} + c_{\text{med}} + \frac{e\,p_{\text{el}}}{(1-f_{\text{fail}})\,y} + c_{\text{cons}} \]</div>
+        <p class="eq-read">the cost per kilogram is the yearly capital charge plus maintenance and insurance plus wages, divided by the yearly output, plus the medium, electricity and consumables per kilogram.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Humbird FB</th></tr>
+          <tr><td>\(f_{\text{fix}}\)</td><td>maintenance and insurance, fraction of TCI per year</td><td>a⁻¹</td><td>0.09</td></tr>
+          <tr><td>\(N_{\text{FTE}}, w\)</td><td>staff; cost per employee incl. overheads</td><td>–; $ a⁻¹</td><td>95; 100,000</td></tr>
+          <tr><td>\(e, p_{\text{el}}\)</td><td>electricity use; electricity price</td><td>kWh kg⁻¹; $ kWh⁻¹</td><td>12; 0.08</td></tr>
+          <tr><td>\(c_{\text{cons}}\)</td><td>consumables and downstream processing</td><td>$ kg⁻¹</td><td>1 (5 for perfusion)</td></tr>
+        </table>
+        <details><summary>Worked example — reproducing Humbird's $37 kg⁻¹</summary><ol class="steps"><li>Capital: \(0.1457\times330\ \text{M\$}/6.8\times10^{6}\ \text{kg} = 7.07\) $ kg⁻¹; maintenance and insurance \(0.09\times330/6.8 = 4.37\).</li><li>Labour \(95\times100{,}000/6.8\times10^6 = 1.40\).</li><li>Medium \(10.9\ \text{L kg}^{-1}\times2.02\ \$\ \text{L}^{-1} = 22.0\) (19.0 basal + 3.0 growth factors).</li><li>Electricity \(12\times0.08 = 0.96\); consumables 1.00.</li><li>Total \(7.07 + 4.37 + 1.40 + 22.0 + 0.96 + 1.00 = 36.8\) $ kg⁻¹ — Humbird's Table 2 gives $37 kg⁻¹.</li></ol><span class="answer">≈ $36.8 kg⁻¹ of wet cells</span></details>
+        <div class="eq-units">($ a⁻¹)/(kg a⁻¹) + L kg⁻¹ × $ L⁻¹ + kWh kg⁻¹ × $ kWh⁻¹ + $ kg⁻¹ = $ kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="((crf + ff/100)*tci*1e6 + fte*w*1000)/(Q*1e6) + vm*p + e*pe + cc" data-output="Cost of production" data-unit="$ kg⁻¹" data-digits="2" data-plot="p" data-ymin="0" data-title="Try it — the whole model in one line">
+          <div data-var="tci" data-label="TCI" data-min="10" data-max="2000" data-value="330" data-unit="M$" data-scale="log"></div>
+          <div data-var="crf" data-label="CRF" data-min="0.03" data-max="0.3" data-step="0.001" data-value="0.146" data-unit="a⁻¹"></div>
+          <div data-var="ff" data-label="Maintenance & insurance f<sub>fix</sub>" data-min="0" data-max="15" data-step="0.5" data-value="9" data-unit="%"></div>
+          <div data-var="Q" data-label="Output Q" data-min="0.1" data-max="100" data-value="6.8" data-unit="kt a⁻¹" data-scale="log"></div>
+          <div data-var="fte" data-label="Staff" data-min="5" data-max="500" data-step="1" data-value="95" data-unit="FTE"></div>
+          <div data-var="w" data-label="Cost per employee" data-min="20" data-max="250" data-step="5" data-value="100" data-unit="k$ a⁻¹"></div>
+          <div data-var="vm" data-label="Medium use" data-min="2" data-max="50" data-step="0.1" data-value="10.9" data-unit="L kg⁻¹"></div>
+          <div data-var="p" data-label="Medium price" data-min="0.05" data-max="50" data-value="2.02" data-unit="$ L⁻¹" data-scale="log"></div>
+          <div data-var="e" data-label="Electricity" data-min="2" data-max="40" data-step="0.5" data-value="12" data-unit="kWh kg⁻¹"></div>
+          <div data-var="pe" data-label="Electricity price" data-min="0.02" data-max="0.4" data-step="0.005" data-value="0.08" data-unit="$ kWh⁻¹"></div>
+          <div data-var="cc" data-label="Consumables" data-min="0" data-max="20" data-step="0.1" data-value="1" data-unit="$ kg⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cme-co2">
+        <div class="eq-head"><span class="eq-label">Carbon footprint</span><span class="eq-num">(T9)</span></div>
+        <div class="eq-main">\[ \text{CF} = \frac{e\,\text{EF}_{\text{el}}}{(1-f_{\text{fail}})\,y} + \frac{v_m}{(1-f_{\text{fail}})\,y}\,\text{CF}_{\text{med}} \]</div>
+        <p class="eq-read">the footprint per kilogram is the electricity used times the emission factor of the grid, plus the medium used times the upstream footprint of producing a litre of medium.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\text{EF}_{\text{el}}\)</td><td>grid emission factor</td><td>kg CO₂e kWh⁻¹</td><td>0.46 world; ≈ 0.04 Sweden</td></tr>
+          <tr><td>\(\text{CF}_{\text{med}}\)</td><td>upstream footprint of medium (ingredients, their energy, scaffolds, filters, water)</td><td>kg CO₂e L⁻¹</td><td>0.30 (average suppliers); 0.21 (renewable)</td></tr>
+        </table>
+        <details><summary>Calibration to Sinke et al. (2023)</summary><ol class="steps"><li>Sinke et al.'s baseline plant uses 22.3 kWh kg⁻¹; for its medium we take the baseline ("mid") quantity of the companion TEA, 13.4 L kg⁻¹ (Vergeer et al., 2021).</li><li>With renewable electricity at the plant (EF ≈ 0) the footprint was 4.0 kg CO₂e kg⁻¹: \(\text{CF}_{\text{med}} = 4.0/13.4 = 0.30\) kg L⁻¹.</li><li>With renewable energy also upstream it was 2.8: \(2.8/13.4 = 0.21\) kg L⁻¹.</li><li>With global-average energy: \(22.3\times0.46 + 4.0 = 14.3\), Sinke et al.'s value. The simple model reproduces all three scenarios.</li></ol></details>
+        <div class="eq-units">kWh kg⁻¹ × kg CO₂e kWh⁻¹ + L kg⁻¹ × kg CO₂e L⁻¹ = kg CO₂e kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="e*ef + vm*cf" data-output="Carbon footprint" data-unit="kg CO₂e kg⁻¹" data-digits="1" data-plot="ef" data-ymin="0">
+          <div data-var="ef" data-label="Grid factor EF" data-min="0" data-max="0.9" data-step="0.01" data-value="0.46" data-unit="kg CO₂e kWh⁻¹"></div>
+          <div data-var="e" data-label="Electricity e" data-min="2" data-max="40" data-step="0.1" data-value="22.3" data-unit="kWh kg⁻¹"></div>
+          <div data-var="vm" data-label="Medium v<sub>m</sub>" data-min="2" data-max="45" data-step="0.1" data-value="13.4" data-unit="L kg⁻¹"></div>
+          <div data-var="cf" data-label="Medium footprint CF<sub>med</sub>" data-min="0.05" data-max="1.5" data-step="0.01" data-value="0.30" data-unit="kg CO₂e L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cme-uncert">
+        <div class="eq-head"><span class="eq-label">Sensitivity and uncertainty</span><span class="eq-num">(T10)</span></div>
+        <div class="eq-main">\[ \Delta_j = \left|\,c(\theta_j^{\text{high}}) - c(\theta_j^{\text{low}})\,\right| \] \[ \hat F(c) = \frac{1}{N}\sum_{k=1}^{N} \mathbf 1\!\left[c^{(k)} \le c\right], \qquad P_q = \inf\{\,c : \hat F(c) \ge q\,\} \]</div>
+        <p class="eq-read">the swing of input \(j\) is the difference in cost between its high and low value with all other inputs fixed (the tornado ranks inputs by swing); the Monte Carlo draws \(N\) plants with all uncertain inputs sampled together, and the percentile \(P_q\) is the cost below which a fraction \(q\) of the draws fall.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\theta_j\)</td><td>input \(j\) (e.g., medium price, density, capital)</td><td>various</td></tr>
+          <tr><td>\(c^{(k)}\)</td><td>cost of draw \(k\) of \(N = 3000\)</td><td>$ kg⁻¹</td></tr>
+          <tr><td>\(\hat F\)</td><td>empirical cumulative distribution</td><td>–</td></tr>
+        </table>
+        <details><summary>Why the two methods can disagree</summary><p>A tornado varies one input at a time and so ignores combinations: two moderately unfavourable assumptions can together cost more than the sum of their swings when effects multiply (density and medium price do: cost ∝ price ÷ density). The Monte Carlo varies everything together but depends entirely on the assumed distributions, which in early-stage TEA are expert judgement rather than data. Neither replaces a pilot plant.</p></details>
+        <div class="eq-units">Swing and percentiles carry the unit of the cost, $ kg⁻¹ ✓</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Tick each task when you are done; use <em>Save investigation</em> to store your settings and results in your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Anatomy of $37 per kilogram</h4><p>Load <em>Humbird fed-batch</em>. From the waterfall, list the cost items and their shares. Which three inputs top the tornado? For each, write one sentence on the biology or engineering that would have to change to move it in the favourable direction.</p></li>
+        <li><h4>The growth-factor problem</h4><p>Load <em>Early commercial</em>. By what factor must the price of growth factors and recombinant proteins fall (hold everything else) before the medium is no longer more than half of the cost? Compare with CE Delft's assumption of a 1,000-fold price cut for growth factors and a 500-fold cut in the use-weighted cost of recombinant proteins.</p></li>
+        <li><h4>Fed-batch or perfusion?</h4><p>Compare the two Humbird presets. Perfusion reaches 195 instead of 110 g L⁻¹, so why is it more expensive? Change one input at a time (reactor size, capital-cost multiplier, consumables) until perfusion beats fed-batch, and explain what each change would mean in practice.</p></li>
+        <li><h4>Test a company claim</h4><p>Pasitka et al. (2024) reported 130 × 10⁶ cells mL⁻¹ in continuous perfusion and a medium of $0.63 L⁻¹. Put these numbers into the <em>Humbird perfusion</em> preset and set the cell mass to 3,300 pg, which reproduces their reported 43 % w/v. What cost do you get? Now read the cell-volume-fraction readout and the map: which physical limit discussed by Humbird does this operating point challenge, and what would you ask the authors?</p></li>
+        <li><h4>The price of money</h4><p>Load <em>CE Delft optimistic</em> and set the payback time to 4 years, then to 7.5 % interest over 10 years. How much of the gap between $6.4 kg⁻¹ and these results is due to finance alone? Who could provide cheap, patient capital, and would that be a good use of public money?</p></li>
+        <li><h4>Climate check on your grid</h4><p>For your preferred scenario, compare the carbon footprint on a world-average grid (0.46) and on a Swedish-like grid (0.04 kg CO₂e kWh⁻¹). Which conventional meats does it beat in each case (Sinke et al., 2023 benchmarks)? What would you need to change in the medium supply chain to reach the chicken benchmark?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-cultivated-meat-economics">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Humbird financed his plant at 7.5 % interest over 10 years. What is the capital recovery factor (a⁻¹)?","answer":0.1457,"tol":0.01,"unit":"a⁻¹","hint":"Eq. T7: CRF = i(1+i)ⁿ/((1+i)ⁿ − 1).","explain":"<p>\\(0.075\\times1.075^{10}/(1.075^{10}-1) = 0.075\\times2.061/1.061 = 0.1457\\): the plant must earn 14.6 % of its investment every year.</p>"},
+          {"type":"numeric","q":"A 2 m³ perfusion reactor (1.6 m³ working volume) holds 195 kg m⁻³ of cells that double every 24 h. At what rate (kg h⁻¹) must cells be bled off at steady state?","answer":9.01,"tol":0.02,"unit":"kg h⁻¹","hint":"Eq. T4: harvest = μ X V with μ = ln 2 / t_d.","explain":"<p>\\(\\mu = 0.693/24 = 0.0289\\) h⁻¹; \\(0.0289\\times195\\times1.6 = 9.0\\) kg h⁻¹ — Humbird's reported harvest per reactor.</p>"},
+          {"type":"numeric","q":"A fed-batch culture is harvested at 110 g L⁻¹ and needs 20 % extra medium for the seed train and feeds. How many litres of medium are used per kg of wet cells?","answer":10.9,"tol":0.02,"unit":"L kg⁻¹","explain":"<p>\\(1000/110\\times1.2 = 10.9\\) L kg⁻¹.</p>"},
+          {"type":"mcq","q":"Load ‘Humbird fed-batch’. According to the tornado chart, which input has the largest swing?","options":["Harvest cell density","Doubling time","Electricity price","Staff"],"answer":0,"feedback":["","Doubling time moves the cost by only about $3 kg⁻¹ here, because the production vessel runs only about two doublings per batch.","Electricity is about $1 kg⁻¹ of $37.","Labour is about $1.4 kg⁻¹."],"explain":"<p>Density sets both the litres of medium per kilogram and the number of reactors: halving it raises the cost to about $64 kg⁻¹, raising it by half lowers it to about $28 kg⁻¹. The medium price is a close second.</p>"},
+          {"type":"numeric","q":"Load ‘Humbird best case (hydrolysate)’. What would the cost of production be if the medium were free? (Hint: the parity panel prints this floor.)","answer":14.8,"tol":0.03,"unit":"$ kg⁻¹","explain":"<p>Capital charge 7.1 + maintenance and insurance 4.4 + labour 1.4 + electricity 1.0 + consumables 1.0 ≈ $14.8 kg⁻¹ — already above the ≈ $7.6 kg⁻¹ needed for parity with US ground beef at a mark-up of 2. Cheaper medium is necessary but not sufficient.</p>"},
+          {"type":"tf","q":"Doubling the capacity of Humbird's fed-batch plant from 6.8 to 13.6 kt a⁻¹ roughly halves its cost per kilogram.","answer":false,"explain":"<p>It falls only from about $36.8 to $34.5 kg⁻¹. Reactors are added one by one, so their cost scales almost linearly with capacity; only the rest of the plant (six-tenths rule) and the fixed staff benefit from scale, and the medium — the largest item — costs the same per kilogram at any scale.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>The product is bulk wet cell mass (≈ 70 % water) leaving the dewatering centrifuge, as in Humbird (2021) and CE Delft (2021); formulation, scaffolds for structured products, packaging, distribution and profit are outside the model.</li>
+        <li>Growth is exponential and uninhibited up to the harvest density, which the user sets; the physical limits Humbird computed (NH₃ and CO₂ inhibition, oxygen transfer, viscosity at a cell volume fraction of ≈ 0.25) are shown as warnings, not enforced.</li>
+        <li>All production reactors are identical, fully utilised and staggered; the number of reactors is treated as a continuous number for costing (the stage shows the rounded count). Seed-train and differentiation reactors are represented by a fraction of the production-reactor cost.</li>
+        <li>Medium is priced per litre with a fixed composition. Humbird priced nutrients by consumption (stoichiometry), not by volume; the per-litre price in his presets is therefore a model-equivalent value chosen to reproduce his cost per kilogram.</li>
+        <li>Capital: Humbird's installed-reactor correlation or a power law, the rest of the plant as a six-tenths-rule term plus a per-reactor term fitted in this laboratory to Humbird's two plants, and a single indirect-cost factor. Estimates at this stage have an accuracy of roughly −20 % / +40 % (CE Delft, 2021).</li>
+        <li>Finance: a constant annual capital charge (Eq. T7); no taxes, inflation, working capital, start-up costs, learning curves or plant ramp-up. Money values are in the price years of the sources (2018–2020 US dollars) and have not been inflation-adjusted.</li>
+        <li>Staff is an input (it does not scale automatically with the number of reactors). Electricity use per kilogram is an input taken from the literature rather than computed from heat and mass balances.</li>
+        <li>Failed (contaminated) batches and harvest losses consume medium and energy without producing product and increase the number of reactors needed.</li>
+        <li>The carbon footprint is a two-term calibration to the scenarios of Sinke et al. (2023) (Eq. T9); it ignores land use, water and other impact categories and the difference between CO₂ and methane warming dynamics.</li>
+        <li>Retail benchmarks are US city-average prices (BLS, August 2026); the mark-up from wet-cell cost to retail is an assumption (Humbird suggested at least 2×).</li>
+        <li>The "early commercial (2024–2026)" preset uses the December 2020 list prices of CE Delft (2021), the most recent systematic public survey of medium prices. Companies report much cheaper animal-free media (e.g., $0.63 L⁻¹, Pasitka et al., 2024), but independent, commercial-scale data for 2024–2026 are not public; treat the preset as an upper bound for plants that buy their proteins on the market.</li>
+      </ul>
+      <h2 data-nonum>Calibration against the published studies</h2>
+      <div id="cal-table"></div>
+      <h3>Monte Carlo distributions</h3>
+      <p>Each draw varies these inputs independently around the current settings (all others fixed); 3,000 draws with a fixed random seed, so that results are reproducible:</p>
+      <ul id="mc-spec"></ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Goodwin, C. M., Aimutis, W. R., &amp; Shirwaiker, R. A. (2024). A scoping review of cultivated meat techno-economic analyses to inform future research directions for scaled-up manufacturing. <em>Nature Food</em>, 5(11), 901–910. <a href="https://doi.org/10.1038/s43016-024-01061-3" target="_blank" rel="noopener">doi:10.1038/s43016-024-01061-3</a></li>
+        <li>Humbird, D. (2021). Scale-up economics for cultured meat. <em>Biotechnology and Bioengineering</em>, 118(8), 3239–3250. <a href="https://doi.org/10.1002/bit.27848" target="_blank" rel="noopener">doi:10.1002/bit.27848</a></li>
+        <li>Negulescu, P. G., Risner, D., Spang, E. S., Sumner, D., Block, D., Nandi, S., &amp; McDonald, K. A. (2023). Techno-economic modeling and assessment of cultivated meat: impact of production bioreactor scale. <em>Biotechnology and Bioengineering</em>, 120(4), 1055–1067. <a href="https://doi.org/10.1002/bit.28324" target="_blank" rel="noopener">doi:10.1002/bit.28324</a></li>
+        <li>Pasitka, L., Wissotsky, G., Ayyash, M., Yarza, N., Rosoff, G., Kaminker, R., &amp; Nahmias, Y. (2024). Empirical economic analysis shows cost-effective continuous manufacturing of cultivated chicken using animal-free medium. <em>Nature Food</em>, 5(8), 693–702. <a href="https://doi.org/10.1038/s43016-024-01022-w" target="_blank" rel="noopener">doi:10.1038/s43016-024-01022-w</a></li>
+        <li>Peters, M. S., Timmerhaus, K. D., &amp; West, R. E. (2003). <em>Plant design and economics for chemical engineers</em> (5th ed.). McGraw-Hill.</li>
+        <li>Risner, D., Negulescu, P., Kim, Y., Nguyen, C., Siegel, J. B., &amp; Spang, E. S. (2024). Environmental impacts of cultured meat: a cradle-to-gate life cycle assessment. <em>ACS Food Science &amp; Technology</em>, 5(1), 61–74. <a href="https://doi.org/10.1021/acsfoodscitech.4c00281" target="_blank" rel="noopener">doi:10.1021/acsfoodscitech.4c00281</a></li>
+        <li>Sinke, P., Swartz, E., Sanctorum, H., van der Giesen, C., &amp; Odegard, I. (2023). Ex-ante life cycle assessment of commercial-scale cultivated meat production in 2030. <em>The International Journal of Life Cycle Assessment</em>, 28(3), 234–254. <a href="https://doi.org/10.1007/s11367-022-02128-8" target="_blank" rel="noopener">doi:10.1007/s11367-022-02128-8</a></li>
+        <li>Tuomisto, H. L., Allan, S. J., &amp; Ellis, M. J. (2022). Prospective life cycle assessment of a bioprocess design for cultured meat production in hollow fiber bioreactors. <em>Science of the Total Environment</em>, 851, 158051. <a href="https://doi.org/10.1016/j.scitotenv.2022.158051" target="_blank" rel="noopener">doi:10.1016/j.scitotenv.2022.158051</a></li>
+        <li>U.S. Bureau of Labor Statistics. (2026). <em>Average price data: chicken, fresh, whole, per lb. (APU0000706111) and ground beef, 100 % beef, per lb. (APU0000703112), U.S. city average, August 2026</em>. <a href="https://www.bls.gov/cpi/data.htm" target="_blank" rel="noopener">bls.gov</a></li>
+        <li>Vergeer, R., Sinke, P., &amp; Odegard, I. (2021). <em>TEA of cultivated meat: future projections of different scenarios — corrigendum</em> (Publication 21.190254.020). CE Delft, for The Good Food Institute. <a href="https://cedelft.eu/publications/tea-of-cultivated-meat/" target="_blank" rel="noopener">cedelft.eu</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

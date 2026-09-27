@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Irrigation scheduling (FAO-56) · Future Food Production</title>
+<meta name="description" content="Run a daily FAO-56 soil-water balance with Penman–Monteith ET₀, crop coefficients, root growth and realistic weather for Västerås or Almería (or your own data); compare calendar, sensor, model-based and deficit irrigation and their effect on drainage and yield.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live calculators for the Derive tab */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  var e0 = function (T) { return 0.6108 * Math.exp(17.27 * T / (T + 237.3)); };
+  FFP_CALC.irET0 = function (v) { var es = e0(v.T), ea = es * v.RH / 100, D = 4098 * es / Math.pow(v.T + 237.3, 2), g = 0.000665 * 101.3; return (0.408 * D * v.Rn + g * 900 / (v.T + 273) * v.u2 * (es - ea)) / (D + g * (1 + 0.34 * v.u2)); };
+  FFP_CALC.irKs = function (v) { var taw = 1000 * (v.fc - v.wp) * v.zr, raw = v.p * taw; return v.Dr <= raw ? 1 : Math.max(0, (taw - v.Dr) / ((1 - v.p) * taw)); };
+})();
+</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .ir-timeline { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: linear-gradient(180deg, rgba(10,16,14,0), rgba(10,16,14,.78)); }
+  .ir-timeline button { width: 34px; height: 30px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2); background: rgba(10,16,14,.6); color: #e6eee9; cursor: pointer; font-size: 13px; }
+  .ir-timeline input[type=range] { flex: 1; accent-color: #6fd39a; }
+  .ir-timeline span { font: 500 .78rem var(--font-mono); color: #e6eee9; min-width: 118px; text-align: right; }
+  .wide-card { grid-column: 1 / -1; }
+  table.cmp { width: 100%; border-collapse: collapse; font-size: .84rem; }
+  table.cmp th, table.cmp td { padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; }
+  table.cmp .num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.cmp tr.cur td { background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+  table.cmp .tag { font: 600 .68rem var(--font-mono); color: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 5px; margin-left: 6px; white-space: nowrap; }
+  .csv-row { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; }
+  #csv-text { width: 100%; min-height: 200px; font: 500 .78rem var(--font-mono); background: var(--bg-sunk); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px; resize: vertical; }
+  .csv-side label { display: block; font-size: .8rem; color: var(--muted); margin: 6px 0 2px; }
+  .csv-side input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-elev); color: var(--ink); }
+  .csv-msg { font-size: .8rem; margin-top: 8px; color: var(--muted); }
+  .csv-msg.ok { color: var(--ok); } .csv-msg.bad { color: var(--danger); }
+  @media (max-width: 800px) { .csv-row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="lab" data-slug="irrigation-scheduling">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Irrigation scheduling (FAO-56)</h1>
+    <p class="lead">When should you irrigate, and how much? Here you run the same daily root-zone water balance that irrigation advisers use worldwide — FAO Paper 56 — for potato, spring wheat or lettuce, with a full season of realistic weather for Västerås or Almería (or your own weather data). Watch the soil profile dry out and the crop wilt, then let a calendar, a soil-moisture sensor, a weather-forecast model or a deficit strategy decide — and compare how much water each one uses, how much drains below the roots and how much yield it saves.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage">
+        <canvas id="soil" aria-label="Cross-section of the field: sky and weather, crop, root zone coloured by water content, and a bucket gauge of the root-zone water"></canvas>
+        <div class="ir-timeline"><button type="button" id="tl-play" aria-label="Play the season">▶</button><input type="range" id="tl-day" min="0" max="130" step="0.05" value="0" aria-label="Day after planting"><span id="tl-label">day 0</span></div>
+      </div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card wide-card">
+      <h3>Root-zone depletion, RAW and TAW</h3>
+      <div class="chart-sub">Depletion Dr below field capacity at the end of each day. Above RAW (amber) the crop is stressed; at TAW (red) it would reach the wilting point. Both limits grow as the roots deepen. Triangles mark irrigations.</div>
+      <div class="chart tall" id="chart-dr"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Rain and irrigation</h3>
+      <div class="chart-sub">Daily rain (blue) and gross irrigation (magenta) with the reference evapotranspiration ET₀ (amber, right axis).</div>
+      <div class="chart" id="chart-water"></div>
+    </div>
+    <div class="chart-card">
+      <h3>ETc versus ETa</h3>
+      <div class="chart-sub">What the crop would use without water stress (ETc = Kc ET₀) and what it actually uses (ETa = Ks Kc ET₀). The gap is the water stress that costs yield.</div>
+      <div class="chart" id="chart-et"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Cumulative water use and drainage</h3>
+      <div class="chart-sub">Season totals building up: rain, gross irrigation, ETc, ETa and drainage below the root zone (water — and nitrate — lost to the subsoil).</div>
+      <div class="chart" id="chart-cum"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Yield versus water</h3>
+      <div class="chart-sub">Relative yield (FAO-33) against gross irrigation for the five strategies on the same weather, crop and soil; point size shows drainage. The best strategies sit top-left.</div>
+      <div class="chart" id="chart-yw"></div>
+    </div>
+    <div class="chart-card wide-card">
+      <h3>Strategy comparison</h3>
+      <div class="chart-sub">All five strategies run on the same weather, crop and soil. Water productivity = extra yield over rainfed per m³ of gross irrigation.</div>
+      <div id="strategy-table" style="overflow-x:auto"></div>
+    </div>
+    <div class="chart-card wide-card">
+      <h3>Use your own weather data</h3>
+      <div class="chart-sub">Paste daily data (CSV or tab-separated, one day per row, starting at planting). Required columns: <code>date</code> (YYYY-MM-DD), <code>tmax</code>, <code>tmin</code> (°C), <code>rain</code> (mm). Optional: <code>tdew</code> (°C) or <code>rh</code> (mean %), <code>u2</code> (wind at 2 m, m s⁻¹), <code>sun_hours</code> or <code>rs</code> (MJ m⁻² d⁻¹). Missing humidity → T<sub>dew</sub> = T<sub>min</sub>; missing wind → 2 m s⁻¹; missing radiation → Hargreaves' temperature formula (FAO-56 eqs. 48, 50). The example is a generated Västerås period.</div>
+      <div class="csv-row">
+        <textarea id="csv-text" spellcheck="false" aria-label="Your daily weather data"></textarea>
+        <div class="csv-side">
+          <label for="csv-lat">Latitude (°)</label><input id="csv-lat" type="number" step="0.01" value="59.61">
+          <label for="csv-z">Elevation (m a.s.l.)</label><input id="csv-z" type="number" step="1" value="15">
+          <div class="ctl-buttons" style="margin-top:12px"><button type="button" class="btn btn-sm btn-primary" id="csv-use">Use my data</button><button type="button" class="btn btn-sm" id="csv-example">Reload example</button></div>
+          <div class="csv-msg" id="csv-msg">Data are only used in your browser.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Play a rainfed season.</strong> Choose the preset <em>Västerås potato on sand</em>, set the strategy to <em>Rainfed</em> and press ▶ under the soil profile. After planting the roots are shallow, so the soil “bucket” (right) is small. Watch the depletion line climb during dry spells: when it passes RAW the plants droop, turn olive and the actual evapotranspiration falls below the crop's demand.</li>
+        <li><strong>Let a sensor decide.</strong> Switch to <em>Soil-moisture sensor threshold</em>. Every time the sensor reports that the depletion has reached RAW, the sprinkler refills the root zone. The depletion now saw-tooths between 0 and RAW and the stress days almost vanish.</li>
+        <li><strong>Try the calendar.</strong> Choose <em>Calendar</em>: 25 mm every 7 days, whatever the weather. On this sandy soil (TAW ≈ 45 mm at full rooting) much of the water is lost as drainage — see the cumulative chart and the strategy table. Rain that falls just after an irrigation has nowhere to go.</li>
+        <li><strong>Use the forecast.</strong> Choose <em>Water-balance model + weather forecast</em>. The scheduler looks three days ahead and skips an irrigation when rain is forecast. Compare its water use and drainage with the sensor strategy in the table.</li>
+        <li><strong>Go south.</strong> Load <em>Almería winter lettuce, drip</em>. The season is short and mostly rainless; drip irrigation (90 % efficient) carries the whole crop. Then load <em>Almería spring potato, deficit</em>: the crop is deliberately allowed into the stress zone and the yield loss is computed with the FAO-33 yield-response factor.</li>
+        <li><strong>Change the weather year.</strong> Move <em>Weather year</em>: every seed is a different, statistically realistic season. Rainfed yield in Västerås varies a lot from year to year — that variability is what makes irrigation an insurance.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>The root zone is a bucket: rain and irrigation fill it, evapotranspiration empties it, and anything above field capacity drains away. Good scheduling keeps the depletion between zero and RAW — irrigating <em>when</em> the crop needs it (timing) and <em>only as much</em> as the bucket can hold (amount).</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>The FAO-56 water balance in five steps</h2>
+      <p>The FAO Irrigation and Drainage Paper No. 56 (Allen et al., 1998) is the international standard for computing crop water requirements. Its <em>single crop-coefficient</em> method, used here, combines five pieces (see also <a href="/lessons/precision-irrigation/">Lesson 11.3</a>):</p>
+      <ol>
+        <li><strong>Weather → ET₀.</strong> The Penman–Monteith equation turns temperature, humidity, wind and solar radiation into the evapotranspiration of a standard, well-watered grass (Eq. I1). Solar and net radiation are estimated from sunshine duration (Eq. I2).</li>
+        <li><strong>Crop → ETc.</strong> A crop coefficient Kc, changing over four growth stages, scales ET₀ to the crop (Eq. I3). Tabulated values come from FAO-56 Tables 11 and 12 and are adjusted for wind and humidity.</li>
+        <li><strong>Soil and roots → TAW and RAW.</strong> The total available water is the water held between field capacity and wilting point over the rooting depth; the readily available water is the part the crop can extract without stress (Eq. I4). Roots grow, so the bucket grows.</li>
+        <li><strong>Daily bookkeeping.</strong> Every day, rain and irrigation reduce the depletion and evapotranspiration increases it; water beyond field capacity drains (Eqs. I5–I6). When the depletion exceeds RAW, a stress coefficient Ks reduces transpiration.</li>
+        <li><strong>Yield.</strong> The seasonal shortfall of ETa relative to ETc translates into a relative yield loss through the yield-response factor Ky (Eq. I9; Doorenbos &amp; Kassam, 1979).</li>
+      </ol>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 680 300" role="img" aria-label="The root zone as a bucket: field capacity at the top, wilting point at the bottom, RAW and TAW, inputs of rain and irrigation, outputs of evapotranspiration and deep percolation">
+          <defs><marker id="ir-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+          <rect x="240" y="60" width="200" height="190" rx="4" class="fill-sunk" stroke="currentColor" stroke-width="1.5"/>
+          <rect x="241" y="100" width="198" height="149" class="fill-water-soft"/>
+          <line x1="232" y1="60" x2="448" y2="60" class="stroke" stroke-width="1.2"/><text x="454" y="64" class="t-small">field capacity (Dr = 0)</text>
+          <line x1="232" y1="100" x2="448" y2="100" class="stroke-water" stroke-width="1.6"/><text x="454" y="104" class="t-small">today's water level</text>
+          <line x1="232" y1="136" x2="448" y2="136" class="stroke-amber" stroke-width="2" stroke-dasharray="6 4"/><text x="454" y="140" class="t-small">Dr = RAW = p · TAW: stress begins</text>
+          <line x1="232" y1="250" x2="448" y2="250" class="stroke-danger" stroke-width="1.6"/><text x="454" y="254" class="t-small">wilting point (Dr = TAW)</text>
+          <path d="M226 60 L226 100" class="stroke" stroke-width="1.2" marker-start="url(#ir-ah)" marker-end="url(#ir-ah)"/><text x="150" y="84" class="t-small">depletion Dr</text>
+          <path d="M210 60 L210 250" class="stroke-muted" stroke-width="1" marker-start="url(#ir-ah)" marker-end="url(#ir-ah)"/><text x="120" y="160" class="t-small">TAW =</text><text x="96" y="176" class="t-small">1000 (θFC − θWP) Zr</text>
+          <g class="stroke-water" stroke-width="2.2" fill="none"><path d="M290 8 L290 54" marker-end="url(#ir-ah)"/><path d="M340 8 L340 54" marker-end="url(#ir-ah)"/></g>
+          <text x="244" y="20" class="t-small">rain P</text><text x="346" y="20" class="t-small">irrigation I</text>
+          <g class="stroke-accent" stroke-width="2.2" fill="none"><path d="M430 54 L430 10" marker-end="url(#ir-ah)"/></g><text x="438" y="22" class="t-small">ETa = Ks Kc ET₀</text>
+          <g class="stroke-amber" stroke-width="2.2" fill="none"><path d="M340 254 L340 292" marker-end="url(#ir-ah)"/></g><text x="348" y="288" class="t-small">deep percolation DP (only when full)</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The FAO-56 root-zone bucket. The depletion Dr is measured downwards from field capacity. Rain and irrigation lower it, evapotranspiration raises it; water arriving when Dr = 0 drains. Between RAW and TAW the crop is stressed and ETa falls linearly with the remaining water (Eq. I5).</figcaption>
+      </figure>
+      <h3>The crops</h3>
+      <table>
+        <caption>Table 1. Crop parameters used (Allen et al., 1998, Tables 11, 12, 22 and 24; Kuslu et al., 2008). Maximum rooting depths are mid-range values of the FAO-56 ranges; the root zone starts at 0.15 m and deepens linearly until the start of mid-season.</caption>
+        <tr><th>Crop</th><th class="num">K<sub>c ini</sub></th><th class="num">K<sub>c mid</sub></th><th class="num">K<sub>c end</sub></th><th class="num">Height h (m)</th><th class="num">Z<sub>r,max</sub> (m)</th><th class="num">p</th><th class="num">K<sub>y</sub></th></tr>
+        <tr><td>Potato</td><td class="num">0.50</td><td class="num">1.15</td><td class="num">0.75</td><td class="num">0.6</td><td class="num">0.5 (0.4–0.6)</td><td class="num">0.35</td><td class="num">1.1</td></tr>
+        <tr><td>Spring wheat</td><td class="num">0.30</td><td class="num">1.15</td><td class="num">0.25</td><td class="num">1.0</td><td class="num">1.2 (1.0–1.5)</td><td class="num">0.55</td><td class="num">1.15</td></tr>
+        <tr><td>Lettuce</td><td class="num">0.70</td><td class="num">1.00</td><td class="num">0.95</td><td class="num">0.3</td><td class="num">0.4 (0.3–0.5)</td><td class="num">0.30</td><td class="num">1.39*</td></tr>
+      </table>
+      <p class="muted" style="font-size:.85rem">* FAO-33 gives no K<sub>y</sub> for lettuce. The value 1.39 comes from a two-year field experiment with curly lettuce in eastern Turkey (Kuslu et al., 2008); treat it as indicative.</p>
+      <h3>The weather</h3>
+      <p>Irrigation decisions are made in real weather: dry spells, heat waves, rainy weeks. The laboratory therefore does not use average weather but a <strong>stochastic weather generator</strong> (Eq. I8; Richardson, 1981; Wilks &amp; Wilby, 1999) whose statistics were estimated from 20 years (2004–2023) of daily data: precipitation at the SMHI station Västerås (96350) and, for all other variables and for Almería, the NASA POWER data set. The generator reproduces the monthly mean temperatures to within about 1 °C, the monthly radiation and ET₀ to within about 5 % and the annual precipitation to within about 10 % (small daily amounts below 1 mm are not generated). Each <em>weather year</em> is a different plausible season — which is what a farmer faces.</p>
+      <table>
+        <caption>Table 2. Summer climate of the two sites in the generator (June–August means). Västerås: humid, cool, frequent rain; Almería: the driest corner of Europe, where almost all summer water must come from irrigation.</caption>
+        <tr><th>Site</th><th class="num">T<sub>max</sub> / T<sub>min</sub> (°C)</th><th class="num">Rain (mm month⁻¹)</th><th class="num">Wet days (≥ 1 mm) per month</th><th class="num">ET₀ (mm d⁻¹)</th></tr>
+        <tr><td>Västerås (59.6° N)</td><td class="num">20.6 / 11.9</td><td class="num">71</td><td class="num">8.5</td><td class="num">3.2</td></tr>
+        <tr><td>Almería (36.8° N)</td><td class="num">30.2 / 19.1</td><td class="num">3</td><td class="num">0.8</td><td class="num">6.7</td></tr>
+      </table>
+      <h3>Scheduling strategies</h3>
+      <table>
+        <caption>Table 3. The five strategies (Eq. I7). Net depths are limited by the system's maximum per event and never exceed TAW.</caption>
+        <tr><th>Strategy</th><th>When</th><th>How much</th><th>Information needed</th></tr>
+        <tr><td>Rainfed</td><td>never</td><td>—</td><td>none</td></tr>
+        <tr><td>Calendar</td><td>every n days from a start day</td><td>fixed depth</td><td>none — the classic “Tuesday and Friday” schedule</td></tr>
+        <tr><td>Soil-moisture sensor</td><td>when the <em>measured</em> depletion reaches the trigger (share of RAW)</td><td>refill to field capacity (as measured)</td><td>a sensor in the root zone — with calibration bias and noise</td></tr>
+        <tr><td>Model + forecast</td><td>when the depletion projected over the forecast horizon reaches the trigger, unless enough rain is forecast</td><td>refill to field capacity minus forecast rain</td><td>weather station, crop model, weather forecast</td></tr>
+        <tr><td>Deficit irrigation</td><td>when the depletion is part of the way from RAW to TAW</td><td>a fraction of the depletion</td><td>as for the model; stress is accepted to save water</td></tr>
+      </table>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“More irrigation is always safer.” Once the root zone is at field capacity, extra water simply drains — carrying nitrate towards groundwater and the Baltic Sea — and every millimetre was pumped and paid for. On sandy soils with small TAW, frequent light irrigations beat large ones.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier</div><p>Irrigation advisory services now combine FAO-56 balances with satellite estimates of crop coefficients and evapotranspiration, and with probabilistic weather forecasts. Variable-rate irrigation (VRI) centre pivots apply different depths to different management zones — the water equivalent of the variable-rate nitrogen in the <a href="/laboratories/drone-ndvi/">Drone NDVI survey</a>.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+
+      <div class="eq-box" id="eq-ir-et0">
+        <div class="eq-head"><span class="eq-label">FAO-56 Penman–Monteith reference evapotranspiration</span><span class="eq-num">(I1)</span></div>
+        <div class="eq-main">\[ ET_0=\frac{0.408\,\Delta\,(R_n-G)+\gamma\,\dfrac{900}{T+273}\,u_2\,(e_s-e_a)}{\Delta+\gamma\,(1+0.34\,u_2)} \] \[ e_s=\frac{e^\circ(T_{\max})+e^\circ(T_{\min})}{2},\qquad e_a=e^\circ(T_{\text{dew}}) \]</div>
+        <p class="eq-read">reference evapotranspiration combines an energy term (net radiation) and an aerodynamic term (wind times vapour pressure deficit), weighted by the slope of the saturation vapour pressure curve and the psychrometric constant.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(ET_0\)</td><td>reference evapotranspiration of a 0.12 m grass</td><td>mm d⁻¹</td></tr>
+          <tr><td>\(R_n, G\)</td><td>net radiation (Eq. I2); soil heat flux (≈ 0 for daily steps)</td><td>MJ m⁻² d⁻¹</td></tr>
+          <tr><td>\(T\)</td><td>mean daily temperature \((T_{\max}+T_{\min})/2\)</td><td>°C</td></tr>
+          <tr><td>\(u_2\)</td><td>wind speed at 2 m</td><td>m s⁻¹</td></tr>
+          <tr><td>\(e^\circ(T)=0.6108\exp\!\left(\frac{17.27T}{T+237.3}\right)\)</td><td>saturation vapour pressure</td><td>kPa</td></tr>
+          <tr><td>\(\Delta, \gamma\)</td><td>slope of the vapour pressure curve at T; psychrometric constant \(0.665\times10^{-3}P\)</td><td>kPa °C⁻¹</td></tr>
+        </table>
+        <details><summary>Derivation and check</summary><p>The derivation from the Penman–Monteith combination equation with the standard grass resistances (r<sub>s</sub> = 70 s m⁻¹, r<sub>a</sub> = 208/u<sub>2</sub>) is given step by step in Lesson 11.3 (Eq. 11.3.1). The code uses the shared <code>physics.et0PenmanMonteith</code> function. Check: for FAO-56 Example 18 (Brussels, 6 July: T<sub>max</sub> 21.5 °C, T<sub>min</sub> 12.3 °C, u<sub>2</sub> 2.08 m s⁻¹, 9.25 h sunshine, 50.8° N, 100 m) the laboratory computes ET₀ = 3.88 mm d⁻¹; FAO-56 gives 3.9 mm d⁻¹ ✓.</p></details>
+        <details><summary>Assumptions and validity</summary><p>Daily time step with G = 0; the weather is assumed to be measured over a well-watered grass reference. Over dry surroundings (Almería in summer) measured air is warmer and drier than a true reference site, and FAO-56 recommends correcting T<sub>dew</sub>; the generator's statistics come from gridded data rather than a reference station.</p></details>
+        <div class="eq-units">\(\dfrac{\text{kPa}\,{}^{\circ}\text{C}^{-1}\cdot\text{MJ m}^{-2}\text{d}^{-1}\cdot\text{mm MJ}^{-1}\text{m}^2}{\text{kPa}\,{}^{\circ}\text{C}^{-1}}=\text{mm d}^{-1}\) ✓ (0.408 = 1/λ with λ = 2.45 MJ kg⁻¹; 900 carries the unit conversions of the aerodynamic term)</div>
+        <div class="mini-calc" data-fn="irET0" data-output="ET₀" data-unit="mm d⁻¹" data-digits="2" data-plot="u2" data-ymin="0">
+          <div data-var="T" data-label="Mean temperature T" data-min="0" data-max="35" data-step="0.5" data-value="17" data-unit="°C"></div>
+          <div data-var="RH" data-label="Mean relative humidity" data-min="20" data-max="100" data-step="1" data-value="70" data-unit="%"></div>
+          <div data-var="u2" data-label="Wind speed u<sub>2</sub>" data-min="0.5" data-max="8" data-step="0.1" data-value="2" data-unit="m s⁻¹"></div>
+          <div data-var="Rn" data-label="Net radiation R<sub>n</sub>" data-min="0" data-max="20" data-step="0.5" data-value="12" data-unit="MJ m⁻² d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ir-rad">
+        <div class="eq-head"><span class="eq-label">Net radiation from sunshine duration</span><span class="eq-num">(I2)</span></div>
+        <div class="eq-main">\[ R_s=\left(a_s+b_s\frac{n}{N}\right)R_a,\qquad R_{so}=(0.75+2\cdot10^{-5}z)R_a \] \[ R_n=(1-\alpha)R_s-R_{nl} \] \[ R_{nl}=\sigma\,\frac{T_{\max,K}^4+T_{\min,K}^4}{2}\left(0.34-0.14\sqrt{e_a}\right)\left(1.35\frac{R_s}{R_{so}}-0.35\right) \]</div>
+        <p class="eq-read">global radiation is a fraction of the extraterrestrial radiation that grows with the relative sunshine duration; net radiation is the absorbed shortwave radiation minus the net longwave loss, which is larger in warm, dry and clear weather.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(R_a\)</td><td>extraterrestrial radiation (latitude, day of year; FAO-56 eq. 21)</td><td>MJ m⁻² d⁻¹</td><td>41 in June at 59.6° N</td></tr>
+          <tr><td>\(n/N\)</td><td>relative sunshine duration (generated, or sunshine hours ÷ day length)</td><td>–</td><td>0–1</td></tr>
+          <tr><td>\(a_s, b_s\)</td><td>Ångström coefficients (FAO-56 defaults)</td><td>–</td><td>0.25, 0.50</td></tr>
+          <tr><td>\(\alpha\)</td><td>albedo of the grass reference</td><td>–</td><td>0.23</td></tr>
+          <tr><td>\(\sigma\)</td><td>Stefan–Boltzmann constant</td><td>MJ K⁻⁴ m⁻² d⁻¹</td><td>4.903 × 10⁻⁹</td></tr>
+          <tr><td>\(z\)</td><td>elevation</td><td>m</td><td>15 (Västerås), 20 (Almería)</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The Ångström coefficients vary with climate and should be calibrated locally where pyranometer data exist. If only temperatures are available (pasted data), R<sub>s</sub> = 0.16 √(T<sub>max</sub> − T<sub>min</sub>) R<sub>a</sub> (Hargreaves' radiation formula, FAO-56 eq. 50, interior locations).</p></details>
+        <div class="eq-units">all radiation terms in MJ m⁻² d⁻¹; \(\sigma T^4\): MJ K⁻⁴ m⁻² d⁻¹ × K⁴ ✓</div>
+        <div class="mini-calc" data-formula="(0.25+0.5*s)*Ra" data-output="Global radiation R<sub>s</sub>" data-unit="MJ m⁻² d⁻¹" data-digits="1" data-plot="s">
+          <div data-var="s" data-label="Relative sunshine n/N" data-min="0" data-max="1" data-step="0.01" data-value="0.6"></div>
+          <div data-var="Ra" data-label="Extraterrestrial radiation R<sub>a</sub>" data-min="5" data-max="45" data-step="0.5" data-value="41" data-unit="MJ m⁻² d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ir-kc">
+        <div class="eq-head"><span class="eq-label">Crop coefficient curve and climate adjustment</span><span class="eq-num">(I3)</span></div>
+        <div class="eq-main">\[ ET_c=K_c\,ET_0,\qquad K_{c}(i)=K_{c,\text{prev}}+\frac{i-\sum L_{\text{prev}}}{L_{\text{stage}}}\left(K_{c,\text{next}}-K_{c,\text{prev}}\right) \] \[ K_{c,\text{mid}}=K_{c,\text{mid}}^{\text{tab}}+\left[0.04(u_2-2)-0.004(RH_{\min}-45)\right]\left(\frac{h}{3}\right)^{0.3} \]</div>
+        <p class="eq-read">the crop's evapotranspiration without stress is the crop coefficient times ET₀; the coefficient is constant in the initial and mid-season stages and changes linearly in the development and late stages; the tabulated mid- and end-season values are corrected for climates windier or drier than the standard (u₂ = 2 m s⁻¹, RH<sub>min</sub> = 45 %).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(L_{\text{ini}},L_{\text{dev}},L_{\text{mid}},L_{\text{late}}\)</td><td>stage lengths (FAO-56 Table 11)</td><td>d</td></tr>
+          <tr><td>\(RH_{\min}\)</td><td>mean minimum relative humidity, \(100\,e^\circ(T_{\text{dew}})/e^\circ(T_{\max})\), over the stage</td><td>%</td></tr>
+          <tr><td>\(h\)</td><td>mean crop height in the stage</td><td>m</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The end-season value is adjusted only if the tabulated K<sub>c end</sub> ≥ 0.45 (FAO-56 eq. 65), so not for dry-harvested wheat. K<sub>c ini</sub> is taken from the tables; FAO-56 recommends raising it when the soil surface is wetted often (its Figs. 29–30), which the single-coefficient approach here ignores. In Västerås the correction is about −0.03 (calm, humid); in Almería about +0.01 to +0.04.</p></details>
+        <div class="eq-units">\(K_c\) dimensionless; \(ET_c\) in mm d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="Kt+(0.04*(u2-2)-0.004*(RH-45))*pow(h/3,0.3)" data-output="Adjusted K<sub>c mid</sub>" data-digits="3" data-plot="RH">
+          <div data-var="Kt" data-label="Tabulated K<sub>c mid</sub>" data-min="0.8" data-max="1.3" data-step="0.01" data-value="1.15"></div>
+          <div data-var="u2" data-label="Wind u<sub>2</sub>" data-min="1" data-max="6" data-step="0.1" data-value="1.75" data-unit="m s⁻¹"></div>
+          <div data-var="RH" data-label="RH<sub>min</sub>" data-min="20" data-max="80" data-step="1" data-value="55" data-unit="%"></div>
+          <div data-var="h" data-label="Crop height h" data-min="0.1" data-max="2" data-step="0.05" data-value="0.6" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ir-taw">
+        <div class="eq-head"><span class="eq-label">Root growth, TAW and RAW</span><span class="eq-num">(I4)</span></div>
+        <div class="eq-main">\[ Z_r(i)=Z_{r,\min}+\left(Z_{r,\max}-Z_{r,\min}\right)\min\!\left(1,\frac{i}{L_{\text{ini}}+L_{\text{dev}}}\right) \] \[ \text{TAW}=1000(\theta_{FC}-\theta_{WP})Z_r \] \[ \text{RAW}=p\,\text{TAW},\qquad p=p_{\text{tab}}+0.04(5-ET_c) \]</div>
+        <p class="eq-read">the rooting depth grows linearly from 0.15 m at planting to its maximum at the start of mid-season; the total available water is the water held between field capacity and wilting point over that depth; the readily available water is the fraction p of it, larger on days of low demand.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\theta_{FC},\theta_{WP}\)</td><td>volumetric water content at field capacity and wilting point (FAO-56 Table 19 ranges)</td><td>m³ m⁻³</td></tr>
+          <tr><td>\(Z_r\)</td><td>effective rooting depth</td><td>m</td></tr>
+          <tr><td>\(p\)</td><td>depletion fraction for no stress (FAO-56 Table 22 at ETc ≈ 5 mm d⁻¹), limited to 0.1–0.8</td><td>–</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>A uniform, single-layer root zone. When the roots deepen they are assumed to enter soil at field capacity, so the depletion in millimetres is unchanged while TAW grows. Linear root growth to the start of mid-season is a common simplification; FAO-56 does not prescribe the shape.</p></details>
+        <div class="eq-units">mm m⁻¹ × m³ m⁻³ × m = mm ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-ir-balance">
+        <div class="eq-head"><span class="eq-label">Daily root-zone water balance and water-stress coefficient</span><span class="eq-num">(I5)</span></div>
+        <div class="eq-main">\[ D_{r,i}=D_{r,i-1}-P_{e,i}-I_i+ET_{a,i}+DP_i,\qquad ET_{a}=K_s\,K_c\,ET_0 \] \[ K_s=\begin{cases}1 & D_{r,i-1}\le\text{RAW}\\ \dfrac{\text{TAW}-D_{r,i-1}}{(1-p)\,\text{TAW}} & D_{r,i-1}>\text{RAW}\end{cases} \]</div>
+        <p class="eq-read">today's depletion is yesterday's minus effective rain and net irrigation, plus actual evapotranspiration and any drainage; transpiration is reduced linearly once the depletion at the start of the day exceeds RAW, reaching zero at TAW.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(D_{r,i}\)</td><td>root-zone depletion at the end of day i, \(0\le D_r\le\text{TAW}\)</td><td>mm</td></tr>
+          <tr><td>\(P_e, I\)</td><td>effective rain (Eq. I6), net irrigation</td><td>mm</td></tr>
+          <tr><td>\(K_s\)</td><td>water-stress coefficient</td><td>–</td></tr>
+          <tr><td>\(DP\)</td><td>deep percolation (Eq. I6)</td><td>mm</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Conservation of water in the root zone: \(\Delta S=P_e+I+CR-ET_a-DP-RO\). Capillary rise CR and runoff RO are set to zero (deep water table, flat field).</li><li>Depletion is the deficit below field capacity, \(D_r=S_{FC}-S\), so \(\Delta D_r=-\Delta S\) — the equation above (FAO-56 eq. 85).</li><li>Between RAW and TAW the water still available, TAW − D<sub>r</sub>, shrinks from (1 − p)TAW to 0; K<sub>s</sub> is that fraction (FAO-56 eq. 84).</li><li>Worked number: loamy sand (θ<sub>FC</sub> 0.15, θ<sub>WP</sub> 0.06), Z<sub>r</sub> = 0.5 m: TAW = 45 mm; p = 0.35 → RAW = 15.75 mm. With D<sub>r</sub> = 30 mm: K<sub>s</sub> = (45 − 30)/(0.65 × 45) = 0.51 — the crop transpires half its demand.</li></ol></details>
+        <div class="eq-units">every term in mm (per day) ✓</div>
+        <div class="mini-calc" data-fn="irKs" data-output="Water-stress coefficient K<sub>s</sub>" data-digits="2" data-plot="Dr" data-ymin="0" data-ymax="1.05">
+          <div data-var="Dr" data-label="Depletion D<sub>r</sub>" data-min="0" data-max="100" data-step="1" data-value="30" data-unit="mm"></div>
+          <div data-var="fc" data-label="θ<sub>FC</sub>" data-min="0.1" data-max="0.45" data-step="0.01" data-value="0.15"></div>
+          <div data-var="wp" data-label="θ<sub>WP</sub>" data-min="0.02" data-max="0.3" data-step="0.01" data-value="0.06"></div>
+          <div data-var="zr" data-label="Root depth Z<sub>r</sub>" data-min="0.15" data-max="1.5" data-step="0.05" data-value="0.5" data-unit="m"></div>
+          <div data-var="p" data-label="Depletion fraction p" data-min="0.1" data-max="0.8" data-step="0.01" data-value="0.35"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ir-rain">
+        <div class="eq-head"><span class="eq-label">Effective rain and deep percolation</span><span class="eq-num">(I6)</span></div>
+        <div class="eq-main">\[ P_e=\begin{cases}P & P\ge0.2\,ET_0\\ 0 & P<0.2\,ET_0\end{cases},\qquad DP_i=\max\!\left(0,\;P_{e,i}+I_i-ET_{a,i}-D_{r,i-1}\right) \]</div>
+        <p class="eq-read">small showers of less than a fifth of the day's ET₀ wet only the surface and evaporate; water in excess of what the root zone can hold drains below it the same day.</p>
+        <details><summary>Assumptions and validity</summary><p>Both rules follow FAO-56 Chapter 8: “Daily precipitation in amounts less than about 0.2 ET₀ is normally entirely evaporated and can usually be ignored”, and water above field capacity is assumed lost the same day by deep percolation. Runoff is ignored (flat field, infiltration faster than rainfall); on sloping or crusted soils heavy rain would partly run off.</p></details>
+        <div class="eq-units">mm ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-ir-rules">
+        <div class="eq-head"><span class="eq-label">Scheduling rules and gross irrigation</span><span class="eq-num">(I7)</span></div>
+        <div class="eq-main">\[ \begin{aligned}&\text{sensor: } \hat D_r=1000(\theta_{FC}-\hat\theta)Z_r,\quad \hat\theta=\theta+b+\varepsilon\\ &\qquad I=\min(I_{\max},\hat D_r)\ \text{if}\ \hat D_r\ge f\,\text{RAW}\\ &\text{model: } D_{r}+\textstyle\sum_{k&lt;H}\left(K_c\,\widehat{ET}_{0,k}-\hat P_{e,k}\right)\ge f\,\text{RAW}\\ &\qquad\Rightarrow\ I=\min\!\left(I_{\max},D_r+K_c\widehat{ET}_{0}-\hat P_{0}-\hat P_{1}\right)\\ &\text{deficit: } D_r\ge\text{RAW}+\delta(\text{TAW}-\text{RAW})\ \Rightarrow\ I=\min(I_{\max},\phi\,D_r)\\ &I_{\text{gross}}=I/E_a\end{aligned} \]</div>
+        <p class="eq-read">the sensor strategy converts a measured water content (with bias b and random error ε) into a depletion and refills when it reaches the trigger; the model strategy projects the depletion over the forecast horizon H and refills minus the rain forecast for today and tomorrow; the deficit strategy waits until the crop is part of the way into the stress zone and refills only a fraction φ; the water pumped is the net depth divided by the application efficiency.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Default</th></tr>
+          <tr><td>\(f\)</td><td>trigger as a share of RAW</td><td>1.0</td></tr>
+          <tr><td>\(b,\ \varepsilon\)</td><td>sensor bias; random error (SD)</td><td>0; 0.01 m³ m⁻³</td></tr>
+          <tr><td>\(H\), hats</td><td>forecast horizon; forecast values (illustrative error model: rain events missed or false, amounts and ET₀ with errors that grow with lead time)</td><td>3 d</td></tr>
+          <tr><td>\(\delta,\ \phi\)</td><td>deficit trigger position between RAW and TAW; refill fraction</td><td>0.4; 0.7</td></tr>
+          <tr><td>\(E_a\)</td><td>application efficiency: sprinkler 0.75, drip 0.90, surface 0.60 (Brouwer et al., 1989)</td><td>–</td></tr>
+          <tr><td>\(I_{\max}\)</td><td>largest net depth per event (assumed: 30, 20, 60 mm)</td><td>mm</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>All strategies stop irrigating a chosen number of days before harvest and irrigate at most once a day. The forecast error model is illustrative, not calibrated against a real forecasting system. The model strategy knows the true crop coefficients and soil; in practice model errors accumulate and must be corrected with measurements.</p></details>
+        <div class="eq-units">depths in mm; \(E_a\) dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-ir-wgen">
+        <div class="eq-head"><span class="eq-label">Stochastic weather generator</span><span class="eq-num">(I8)</span></div>
+        <div class="eq-main">\[ \Pr(\text{wet}_i\mid\text{dry}_{i-1})=p_{WD},\qquad \Pr(\text{wet}_i\mid\text{wet}_{i-1})=p_{WW},\qquad P_i\sim\Gamma(k,\theta) \] \[ \chi_i=\rho\,\chi_{i-1}+\sqrt{1-\rho^2}\,\varepsilon_i,\qquad X_i=\mu_{X}^{\text{wet/dry}}+\sigma_X\,\chi_i \]</div>
+        <p class="eq-read">whether it rains today depends on whether it rained yesterday (a two-state Markov chain); wet-day amounts are drawn from a gamma distribution; the standardised departures of maximum temperature, minimum temperature and sunshine follow correlated first-order autoregressive processes around means that differ between wet and dry days.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Example (Västerås, July)</th></tr>
+          <tr><td>\(p_{WD},p_{WW}\)</td><td>transition probabilities (wet day = P ≥ 1 mm)</td><td>0.25, 0.43</td></tr>
+          <tr><td>\(k,\theta\)</td><td>gamma shape and scale of wet-day rain (moment estimates)</td><td>1.0, 7.8 mm</td></tr>
+          <tr><td>\(\rho\)</td><td>lag-1 autocorrelation of the departures (T<sub>max</sub>, T<sub>min</sub>, sunshine)</td><td>0.76, 0.76, 0.23</td></tr>
+          <tr><td>\(\mu_X,\sigma_X\)</td><td>monthly means (wet/dry) and SDs, interpolated between mid-months</td><td>T<sub>max</sub> 23.4/20.8 °C, SD 3.5 °C</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The structure follows Richardson (1981) (see the review by Wilks &amp; Wilby, 1999); gamma variates use the method of Marsaglia &amp; Tsang (2000). Dew point is generated as T<sub>min</sub> minus a depression, wind independently. Long dry spells and extreme events are reproduced only approximately by a first-order chain, and the parameters describe 2004–2023, not a future climate.</p></details>
+        <div class="eq-units">probabilities dimensionless; P in mm; departures dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-ir-ky">
+        <div class="eq-head"><span class="eq-label">Yield response to water and water productivity</span><span class="eq-num">(I9)</span></div>
+        <div class="eq-main">\[ 1-\frac{Y_a}{Y_m}=K_y\left(1-\frac{\sum ET_a}{\sum ET_c}\right),\qquad \text{IWP}=\frac{(Y_a-Y_{a,\text{rainfed}})\cdot1000}{10\,\sum I_{\text{gross}}} \]</div>
+        <p class="eq-read">the relative yield loss equals the yield-response factor times the relative shortfall of seasonal evapotranspiration; irrigation water productivity is the extra yield in kilograms per cubic metre of water pumped.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(Y_a, Y_m\)</td><td>actual and maximum yield</td><td>t ha⁻¹</td></tr>
+          <tr><td>\(K_y\)</td><td>seasonal yield-response factor (Table 1)</td><td>–</td></tr>
+          <tr><td>1000, 10</td><td>t → kg; mm over 1 ha → m³ (1 mm ha⁻¹ = 10 m³)</td><td>–</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>A linear seasonal relation, valid for ET deficits up to about 50 % (Doorenbos &amp; Kassam, 1979). It ignores the timing of stress — a deficit at tuber initiation or flowering costs more than the same deficit during ripening — and quality effects. Y<sub>m</sub> is your own estimate.</p></details>
+        <div class="eq-units">dimensionless on both sides; IWP: kg ha⁻¹ ÷ m³ ha⁻¹ = kg m⁻³ ✓</div>
+        <div class="mini-calc" data-formula="100*max(0,1-Ky*(1-r))" data-output="Relative yield" data-unit="%" data-digits="1" data-plot="r">
+          <div data-var="r" data-label="ΣETa/ΣETc" data-min="0.4" data-max="1" data-step="0.01" data-value="0.8"></div>
+          <div data-var="Ky" data-label="K<sub>y</sub>" data-min="0.5" data-max="1.5" data-step="0.05" data-value="1.1"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. <em>Save investigation</em> stores the settings and readouts; <em>Download season (CSV)</em> gives you every daily value for your own analysis.</p>
+      <ol class="task-list">
+        <li><h4>Anatomy of a season</h4><p>Load <em>Västerås potato on sand</em> with the sensor strategy. Play the season and note, for each growth stage, the Kc, the root depth and the TAW. Explain why irrigations are small and frequent early in the season and larger later. Check one day's balance by hand with Eq. I5, using values from the CSV download.</p></li>
+        <li><h4>Calendar or sensor?</h4><p>On the loamy sand, compare the calendar (25 mm every 7 days) with the sensor strategy for weather years 1–5. Tabulate irrigation, drainage and relative yield. Then change the soil to silt loam and repeat. On which soil is the calendar least wasteful, and why (think TAW)?</p></li>
+        <li><h4>A bad sensor</h4><p>With the sensor strategy, set the bias to +0.02 m³ m⁻³ (reads too wet), then to −0.02 (reads too dry). What happens to the number of irrigations, the drainage and the yield on sand and on silt loam? How large an error in θ corresponds to RAW on each soil? What does this tell you about sensor calibration (Lesson 9.1)?</p></li>
+        <li><h4>What is a forecast worth?</h4><p>Compare <em>Model + forecast</em> with horizons of 1, 3 and 7 days against the sensor strategy, for five weather years in Västerås. Does looking further ahead save water, and when does it start to cost yield because forecast rain did not come?</p></li>
+        <li><h4>Deficit irrigation in Almería</h4><p>Load <em>Almería spring potato, deficit</em>. Vary δ from 0 to 0.8 and φ from 0.5 to 1. Plot relative yield against gross irrigation. Where is the water productivity highest? Would you recommend deficit irrigation for potato (K<sub>y</sub> = 1.1)? Compare with the argument of Fereres &amp; Soriano (2007) that deficit irrigation suits crops and stages with K<sub>y</sub> &lt; 1.</p></li>
+        <li><h4>Your own weather</h4><p>Download daily data for a station near you (e.g. SMHI open data, or your own weather station from the course project), paste them below the charts and run your crop. How much irrigation would it have needed in that season?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-irrigation-scheduling">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A loamy sand has θ<sub>FC</sub> = 0.15 and θ<sub>WP</sub> = 0.06 m³ m⁻³. What is the total available water for a potato crop rooted to 0.5 m?","answer":45,"tol":0.02,"unit":"mm","hint":"Eq. I4: TAW = 1000(θFC − θWP)Zr.","explain":"<p>\\(1000\\times(0.15-0.06)\\times0.5=45\\) mm — the whole root zone holds less than two weeks of July water use.</p>"},
+          {"type":"numeric","q":"For the same crop and soil (p<sub>tab</sub> = 0.35), what is RAW on a day with ETc = 3 mm d⁻¹?","answer":19.35,"tol":0.02,"unit":"mm","hint":"p = 0.35 + 0.04(5 − ETc); RAW = p · TAW.","explain":"<p>p = 0.35 + 0.04 × 2 = 0.43; RAW = 0.43 × 45 = 19.4 mm. On cool, cloudy days the crop can deplete more before stress.</p>"},
+          {"type":"numeric","q":"With TAW = 45 mm, p = 0.35 and a depletion of 30 mm at the start of the day, what is the water-stress coefficient Ks?","answer":0.513,"tol":0.02,"unit":"","hint":"Eq. I5: Ks = (TAW − Dr)/((1 − p)TAW) when Dr > RAW.","explain":"<p>RAW = 15.75 mm < 30 mm, so Ks = (45 − 30)/(0.65 × 45) = 0.51.</p>"},
+          {"type":"numeric","q":"Over a season ETa/ETc = 0.80 for potato (Ky = 1.1). What relative yield does Eq. I9 predict?","answer":78,"tol":0.01,"unit":"%","explain":"<p>\\(Y_a/Y_m=1-1.1\\times(1-0.80)=0.78\\): a 20 % water shortfall costs 22 % of the yield.</p>"},
+          {"type":"tf","q":"In the FAO-56 balance, a shower of 0.6 mm on a day with ET₀ = 4 mm does not change the root-zone depletion.","answer":true,"explain":"<p>0.6 mm is below 0.2 × 4 = 0.8 mm, so it is treated as evaporated from the surface (Eq. I6).</p>"},
+          {"type":"mcq","q":"Load <em>Calendar vs sensor on sand</em> and compare the strategy table. Why does the calendar lose so much more water to drainage than the sensor strategy?","options":["It applies a fixed depth that often exceeds the depletion, especially when rain has just refilled the root zone","Its application efficiency is lower","It irrigates at night","It uses a different ET₀"],"answer":0,"feedback":["","Both use the same system and efficiency.","Timing within the day is not modelled.","All strategies share the same weather and ET₀."],"explain":"<p>With TAW ≈ 45 mm on the sand, 25 mm every 7 days regardless of rain regularly overfills the bucket; the excess drains (Eq. I6). The sensor refills only the measured depletion.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>FAO-56 single crop-coefficient method with a daily time step; soil evaporation after wetting is lumped into K<sub>c</sub> (no dual coefficient), K<sub>c ini</sub> is tabulated rather than computed from wetting frequency.</li>
+        <li>A single, homogeneous root-zone layer; roots deepen linearly into soil at field capacity; no capillary rise, no runoff, no salinity; excess water drains the same day.</li>
+        <li>Irrigation is applied at the start of the day and infiltrates completely; application losses (1 − E<sub>a</sub>) are counted in the gross water but not added to the drainage.</li>
+        <li>The weather generator reproduces the 2004–2023 statistics of the two sites (Eq. I8), not any particular year or a future climate; small rain amounts (&lt; 1 mm) are not generated. Pasted data are used as given.</li>
+        <li>The forecast error model, sensor errors, maximum irrigation depths and minimum interval are illustrative assumptions.</li>
+        <li>Yield follows the seasonal FAO-33 relation (Eq. I9) without stage sensitivity or quality effects; the lettuce K<sub>y</sub> comes from a single study.</li>
+        <li>The soil profile is a visualisation of the bucket model; real soils have layers and wetting fronts.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper No. 56). FAO. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">fao.org/4/x0490e</a></li>
+        <li>Doorenbos, J., &amp; Kassam, A. H. (1979). <em>Yield response to water</em> (FAO Irrigation and Drainage Paper No. 33). FAO.</li>
+        <li>Pereira, L. S., Paredes, P., Hunsaker, D. J., López-Urrea, R., &amp; Mohammadi Shad, Z. (2021). Standard single and basal crop coefficients for field crops. Updates and advances to the FAO56 crop water requirements method. <em>Agricultural Water Management</em>, 243, 106466. <a href="https://doi.org/10.1016/j.agwat.2020.106466" target="_blank" rel="noopener">doi:10.1016/j.agwat.2020.106466</a></li>
+        <li>Brouwer, C., Prins, K., &amp; Heibloem, M. (1989). <em>Irrigation water management: Irrigation scheduling</em> (Training manual no. 4). FAO. <a href="https://www.fao.org/4/t7202e/t7202e00.htm" target="_blank" rel="noopener">fao.org/4/t7202e</a></li>
+        <li>Kuslu, Y., Dursun, A., Sahin, U., Kiziloglu, F. M., &amp; Turan, M. (2008). Effect of deficit irrigation on curly lettuce grown under semiarid conditions. <em>Spanish Journal of Agricultural Research</em>, 6(4), 714–719. <a href="https://doi.org/10.5424/sjar/2008064-367" target="_blank" rel="noopener">doi:10.5424/sjar/2008064-367</a></li>
+        <li>Fereres, E., &amp; Soriano, M. A. (2007). Deficit irrigation for reducing agricultural water use. <em>Journal of Experimental Botany</em>, 58(2), 147–159. <a href="https://doi.org/10.1093/jxb/erl165" target="_blank" rel="noopener">doi:10.1093/jxb/erl165</a></li>
+        <li>Jones, H. G. (2004). Irrigation scheduling: advantages and pitfalls of plant-based methods. <em>Journal of Experimental Botany</em>, 55(407), 2427–2436. <a href="https://doi.org/10.1093/jxb/erh213" target="_blank" rel="noopener">doi:10.1093/jxb/erh213</a></li>
+        <li>Richardson, C. W. (1981). Stochastic simulation of daily precipitation, temperature, and solar radiation. <em>Water Resources Research</em>, 17(1), 182–190. <a href="https://doi.org/10.1029/WR017i001p00182" target="_blank" rel="noopener">doi:10.1029/WR017i001p00182</a></li>
+        <li>Wilks, D. S., &amp; Wilby, R. L. (1999). The weather generation game: a review of stochastic weather models. <em>Progress in Physical Geography</em>, 23(3), 329–357. <a href="https://doi.org/10.1177/030913339902300302" target="_blank" rel="noopener">doi:10.1177/030913339902300302</a></li>
+        <li>Marsaglia, G., &amp; Tsang, W. W. (2000). A simple method for generating gamma variables. <em>ACM Transactions on Mathematical Software</em>, 26(3), 363–372. <a href="https://doi.org/10.1145/358407.358414" target="_blank" rel="noopener">doi:10.1145/358407.358414</a></li>
+        <li>SMHI. (2026). <em>Meteorological observations: precipitation, daily sum, station Västerås (96350)</em>. Swedish Meteorological and Hydrological Institute, open data. <a href="https://www.smhi.se/data/meteorologi/ladda-ner-meteorologiska-observationer" target="_blank" rel="noopener">smhi.se</a></li>
+        <li>NASA Langley Research Center. (2026). <em>POWER — Prediction Of Worldwide Energy Resources, daily data (MERRA-2 and CERES SYN1deg)</em>. <a href="https://power.larc.nasa.gov/" target="_blank" rel="noopener">power.larc.nasa.gov</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

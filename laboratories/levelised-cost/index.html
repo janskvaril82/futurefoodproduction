@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Levelised cost of food · Future Food Production</title>
+<meta name="description" content="A discounted cash-flow model of lettuce from a vertical farm, a heated greenhouse and an open field: levelised cost of food, NPV, IRR, payback, cost waterfall, tornado sensitivity, Monte Carlo uncertainty and a Swedish wage option.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* Live calculators for the Derive tab. */
+window.FFP_CALC = window.FFP_CALC || {};
+(function (C) {
+  function crf(r, n) { return r === 0 ? 1 / n : r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1); }
+  C.lcLCOF = function (v) { var r = v.r / 100; return (v.I * (crf(r, v.n) + v.m / 100) + v.F) / v.Y; };
+  C.lcItem = function (v) {                       /* equivalent annual cost of an item with replacements and residual value */
+    var r = v.r / 100, n = Math.round(v.n), L = Math.max(1, Math.round(v.L)), pv = v.I;
+    for (var t = L; t < n; t += L) pv += v.I / Math.pow(1 + r, t);
+    var last = Math.floor((n - 1e-9) / L) * L, rem = (last + L - n) / L; if (rem > 0) pv -= v.I * rem / Math.pow(1 + r, n);
+    return pv * crf(r, n);
+  };
+  C.lcRamp = function (v) {                       /* LCOF increase caused by ramp-up (all costs at full capacity) */
+    var r = v.r / 100, n = Math.round(v.n), full = 0, ramp = 0;
+    for (var t = 1; t <= n; t++) { var d = Math.pow(1 + r, -t); full += d; ramp += d * (t === 1 ? v.a / 100 : t === 2 ? v.b / 100 : 1); }
+    return 100 * (full / ramp - 1);
+  };
+  C.lcWage = function (v) { return v.S * 12 * (1 + v.a / 100) * (1 + v.b / 100) / v.h / v.fx; };
+  C.lcNPV = function (v) { var r = v.r / 100, s = -v.I; for (var t = 1; t <= v.n; t++) s += v.C / Math.pow(1 + r, t); return s; };
+})(window.FFP_CALC);
+</script>
+</head>
+<body data-page="lab" data-slug="levelised-cost">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Levelised cost of food</h1>
+    <p class="lead">What does a kilogram of lettuce really cost? Not what the till says, but what the producer must earn on every kilogram, for the whole life of the farm, to pay for the building, the lamps, the electricity, the people, the seeds and the packaging — and to give the investors the return they expect. This laboratory builds the complete discounted cash-flow model behind that number, the <em>levelised cost of food</em>, for a vertical farm, a heated greenhouse and an open field, with literature defaults, a Swedish wage option, sensitivity and Monte Carlo analyses — the same definition as <a href="/lessons/accessibility-equity/">Lesson 15.3</a>.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage" role="img" aria-label="Animated diagram of cost streams flowing into a crate holding one kilogram of lettuce, with the levelised cost, the selling price and a year-by-year timeline of discounted cash flows"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card" style="grid-column:1/-1">
+      <h3>Waterfall: where the cost of one kilogram comes from</h3>
+      <div class="chart-sub" id="wf-sub">Each bar adds its present-value share of the cost of one kilogram.</div>
+      <div class="chart" id="chart-waterfall" style="height:330px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Tornado: which assumptions matter most?</h3>
+      <div class="chart-sub">Change in LCOF when one parameter at a time moves to the low (blue) or high (amber) end of its literature range, all others at your settings.</div>
+      <div class="chart" id="chart-tornado" style="height:auto"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Vertical farm, greenhouse and field compared</h3>
+      <div class="chart-sub">LCOF by cost component for the three systems with their own settings and the shared economic context (discount rate, lifetime, energy prices, wage).</div>
+      <div class="chart" id="chart-compare" style="height:auto"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Cash flows over the life of the farm</h3>
+      <div class="chart-sub">Per m² and year: revenue (green), operating costs (amber) and capital (red) as paid (light) and discounted to today (solid); lines show cumulative cash flow and cumulative discounted cash flow (NPV).</div>
+      <div class="chart" id="chart-cash" style="height:auto"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Monte Carlo: how uncertain is the LCOF?</h3>
+      <div class="chart-sub">2000 draws with every uncertain parameter sampled from a triangular distribution between its literature low and high values (mode = your setting). Discount rate and lifetime are kept fixed.</div>
+      <div class="chart" id="chart-mc" style="height:auto"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ================================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Read the stage from left to right.</strong> Six streams of money — capital, energy, labour, inputs, packaging and logistics, and overheads — flow into a crate that holds one kilogram of lettuce. Their widths are the euros per kilogram they contribute; together they make the levelised cost of food (LCOF) printed on the crate. The price tag underneath shows whether the market pays enough.</li>
+        <li><strong>Watch the timeline.</strong> In year 0 the farm is built: a large red bar. Each year then brings revenue (green) and operating costs (amber); every ten years the lamps and the automation are replaced. The light ghost bars are the money as it is paid, the solid bars what it is worth today, shrunk by the discount factor \((1+r)^{-t}\). The magenta line — cumulative discounted cash flow — crosses zero at the discounted payback time and ends at the net present value.</li>
+        <li><strong>Apply the preset <em>Lesson 15.3 check</em>.</strong> The laboratory reproduces Worked example 3 of Lesson 15.3 (Zhuang et al., 2022): €7.16 kg⁻¹, which is $7.54 kg⁻¹ at the 2022 exchange rate. Then choose <em>Swedish vertical farm</em>: with Swedish labour costs, ramp-up years, 5 % unsold produce and replacement of LEDs and automation, the cost rises to about €8.0 kg⁻¹ and labour becomes the largest item.</li>
+        <li><strong>Switch the system.</strong> A heated Nordic greenhouse makes lettuce for about €6 kg⁻¹, the California field for about €0.92 kg⁻¹. In the field, harvest, packing and transport are more than half of the cost; in the vertical farm, capital, electricity and labour dominate. The comparison chart shows all three side by side.</li>
+        <li><strong>Read the tornado.</strong> For the Swedish vertical farm the most influential assumptions are the labour hours, the capital cost, the electricity price and the share of unsold produce — not the water, which costs less than one cent per kilogram.</li>
+        <li><strong>Look at the Monte Carlo.</strong> The distribution is skewed to the right: most of the published uncertainty ranges extend further towards higher costs than lower ones, so the median LCOF is higher than the base case. For the Swedish vertical farm only about half of the draws beat the Japanese market price used as default.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>The levelised cost of food is the constant price per kilogram at which the project exactly recovers all its costs, <em>including</em> the return investors require. It turns a building paid today, lamps paid every ten years and wages paid every month into one comparable number per kilogram — the same logic as the levelised cost of electricity used to compare power plants.</p></div>
+    </section>
+
+    <!-- ================================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Why "levelised"?</h2>
+      <p>A euro today is worth more than a euro in ten years: it could be invested, and there is a risk that the future euro never arrives. Investors therefore <strong>discount</strong> future money with a rate \(r\): €1 in year \(t\) is worth \((1+r)^{-t}\) euros today. At 5 % a euro in year 10 is worth €0.61, in year 15 €0.48. Discounting explains two features of food-system economics. First, capital-intensive systems — plant factories, heated greenhouses — are much more sensitive to the cost of capital than open fields. Second, output that arrives late (slow ramp-up) is worth less than output that arrives early.</p>
+      <p>The LCOF divides the present value of all costs by the present value of all kilograms sold. Discounting the kilograms may look odd — lettuce does not lose value by waiting — but it follows directly from asking "which constant price makes the net present value zero?": the revenue earned by a kilogram sold in year \(t\) is discounted, so the kilogram is too (Eq. LC2).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 660 250" role="img" aria-label="Cash-flow diagram of a farm: investment at year zero, replacement at year ten, yearly operating costs and revenue, and a residual value at the end">
+            <defs>
+              <marker id="lc-a-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-magenta"/></marker>
+              <marker id="lc-a-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-accent"/></marker>
+              <marker id="lc-a-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-amber"/></marker>
+            </defs>
+            <line x1="50" y1="125" x2="630" y2="125" class="stroke" stroke-width="1.5"/>
+            <g class="t-small t-muted" text-anchor="middle"><text x="70" y="143">0</text><text x="105" y="143">1</text><text x="140" y="143">2</text><text x="175" y="143">3</text><text x="385" y="143">10</text><text x="560" y="143">15 = n</text></g>
+            <line x1="70" y1="125" x2="70" y2="232" class="stroke-magenta" stroke-width="5" marker-end="url(#lc-a-r)"/>
+            <text x="80" y="228" class="t-small" style="fill:var(--magenta)">investment I (all items)</text>
+            <line x1="385" y1="125" x2="385" y2="190" class="stroke-magenta" stroke-width="4" marker-end="url(#lc-a-r)"/>
+            <text x="395" y="186" class="t-small" style="fill:var(--magenta)">replace LEDs, automation</text>
+            <g class="stroke-amber" stroke-width="2.5"><line x1="105" y1="125" x2="105" y2="160" marker-end="url(#lc-a-a)"/><line x1="140" y1="125" x2="140" y2="160" marker-end="url(#lc-a-a)"/><line x1="175" y1="125" x2="175" y2="160" marker-end="url(#lc-a-a)"/><line x1="490" y1="125" x2="490" y2="160" marker-end="url(#lc-a-a)"/><line x1="525" y1="125" x2="525" y2="160" marker-end="url(#lc-a-a)"/><line x1="560" y1="125" x2="560" y2="160" marker-end="url(#lc-a-a)"/></g>
+            <text x="190" y="170" class="t-small" style="fill:var(--amber)">operating costs F each year</text>
+            <g class="stroke-accent" stroke-width="2.5"><line x1="105" y1="125" x2="105" y2="85" marker-end="url(#lc-a-g)"/><line x1="140" y1="125" x2="140" y2="70" marker-end="url(#lc-a-g)"/><line x1="175" y1="125" x2="175" y2="60" marker-end="url(#lc-a-g)"/><line x1="490" y1="125" x2="490" y2="60" marker-end="url(#lc-a-g)"/><line x1="525" y1="125" x2="525" y2="60" marker-end="url(#lc-a-g)"/><line x1="560" y1="125" x2="560" y2="60" marker-end="url(#lc-a-g)"/></g>
+            <text x="190" y="62" class="t-small" style="fill:var(--accent)">revenue = price × kg sold (ramp-up in years 1–2)</text>
+            <line x1="590" y1="125" x2="590" y2="92" class="stroke-magenta" stroke-width="3" stroke-dasharray="4 3" marker-end="url(#lc-a-r)"/>
+            <text x="596" y="88" class="t-small" style="fill:var(--magenta)">residual</text><text x="596" y="102" class="t-small" style="fill:var(--magenta)">value</text>
+            <text x="250" y="20" class="t-small">each arrow is worth (1 + r)<tspan baseline-shift="super" font-size="9">−t</tspan> times its size today</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The cash flows of a farm (per m²). The LCOF is the price that makes the discounted green arrows exactly balance the discounted red and amber arrows (Eqs. LC2–LC4).</figcaption>
+      </figure>
+
+      <h2 data-nonum>Three ways of growing lettuce</h2>
+      <p>The three default systems come from three well-documented sources. They are not the same lettuce sold in the same market — which is itself a lesson: always check that you compare like with like.</p>
+      <table>
+        <caption>Table 1. Default systems (literature values converted to euros; see Assumptions &amp; sources for every number).</caption>
+        <thead><tr><th>Item</th><th>Vertical farm</th><th>Heated greenhouse</th><th>Open field</th></tr></thead>
+        <tbody>
+          <tr><td>Basis</td><td>26 Japanese plant factories (Zhuang et al., 2022)</td><td>hydroponic greenhouse with lamps (Barbosa et al., 2015; Kaiser &amp; Ernst, 2016) — Nordic energy use</td><td>wrapped iceberg lettuce, California Central Coast (Tourte et al., 2023)</td></tr>
+          <tr><td>Investment, € m⁻²</td><td class="num">1425</td><td class="num">380 (assumed)</td><td class="num">0.76</td></tr>
+          <tr><td>Yield, kg m⁻² yr⁻¹</td><td class="num">115</td><td class="num">41</td><td class="num">4.2</td></tr>
+          <tr><td>Energy, kWh kg⁻¹</td><td class="num">12 electricity</td><td class="num">4.4 electricity + 8 heat</td><td class="num">(fuel in other costs)</td></tr>
+          <tr><td>Labour, h kg⁻¹</td><td class="num">0.10</td><td class="num">0.08</td><td class="num">0.002 + contract harvest</td></tr>
+          <tr><td>Price, € kg⁻¹</td><td class="num">10.45</td><td class="num">6 (assumed)</td><td class="num">1.02</td></tr>
+          <tr><td>LCOF, € kg⁻¹ (Swedish wage, 5 %, 15 yr)</td><td class="num">≈ 8.0</td><td class="num">≈ 6.0</td><td class="num">≈ 0.92</td></tr>
+        </tbody>
+      </table>
+      <p>The difference between the vertical farm and the field is roughly a factor of nine. Much of it is the price of replacing sunlight and soil with electricity, buildings and technology; some of it reflects different products (small, clean, pesticide-free heads harvested with roots versus wrapped iceberg heads packed in the field). Nicholson et al. (2020) found that even after transport to the East Coast of the USA, field lettuce from California cost less than half as much as lettuce from local greenhouses and plant factories. Eaves and Eaves (2018), on the other hand, simulated a greenhouse and a vertical farm near Quebec City and found similar costs to equip and run — in a cold, dark climate the greenhouse also needs heat and lamps.</p>
+      <div class="callout warn"><div class="callout-title">Handle the defaults with care</div><p>The capital costs of Nordic high-tech greenhouses and the split of plant-factory investment into building, racks, lamps, climate system and automation are not published consistently. The totals of the vertical farm come from Zhuang et al. (2022); the split, the greenhouse investment and the greenhouse price are teaching assumptions. For your own project, replace them with quotations and market prices.</p></div>
+
+      <h2 data-nonum>Labour: the Swedish question</h2>
+      <p>In Japanese plant factories labour is already about 40 % of the operating costs (Zhuang et al., 2022), and van Delden et al. (2021) put it at 25–30 % of total costs. Kozai (2013) described a factory producing a million lettuce heads a year with one manager and ten part-time workers — about 1.5 minutes per head. In Sweden a grower (<em>trädgårdsodlare</em>) earned on average 30 200 SEK per month in 2024 (Statistics Sweden); with employer contributions of 31.42 % and other labour costs the employer pays about €26 per working hour, more than in Japan. That is why the Swedish vertical farm in this laboratory spends more on people than on electricity, and why automation — robots that transplant, space and harvest — is the most important cost lever in high-wage countries.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"Vertical farms are expensive because of electricity." Electricity matters — at €0.30 kWh⁻¹, as in parts of Europe in 2022, it raises the LCOF of the default farm by more than 30 % — but at normal prices capital and labour together cost more than twice as much. The tornado chart shows the ranking for your settings.</p></div>
+
+      <h2 data-nonum>Investors: NPV, IRR and payback</h2>
+      <p>The LCOF answers "what must a kilogram sell for?". An investor asks "given the price, does it pay?". The <strong>net present value</strong> adds all discounted cash flows; if it is positive, the project earns more than the discount rate. The <strong>internal rate of return</strong> is the discount rate at which the NPV is zero — the project's own yield. The <strong>payback time</strong> is the year in which the cumulative cash flow turns positive; the discounted payback uses discounted flows. Payback is popular because it is simple, and misleading because it ignores everything after the payback year. Try the preset <em>Venture capital (12 %)</em>: the same farm, a different investor, a very different verdict.</p>
+      <div class="callout frontier"><div class="callout-title">Research frontier</div><p>After a wave of bankruptcies of large vertical farms in 2022–2025, techno-economic studies focus on the few levers that move the LCOF substantially: yields per photon (plant science), automation (engineering), cheaper and flexible electricity (energy systems) and higher-value products. Probabilistic cost models — like the Monte Carlo of this laboratory — are increasingly used because a single "base case" hides how likely a project is to fail.</p></div>
+    </section>
+
+    <!-- ================================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the model</h2>
+      <p>All quantities are per m² of growing area (cultivation area of the trays for the vertical farm, floor area for the greenhouse, land for the field). Years run from \(t = 0\) (construction) to \(t = n\).</p>
+
+      <div class="eq-box" id="eq-lc-discount">
+        <div class="eq-head"><span class="eq-label">Present value and the discount factor</span><span class="eq-num">(LC1)</span></div>
+        <div class="eq-main">\[ \text{PV} = \frac{X_t}{(1+r)^{t}} = X_t\,d_t, \qquad d_t = (1+r)^{-t} \]</div>
+        <p class="eq-read">an amount of money paid or received in year t is worth that amount times the discount factor today, where the discount factor is one plus the real discount rate raised to the power minus t.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(X_t\)</td><td>cash flow in year \(t\) (in constant, "real" euros)</td><td>€ m⁻²</td><td></td></tr>
+          <tr><td>\(r\)</td><td>real discount rate: the return investors require above inflation</td><td>yr⁻¹</td><td>0.05</td></tr>
+          <tr><td>\(d_t\)</td><td>discount factor</td><td>–</td><td>0.61 at \(t\) = 10</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>€1 invested today at rate \(r\) grows to \((1+r)^t\) after \(t\) years.</li><li>Conversely, the amount you must invest today to have \(X_t\) in year \(t\) is \(X_t/(1+r)^t\) — its present value.</li><li>Because all prices are in constant euros, \(r\) is a <em>real</em> rate; mixing nominal prices with a real rate double-counts inflation.</li></ol></details>
+        <div class="eq-units">€ × (–) = € ✓</div>
+        <div class="mini-calc" data-formula="100/pow(1+r/100,t)" data-output="Present value of €100" data-unit="€" data-digits="1" data-plot="t">
+          <div data-var="t" data-label="Year t" data-min="0" data-max="30" data-step="1" data-value="10" data-unit="yr"></div>
+          <div data-var="r" data-label="Discount rate r" data-min="0" data-max="20" data-step="0.25" data-value="5" data-unit="% yr⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lc-lcof">
+        <div class="eq-head"><span class="eq-label">Levelised cost of food</span><span class="eq-num">(LC2)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{LCOF} = \frac{\sum_{t=0}^{n} C_t\,(1+r)^{-t}}{\sum_{t=1}^{n} Q_t\,(1+r)^{-t}} \\[6pt] = \frac{I\,(\text{CRF}+m) + F}{Y}\quad\text{(single investment, identical years)} \end{gathered} \]</div>
+        <p class="eq-read">the levelised cost of food is the discounted sum of all costs divided by the discounted sum of all kilograms sold; for one investment at the start and identical years it reduces to the annualised investment plus maintenance plus the annual operating costs, divided by the annual yield — Eq. 15.3.4 of Lesson 15.3.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(C_t\)</td><td>all costs in year \(t\): capital (LC3) and operating (LC5)</td><td>€ m⁻²</td></tr>
+          <tr><td>\(Q_t\)</td><td>kilograms sold in year \(t\) (LC4)</td><td>kg m⁻²</td></tr>
+          <tr><td>CRF</td><td>capital recovery factor \(r(1+r)^n/[(1+r)^n-1]\)</td><td>yr⁻¹</td></tr>
+          <tr><td>\(I, m, F, Y\)</td><td>investment, maintenance share, operating costs, yield</td><td>€ m⁻², yr⁻¹, € m⁻² yr⁻¹, kg m⁻² yr⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Define the LCOF as the constant price \(P\) at which the NPV is zero: \(\sum_t (P\,Q_t - C_t)(1+r)^{-t} = 0\).</li>
+            <li>Solve for \(P\): numerator = PV of costs, denominator = PV of kilograms.</li>
+            <li>For \(C_0 = I\), \(C_t = mI + F\) and \(Q_t = Y\) (\(t\ge1\)): divide numerator and denominator by the annuity factor \(\text{AF} = [1-(1+r)^{-n}]/r = 1/\text{CRF}\) to obtain the right-hand form.</li>
+            <li>Check with Zhuang et al. (2022) as in Lesson 15.3: \(I\) = $1500, CRF(5 %, 15) = 0.0963, \(m\) = 0.015, \(F\) = $700, \(Y\) = 115 → $7.54 kg⁻¹. The preset <em>Lesson 15.3 check</em> gives €7.16 = $7.54 × 0.95.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Real prices constant; no taxes, subsidies, working capital or financing structure (debt versus equity); all costs occur at the end of the year in which they are incurred. The LCOF is a cost, not a price forecast.</p></details>
+        <div class="eq-units">\(\dfrac{\text{EUR m}^{-2}\,\text{yr}^{-1}}{\text{kg m}^{-2}\,\text{yr}^{-1}} = \text{EUR kg}^{-1}\) ✓</div>
+        <div class="mini-calc" data-fn="lcLCOF" data-output="LCOF" data-unit="€ kg⁻¹" data-digits="2" data-plot="Y" data-title="Try it — the one-line version">
+          <div data-var="I" data-label="Investment I" data-min="100" data-max="5000" data-step="25" data-value="1425" data-unit="€ m⁻²"></div>
+          <div data-var="r" data-label="Discount rate r" data-min="0" data-max="20" data-step="0.25" data-value="5" data-unit="%"></div>
+          <div data-var="n" data-label="Lifetime n" data-min="5" data-max="30" data-step="1" data-value="15" data-unit="yr"></div>
+          <div data-var="m" data-label="Maintenance m" data-min="0" data-max="5" data-step="0.1" data-value="1.5" data-unit="% yr⁻¹"></div>
+          <div data-var="F" data-label="Operating costs F" data-min="50" data-max="1500" data-step="5" data-value="665" data-unit="€ m⁻² yr⁻¹"></div>
+          <div data-var="Y" data-label="Yield Y" data-min="10" data-max="150" data-step="1" data-value="115" data-unit="kg m⁻² yr⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lc-capital">
+        <div class="eq-head"><span class="eq-label">Capital with replacements and residual value</span><span class="eq-num">(LC3)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{PV}_{\text{cap}} = \sum_{i} I_i\left[1 + \sum_{k\ge1,\;kL_i&lt;n}(1+r)^{-kL_i} - \rho_i\,(1+r)^{-n}\right] \\[6pt] \rho_i = \frac{t_{\text{last},i} + L_i - n}{L_i} \end{gathered} \]</div>
+        <p class="eq-read">the present value of the capital is, for each item, its cost at the start plus the discounted cost of each replacement within the project, minus the discounted residual value at the end, which is the fraction of its last life that remains.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default (vertical farm)</th></tr>
+          <tr><td>\(I_i\)</td><td>cost of item \(i\): building, growing system, lighting, climate, automation</td><td>€ m⁻²</td><td>428, 285, 356, 214, 142</td></tr>
+          <tr><td>\(L_i\)</td><td>technical lifetime</td><td>yr</td><td>30, 15, 10, 15, 10</td></tr>
+          <tr><td>\(t_{\text{last},i}\)</td><td>year of the last installation</td><td>yr</td><td></td></tr>
+          <tr><td>\(\rho_i\)</td><td>remaining fraction of the last life at year \(n\) (straight line)</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>An item with life \(L\) must be bought at \(t = 0, L, 2L, \dots\) as long as \(t &lt; n\).</li>
+            <li>At the end of the project the item bought last at \(t_{\text{last}}\) still has \(t_{\text{last}} + L - n\) years left; with straight-line depreciation its residual value is that fraction of its cost.</li>
+            <li>Example (LED fixtures, €356, 10 yr, \(n\) = 15, 5 %): \(356 + 356\times1.05^{-10} - 0.5\times356\times1.05^{-15} = 356 + 218.6 - 85.6 = 489\) € m⁻².</li>
+            <li>The equivalent annual cost multiplies the PV by CRF(r, n) — the mini-calculator.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Replacement at the same real price (in reality LED prices fall and efficacy rises); straight-line residual values; buildings may be worth more (land) or less (specialised use) at the end.</p></details>
+        <div class="eq-units">€ m⁻² × (–) = € m⁻² ✓</div>
+        <div class="mini-calc" data-fn="lcItem" data-output="Equivalent annual cost of the item" data-unit="€ m⁻² yr⁻¹" data-digits="1" data-plot="L">
+          <div data-var="I" data-label="Item cost I" data-min="10" data-max="2000" data-step="5" data-value="356" data-unit="€ m⁻²"></div>
+          <div data-var="L" data-label="Item lifetime L" data-min="2" data-max="40" data-step="1" data-value="10" data-unit="yr"></div>
+          <div data-var="n" data-label="Project lifetime n" data-min="5" data-max="30" data-step="1" data-value="15" data-unit="yr"></div>
+          <div data-var="r" data-label="Discount rate" data-min="0" data-max="20" data-step="0.25" data-value="5" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lc-output">
+        <div class="eq-head"><span class="eq-label">Output with ramp-up and losses</span><span class="eq-num">(LC4)</span></div>
+        <div class="eq-main">\[ H_t = Y\,a_t, \qquad Q_t = H_t\,(1-\lambda), \qquad a_1 = a_{\text{yr1}},\; a_2 = a_{\text{yr2}},\; a_{t\ge3} = 1 \]</div>
+        <p class="eq-read">the harvest in year t is the full-production yield times the ramp-up factor of that year, and the kilograms sold are the harvest minus the share that is unsold or wasted.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default (vertical farm)</th></tr>
+          <tr><td>\(Y\)</td><td>yield at full production</td><td>kg m⁻² yr⁻¹</td><td>115</td></tr>
+          <tr><td>\(a_t\)</td><td>ramp-up factor (share of full output)</td><td>–</td><td>0.7, 0.9, then 1</td></tr>
+          <tr><td>\(\lambda\)</td><td>share of the harvest unsold or wasted</td><td>–</td><td>0.05</td></tr>
+        </table>
+        <details><summary>Why ramp-up raises the LCOF so much</summary><p>Most operating inputs — lamps, climate, staff — are sized for full production from day one, so in the ramp-up years costs are nearly full while revenue is not. Those early years also carry the largest discount factors. The mini-calculator shows the resulting increase in LCOF when all costs are at full capacity.</p></details>
+        <div class="eq-units">kg m⁻² yr⁻¹ × (–) = kg m⁻² yr⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="lcRamp" data-output="LCOF increase caused by ramp-up" data-unit="%" data-digits="1" data-plot="a">
+          <div data-var="a" data-label="Year-1 output" data-min="20" data-max="100" data-step="1" data-value="70" data-unit="%"></div>
+          <div data-var="b" data-label="Year-2 output" data-min="20" data-max="100" data-step="1" data-value="90" data-unit="%"></div>
+          <div data-var="n" data-label="Project lifetime" data-min="5" data-max="30" data-step="1" data-value="15" data-unit="yr"></div>
+          <div data-var="r" data-label="Discount rate" data-min="0" data-max="20" data-step="0.25" data-value="5" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lc-opex">
+        <div class="eq-head"><span class="eq-label">Operating costs</span><span class="eq-num">(LC5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} C_t^{\text{op}} = m\,I + Y\left(e\,p_{\text{el}} + q\,p_{\text{h}} + \ell\,w + s + u + c + \frac{V\,p_w}{1000}\right) \\[6pt] +\;O + \pi\,H_t \end{gathered} \]</div>
+        <p class="eq-read">the operating costs of a year are the maintenance, the capacity-related costs of electricity, heat, labour, seeds, nutrients, crop protection and water, the fixed other costs, and packaging, harvest and logistics, which scale with the kilograms harvested.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default (vertical farm)</th></tr>
+          <tr><td>\(e, p_{\text{el}}\)</td><td>electricity use per kg; electricity price</td><td>kWh kg⁻¹; € kWh⁻¹</td><td>12; 0.10</td></tr>
+          <tr><td>\(q, p_{\text{h}}\)</td><td>heat use per kg; heat price</td><td>kWh kg⁻¹; € kWh⁻¹</td><td>0; 0.06</td></tr>
+          <tr><td>\(\ell, w\)</td><td>labour per kg; labour cost per hour (LC6)</td><td>h kg⁻¹; € h⁻¹</td><td>0.10; 26.3</td></tr>
+          <tr><td>\(s, u, c\)</td><td>seeds and plants; nutrients and substrate; crop protection</td><td>€ kg⁻¹</td><td>0.40; 0.30; 0</td></tr>
+          <tr><td>\(V, p_w\)</td><td>water use; water price</td><td>L kg⁻¹; € m⁻³</td><td>3; 2.5</td></tr>
+          <tr><td>\(O\)</td><td>other fixed costs: land rent, insurance, administration</td><td>€ m⁻² yr⁻¹</td><td>10</td></tr>
+          <tr><td>\(\pi\)</td><td>packaging, harvest and logistics per kg harvested</td><td>€ kg⁻¹</td><td>1.30</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Inputs are specified per kg at full production (as published) and converted to a yearly amount with \(Y\): the lamps, the heating and the staff run whether or not the crop reaches its target yield.</li>
+            <li>Packaging and transport are paid only for produce that is harvested and packed, so they scale with \(H_t\).</li>
+            <li>Default vertical farm per m² and year: 1380 kWh × €0.10 = €138; 11.5 h × €26.3 = €302; seeds and nutrients €80.5; packaging €149.5; water €0.9; other €10; maintenance €21.4.</li>
+          </ol>
+        </details>
+        <div class="eq-units">kg m⁻² yr⁻¹ × € kg⁻¹ = € m⁻² yr⁻¹ ✓ (kWh kg⁻¹ × € kWh⁻¹ = € kg⁻¹; h kg⁻¹ × € h⁻¹ = € kg⁻¹)</div>
+        <div class="mini-calc" data-formula="Y*(e*pel + l*w + s)" data-output="Energy + labour + inputs per m²" data-unit="€ m⁻² yr⁻¹" data-digits="0" data-plot="l">
+          <div data-var="Y" data-label="Yield Y" data-min="1" data-max="150" data-step="1" data-value="115" data-unit="kg m⁻² yr⁻¹"></div>
+          <div data-var="e" data-label="Electricity use e" data-min="0" data-max="30" data-step="0.1" data-value="12" data-unit="kWh kg⁻¹"></div>
+          <div data-var="pel" data-label="Electricity price" data-min="0.02" data-max="0.5" data-step="0.005" data-value="0.1" data-unit="€ kWh⁻¹"></div>
+          <div data-var="l" data-label="Labour ℓ" data-min="0" data-max="0.4" data-step="0.005" data-value="0.1" data-unit="h kg⁻¹"></div>
+          <div data-var="w" data-label="Wage w" data-min="5" data-max="60" data-step="0.5" data-value="26.3" data-unit="€ h⁻¹"></div>
+          <div data-var="s" data-label="Seeds + nutrients" data-min="0" data-max="2" data-step="0.01" data-value="0.7" data-unit="€ kg⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lc-wage">
+        <div class="eq-head"><span class="eq-label">Labour cost per hour from a Swedish salary</span><span class="eq-num">(LC6)</span></div>
+        <div class="eq-main">\[ w = \frac{12\,S\,(1 + a)(1 + b)}{h\;x} \]</div>
+        <p class="eq-read">the employer's cost of one working hour equals twelve monthly salaries, increased by the statutory employer contributions and by other labour costs such as occupational pension and insurance, divided by the hours actually worked in a year and converted to euros.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(S\)</td><td>monthly salary, trädgårdsodlare (SSYK 6113), 2024</td><td>SEK</td><td>30 200 (Statistics Sweden)</td></tr>
+          <tr><td>\(a\)</td><td>employer social contributions (arbetsgivaravgifter)</td><td>–</td><td>0.3142 (Skatteverket)</td></tr>
+          <tr><td>\(b\)</td><td>occupational pension, insurance and other labour costs</td><td>–</td><td>0.07 (assumption)</td></tr>
+          <tr><td>\(h\)</td><td>hours worked per year after holidays and leave</td><td>h</td><td>1760 (assumption)</td></tr>
+          <tr><td>\(x\)</td><td>exchange rate</td><td>SEK €⁻¹</td><td>11.0</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Holiday pay is included in the monthly salary, so paid holidays reduce the hours worked rather than adding to the salary. Seasonal field work is often paid by the hour or piece with different agreements; managers and technicians earn more than growers.</p></details>
+        <div class="eq-units">SEK month⁻¹ × month yr⁻¹ / (h yr⁻¹ × SEK €⁻¹) = € h⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="lcWage" data-output="Labour cost per hour" data-unit="€ h⁻¹" data-digits="2" data-plot="S">
+          <div data-var="S" data-label="Monthly salary S" data-min="20000" data-max="45000" data-step="100" data-value="30200" data-unit="SEK"></div>
+          <div data-var="a" data-label="Employer contributions a" data-min="0" data-max="40" data-step="0.01" data-value="31.42" data-unit="%"></div>
+          <div data-var="b" data-label="Other labour costs b" data-min="0" data-max="20" data-step="0.5" data-value="7" data-unit="%"></div>
+          <div data-var="h" data-label="Hours worked h" data-min="1400" data-max="2100" data-step="10" data-value="1760" data-unit="h yr⁻¹"></div>
+          <div data-var="fx" data-label="Exchange rate x" data-min="9" data-max="13" data-step="0.05" data-value="11" data-unit="SEK €⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lc-npv">
+        <div class="eq-head"><span class="eq-label">Net present value, internal rate of return and payback</span><span class="eq-num">(LC7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{NPV} = \sum_{t=0}^{n}\frac{P\,Q_t - C_t}{(1+r)^{t}}, \qquad \text{NPV}(\text{IRR}) = 0 \\[6pt] \sum_{t\le T_p}\left(P\,Q_t - C_t\right) = 0 \end{gathered} \]</div>
+        <p class="eq-read">the net present value is the discounted sum of revenue minus costs; the internal rate of return is the discount rate that makes it zero; the payback time is the moment when the cumulative, undiscounted cash flow reaches zero.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(P\)</td><td>selling price</td><td>€ kg⁻¹</td></tr>
+          <tr><td>IRR</td><td>internal rate of return (found by bisection)</td><td>yr⁻¹</td></tr>
+          <tr><td>\(T_p\)</td><td>payback time (interpolated within the year)</td><td>yr</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>NPV &gt; 0 ⟺ \(P\) &gt; LCOF (with the same \(r\)): the two measures answer the same question from two sides (Lesson 15.3, Eq. 15.3.5).</li><li>The IRR is found where the NPV changes sign between −95 % and 300 %; if it never does, there is no IRR.</li><li>The discounted payback uses \((P\,Q_t - C_t)(1+r)^{-t}\) instead.</li></ol></details>
+        <div class="eq-units">€ kg⁻¹ × kg m⁻² − € m⁻² = € m⁻² ✓</div>
+        <div class="mini-calc" data-fn="lcNPV" data-output="NPV" data-unit="€ m⁻²" data-digits="0" data-plot="r" data-title="Try it — constant yearly net cash flow">
+          <div data-var="I" data-label="Investment I" data-min="100" data-max="5000" data-step="25" data-value="1425" data-unit="€ m⁻²"></div>
+          <div data-var="C" data-label="Net cash flow per year C" data-min="0" data-max="800" data-step="5" data-value="250" data-unit="€ m⁻² yr⁻¹"></div>
+          <div data-var="n" data-label="Lifetime n" data-min="3" data-max="30" data-step="1" data-value="15" data-unit="yr"></div>
+          <div data-var="r" data-label="Discount rate r" data-min="0" data-max="25" data-step="0.25" data-value="5" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lc-uncertainty">
+        <div class="eq-head"><span class="eq-label">Decomposition, sensitivity and Monte Carlo</span><span class="eq-num">(LC8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{LCOF} = \sum_{k}\frac{\text{PV}_k}{\text{PV}_Q}, \qquad \Delta_j^{\pm} = \text{LCOF}(\theta_j^{\pm}) - \text{LCOF}(\theta) \\[6pt] x = \begin{cases} a + \sqrt{U(b-a)(c-a)} & U &lt; \frac{c-a}{b-a} \\ b - \sqrt{(1-U)(b-a)(b-c)} & \text{otherwise} \end{cases} \end{gathered} \]</div>
+        <p class="eq-read">the LCOF is the sum of the present values of the cost components divided by the present value of the output; the tornado shows how much it changes when one parameter moves to its low or high value; the Monte Carlo draws each parameter from a triangular distribution with minimum a, mode c and maximum b, using a uniform random number U.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\text{PV}_k\)</td><td>present value of cost component \(k\) (capital, labour, …)</td><td>€ m⁻²</td></tr>
+          <tr><td>\(\theta_j^{\pm}\)</td><td>parameter \(j\) at the end of its range, all others unchanged</td><td></td></tr>
+          <tr><td>\(a, c, b\)</td><td>low value, mode (your setting), high value</td><td></td></tr>
+        </table>
+        <details><summary>Why triangular distributions?</summary><p>For most techno-economic parameters we know a plausible range and a "best guess", but not a full distribution. The triangular distribution uses exactly that information. Its asymmetry matters: when the range extends further above the mode than below it — as for the capital cost of plant factories ($1159–4167 m⁻² around $1500; Zhuang et al., 2022) — the mean and the median of the LCOF lie above the base case. Parameters are drawn independently; in reality some are correlated (for example yield and labour).</p></details>
+        <div class="eq-units">€ m⁻² / kg m⁻² = € kg⁻¹ ✓</div>
+      </div>
+    </section>
+
+    <!-- ================================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use <em>CSV (cash flows)</em> to check the model in a spreadsheet and <em>Save investigation</em> to keep your results.</p>
+      <ol class="task-list">
+        <li><h4>Reproduce the lesson, then make it Swedish</h4><p>Apply <em>Lesson 15.3 check</em> and confirm €7.16 kg⁻¹ (= $7.54 kg⁻¹). Then change one thing at a time towards <em>Swedish vertical farm</em>: the wage, the ramp-up, the losses, the capital split with replacements, the residual value. Record the LCOF after each step and present the result as your own waterfall of <em>changes</em>. Which single step matters most?</p></li>
+        <li><h4>The discount rate decides</h4><p>For the three systems, plot LCOF against the discount rate from 2 % to 15 % (read it from the readouts or the CSV). Which system is most sensitive, and why? Relate your answer to the capital share of each system and to the discussion of access to finance in Lesson 15.3.</p></li>
+        <li><h4>What would make the vertical farm competitive?</h4><p>Starting from <em>Swedish vertical farm</em>, find a combination of labour hours, yield, electricity price and capital cost that brings the LCOF below €5 kg⁻¹. Which of your changes are technically plausible by 2030? Justify each with a source from the course (for example Lesson 7.2 on photon efficacy and light-use efficiency).</p></li>
+        <li><h4>Uncertainty is not symmetric</h4><p>Compare the base-case LCOF, the Monte Carlo median and the P10–P90 range for the three systems. Explain why the median is higher than the base case for the vertical farm. Which parameter would you measure first to narrow the distribution? (Hint: the tornado.)</p></li>
+        <li><h4>Heat or light?</h4><p>For the heated greenhouse, vary the heat use from 3 to 20 kWh kg⁻¹ (Nordic summer to winter; Lesson 15.1) and the heat price from €0.03 to €0.10 kWh⁻¹. At which combination does the greenhouse become more expensive than the vertical farm? Discuss what a heat pump or waste heat from a data centre (Lesson 8.1) would change.</p></li>
+        <li><h4>Field lettuce in Sweden?</h4><p>The field default is Californian. Adapt it to a Swedish field: one crop per year, a Swedish wage for the growers, a shorter season, and transport to Stockholm (add it to packaging and logistics). Which data would you need, and where would you find them (for example regional production-cost calculations from Swedish advisory services)?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="levelised-cost-lab">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Apply the preset <em>Lesson 15.3 check</em>. What LCOF does the laboratory report?","answer":7.16,"tol":0.02,"unit":"€ kg⁻¹","hint":"It should equal $7.54 kg⁻¹ at 0.95 € per $.","explain":"<p>€7.16 kg⁻¹ = $7.54 × 0.95: (1425 × (0.0963 + 0.015) + 665)/115. The full cash-flow model and the one-line formula of Eq. LC2 agree when there is a single investment, no ramp-up, no losses and no residual value.</p>"},
+          {"type":"numeric","q":"LED fixtures cost €356 m⁻² and last 10 years; the project lasts 15 years at a 5 % discount rate. What is the present value of buying them at year 0 and year 10, minus the residual value (half of their cost) at year 15?","answer":489,"tol":0.02,"unit":"€ m⁻²","hint":"Eq. LC3: \\(I + I(1.05)^{-10} - 0.5I(1.05)^{-15}\\).","explain":"<p>\\(356 + 356/1.629 - 178/2.079 = 356 + 218.6 - 85.6 = 489\\) € m⁻².</p>"},
+          {"type":"mcq","q":"Select <em>Swedish vertical farm</em>. Which parameter has the largest effect on the LCOF in the tornado chart?","options":["Labour hours","Water use","Discount rate","Seeds and plants"],"answer":0,"feedback":["","Water costs less than one cent per kilogram.","The discount rate matters, but less than labour, capital and the electricity price in this farm.","Seeds matter, but far less than labour."],"explain":"<p>Labour hours (0.04–0.20 h kg⁻¹) move the LCOF from about €6.3 to €10.9 kg⁻¹ at Swedish wages — automation is the most powerful lever.</p>"},
+          {"type":"tf","q":"For the Swedish vertical farm, switching on <em>Count the residual value of assets at the end</em> lowers the LCOF.","answer":true,"explain":"<p>True (≈ €8.21 → €8.00 kg⁻¹): the building and the LEDs bought in year 10 are still worth something at year 15, which is a (discounted) income at the end of the project.</p>"},
+          {"type":"numeric","q":"Select <em>Swedish vertical farm</em> and raise the electricity price from €0.10 to €0.30 kWh⁻¹. What is the new LCOF?","answer":10.63,"tol":0.03,"unit":"€ kg⁻¹","hint":"12 kWh kg⁻¹ × €0.20 kWh⁻¹ extra, levelised.","explain":"<p>≈ €10.6 kg⁻¹: 12 kWh kg⁻¹ × 115 kg m⁻² × €0.20 = €276 m⁻² yr⁻¹ extra, spread over the discounted kilograms (≈ +€2.6 kg⁻¹). At the default price of €10.45 kg⁻¹ the farm no longer breaks even.</p>"},
+          {"type":"multi","q":"Which statements hold for the default settings of the three systems (Swedish wage, 5 %, 15 years)? (Select all that apply.)","options":["In the open field, harvest, packing and logistics are more than half of the LCOF","Labour is the largest cost item of the Swedish vertical farm","The heated greenhouse at €6 kg⁻¹ earns more than its 5 % cost of capital","Electricity is the largest cost item of the vertical farm"],"answer":[0,1],"explain":"<p>Field: €0.54 of €0.92 kg⁻¹ is harvest, packing and logistics. Vertical farm: labour ≈ €2.9 of €8.0 kg⁻¹, more than capital (≈ €1.4) or electricity (≈ €1.3). The greenhouse has an NPV slightly below zero and an IRR of about 4.7 % — just below the 5 % required.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ================================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Discounted cash flows in constant euros</strong>, yearly, with the investment at \(t = 0\) and all other flows at the end of each year; real discount rate; no taxes, subsidies, inflation, financing structure or working capital. The LCOF definition is identical to Lesson 15.3 (Eq. 15.3.4).</li>
+        <li><strong>Capital</strong> in five items with their own lifetimes, replaced at the same real price; straight-line residual value at the end of the project (optional). Maintenance is a fixed share of the initial investment.</li>
+        <li><strong>Operations.</strong> Energy, labour, seeds, nutrients, crop protection, water and other costs are sized for full production from year 1; packaging, harvest and logistics scale with the harvest. Ramp-up affects years 1 and 2; losses are the share of the harvest that is not sold.</li>
+        <li><strong>Uncertainty.</strong> One-at-a-time ranges and independent triangular distributions; correlations between parameters are ignored.</li>
+        <li><strong>Currencies.</strong> US dollars converted at the ECB annual average rates: 0.95 € per $ for 2022 (Zhuang et al.) and 0.925 € per $ for 2023 (Tourte et al.). SEK at 11.0 SEK per € (editable).</li>
+      </ul>
+      <h3>Where the default numbers come from</h3>
+      <table>
+        <caption>Table 2. Derivation of the defaults (per m² of growing area unless stated).</caption>
+        <thead><tr><th>Parameter</th><th>Vertical farm</th><th>Heated greenhouse</th><th>Open field</th></tr></thead>
+        <tbody>
+          <tr><td>Investment</td><td>$1500 m⁻² mid-size PFAL (range $1159–4167; Zhuang et al., 2022) → €1425; split 30/20/25/15/10 % into building/racks/LEDs/climate/automation is a teaching assumption</td><td>teaching assumption €380 m⁻² (a production-ready US hobby-commercial greenhouse already costs more than $10 ft⁻², ≈ $108 m⁻²; Kaiser &amp; Ernst, 2016)</td><td>$3340 per acre of equipment, irrigation and buildings (Tourte et al., 2023) → €0.76 m⁻²</td></tr>
+          <tr><td>Yield</td><td>115 kg m⁻² yr⁻¹ (Zhuang et al., 2022); vertical farms 60–105 (Pennisi et al., 2025)</td><td>41 ± 6 kg m⁻² yr⁻¹ (hydroponic greenhouse; Barbosa et al., 2015)</td><td>900 cartons of 42 lb per acre (600–1200) = 4.24 kg m⁻² (Tourte et al., 2023)</td></tr>
+          <tr><td>Energy</td><td>12 kWh kg⁻¹ (implied by Zhuang's $166 m⁻² at $0.12 kWh⁻¹; 0.08–0.13 kg FW kWh⁻¹ in Pennisi et al., 2025)</td><td>4.4 kWh kg⁻¹ electricity (lighting 15 000 kJ kg⁻¹ + pumps; Barbosa et al., 2015) and 8 kWh kg⁻¹ heat (Nordic winter value of Lesson 15.1)</td><td>fuel and repairs as other costs (Tourte et al., 2023)</td></tr>
+          <tr><td>Labour</td><td>0.10 h kg⁻¹: semi-automated, below the manual benchmark of ≈ 1.5 min per head (Kozai, 2013)</td><td>0.08 h kg⁻¹: semi-automated, below ≈ 1500 h per 3000 ft² and 47 200 heads (Kaiser &amp; Ernst, 2016)</td><td>36 h per acre for growing (Tourte et al., 2023); harvest labour inside the contract harvest cost</td></tr>
+          <tr><td>Inputs and packaging</td><td>seeds + nutrients $86 m⁻², packaging and logistics $157 m⁻², water and other $12 m⁻² (Zhuang et al., 2022)</td><td>teaching assumptions; water 20 ± 4 L kg⁻¹ (Barbosa et al., 2015)</td><td>seed $315, fertiliser $359, pesticides $930, harvest–cool–market $9945, water 13 acre-inches at $23.50, land rent $1600 per acre (Tourte et al., 2023)</td></tr>
+          <tr><td>Price</td><td>$11 kg⁻¹ in Japan (Zhuang et al., 2022)</td><td>€6 kg⁻¹ assumed; UKY gross returns of $10–25 ft⁻² (15.7 heads ft⁻² yr⁻¹, ≈ 150 g per head) correspond to ≈ $4–11 kg⁻¹</td><td>$21 per carton (range $12–30; Tourte et al., 2023)</td></tr>
+        </tbody>
+      </table>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Barbosa, G. L., Gadelha, F. D. A., Kublik, N., Proctor, A., Reichelm, L., Weissinger, E., Wohlleb, G. M., &amp; Halden, R. U. (2015). Comparison of land, water, and energy requirements of lettuce grown using hydroponic vs. conventional agricultural methods. <em>International Journal of Environmental Research and Public Health</em>, 12(6), 6879–6891. <a href="https://doi.org/10.3390/ijerph120606879" target="_blank" rel="noopener">doi:10.3390/ijerph120606879</a></li>
+        <li>Eaves, J., &amp; Eaves, S. (2018). Comparing the profitability of a greenhouse to a vertical farm in Quebec. <em>Canadian Journal of Agricultural Economics</em>, 66(1), 43–54. <a href="https://doi.org/10.1111/cjag.12161" target="_blank" rel="noopener">doi:10.1111/cjag.12161</a></li>
+        <li>Kaiser, C., &amp; Ernst, M. (2016). <em>Hydroponic lettuce</em> (CCD-CP-63). Center for Crop Diversification, University of Kentucky. <a href="https://ccd.uky.edu/sites/default/files/2024-11/ccd-cp-063_hydroponic-lettuce.pdf" target="_blank" rel="noopener">ccd.uky.edu</a></li>
+        <li>Kozai, T. (2013). Resource use efficiency of closed plant production system with artificial light: Concept, estimation and application to plant factory. <em>Proceedings of the Japan Academy, Series B</em>, 89(10), 447–461. <a href="https://doi.org/10.2183/pjab.89.447" target="_blank" rel="noopener">doi:10.2183/pjab.89.447</a></li>
+        <li>Nicholson, C. F., Harbick, K., Gómez, M. I., &amp; Mattson, N. S. (2020). An economic and environmental comparison of conventional and controlled environment agriculture (CEA) supply chains for leaf lettuce to US cities. In E. Aktas &amp; M. Bourlakis (Eds.), <em>Food supply chains in cities</em> (pp. 33–68). Palgrave Macmillan. <a href="https://doi.org/10.1007/978-3-030-34065-0_2" target="_blank" rel="noopener">doi:10.1007/978-3-030-34065-0_2</a></li>
+        <li>Pennisi, G., Gianquinto, G., Marcelis, L. F. M., Martin, M., &amp; Orsini, F. (2025). Vertical farming: Productivity, environmental impact, and resource use. A review. <em>Agronomy for Sustainable Development</em>, 45(5), 57. <a href="https://doi.org/10.1007/s13593-025-01055-w" target="_blank" rel="noopener">doi:10.1007/s13593-025-01055-w</a></li>
+        <li>Short, W., Packey, D. J., &amp; Holt, T. (1995). <em>A manual for the economic evaluation of energy efficiency and renewable energy technologies</em> (NREL/TP-462-5173). National Renewable Energy Laboratory. <a href="https://doi.org/10.2172/35391" target="_blank" rel="noopener">doi:10.2172/35391</a></li>
+        <li>Statistics Sweden (SCB). (2025). <em>Lönesök: Trädgårdsodlare (SSYK 6113), average monthly salary 2024</em>. <a href="https://www.scb.se/hitta-statistik/sverige-i-siffror/lonesok/" target="_blank" rel="noopener">scb.se</a></li>
+        <li>Tourte, L., Smith, R., Murdock, J., &amp; Goodrich, B. (2023). <em>Sample costs to produce and harvest film wrapped iceberg lettuce, Central Coast Region</em>. University of California Agriculture and Natural Resources, UC Cooperative Extension and UC Davis Department of Agricultural and Resource Economics. <a href="https://coststudyfiles.ucdavis.edu/uploads/pub/2023/08/04/2023-iceberglettuce-full-final.pdf" target="_blank" rel="noopener">coststudies.ucdavis.edu</a></li>
+        <li>van Delden, S. H., SharathKumar, M., Butturini, M., Graamans, L. J. A., Heuvelink, E., Kacira, M., … Marcelis, L. F. M. (2021). Current status and future challenges in implementing and upscaling vertical farming systems. <em>Nature Food</em>, 2, 944–956. <a href="https://doi.org/10.1038/s43016-021-00402-w" target="_blank" rel="noopener">doi:10.1038/s43016-021-00402-w</a></li>
+        <li>Zhuang, Y., Lu, N., Shimamura, S., Maruyama, A., Kikuchi, M., &amp; Takagaki, M. (2022). Economies of scale in constructing plant factories with artificial lighting and the economic viability of crop production. <em>Frontiers in Plant Science</em>, 13, 992194. <a href="https://doi.org/10.3389/fpls.2022.992194" target="_blank" rel="noopener">doi:10.3389/fpls.2022.992194</a></li>
+      </ol>
+      <p>Related course pages: <a href="/lessons/accessibility-equity/">Lesson 15.3 Accessibility, equity and just transitions</a>, <a href="/lessons/vertical-farming/">Lesson 7.2 Vertical farms</a>, <a href="/lessons/lca-emerging-systems/">Lesson 15.1 LCA of emerging systems</a>, <a href="/laboratories/plant-factory-balance/">Plant factory energy and water balance</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

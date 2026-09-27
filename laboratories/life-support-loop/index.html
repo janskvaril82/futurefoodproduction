@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bioregenerative life-support loop · Future Food Production</title>
+<meta name="description" content="Balance oxygen, CO₂, water and food for a crew on Mars with a NASA crop model: how many square metres of wheat, potato, soybean, lettuce, sweet potato and tomato keep one astronaut alive — and how many kilowatts of light do they need?">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="module" src="./main.js"></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Maximum canopy quantum yield of wheat (MEC, BVAD Table 4-114), Eq. S4 */
+FFP_CALC.lslCqyWheat = function (v) {
+  var P = Math.min(2000, Math.max(200, v.ppf)), C = Math.min(1300, Math.max(330, v.co2));
+  return 4.4793e-2 - 5.1946e-6 * P + 5.1583e-5 * C - 4.9303e-12 * C * P * P - 2.0724e-8 * C * C + 2.2255e-15 * C * C * P * P;
+};
+/* Growing area per crew member to close O₂ with a crop (Eq. S9), m² */
+FFP_CALC.lslO2Area = function (v) { var net = v.o2 * (1 - v.fox / 100 * (1 - v.hi / 100)); return net > 0 ? 816 / net : NaN; };
+</script>
+<style>
+.mini-table { width: 100%; border-collapse: collapse; font-size: .74rem; }
+.mini-table tr.units th { font-weight: 400; font-size: .66rem; padding-top: 0; }
+.mini-table th, .mini-table td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.mini-table th { color: var(--muted); font-weight: 600; white-space: normal; vertical-align: bottom; }
+.mini-table th.num { text-align: right; }
+.mini-table td.num { text-align: right; font-family: var(--font-mono); }
+.mini-table tr.dim td { opacity: .45; }
+.mini-table .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+.table-scroll { overflow-x: auto; }
+#stage { aspect-ratio: 16 / 10.5; }
+</style>
+</head>
+<body data-page="lab" data-slug="life-support-loop">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Bioregenerative life-support loop</h1>
+    <p class="lead">Four astronauts on Mars breathe out about 4 kg of CO₂ and eat about 50 MJ of food every day. Plants can turn one into the other — and purify water on the way — but only if you give them enough area and light. Choose a crew, a crop mix and a lighting regime, and a NASA crop model tells you what fraction of the oxygen, food energy, protein and water the plants close, how much still has to come from Earth, and how many kilowatts it costs. The loop diagram shows every flow as a band whose width is proportional to its mass.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>How much of the crew's needs do the plants close?</h3>
+      <div class="chart-sub">Contribution of each crop to the crew's daily oxygen (net of the O₂ used to oxidise inedible biomass), CO₂ removal, food energy and protein, as a percentage of demand. The dashed line is 100 %. Water is left out: any real crop area transpires far more water than the crew uses (see the readout).</div>
+      <div class="chart" id="chart-closure" style="height:280px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Where the oxygen, water and energy go</h3>
+      <div class="chart-sub">Daily flows through the loop. Choose a resource: oxygen (kg d⁻¹), water (kg d⁻¹) or energy (average kW, from the wall socket to the food on the plate).</div>
+      <div class="seg" id="sankey-mode" role="group" aria-label="Sankey resource" style="margin:4px 0 6px"><button type="button" data-v="o2" aria-pressed="true">Oxygen</button><button type="button" data-v="water" aria-pressed="false">Water</button><button type="button" data-v="energy" aria-pressed="false">Energy</button></div>
+      <div class="chart tall" id="chart-sankey" style="height:330px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Closure versus growing area per crew member</h3>
+      <div class="chart-sub">Scaling the present crop mix up or down: how many square metres per person close oxygen, food energy, protein and water, and what lighting power per person that costs (right axis). The vertical line marks your design.</div>
+      <div class="chart" id="chart-area" style="height:300px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Crop performance at the current settings</h3>
+      <div class="chart-sub">Per square metre of growing area and day. Edible biomass, oxygen and transpiration from the BVAD nominal values scaled by the MEC crop model (Eq. S8); food energy and protein from USDA composition data. The last column is the food energy obtained per kWh of electricity for light. ⚠ = outside the model's validity range.</div>
+      <div class="table-scroll" id="crop-table"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Start with the salad machine.</strong> Click the preset <em>Salad machine (Veggie-like)</em>: less than a square metre of lettuce and tomato under 200 µmol m⁻² s⁻¹, much like the plant chambers flown on the International Space Station. In the loop diagram the plant chamber is almost disconnected: the thick orange dashed bands show oxygen, food and water arriving from Earth. The readouts give its real value — well under 1 % of the crew's oxygen and food.</li>
+        <li><strong>Close the loop.</strong> Click <em>Full closure</em> (180 m² for four people). Now the O₂ and CO₂ bands between crew, cabin and plants balance, food flows from the plant chamber to the crew, and the resupply bands disappear. Look at the power readout: about 56 kW — roughly 14 kW per person, day and night, for light alone.</li>
+        <li><strong>Watch the water.</strong> Switch the diagram to <em>Water</em>. The transpiration band is by far the thickest in the whole loop: more than a tonne of water a day passes through the plants and is condensed from the cabin air as clean water. The crew uses only a few per cent of it; the rest goes back to the plants as nutrient solution.</li>
+        <li><strong>Follow the carbon.</strong> Set <em>Inedible biomass oxidised</em> to 0 %. The O₂ closure jumps, because the O₂ that the plants released while making straw, leaves and roots is no longer consumed by burning them — but the CO₂ removal changes and the plants now lock carbon away in a growing pile of stored biomass. In a truly closed loop the inedible biomass must be recycled, and then only the carbon the crew eats pays for the crew's oxygen.</li>
+        <li><strong>Change the light.</strong> Switch the light regime to <em>Same for all crops</em> and vary the PPFD. Wheat was grown by NASA at very high light (115 mol m⁻² d⁻¹); at 500 µmol m⁻² s⁻¹ for 16 h it needs less power per square metre but yields far less. Watch <em>Electricity per unit of food energy</em> and the last column of the crop table.</li>
+        <li><strong>Run the mission.</strong> Press <em>Run the mission</em> to count the days of a 500-day surface stay and the tonnes of resupply the plants save compared with a crew that brings everything with it.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A bioregenerative life-support system is a set of coupled mass balances. Plants close the <strong>oxygen</strong> and <strong>food</strong> loops together — because both come from the same carbon — and they close the <strong>water</strong> loop almost for free. The price is <strong>area and light</strong>: tens of square metres and more than ten kilowatts of electricity per person.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Why grow plants in space?</h2>
+      <p>On the International Space Station oxygen is made by electrolysing water, CO₂ is removed by absorbent beds, water is recycled physico-chemically and food comes from Earth. Such <em>physico-chemical</em> systems are compact and reliable, and water recovery has reached 98 % (NASA, 2023) — but they cannot make food, and every kilogram of food must be launched. For a crew on the Moon or Mars for years, growing food locally becomes attractive, and plants bring more than calories: they remove CO₂, release O₂ and purify water through transpiration. A system in which living organisms regenerate the atmosphere, water and food is a <strong>bioregenerative life-support system</strong> (BLSS).</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 680 330" role="img" aria-label="The MELiSSA loop: crew, thermophilic anaerobic bacteria, photoheterotrophic bacteria, nitrifying bacteria, cyanobacteria and higher plants connected in a circle">
+          <defs><marker id="ls-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <g stroke="currentColor" stroke-width="1.2">
+            <rect x="265" y="18" width="150" height="54" rx="10" class="fill-sunk"/>
+            <rect x="490" y="98" width="170" height="54" rx="10" class="fill-accent-soft"/>
+            <rect x="490" y="200" width="170" height="54" rx="10" class="fill-accent-soft"/>
+            <rect x="265" y="262" width="150" height="54" rx="10" class="fill-water-soft"/>
+            <rect x="20" y="200" width="170" height="54" rx="10" class="fill-amber-soft"/>
+            <rect x="20" y="98" width="170" height="54" rx="10" class="fill-magenta-soft"/>
+          </g>
+          <text x="340" y="40" text-anchor="middle" font-weight="600">V · Crew</text><text x="340" y="58" text-anchor="middle" class="t-small t-muted">consumes O₂, food, water</text>
+          <text x="105" y="120" text-anchor="middle" font-weight="600">I · Liquefying</text><text x="105" y="138" text-anchor="middle" class="t-small t-muted">thermophilic anaerobes</text>
+          <text x="105" y="222" text-anchor="middle" font-weight="600">II · Photoheterotrophs</text><text x="105" y="240" text-anchor="middle" class="t-small t-muted">Rhodospirillum rubrum</text>
+          <text x="340" y="284" text-anchor="middle" font-weight="600">III · Nitrifiers</text><text x="340" y="302" text-anchor="middle" class="t-small t-muted">Nitrosomonas, Nitrobacter</text>
+          <text x="575" y="222" text-anchor="middle" font-weight="600">IVa · Cyanobacteria</text><text x="575" y="240" text-anchor="middle" class="t-small t-muted">Arthrospira (Spirulina)</text>
+          <text x="575" y="120" text-anchor="middle" font-weight="600">IVb · Higher plants</text><text x="575" y="138" text-anchor="middle" class="t-small t-muted">this laboratory</text>
+          <g class="stroke-muted" stroke-width="1.6" fill="none" marker-end="url(#ls-ar)">
+            <path d="M265 52 C200 60 150 80 118 96"/>
+            <path d="M105 152 L105 196"/>
+            <path d="M190 236 C220 260 240 280 262 286"/>
+            <path d="M415 286 C450 280 480 262 505 256"/>
+            <path d="M415 280 C470 250 520 190 545 156"/>
+            <path d="M512 200 C480 170 450 120 408 76"/>
+            <path d="M560 96 C520 70 470 50 418 44"/>
+          </g>
+          <text x="212" y="44" class="t-small" text-anchor="end">wastes, inedible biomass</text>
+          <text x="112" y="178" class="t-small">volatile fatty acids, CO₂, NH₄⁺</text>
+          <text x="196" y="286" class="t-small">NH₄⁺</text>
+          <text x="440" y="300" class="t-small">NO₃⁻</text>
+          <text x="470" y="80" class="t-small">food, O₂, water</text>
+          <text x="452" y="150" class="t-small" text-anchor="end">O₂, food</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The European Space Agency's MELiSSA loop: four bioreactors and a higher-plant compartment around the crew (after Gòdia et al., 2002; Hendrickx et al., 2006). Wastes are liquefied by thermophilic anaerobic bacteria (I); the volatile fatty acids are consumed by photoheterotrophic bacteria (II); nitrifying bacteria turn ammonium into nitrate (III), which feeds the cyanobacteria (IVa) and the plants (IVb) that return oxygen and food to the crew (V). The loop diagram in this laboratory lumps compartments I–III into "waste processing".</figcaption>
+      </figure>
+      <h3>Oxygen and food come from the same carbon</h3>
+      <p>Photosynthesis releases roughly one molecule of O₂ for every atom of carbon fixed into biomass (the <em>oxygen production fraction</em> is 1.02–1.16 mol O₂ per mol C in the crop model). Human metabolism does the reverse, consuming 0.816 kg of O₂ and releasing 1.04 kg of CO₂ per day (a respiratory quotient of about 0.93). If the inedible straw, leaves and roots are oxidised back to CO₂ in a bioreactor — which a closed loop must do, or its carbon slowly disappears into storage — they consume exactly the O₂ that their growth released. What is left for the crew is the O₂ that came with the carbon they eat. <strong>Closing the food loop and closing the oxygen loop are therefore almost the same problem.</strong> Crops with a high harvest index, such as potato (70 %) and lettuce (90 %), keep a larger share of the oxygen they release than wheat (40 %) once their waste is recycled.</p>
+      <h3>How much area?</h3>
+      <p>NASA's Baseline Values and Assumptions Document (BVAD) tabulates the growing area needed for three example diets: 1.35 m² per crew member for a diet that only adds fresh salad crops to stored food, 19.5 m² when carbohydrate crops such as potato and wheat are added, and 65 m² when all candidate crops supply most of the diet (Anderson et al., 2018, Table 4-99). The simulator reproduces the same order of magnitude: 40–50 m² per person under NASA's high light levels closes food energy and oxygen, and much more at lower light.</p>
+      <h3>The price: light</h3>
+      <p>Every mole of photons at the canopy costs \(10^6/(\eta_{\text{ph}}\eta_{\text{cap}})\) joules of electricity. Wheat grown at the 115 mol m⁻² d⁻¹ used in NASA's high-productivity studies (Bugbee &amp; Salisbury, 1988) needs over 500 W of electricity per square metre, around the clock. Of that electricity, about 60 % leaves the LEDs as light, much of which is absorbed by leaves; only 2–3 % ends up as chemical energy in biomass and about 1 % as food energy on the plate. The rest is heat that the habitat must reject to space — a radiator problem as large as the power problem. This is why the <em>kWh per MJ of food</em> readout is so large, and why space agencies study sunlight collection, more efficient LEDs and crops with a higher harvest index.</p>
+      <h3>From test beds to missions</h3>
+      <p>NASA's Biomass Production Chamber at Kennedy Space Center produced the crop data behind the BVAD tables (Wheeler et al., 2003; Wheeler, 2017). The EDEN ISS space-analogue greenhouse at the German Neumayer III station in Antarctica grew 26 crops on 12.5 m² in 2018 and harvested over 268 kg of edible biomass — about 27 kg m⁻² yr⁻¹, or 75 g m⁻² d⁻¹ (Zabel et al., 2020). On the ISS, the Veggie unit grows a few plants under about 200 µmol m⁻² s⁻¹ of red, blue and green LED light (Khodadad et al., 2020): valuable for diet variety and crew morale, but — as the salad-machine preset shows — not a life-support system.</p>
+      <div class="callout note"><div class="callout-title">Water: the easy loop</div><p>A crop transpires 2–12 kg of water per square metre per day (Anderson et al., 2018). Condensed from the cabin air, this water is effectively distilled. A BLSS can therefore irrigate its plants with biologically treated wastewater and harvest clean water from the air conditioning: plants replace much of a physico-chemical water processor. The limiting loops are food and oxygen, not water.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier 2024–2026</div><p>ESA's MELiSSA pilot plant and China's Lunar Palace experiments are testing long-duration crewed closed loops on the ground, and plant-growth hardware such as Veggie and the Advanced Plant Habitat continues to fly on the ISS. The open questions are about reliability: can a biological loop be controlled well enough to be trusted with human lives, and how should it be combined with physico-chemical back-ups?</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The crop model is the Modified Energy Cascade (MEC) of Cavazzoni (2004), with the coefficients published in BVAD Rev. 1 (Anderson et al., 2018, §4.14.1). Equation numbers S1–S12 refer to this laboratory.</p>
+
+      <div class="eq-box" id="eq-lsl-demand">
+        <div class="eq-head"><span class="eq-label">Crew demand and closure</span><span class="eq-num">(S1)</span></div>
+        <div class="eq-main">\[ D_X = N\,d_X,\qquad C_X = \frac{\dot m_{X,\text{plants}}}{D_X} \]</div>
+        <p class="eq-read">the daily demand for a resource X is the crew size times the demand per person; the closure is the fraction of that demand supplied by the plants.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value per person (BVAD)</th></tr>
+          <tr><td>\(d_{\text{O}_2}\)</td><td>oxygen consumed</td><td>kg d⁻¹</td><td>0.816</td></tr>
+          <tr><td>\(d_{\text{CO}_2}\)</td><td>CO₂ produced</td><td>kg d⁻¹</td><td>1.04</td></tr>
+          <tr><td>\(d_E\)</td><td>food energy</td><td>MJ d⁻¹</td><td>12.59</td></tr>
+          <tr><td>\(d_P\)</td><td>protein (0.8 g kg⁻¹ d⁻¹ × 82 kg)</td><td>g d⁻¹</td><td>65.6</td></tr>
+          <tr><td>\(d_W\)</td><td>potable water + hygiene water</td><td>kg d⁻¹</td><td>2.5 + 0 (ISS) or 7.2 (base)</td></tr>
+        </table>
+        <details><summary>Where the numbers come from</summary><p>BVAD Table 3-33 summarises the nominal metabolic interface of an 82 kg crew member with a respiratory quotient of 0.93; Table 4-21 gives hygiene water for a planetary base (oral hygiene 0.37, hand wash 4.08, shower 2.72 kg d⁻¹). The protein requirement is the recommended dietary allowance of 0.8 g per kg body mass (Institute of Medicine, 2005).</p></details>
+        <div class="eq-units">kg d⁻¹ ÷ kg d⁻¹ — dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-power">
+        <div class="eq-head"><span class="eq-label">Daily light integral and lighting power</span><span class="eq-num">(S2)</span></div>
+        <div class="eq-main">\[ \text{DLI}=\frac{\text{PPFD}\cdot H\cdot 3600}{10^6},\qquad P_{\text{el}}=(1+f_{\text{aux}})\sum_i \frac{A_i\,\text{DLI}_i\,10^6}{86\,400\;\eta_{\text{ph}}\;\eta_{\text{cap}}} \]</div>
+        <p class="eq-read">the daily light integral is the photon flux density times the photoperiod in seconds; the average electrical power is the number of photons each crop needs per second, averaged over the day, divided by the photons each joule of electricity delivers to the canopy, plus an auxiliary fraction for fans and pumps.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(H\)</td><td>photoperiod</td><td>h d⁻¹</td><td>12–20</td></tr>
+          <tr><td>\(A_i\)</td><td>growing area of crop \(i\)</td><td>m²</td><td></td></tr>
+          <tr><td>\(\eta_{\text{ph}}\)</td><td>LED photon efficacy</td><td>µmol J⁻¹</td><td>2.8</td></tr>
+          <tr><td>\(\eta_{\text{cap}}\)</td><td>fraction of photons reaching the canopy</td><td>–</td><td>0.9</td></tr>
+          <tr><td>\(f_{\text{aux}}\)</td><td>auxiliary power fraction</td><td>–</td><td>0.10 (assumed)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Photons needed per second, averaged over 24 h: \(\text{DLI}\times10^6/86\,400\) µmol m⁻² s⁻¹.</li>
+          <li>Each joule of electricity gives \(\eta_{\text{ph}}\) µmol, of which \(\eta_{\text{cap}}\) reach the plants, so the power per m² is the photon rate divided by \(\eta_{\text{ph}}\eta_{\text{cap}}\) (W = J s⁻¹).</li>
+          <li>The average power depends on the DLI only, not on how it is split between intensity and photoperiod; the installed (peak) power is \(24/H\) times larger.</li>
+        </ol></details>
+        <div class="eq-units">\(\dfrac{\text{m}^2\cdot\mu\text{mol m}^{-2}\text{d}^{-1}}{\text{s d}^{-1}\cdot\mu\text{mol J}^{-1}}=\text{J s}^{-1}=\text{W}\) ✓</div>
+        <div class="mini-calc" data-formula="dli*1e6/86400/(eff*cap)" data-output="Average lighting power" data-unit="W m⁻²" data-digits="0" data-plot="dli" data-title="Try it — watts per square metre of crop">
+          <div data-var="dli" data-label="Daily light integral" data-min="10" data-max="120" data-step="1" data-value="28" data-unit="mol m⁻² d⁻¹"></div>
+          <div data-var="eff" data-label="Photon efficacy η<sub>ph</sub>" data-min="1.5" data-max="4" data-step="0.05" data-value="2.8" data-unit="µmol J⁻¹"></div>
+          <div data-var="cap" data-label="Capture efficiency η<sub>cap</sub>" data-min="0.5" data-max="1" data-step="0.01" data-value="0.9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-canopy">
+        <div class="eq-head"><span class="eq-label">Light absorbed by a developing canopy</span><span class="eq-num">(S3)</span></div>
+        <div class="eq-main">\[ A(t)=A_{\max}\left(\frac{t}{t_A}\right)^{n}\quad (t &lt; t_A),\qquad A = A_{\max}=0.93\quad(t\ge t_A),\qquad \text{PPF}_E=\text{PPF}\,\frac{H}{H_0} \]</div>
+        <p class="eq-read">the fraction of light absorbed by the canopy grows as a power of time until the canopy closes at t<sub>A</sub>, and then stays at 93 %. The time to canopy closure is a polynomial in the effective PPF (the PPF scaled by the photoperiod relative to its nominal value) and the CO₂ concentration.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(t\)</td><td>days after emergence</td><td>d</td><td></td></tr>
+          <tr><td>\(t_A\)</td><td>time to canopy closure</td><td>d</td><td>17 (wheat) – 35 (potato)</td></tr>
+          <tr><td>\(n\)</td><td>crop-specific exponent</td><td>–</td><td>1 (wheat) – 2.5 (lettuce, tomato)</td></tr>
+          <tr><td>\(H_0\)</td><td>nominal photoperiod of the crop</td><td>h d⁻¹</td><td>12–20</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>BVAD Table 4-129 gives lower maximum absorption for lettuce, potato, sweet potato and rice under low light (≈ 200–300 µmol m⁻² s⁻¹), because the canopy never closes; those corrections are not applied here, so yields at low PPFD are optimistic.</p></details>
+        <div class="eq-units">(d/d)ⁿ — dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-dcg">
+        <div class="eq-head"><span class="eq-label">Daily carbon gain</span><span class="eq-num">(S4)</span></div>
+        <div class="eq-main">\[ \text{DCG}=0.0036\,H\,\text{CUE}_{24}\,A\,\text{CQY}\,\text{PPF},\qquad \text{CQY}_{\max}=\sum_{j,k} c_{jk}\,\text{PPF}^{j}\,[\text{CO}_2]^{k} \]</div>
+        <p class="eq-read">the carbon fixed per square metre per day is the photoperiod in seconds (the factor 0.0036 also converts µmol to mol) times the fraction of fixed carbon kept after respiration, times the fraction of light absorbed, times the canopy quantum yield (carbon fixed per photon absorbed), times the photon flux.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>DCG</td><td>daily carbon gain</td><td>mol C m⁻² d⁻¹</td><td>0.5–3</td></tr>
+          <tr><td>\(\text{CUE}_{24}\)</td><td>24-hour carbon use efficiency</td><td>–</td><td>0.625–0.65</td></tr>
+          <tr><td>CQY</td><td>canopy quantum yield; declines after the onset of senescence \(t_Q\)</td><td>µmol C µmol⁻¹</td><td>0.04–0.07</td></tr>
+          <tr><td>\(c_{jk}\)</td><td>polynomial coefficients (BVAD Tables 4-107 to 4-115), \(j,k\in\{-1,0,1,2,3\}\)</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Gross photosynthesis per second: photons absorbed × carbon fixed per photon = \(A\,\text{CQY}\,\text{PPF}\) µmol C m⁻² s⁻¹ (Eq. 4-25 of BVAD).</li>
+          <li>Multiply by \(3600H\) seconds of light per day and by \(10^{-6}\) mol per µmol: \(0.0036H\).</li>
+          <li>Respiration by day and night consumes a fraction \(1-\text{CUE}_{24}\) of the carbon fixed (Monje &amp; Bugbee, 1998).</li>
+          <li>CQY falls with PPF (light saturation) and rises with CO₂ (suppressed photorespiration) — try the calculator.</li>
+        </ol></details>
+        <div class="eq-units">\(\text{h d}^{-1}\cdot\dfrac{3600\ \text{s}}{\text{h}}\cdot\dfrac{\text{mol}}{10^6\ \mu\text{mol}}\cdot\dfrac{\mu\text{mol C}}{\mu\text{mol}}\cdot\mu\text{mol m}^{-2}\text{s}^{-1}=\text{mol C m}^{-2}\text{d}^{-1}\) ✓</div>
+        <div class="mini-calc" data-fn="lslCqyWheat" data-output="Maximum canopy quantum yield (wheat)" data-unit="µmol C µmol⁻¹" data-digits="4" data-plot="ppf" data-title="Try it — light saturation and CO₂ fertilisation of a wheat canopy">
+          <div data-var="ppf" data-label="PPF" data-min="200" data-max="2000" data-step="10" data-value="800" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="co2" data-label="CO₂" data-min="330" data-max="1300" data-step="10" data-value="1200" data-unit="µmol mol⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-biomass">
+        <div class="eq-head"><span class="eq-label">Crop growth rate and edible biomass</span><span class="eq-num">(S5)</span></div>
+        <div class="eq-main">\[ \text{CGR}=\frac{12.011\;\text{DCG}}{\text{BCF}},\qquad \text{TCB}=\int_0^{t_M}\text{CGR}\,\mathrm{d}t,\qquad \text{TEB}=\int_{t_E}^{t_M}\text{XFRT}\cdot\text{CGR}\,\mathrm{d}t \]</div>
+        <p class="eq-read">dry matter grows at the carbon gain times the molar mass of carbon divided by the carbon fraction of biomass; total crop biomass is its integral over the crop cycle, and edible biomass is the part of the growth allocated to the harvested organ after it starts to form.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>BCF</td><td>biomass carbon fraction</td><td>g C g⁻¹</td><td>0.40–0.46</td></tr>
+          <tr><td>\(t_E, t_M\)</td><td>start of edible-organ formation, harvest</td><td>d</td><td>e.g. 45 and 138 (potato)</td></tr>
+          <tr><td>XFRT</td><td>fraction of growth allocated to edible parts after \(t_E\)</td><td>–</td><td>0.70 (tomato) – 1.0</td></tr>
+        </table>
+        <details><summary>From a crop cycle to a steady food supply</summary><p>With staggered plantings, each square metre is occupied by one crop cycle at a time, so the average productivity is TEB divided by the cycle length. The simulator uses the MEC integrals only as <em>ratios</em> (Eq. S8), so the cycle length cancels.</p></details>
+        <div class="eq-units">\(\dfrac{\text{g mol}^{-1}\cdot\text{mol m}^{-2}\text{d}^{-1}}{\text{g g}^{-1}}=\text{g m}^{-2}\text{d}^{-1}\) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-gas">
+        <div class="eq-head"><span class="eq-label">Oxygen production and CO₂ uptake</span><span class="eq-num">(S6)</span></div>
+        <div class="eq-main">\[ \dot n_{\text{O}_2}=\text{OPF}\cdot\text{DCG},\qquad \dot n_{\text{CO}_2}=\text{DCG} \]</div>
+        <p class="eq-read">the plants release OPF moles of oxygen and take up one mole of CO₂ for every mole of carbon they add to their biomass.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>OPF</td><td>oxygen production fraction</td><td>mol O₂ mol⁻¹ C</td><td>1.02 (potatoes) – 1.16 (soybean)</td></tr>
+        </table>
+        <details><summary>Why is OPF larger than 1?</summary><p>Building a sugar (CH₂O) releases exactly one O₂ per C. Biomass also contains proteins and lipids, which are more reduced than sugar, and plants reduce nitrate to amino groups; both release extra oxygen. Soybean, rich in oil and protein, has the highest OPF.</p></details>
+        <div class="eq-units">mol mol⁻¹ × mol m⁻² d⁻¹ = mol m⁻² d⁻¹ ✓ (× 32 g mol⁻¹ or 44 g mol⁻¹)</div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-transpiration">
+        <div class="eq-head"><span class="eq-label">Canopy transpiration</span><span class="eq-num">(S7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{VPD}=0.611\,e^{17.4T/(T+239)}\,(1-\text{RH}),\qquad g_S=\left(1.717\,T-19.96-10.54\,\text{VPD}\right)\frac{P_{\text{net}}}{[\text{CO}_2]} \\ g_C=\frac{g_A\,g_S}{g_A+g_S},\qquad \text{DTR}=3600\,H\,\frac{M_w}{\rho_w}\,g_C\,\frac{\text{VPD}}{P_{\text{atm}}} \end{gathered} \]</div>
+        <p class="eq-read">the vapour-pressure deficit follows from temperature and humidity; the canopy's stomatal conductance is proportional to net photosynthesis divided by the CO₂ concentration (reduced at high deficit); it acts in series with the aerodynamic conductance; the daily transpiration is the conductance times the deficit as a mole fraction, over the light period, converted to litres.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(g_S, g_A, g_C\)</td><td>stomatal, aerodynamic and total canopy conductance</td><td>mol m⁻² s⁻¹</td><td>\(g_A\) = 2.5 (5.5 for wheat)</td></tr>
+          <tr><td>\(P_{\text{net}}\)</td><td>net canopy photosynthesis</td><td>µmol m⁻² s⁻¹</td><td></td></tr>
+          <tr><td>DTR</td><td>daily transpiration rate</td><td>L m⁻² d⁻¹</td><td></td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The form of \(g_S\) is from Monje (1998) for broad-leaved (planophile) canopies; for wheat, BVAD uses \(g_S=0.1389+15.32\,\text{RH}\,P_{\text{net}}/[\text{CO}_2]\). Doubling CO₂ roughly halves \(g_S\) at the same photosynthesis — enriched atmospheres save water.</p></details>
+        <div class="eq-units">\(\text{s}\cdot\dfrac{\text{g mol}^{-1}}{\text{g L}^{-1}}\cdot\text{mol m}^{-2}\text{s}^{-1}\cdot\dfrac{\text{kPa}}{\text{kPa}}=\text{L m}^{-2}\) per day ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-anchor">
+        <div class="eq-head"><span class="eq-label">Anchoring the model to NASA's measured productivities</span><span class="eq-num">(S8)</span></div>
+        <div class="eq-main">\[ X_i = X_{i,\text{BVAD}}\cdot\frac{\text{MEC}_X\!\left(\text{PPF},H,[\text{CO}_2],\text{RH}\right)}{\text{MEC}_X\!\left(\text{PPF}_{0},H_0,1200,0.75\right)} \]</div>
+        <p class="eq-read">each output of a crop — edible and total biomass, O₂, CO₂ and transpiration — equals the value tabulated by NASA for nominal conditions, scaled by how much the MEC model says that output changes between the nominal conditions and yours.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Source</th></tr>
+          <tr><td>\(X_{i,\text{BVAD}}\)</td><td>nominal productivity of crop \(i\)</td><td>BVAD Tables 4-97 and 4-98</td></tr>
+          <tr><td>\(\text{PPF}_0, H_0\)</td><td>nominal light and photoperiod</td><td>BVAD Tables 4-96 and 4-117</td></tr>
+          <tr><td>1200, 0.75</td><td>assumed nominal CO₂ (µmol mol⁻¹) and relative humidity</td><td>assumption</td></tr>
+        </table>
+        <details><summary>Why anchor?</summary><p>The MEC model was fitted to the same NASA data but reproduces the tabulated averages only within about ±40 % (for wheat, soybean and sweet potato, for example), and its transpiration is lower than the tabulated values. Anchoring keeps the nominal numbers identical to the BVAD tables that students can look up, while the MEC supplies physiologically sensible responses to light, photoperiod, CO₂ and humidity.</p></details>
+        <div class="eq-units">units of \(X\) × dimensionless ratio ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-o2net">
+        <div class="eq-head"><span class="eq-label">Net oxygen when inedible biomass is recycled</span><span class="eq-num">(S9)</span></div>
+        <div class="eq-main">\[ \dot m_{\text{O}_2,\text{net}}=\sum_i A_i\,o_i\left[1-f_{\text{ox}}\left(1-\frac{e_i}{b_i}\right)\right],\qquad \dot m_{\text{CO}_2,\text{ox}}=\sum_i A_i\,u_i\,f_{\text{ox}}\left(1-\frac{e_i}{b_i}\right) \]</div>
+        <p class="eq-read">oxidising the fraction f<sub>ox</sub> of the inedible biomass consumes the oxygen its growth released and returns its carbon as CO₂; what remains for the crew is the oxygen that belongs to the edible fraction e/b of the biomass.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(o_i, u_i\)</td><td>gross O₂ production and CO₂ uptake per m²</td><td>kg m⁻² d⁻¹</td></tr>
+          <tr><td>\(e_i, b_i\)</td><td>edible and total dry biomass production per m² (\(e/b\) ≈ harvest index)</td><td>g m⁻² d⁻¹</td></tr>
+          <tr><td>\(f_{\text{ox}}\)</td><td>fraction of inedible biomass oxidised</td><td>–</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Edible and inedible biomass are assumed to have the same carbon fraction and the same O₂ yield. Crew faeces and urine solids (0.11 kg d⁻¹ per person) are also processed in reality; their small O₂ demand is neglected.</p></details>
+        <div class="eq-units">m² × kg m⁻² d⁻¹ = kg d⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="lslO2Area" data-output="Area to supply one person's O₂" data-unit="m²" data-digits="1" data-plot="hi" data-title="Try it — the harvest index decides the oxygen area">
+          <div data-var="o2" data-label="Gross O₂ production o" data-min="5" data-max="90" data-step="0.5" data-value="56" data-unit="g m⁻² d⁻¹"></div>
+          <div data-var="hi" data-label="Harvest index e/b" data-min="20" data-max="95" data-step="1" data-value="40" data-unit="%"></div>
+          <div data-var="fox" data-label="Inedible biomass oxidised f<sub>ox</sub>" data-min="0" data-max="100" data-step="5" data-value="100" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-food">
+        <div class="eq-head"><span class="eq-label">Food energy and protein</span><span class="eq-num">(S10)</span></div>
+        <div class="eq-main">\[ \dot E=\sum_i A_i\,e_i\,\varepsilon_i,\qquad \dot m_P=\sum_i A_i\,e_i\,\pi_i,\qquad \varepsilon_i=\frac{4.184\;\text{kcal}_{100,i}}{100-w_{100,i}},\quad \pi_i=\frac{p_{100,i}}{100-w_{100,i}} \]</div>
+        <p class="eq-read">the food energy is the edible dry matter of each crop times its energy content per gram of dry matter, obtained from the energy per 100 g of fresh food divided by the grams of dry matter in those 100 g; protein is calculated in the same way.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\text{kcal}_{100}, p_{100}, w_{100}\)</td><td>energy, protein and water per 100 g of fresh edible portion (USDA FoodData Central)</td><td>kcal, g, g</td></tr>
+          <tr><td>\(\varepsilon_i\)</td><td>metabolisable energy per gram of edible dry matter</td><td>kJ g⁻¹</td></tr>
+        </table>
+        <details><summary>Worked number</summary><p>Potato: 77 kcal, 2.05 g protein and 79.2 g water per 100 g, so 3.70 kcal and 0.099 g protein per gram of dry matter. At the BVAD productivity of 21.06 g DW m⁻² d⁻¹, one square metre gives 78 kcal (0.33 MJ) and 2.1 g of protein a day: 38.6 m² would feed one person's energy needs.</p></details>
+        <div class="eq-units">m² × g m⁻² d⁻¹ × kJ g⁻¹ = kJ d⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-water">
+        <div class="eq-head"><span class="eq-label">The water loop</span><span class="eq-num">(S11)</span></div>
+        <div class="eq-main">\[ \begin{gathered} I = T + W_{\text{bio}},\qquad W_{\to p}=\min(0.95\,W_{\text{crew}},\,I),\qquad W_{\text{rest}}=W_{\text{crew}}-\frac{W_{\to p}}{0.95} \\ \text{resupply}_W=\max\!\left[0,\; D_W+(I-W_{\to p})-T-\eta_{\text{WRS}}W_{\text{rest}}-f_{\text{ox}}W_{\text{ined}}\right] \end{gathered} \]</div>
+        <p class="eq-read">the plants take up their transpiration plus the water in the harvested biomass; biologically treated crew wastewater is used first as nutrient solution; what is left goes through the physico-chemical water recovery system; clean water comes from condensed transpiration, from the recovery system and from drying the inedible biomass; any shortfall must come from Earth.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(T\)</td><td>transpiration (condensed from the cabin air)</td><td>kg d⁻¹</td></tr>
+          <tr><td>\(W_{\text{crew}}\)</td><td>crew wastewater: urine, flush, hygiene, humidity, faecal water and the water in fresh food</td><td>kg d⁻¹</td></tr>
+          <tr><td>\(\eta_{\text{WRS}}\)</td><td>physico-chemical recovery efficiency</td><td>–</td></tr>
+          <tr><td>\(W_{\text{ined}}\)</td><td>water in inedible biomass (≈ 9 × its dry mass)</td><td>kg d⁻¹</td></tr>
+        </table>
+        <details><summary>A surprising result</summary><p>\(T\) appears on both sides — as plant uptake and as condensate — and cancels. However large the transpiration, it is recycled almost perfectly; what costs water is what leaves the loop: brine from the recovery system, bioreactor losses and water locked in stored biomass.</p></details>
+        <div class="eq-units">all terms kg d⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-lsl-energy">
+        <div class="eq-head"><span class="eq-label">From the power plant to the plate</span><span class="eq-num">(S12)</span></div>
+        <div class="eq-main">\[ \eta_{\text{food}}=\frac{\dot E}{P_{\text{el}}\cdot 86\,400\ \text{s}},\qquad \frac{\text{kWh}}{\text{MJ}}=\frac{24\,P_{\text{el}}}{\dot E},\qquad P_{\text{PAR}}=P_{\text{LED}}\,\frac{\eta_{\text{ph}}}{4.9\ \mu\text{mol J}^{-1}} \]</div>
+        <p class="eq-read">the overall efficiency is the food energy produced per day divided by the electrical energy used per day; the radiant PAR power of the LEDs is their electrical power times the photon efficacy divided by the photons per joule of PAR radiation (about 4.9 µmol J⁻¹ for LED spectra).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\dot E\)</td><td>food energy produced</td><td>MJ d⁻¹</td></tr>
+          <tr><td>\(P_{\text{el}}\)</td><td>average electrical power (light + auxiliaries)</td><td>kW</td></tr>
+        </table>
+        <details><summary>Typical numbers</summary><p>For the full-closure preset, 56 kW of electricity becomes about 29 kW of PAR light, 23 kW absorbed by leaves, 1.3 kW of chemical energy in biomass and 0.6 kW of food energy: 26 kWh of electricity per MJ of food, an overall efficiency of about 1 %. Dry plant matter stores ≈ 17.5 kJ g⁻¹.</p></details>
+        <div class="eq-units">\(\dfrac{\text{MJ d}^{-1}}{\text{kW}\cdot 86\,400\ \text{s d}^{-1}}=\dfrac{\text{MJ}}{\text{kJ s}^{-1}\cdot\text{s}}\) — dimensionless after converting MJ to kJ ✓</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Tick each task when you are done; <em>Save investigation</em> copies your settings and results into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Square metres per person</h4><p>With one crew member and the crop-specific (BVAD) light regime, find the smallest area of each single crop that closes (a) oxygen and (b) food energy, with 100 % of the inedible biomass oxidised. Tabulate the areas and the lighting power. Which crop is the best "oxygen plant" and which the best "food plant"? Relate your answer to the harvest index (Eq. S9).</p></li>
+        <li><h4>Design a Mars menu</h4><p>For a crew of four, design a crop mix that closes food energy and protein to at least 100 % with the least lighting power. Report the mix, the area per person and the kWh per MJ of food, and compare your area with the three BVAD diets (1.35, 19.5 and 65 m² per crew member). Would the crew accept your diet? What micronutrients are missing?</p></li>
+        <li><h4>The carbon loop</h4><p>Take the <em>Full closure</em> preset and vary the fraction of inedible biomass oxidised from 0 to 100 %. Plot the O₂ closure and the CO₂ removal against it. Explain, with Eq. S9, why storing inedible biomass looks good for oxygen but is not sustainable for a mission of several years.</p></li>
+        <li><h4>How much light is worth it?</h4><p>Use the uniform light regime with a 16 h photoperiod and change the PPFD from 200 to 1200 µmol m⁻² s⁻¹. For wheat and for potato, record the edible biomass per m² and the food kJ per kWh (crop table). Why does efficiency per kWh fall while productivity per m² rises? For a habitat where floor area is expensive and power is cheap — or the reverse — which PPFD would you choose?</p></li>
+        <li><h4>CO₂ and water</h4><p>At the <em>Full closure</em> settings, lower the CO₂ from 1200 to 400 µmol mol⁻¹. How do productivity and transpiration change, and why do they move in opposite directions (Eqs. S4 and S7)? What would happen to the loop if the crew's CO₂ output were not enough to feed the plants?</p></li>
+        <li><h4>Is it worth launching?</h4><p>For a 500-day surface stay, compare the resupply mass avoided by the full-closure garden with the extra electrical power it needs. If a power system on Mars weighs several tens of kilograms per kilowatt (look up equivalent-system-mass factors in BVAD), at what mission length does the plant chamber pay for itself? List three things this simple comparison leaves out.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-life-support-loop">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Lettuce is grown on 10 m² at a DLI of 17 mol m⁻² d⁻¹ under LEDs with a photon efficacy of 2.8 µmol J⁻¹, and 90 % of the photons reach the canopy. What is the average electrical power for light, in kW (no auxiliaries)?","answer":0.781,"tol":0.02,"unit":"kW","hint":"Eq. S2: \\(P = A\\,\\text{DLI}\\times10^6/(86\\,400\\,\\eta_{\\text{ph}}\\eta_{\\text{cap}})\\).","explain":"<p>\\(10\\times17\\times10^6/86\\,400 = 1968\\) µmol s⁻¹; divided by \\(2.8\\times0.9 = 2.52\\) µmol J⁻¹ gives 781 W = 0.78 kW.</p>"},
+          {"type":"numeric","q":"Wheat at the BVAD nominal conditions releases 56 g O₂ m⁻² d⁻¹. If the inedible biomass is NOT oxidised, how many square metres of wheat supply one crew member's 0.816 kg O₂ per day?","answer":14.57,"tol":0.02,"unit":"m²","hint":"Divide the demand by the production per square metre.","explain":"<p>816 g d⁻¹ ÷ 56 g m⁻² d⁻¹ = 14.6 m².</p>"},
+          {"type":"numeric","q":"Now all inedible wheat biomass is oxidised. Wheat's edible biomass is 20 of 50 g DW m⁻² d⁻¹. How many square metres are needed for the same 0.816 kg O₂ per day (Eq. S9)?","answer":36.4,"tol":0.02,"unit":"m²","hint":"Only the fraction e/b = 0.4 of the O₂ is left for the crew.","explain":"<p>Net O₂ = 56 × 20/50 = 22.4 g m⁻² d⁻¹, so 816/22.4 = 36.4 m². Recycling the straw costs the oxygen that making it produced.</p>"},
+          {"type":"numeric","q":"Potato (USDA: 77 kcal and 79.2 g water per 100 g fresh) yields 21.06 g of edible dry matter per m² per day. How many m² supply 12.59 MJ of food energy per day?","answer":38.6,"tol":0.03,"unit":"m²","hint":"First find kcal per gram of dry matter: 77/(100 − 79.2). 1 kcal = 4.184 kJ.","explain":"<p>3.70 kcal g⁻¹ DM × 21.06 g = 78.0 kcal = 0.326 MJ m⁻² d⁻¹; 12.59/0.326 = 38.6 m².</p>"},
+          {"type":"mcq","q":"In the simulator, lowering CO₂ from 1200 to 400 µmol mol⁻¹ makes the crops transpire MORE while they grow LESS. Why?","options":["Low CO₂ raises the leaf temperature","Stomatal conductance is proportional to net photosynthesis divided by the CO₂ concentration, so at low CO₂ the stomata open wider even though photosynthesis falls","The humidity of the cabin rises at low CO₂","Transpiration is proportional to the growth rate"],"answer":1,"feedback":["Leaf temperature is not a model variable here.","","Humidity is set by you and does not depend on CO₂.","If that were true, transpiration would fall with growth."],"explain":"<p>In Eq. S7, \\(g_S\\propto P_{\\text{net}}/[\\text{CO}_2]\\). Dividing by a CO₂ three times smaller more than compensates for the lower photosynthesis: stomata open, the crop loses more water per gram of biomass. Enriched atmospheres save water.</p>"},
+          {"type":"tf","q":"A 'salad machine' of about one square metre closes at least 10 % of the oxygen needs of a crew of four.","answer":false,"explain":"<p>False — well under 1 % (see the salad-machine preset). Its value is fresh food, micronutrients and crew well-being, not life support.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>Steady state with staggered plantings: every square metre always carries a crop at some stage, so daily productivities are cycle averages. No storage dynamics, crop failures or harvest scheduling.</li>
+        <li>Nominal productivities, O₂, CO₂ and transpiration are BVAD Tables 4-96 to 4-98 (NASA ground studies with hydroponics, elevated CO₂ and high light). Responses to light, photoperiod, CO₂ (330–1300 µmol mol⁻¹) and humidity come from the MEC model; the nominal CO₂ (1200 µmol mol⁻¹) and relative humidity (75 %) behind the tables are assumed. Low-light canopy corrections (BVAD Table 4-129), temperature responses and tip-burn in lettuce are not modelled.</li>
+        <li>Food composition is the USDA FoodData Central (SR Legacy) value for the raw edible portion, applied on a dry-matter basis; processing losses, cooking and micronutrients are ignored. Protein quality is not considered.</li>
+        <li>Crew interface values are BVAD Table 3-33 (82 kg crew member, RQ 0.93); the crew's water outputs are increased by the water eaten in fresh produce. Hygiene water follows BVAD Table 4-21.</li>
+        <li>Oxidised inedible biomass is assumed to consume the O₂ its growth released and to return all its carbon as CO₂ and its water as condensate. Biologically treated wastewater is 95 % recoverable as nutrient solution (assumption); the physico-chemical system recovers the chosen fraction; transpired water is fully condensed.</li>
+        <li>Lighting: photon efficacy and capture efficiency are uniform for all crops; auxiliary power is 10 % of lighting; PAR radiant output assumes 4.9 µmol J⁻¹; dry matter stores 17.5 kJ g⁻¹. Heat rejection, habitat pressure control and crew time are not included.</li>
+        <li>The loop diagram draws band widths proportional to the daily mass flow within the selected view; very small flows are drawn with a minimum width. The nutrient band is qualitative.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Anderson, M. S., Ewert, M. K., &amp; Keener, J. F. (2018). <em>Life Support Baseline Values and Assumptions Document</em> (NASA/TP-2015-218570/REV1). NASA Johnson Space Center. <a href="https://ntrs.nasa.gov/citations/20180001338" target="_blank" rel="noopener">ntrs.nasa.gov/citations/20180001338</a></li>
+        <li>Bugbee, B. G., &amp; Salisbury, F. B. (1988). Exploring the limits of crop productivity: I. Photosynthetic efficiency of wheat in high irradiance environments. <em>Plant Physiology</em>, 88(3), 869–878. <a href="https://doi.org/10.1104/pp.88.3.869" target="_blank" rel="noopener">doi:10.1104/pp.88.3.869</a></li>
+        <li>Cavazzoni, J. (2004). Using explanatory crop models to develop simple tools for Advanced Life Support system studies. <em>Advances in Space Research</em>, 34(7), 1528–1538. <a href="https://doi.org/10.1016/j.asr.2003.02.073" target="_blank" rel="noopener">doi:10.1016/j.asr.2003.02.073</a></li>
+        <li>Gòdia, F., Albiol, J., Montesinos, J. L., Pérez, J., Creus, N., Cabello, F., Mengual, X., Montras, A., &amp; Lasseur, Ch. (2002). MELISSA: a loop of interconnected bioreactors to develop life support in space. <em>Journal of Biotechnology</em>, 99(3), 319–330. <a href="https://doi.org/10.1016/S0168-1656(02)00222-5" target="_blank" rel="noopener">doi:10.1016/S0168-1656(02)00222-5</a></li>
+        <li>Hendrickx, L., De Wever, H., Hermans, V., Mastroleo, F., Morin, N., Wilmotte, A., Janssen, P., &amp; Mergeay, M. (2006). Microbial ecology of the closed artificial ecosystem MELiSSA (Micro-Ecological Life Support System Alternative). <em>Research in Microbiology</em>, 157(1), 77–86. <a href="https://doi.org/10.1016/j.resmic.2005.06.014" target="_blank" rel="noopener">doi:10.1016/j.resmic.2005.06.014</a></li>
+        <li>Institute of Medicine. (2005). <em>Dietary Reference Intakes for Energy, Carbohydrate, Fiber, Fat, Fatty Acids, Cholesterol, Protein, and Amino Acids</em>. National Academies Press. <a href="https://doi.org/10.17226/10490" target="_blank" rel="noopener">doi:10.17226/10490</a></li>
+        <li>Khodadad, C. L. M., Hummerick, M. E., Spencer, L. E., Dixit, A. R., Richards, J. T., Romeyn, M. W., Smith, T. M., Wheeler, R. M., &amp; Massa, G. D. (2020). Microbiological and nutritional analysis of lettuce crops grown on the International Space Station. <em>Frontiers in Plant Science</em>, 11, 199. <a href="https://doi.org/10.3389/fpls.2020.00199" target="_blank" rel="noopener">doi:10.3389/fpls.2020.00199</a></li>
+        <li>Monje, O. (1998). <em>Predicting transpiration rates of hydroponically-grown plant communities in controlled environments</em> [PhD dissertation, Utah State University].</li>
+        <li>Monje, O., &amp; Bugbee, B. (1998). Adaptation to high CO₂ concentration in an optimal environment: radiation capture, canopy quantum yield and carbon use efficiency. <em>Plant, Cell &amp; Environment</em>, 21(3), 315–324. <a href="https://doi.org/10.1046/j.1365-3040.1998.00284.x" target="_blank" rel="noopener">doi:10.1046/j.1365-3040.1998.00284.x</a></li>
+        <li>NASA. (2023, June 20). <em>NASA achieves water recovery milestone on International Space Station</em>. <a href="https://www.nasa.gov/missions/station/iss-research/nasa-achieves-water-recovery-milestone-on-international-space-station/" target="_blank" rel="noopener">nasa.gov</a></li>
+        <li>U.S. Department of Agriculture, Agricultural Research Service. (2019). <em>FoodData Central: SR Legacy</em> (FDC IDs 168889, 170026, 174270, 169249, 168482, 170457). <a href="https://fdc.nal.usda.gov/" target="_blank" rel="noopener">fdc.nal.usda.gov</a></li>
+        <li>Wheeler, R. M. (2017). Agriculture for space: People and places paving the way. <em>Open Agriculture</em>, 2(1), 14–32. <a href="https://doi.org/10.1515/opag-2017-0002" target="_blank" rel="noopener">doi:10.1515/opag-2017-0002</a></li>
+        <li>Wheeler, R. M., Sager, J. C., Prince, R. P., Knott, W. M., Mackowiak, C. L., Stutte, G. W., Yorio, N. C., Ruffe, L. M., Peterson, B. V., Goins, G. D., Hinkle, C. R., &amp; Berry, W. L. (2003). <em>Crop production for advanced life support systems — observations from the Kennedy Space Center Breadboard Project</em> (NASA/TM-2003-211184). NASA Kennedy Space Center.</li>
+        <li>Zabel, P., Zeidler, C., Vrakking, V., Dorn, M., &amp; Schubert, D. (2020). Biomass production of the EDEN ISS space greenhouse in Antarctica during the 2018 experiment phase. <em>Frontiers in Plant Science</em>, 11, 656. <a href="https://doi.org/10.3389/fpls.2020.00656" target="_blank" rel="noopener">doi:10.3389/fpls.2020.00656</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

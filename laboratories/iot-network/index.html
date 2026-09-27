@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IoT network designer · Future Food Production</title>
+<meta name="description" content="Place wireless sensor nodes on a farm by Lake Mälaren and compare Wi-Fi, BLE, Zigbee, LoRaWAN and NB-IoT: link budgets with walls and foliage, coverage heat maps, LoRa time on air and the 1 % duty cycle, battery life, and every message's path to the MQTT broker.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Dual-slope path loss, dB (Eq. N2): f GHz, d m, heights m */
+FFP_CALC.iotPL = function (v) { var c = 299792458, lam = c / (v.f * 1e9), db = Math.max(1, 4 * v.ht * v.hr / lam); var fs = function (d) { return 20 * Math.log10(4 * Math.PI * Math.max(d, 1) * v.f * 1e9 / c); }; return v.d <= db ? fs(v.d) : fs(db) + 10 * v.n * Math.log10(v.d / db); };
+/* Weissberger foliage loss, dB (Eq. N3) */
+FFP_CALC.iotFol = function (v) { var d = Math.min(400, v.d); if (d <= 0) return 0; return d <= 14 ? 0.45 * Math.pow(v.f, 0.284) * d : 1.33 * Math.pow(v.f, 0.284) * Math.pow(d, 0.588); };
+/* Okumura–Hata, suburban correction, dB (Eq. N4): f MHz, d km */
+FFP_CALC.iotHata = function (v) { var lf = Math.log10(v.f), a = (1.1 * lf - 0.7) * v.hm - (1.56 * lf - 0.8); var Lu = 69.55 + 26.16 * lf - 13.82 * Math.log10(v.hb) - a + (44.9 - 6.55 * Math.log10(v.hb)) * Math.log10(v.d); return Lu - 2 * Math.pow(Math.log10(v.f / 28), 2) - 5.4; };
+/* LoRa time on air, ms (Eq. N6) */
+FFP_CALC.iotToa = function (v) { var Ts = Math.pow(2, v.SF) / 125e3, DE = Ts >= 0.016 ? 1 : 0, PL = v.PL + 13; var n = 8 + Math.max(Math.ceil((8 * PL - 4 * v.SF + 28 + 16) / (4 * (v.SF - 2 * DE))) * 5, 0); return 1000 * (12.25 + n) * Ts; };
+/* Battery life, years (Eq. N8) */
+FFP_CALC.iotLife = function (v) { var I = (v.q + v.Isl / 1000 * Math.max(0, v.T - v.ta)) / v.T; return 0.8 * v.C / I / 8766; };
+/* Coverage probability, % (Eq. N1) */
+FFP_CALC.iotCov = function (v) { var x = v.M / v.s / Math.SQRT2, t = 1 / (1 + 0.3275911 * Math.abs(x)), y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); var erf = x >= 0 ? y : -y; return 50 * (1 + erf); };
+</script>
+<style>
+.iot-legend { left: auto !important; right: 12px; top: 56px; bottom: auto !important; max-width: 250px; }
+.iot-legend .sf-row { display: flex; gap: 3px; flex-wrap: wrap; }
+.iot-legend .sf-row span { padding: 1px 5px; border-radius: 4px; color: #10151a; font-weight: 600; }
+.iot-card { position: absolute; left: 12px; top: 56px; z-index: 5; display: none; width: 290px; max-width: calc(100% - 24px); background: rgba(10,16,14,.9); color: #e6eee9; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 10px 12px; font: 500 .74rem/1.4 var(--font-sans); backdrop-filter: blur(8px); }
+.iot-card-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .82rem; }
+.iot-card-h button { background: transparent; border: 0; color: #cfd8d3; cursor: pointer; font-size: .9rem; }
+.iot-card-s { font: 600 .74rem var(--font-mono); margin: 2px 0 6px; }
+.iot-card table { width: 100%; border-collapse: collapse; }
+.iot-card td { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,.08); vertical-align: top; }
+.iot-card td:last-child { text-align: right; font-family: var(--font-mono); white-space: nowrap; padding-left: 8px; }
+.tt { font: 500 .74rem/1.65 var(--font-mono); margin: 4px 0 0; white-space: pre-wrap; color: var(--ink-2); background: var(--bg-sunk); border-radius: 10px; padding: 10px 12px; max-height: 300px; overflow: auto; }
+.tt-root { color: var(--ink); font-weight: 600; }
+.tt-z { color: var(--accent); font-weight: 600; }
+.tt-leaf { border-radius: 4px; padding: 0 3px; transition: background .2s; background: color-mix(in srgb, var(--magenta) calc(var(--f, 0) * 45%), transparent); }
+.tt-leaf.hot { color: var(--ink); }
+.tt-last { margin-top: 8px; font-size: .78rem; }
+.tt-last code { display: block; margin-top: 3px; white-space: pre-wrap; word-break: break-all; }
+.tt-last .tt-pay { color: var(--accent); }
+.tt-lab { font: 600 .68rem var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.chart-note { font-size: .76rem; color: var(--muted); margin-top: 4px; line-height: 1.45; }
+.full-card { grid-column: 1 / -1; }
+.iot-u-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; margin: 8px 0 10px; }
+.iot-user textarea { width: 100%; min-height: 200px; font: .76rem/1.45 var(--font-mono); background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; resize: vertical; }
+.iot-u-ctl label { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: .8rem; color: var(--ink-2); margin-bottom: 7px; }
+.iot-u-ctl input { width: 84px; font: .8rem var(--font-mono); padding: 4px 6px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.iot-u-ctl .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.iot-user .ud-msg { font-size: .78rem; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+@media (max-width: 760px) { .iot-u-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .iot-card { width: 230px; font-size: .66rem; padding: 7px 9px; } .iot-legend { max-width: 170px; font-size: .64rem !important; } }
+</style>
+</head>
+<body data-page="lab" data-slug="iot-network">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>IoT network designer</h1>
+    <p class="lead">A mixed farm on the shore of Lake Mälaren needs data: soil moisture in the fields, climate in the greenhouse and barn, water level in the pasture trough, temperature and oxygen in the lake. Where should the sensors go, which radio should they use, and will their batteries last? Click to place sensor nodes on the map, move the gateway, and switch between Wi-Fi, Bluetooth Low Energy, Zigbee, LoRaWAN and NB-IoT. The laboratory computes every link budget through walls and trees, paints the coverage, respects the European 1 % duty cycle, predicts battery life — and follows each message from the node through gateway, network server and MQTT broker to the dashboard.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage tall" id="stage" aria-label="Map of the farm with sensor nodes, gateway, coverage heat map and animated packets"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Battery life versus reporting interval</h3>
+      <div class="chart-sub">Each technology with its own currents and timings (Eq. N8), for the battery, payload and board sleep current set on the right. Bands: LoRaWAN from SF7 to SF12, NB-IoT from normal (144 dB) to extreme (164 dB) coverage. LoRa curves stop where the 1 % duty cycle forbids the interval.</div>
+      <div class="chart tall" id="chart-life"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Link margin per node</h3>
+      <div class="chart-sub">Mean received power minus receiver sensitivity for every node you placed. Green: above the fade margin needed for the chosen reliability; amber: the link works on average but fades out; red: no link.</div>
+      <div class="chart tall" id="chart-margin"></div>
+    </div>
+    <div class="chart-card">
+      <h3>LoRa time on air and the airtime you may use</h3>
+      <div class="chart-sub">Time on air of one uplink at each spreading factor for your payload (Eq. N6); coloured bars are the SFs your nodes use. Bars above a line break the 1 % duty cycle or The Things Network's fair-use policy at your reporting interval.</div>
+      <div class="chart" id="chart-air"></div>
+      <div class="chart-note" id="air-note"></div>
+    </div>
+    <div class="chart-card">
+      <h3>The MQTT topic tree, live</h3>
+      <div class="chart-sub">Topics published for your nodes, following <em>site/area/point/subsystem/quantity</em> (Lesson 9.4). A topic lights up when its message reaches the broker. Payload values are simulated.</div>
+      <div id="topics"></div>
+    </div>
+    <div class="chart-card full-card iot-user" id="survey">
+      <h3>Fit the path-loss model to your own site survey</h3>
+      <div class="chart-sub">Carry a test node away from your gateway and note, at each spot, the distance and the received signal strength (RSSI) that the gateway reports. Paste the pairs below (distance in m, RSSI in dBm). The laboratory turns RSSI into path loss with the transmit power, antenna gains and cable loss you enter, fits L = L(d₀) + 10 n log₁₀(d/d₀) by least squares, and reports the path-loss exponent n and the shadowing σ (the scatter around the line). The example points were generated by this laboratory's model (LoRa, 6-m gateway, n = 3.8, σ = 6 dB); they are not measurements.</div>
+      <div class="iot-u-grid">
+        <textarea spellcheck="false" aria-label="Paste distance and RSSI columns"></textarea>
+        <div class="iot-u-ctl">
+          <label><span>Transmit power P<sub>tx</sub> (dBm)</span> <input type="number" data-k="ptx" value="13" step="any"></label>
+          <label>Node antenna gain (dBi) <input type="number" data-k="gn" value="2.15" step="any"></label>
+          <label>Gateway antenna gain (dBi) <input type="number" data-k="gg" value="3" step="any"></label>
+          <label>Cable loss (dB) <input type="number" data-k="lc" value="1" step="any"></label>
+          <label>Reference distance d₀ (m) <input type="number" data-k="d0" value="100" step="any"></label>
+          <div class="row"><button type="button" class="btn btn-sm btn-primary" data-act="fit">Fit</button><button type="button" class="btn btn-sm" data-act="use">Use n and σ in the model</button></div>
+          <div class="ud-msg" aria-live="polite"></div>
+        </div>
+      </div>
+      <div class="chart" id="chart-survey" style="height:280px"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <p>The map shows about 2.4 × 1.5 km of farmland: the farmyard with farmhouse, red barn, greenhouse, machine hall and grain silos; fields of winter wheat, oilseed rape, ley and potatoes; a pasture, spruce and mixed forest, hedgerows along the stream, and the lake shore. The gateway sits on the farmhouse roof, 6 m above the ground. Ten sensor nodes are already placed for a LoRaWAN field network; the one in the spruce forest is selected, and its link budget is shown on the map.</p>
+      <ol>
+        <li><strong>Follow a message.</strong> Every few seconds each node transmits: a ring expands from it (longer for slower spreading factors), a packet travels to the gateway, and then along the strip below the map — gateway, network server, MQTT broker, dashboard. The matching topic lights up in the MQTT tree. A red cross is a packet lost to fading.</li>
+        <li><strong>Read the heat map.</strong> It shows the mean link margin at every point for a node 1 m above the ground. Switch it to <em>LoRa SF</em>: rings of spreading factors spread out from the gateway, dented by the forest and the buildings. Click a node to open its link budget: distance, path loss, walls, foliage, sensitivity and margin.</li>
+        <li><strong>Raise the antenna.</strong> Move the gateway height from 6 to 20 m and watch the forest node (n10) drop from SF12 to a faster spreading factor. Near the ground the signal falls off with roughly the fourth power of distance beyond the "break point", and that point moves outwards in proportion to the antenna height (Eq. N2): the cheapest decibels are won with a taller mast.</li>
+        <li><strong>Change technology.</strong> Switch to Wi-Fi: coverage shrinks to the farmyard and nearby fields, and the battery-life chart shows why nobody runs a Wi-Fi field sensor on batteries. Switch to Zigbee with the mesh preset: nodes relay for each other (⚡ marks a mains-powered router). Switch to NB-IoT: the whole farm is covered from a base station kilometres away — you rent coverage instead of building it.</li>
+        <li><strong>Break the duty cycle.</strong> With LoRaWAN, set the reporting interval to 1 minute. Nodes on SF11–SF12 cannot legally send that often in the 868.0–868.6 MHz sub-band: their node cards report "duty-cycle limited", and in the airtime chart their bars rise above the 1 % line.</li>
+        <li><strong>Hide a sensor.</strong> Place a node inside the barn, the greenhouse or the concrete machine hall and compare the wall losses at 868 MHz and at 2.4 GHz.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Every wireless design is a sum of decibels. Transmit power and antenna gains add; distance, walls and leaves subtract; the receiver's sensitivity sets the floor; and a <em>fade margin</em> must be left over for the unpredictable. Physics then fixes the price: a link that must close over a longer or more obstructed path needs a lower data rate, hence a longer time on air, hence more energy per message — unless you move the gateway.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From sensor to dashboard</h2>
+      <p>A farm IoT system is a chain (Figure 1). A <strong>sensor node</strong> wakes up, measures, transmits a few bytes and sleeps again. A <strong>gateway</strong> — a Wi-Fi access point, a BLE scanner, a Zigbee coordinator, a LoRaWAN gateway, or for NB-IoT the mobile operator's base station — receives the radio packet and forwards it over the internet. A <strong>server</strong> layer decodes it: the LoRaWAN network server removes duplicates received by several gateways, checks the message integrity code and manages the data rates; for NB-IoT the operator's core network plays this role. The data then reach an <strong>MQTT broker</strong>, which routes each message by its topic to every subscriber: a database, a <strong>dashboard</strong>, an alarm service. The design of this chain is the subject of <a href="/lessons/iot-architectures/">Lesson 9.4</a>; this laboratory lets you size its first, most physical link.</p>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 860 190" role="img" aria-label="Data path from sensor node to dashboard for LoRaWAN">
+          <defs><marker id="iot-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+          <g class="t-small" text-anchor="middle">
+            <rect x="10" y="50" width="130" height="74" rx="10" class="fill-accent-soft" stroke="currentColor"/><text x="75" y="76" font-weight="600">sensor node</text><text x="75" y="93" class="t-muted">measure · send · sleep</text><text x="75" y="108" class="t-muted">battery</text>
+            <rect x="180" y="50" width="130" height="74" rx="10" class="fill-water-soft" stroke="currentColor"/><text x="245" y="76" font-weight="600">gateway</text><text x="245" y="93" class="t-muted">radio → IP</text><text x="245" y="108" class="t-muted">mains power, mast</text>
+            <rect x="350" y="50" width="150" height="74" rx="10" class="fill-bg" stroke="currentColor"/><text x="425" y="76" font-weight="600">network server</text><text x="425" y="93" class="t-muted">de-duplicate, decrypt,</text><text x="425" y="108" class="t-muted">adaptive data rate</text>
+            <rect x="540" y="50" width="140" height="74" rx="10" class="fill-magenta-soft" stroke="currentColor"/><text x="610" y="76" font-weight="600">MQTT broker</text><text x="610" y="93" class="t-muted">topics, QoS,</text><text x="610" y="108" class="t-muted">retained messages</text>
+            <rect x="720" y="50" width="130" height="74" rx="10" class="fill-amber-soft" stroke="currentColor"/><text x="785" y="76" font-weight="600">dashboard</text><text x="785" y="93" class="t-muted">database, alarms,</text><text x="785" y="108" class="t-muted">digital twin</text>
+          </g>
+          <g class="stroke" stroke-width="1.5"><line x1="140" y1="87" x2="178" y2="87" marker-end="url(#iot-a1)" stroke-dasharray="5 3"/><line x1="310" y1="87" x2="348" y2="87" marker-end="url(#iot-a1)"/><line x1="500" y1="87" x2="538" y2="87" marker-end="url(#iot-a1)"/><line x1="680" y1="87" x2="718" y2="87" marker-end="url(#iot-a1)"/></g>
+          <g class="t-small t-muted" text-anchor="middle"><text x="160" y="36">radio</text><text x="160" y="150">this lab's</text><text x="160" y="164">link budget</text><text x="329" y="36">internet</text><text x="519" y="36">MQTT</text><text x="699" y="36">subscribe</text></g>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The path of every message in the laboratory (LoRaWAN shown). The dashed first hop is the radio link whose physics this laboratory models; everything after the gateway is ordinary internet traffic.</figcaption>
+      </figure>
+
+      <h3>The link budget: adding decibels</h3>
+      <p>A radio link closes if the power arriving at the receiver exceeds its <strong>sensitivity</strong> — the weakest signal it can decode at a stated error rate. In decibels the calculation is an addition (Figure 2): the transmitter's power and both antenna gains add, the cable and all propagation losses subtract, and whatever remains above the sensitivity is the <strong>link margin</strong>. Because the real loss at a given place scatters around the model's prediction (shadowing by terrain, trees, vehicles, people, with a standard deviation σ of typically 4–12 dB), a design keeps a <strong>fade margin</strong> zσ in reserve: with σ = 6 dB, a 90 % chance of a working link needs 7.7 dB, and 99 % needs 14 dB.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 640 372" role="img" aria-label="Link budget as a staircase of decibels for a LoRa node at 1 km">
+          <line x1="60" y1="30" x2="60" y2="334" class="stroke-muted"/>
+          <g class="stroke-muted" stroke-width="0.6" stroke-dasharray="2 4"><line x1="60" y1="44" x2="620" y2="44"/><line x1="60" y1="84" x2="620" y2="84"/><line x1="60" y1="124" x2="620" y2="124"/><line x1="60" y1="164" x2="620" y2="164"/><line x1="60" y1="204" x2="620" y2="204"/><line x1="60" y1="244" x2="620" y2="244"/><line x1="60" y1="284" x2="620" y2="284"/><line x1="60" y1="324" x2="620" y2="324"/></g>
+          <g class="t-small t-muted" text-anchor="end"><text x="54" y="48">+20</text><text x="54" y="88">0</text><text x="54" y="128">−20</text><text x="54" y="168">−40</text><text x="54" y="208">−60</text><text x="54" y="248">−80</text><text x="54" y="288">−100</text><text x="54" y="328">−120</text></g>
+          <text x="18" y="180" transform="rotate(-90 18 180)" text-anchor="middle" class="t-small">power level (dBm)</text>
+          <rect x="74" y="58" width="54" height="26" class="fill-accent"/>
+          <rect x="138" y="47.7" width="54" height="10.3" class="fill-accent-soft" stroke="currentColor"/>
+          <rect x="202" y="47.7" width="54" height="2" class="fill-magenta"/>
+          <rect x="266" y="49.7" width="54" height="213.6" class="fill-magenta-soft" stroke="currentColor"/>
+          <rect x="330" y="263.3" width="54" height="17" class="fill-amber-soft" stroke="currentColor"/>
+          <g class="stroke-muted" stroke-width="1" stroke-dasharray="3 3"><line x1="128" y1="58" x2="138" y2="58"/><line x1="192" y1="47.7" x2="202" y2="47.7"/><line x1="256" y1="49.7" x2="266" y2="49.7"/><line x1="320" y1="263.3" x2="330" y2="263.3"/></g>
+          <g class="t-small" text-anchor="middle"><text x="101" y="350">P<tspan baseline-shift="sub" font-size="8">tx</tspan> +13</text><text x="165" y="350">gains +5.2</text><text x="229" y="350">cable −1</text><text x="293" y="350">path −106.7</text><text x="357" y="350">trees −8.5</text></g>
+          <line x1="384" y1="280.3" x2="600" y2="280.3" class="stroke-accent" stroke-width="2.2"/><text x="598" y="274" text-anchor="end" class="t-small">received power −98.0 dBm</text>
+          <line x1="384" y1="330" x2="600" y2="330" class="stroke-danger" stroke-width="1.8" stroke-dasharray="6 4"/><text x="598" y="346" text-anchor="end" class="t-small">sensitivity at SF7 −123 dBm</text>
+          <line x1="470" y1="283" x2="470" y2="327" class="stroke" stroke-width="1.4" marker-start="url(#iot-a2)" marker-end="url(#iot-a2)"/>
+          <text x="478" y="309" class="t-small" font-weight="600">link margin M ≈ 25 dB</text>
+          <defs><marker id="iot-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> The budget of a LoRa node 1 km from an 8-m gateway, behind a 25-m tree belt, drawn to scale: 13 dBm + 2.15 dBi + 3 dBi − 1 dB cable − 106.7 dB path loss (n = 3.5) − 8.5 dB foliage = −98.0 dBm, about 25 dB above the SF7 sensitivity (Eqs. N1–N3).</figcaption>
+      </figure>
+
+      <h3>Propagation near the ground</h3>
+      <p>In free space the received power falls with the square of distance (20 dB per decade). Near the ground, the wave reflected from the soil interferes with the direct wave. Beyond a <strong>break distance</strong> d<sub>b</sub> = 4h<sub>t</sub>h<sub>r</sub>/λ the two nearly cancel and the power falls with the fourth power of distance: 40 dB per decade over flat ground (Rappaport, 2002). Crops, hedges and gentle terrain give exponents between 3 and 4. The break distance grows with both antenna heights and shrinks with wavelength: for an 8-m gateway and a node at 1 m it is 93 m at 868 MHz but 260 m at 2.44 GHz, because the shorter wavelength keeps the reflected wave out of phase for longer. Low frequencies nevertheless win: their antennas collect more power (free-space loss grows by 20 dB per decade of frequency) and walls and leaves attenuate them less (Table 1). The exponent n and the shadowing σ are properties of your site, not constants of nature: a short walk with a test node gives both, and the site-survey tool below the charts fits them to your own RSSI readings.</p>
+      <table>
+        <caption>Table 1. Obstacle losses used by the model (3GPP TR 38.901 material formulas per wall crossing; Weissberger's foliage model).</caption>
+        <thead><tr><th>Obstacle</th><th>Formula (f in GHz)</th><th class="num">800 MHz (NB-IoT)</th><th class="num">868 MHz (LoRa)</th><th class="num">2.44 GHz (Wi-Fi, BLE, Zigbee)</th></tr></thead>
+        <tbody>
+          <tr><td>Glass wall (greenhouse)</td><td>2 + 0.2 f</td><td class="num">2.2 dB</td><td class="num">2.2 dB</td><td class="num">2.5 dB</td></tr>
+          <tr><td>Wooden wall (house, barn)</td><td>4.85 + 0.12 f</td><td class="num">4.9 dB</td><td class="num">5.0 dB</td><td class="num">5.1 dB</td></tr>
+          <tr><td>Concrete wall (machine hall, silo)</td><td>5 + 4 f</td><td class="num">8.2 dB</td><td class="num">8.5 dB</td><td class="num">14.7 dB</td></tr>
+          <tr><td>10 m of foliage</td><td>0.45 f<sup>0.284</sup> d</td><td class="num">4.2 dB</td><td class="num">4.3 dB</td><td class="num">5.8 dB</td></tr>
+          <tr><td>100 m of forest</td><td>1.33 f<sup>0.284</sup> d<sup>0.588</sup></td><td class="num">18.7 dB</td><td class="num">19.2 dB</td><td class="num">25.7 dB</td></tr>
+        </tbody>
+      </table>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"Higher frequencies are absorbed by the air." At these frequencies the atmosphere is practically transparent. A 2.4 GHz link loses more than an 868 MHz link over the same distance because a receiving antenna of the same gain has a smaller effective area at the shorter wavelength, and because walls, water and leaves absorb and scatter it more strongly (Friis, 1946; Weissberger, 1982).</p></div>
+
+      <h3>Fading: why a working link still loses packets</h3>
+      <p>Two kinds of variation sit on top of the mean path loss. <strong>Shadowing</strong> is slow and depends on the place: move the node a few metres and the loss changes by several decibels; it is described by a log-normal distribution and handled with the fade margin. <strong>Multipath fading</strong> is fast: reflections from the ground, buildings and moving leaves add with random phases, so the received power of each packet fluctuates. Without a line-of-sight component its envelope follows a Rayleigh distribution, and a packet is lost when the instantaneous power drops below the sensitivity. With a mean margin of 10 dB about 10 % of packets are lost; with 20 dB, 1 %. Retransmissions (Wi-Fi, Zigbee, NB-IoT) and sending on several channels (BLE advertising) turn this into near-certain delivery; an unconfirmed LoRaWAN uplink has no second chance.</p>
+
+      <h3>Five technologies side by side</h3>
+      <table>
+        <caption>Table 2. The technologies as modelled (payload 12 bytes, report every 15 min, 2.6 Ah cell, η = 0.8, 2 µA extra board current, 3 dBi gateway antenna with 1 dB cable loss). *Theoretical; self-discharge and cell ageing limit real battery life to about 10–20 years.</caption>
+        <thead><tr><th>Technology</th><th>Band</th><th>Transmit</th><th>Sensitivity</th><th class="num">Maximum path + obstacle loss</th><th class="num">Charge per message</th><th class="num">Battery life</th></tr></thead>
+        <tbody>
+          <tr><td>Wi-Fi (ESP32, 1 Mbit/s)</td><td>2.4 GHz</td><td>18 dBm, 2 dBi</td><td>−98 dBm</td><td class="num">120 dB</td><td class="num">247 mA·s</td><td class="num">0.8 years</td></tr>
+          <tr><td>BLE 1M (nRF52840)</td><td>2.4 GHz</td><td>8 dBm</td><td>−95 dBm</td><td class="num">105 dB</td><td class="num">2.5 mA·s</td><td class="num">&gt; 20 years*</td></tr>
+          <tr><td>BLE Coded 125 kbit/s</td><td>2.4 GHz</td><td>8 dBm</td><td>−103 dBm</td><td class="num">113 dB</td><td class="num">2.6 mA·s</td><td class="num">&gt; 20 years*</td></tr>
+          <tr><td>Zigbee (nRF52840)</td><td>2.4 GHz</td><td>8 dBm</td><td>−100 dBm</td><td class="num">110 dB</td><td class="num">2.6 mA·s</td><td class="num">&gt; 20 years*</td></tr>
+          <tr><td>LoRaWAN SF7 (SX1276)</td><td>868 MHz</td><td>13 dBm, 2.15 dBi</td><td>−123 dBm</td><td class="num">140 dB</td><td class="num">4.5 mA·s</td><td class="num">&gt; 20 years*</td></tr>
+          <tr><td>LoRaWAN SF12</td><td>868 MHz</td><td>13 dBm, 2.15 dBi</td><td>−136 dBm</td><td class="num">153 dB</td><td class="num">51 mA·s</td><td class="num">4.0 years</td></tr>
+          <tr><td>NB-IoT (normal → extreme coverage)</td><td>800 MHz</td><td>23 dBm</td><td>164 dB coupling loss</td><td class="num">164 dB</td><td class="num">24 → 395 mA·s</td><td class="num">7.1 → 0.5 years</td></tr>
+        </tbody>
+      </table>
+      <p>Three lessons stand out. First, <strong>Wi-Fi is a mains-power technology</strong> for sensors: one Wi-Fi report, dominated by associating with the access point, costs as much charge as about a hundred complete BLE or Zigbee reports. Second, <strong>range costs airtime</strong>: LoRa buys 13 dB of sensitivity from SF7 to SF12 with 24 times longer packets, and NB-IoT buys its extreme coverage with repetitions that multiply the energy per report roughly eighteen-fold. Third, at long reporting intervals the <strong>sleep current dominates</strong>: once the radio is efficient, a leaking regulator or a power LED decides the battery life (try an extra board current of 5000 µA).</p>
+
+      <h3>LoRa: spreading factors, adaptive data rate and the 1 % rule</h3>
+      <p>A LoRa symbol spreads SF bits over 2<sup>SF</sup> chips; every step up in SF doubles the time on air and gains on average about 2.5 dB of sensitivity (Semtech, 2015). A LoRaWAN network server runs <strong>adaptive data rate</strong> (ADR): it measures each device's signal-to-noise ratio and assigns the fastest spreading factor that still leaves an installation margin, so that nearby nodes use SF7 and save energy and airtime, and only distant or shadowed ones pay for SF12. In the licence-free 868.0–868.6 MHz sub-band, European rules limit each transmitter to a <strong>1 % duty cycle</strong> (ETSI EN 300 220-2, as summarised by The Things Network, n.d.): after a packet of time on air T<sub>air</sub>, it must stay silent for 99 T<sub>air</sub>. An SF12 node with a 12-byte payload may therefore report at most about every 2.5 minutes; The Things Network's fair-use policy (30 s of airtime per day) cuts this to 20 messages per day. Duty cycles and short payloads also keep collisions in the shared, ALOHA-type channel tolerable (Adelantado et al., 2017).</p>
+      <div class="callout note"><div class="callout-title">Design rules from the model</div><p>Put the gateway high and central; place nodes above the canopy where possible; keep payloads compact (binary integers, not JSON text); report as rarely as the agronomy allows and send several readings per message; measure your board's sleep current; and for a few scattered sites without your own infrastructure, compare the cost of an NB-IoT subscription with that of a gateway.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier — satellites and relays (as of 2026)</div><p>3GPP Release 17 added support for NB-IoT and LTE-M over satellite links ("IoT over non-terrestrial networks"), and direct-to-satellite IoT services are appearing for sites far beyond terrestrial coverage, typically with very low message rates. At the other end of the scale, LoRaWAN relay devices and Thread/Matter meshes extend networks into cellars, stables and cold stores. The link budget of this laboratory remains the tool for judging all of them.</p></div>
+      <p>After the broker, the data can be filtered (<a href="/laboratories/signal-processing/">Sampling, noise and filtering</a>) and screened for faults (<a href="/laboratories/sensor-anomaly/">Sensor anomaly detection</a>) before they drive a controller or a digital twin.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>Equation numbers N1–N9 are those of this laboratory; the corresponding lesson equations are (9.4.1)–(9.4.8) in <a href="/lessons/iot-architectures/">Lesson 9.4</a>.</p>
+
+      <div class="eq-box" id="iot-eq-budget">
+        <div class="eq-head"><span class="eq-label">Link budget, margin, fade margin and coverage probability</span><span class="eq-num">(N1)</span></div>
+        <div class="eq-main">\[ \begin{gathered} P_{\text{rx}} = P_{\text{tx}} + G_{n} + G_{g} - L_c - L_p(d) - L_w - L_v \\[6pt] M = P_{\text{rx}} - S, \qquad F = z_p\,\sigma, \qquad P_{\text{cov}} = \Phi\!\left(\frac{M}{\sigma}\right) \end{gathered} \]</div>
+        <p class="eq-read">the received power is the transmit power plus the node and gateway antenna gains minus cable, path, wall and vegetation losses; the margin is the received power minus the sensitivity; a link is called reliable when the margin exceeds the fade margin, z<sub>p</sub> standard deviations of the shadowing; and the probability that shadowing leaves the link working is the standard normal distribution function of the margin divided by σ.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>In the model</th></tr>
+          <tr><td>\(P_{\text{tx}}\), \(G_n\)</td><td>transmit power and node antenna gain</td><td>dBm, dBi</td><td>per technology (Table 2)</td></tr>
+          <tr><td>\(G_g\), \(L_c\)</td><td>gateway antenna gain and cable loss</td><td>dBi, dB</td><td>slider, 1 dB</td></tr>
+          <tr><td>\(L_p, L_w, L_v\)</td><td>path, wall and vegetation losses (Eqs. N2–N3)</td><td>dB</td><td></td></tr>
+          <tr><td>\(S\)</td><td>receiver sensitivity</td><td>dBm</td><td>data sheets</td></tr>
+          <tr><td>\(\sigma\), \(z_p\)</td><td>shadowing standard deviation; standard normal quantile for reliability p</td><td>dB, –</td><td>6 dB; 1.28 (90 %)</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the coverage probability</summary><ol class="steps">
+          <li>At a given distance the actual loss is the model's mean loss plus a shadowing term \(X \sim \mathcal{N}(0, \sigma^2)\) in dB.</li>
+          <li>The link works if \(M - X \ge 0\), i.e. \(X \le M\). For a normal variable, \(P(X \le M) = \Phi(M/\sigma)\).</li>
+          <li>Requiring this probability to be at least p gives \(M \ge \sigma\,\Phi^{-1}(p) = z_p\sigma = F\): the fade margin. With σ = 6 dB: F = 7.7 dB (90 %), 9.9 dB (95 %), 14.0 dB (99 %).</li>
+          <li>The laboratory also draws one shadowing value per node (the "realisation" in the node card); ADR, routing and the animation use this actual margin \(M - X\).</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Gains and losses in dB add only when each is defined along the same path. Antenna gains are the maximum gains; a node antenna lying in a metal enclosure or next to a wet plant can lose several decibels more. Shadowing is assumed independent between nodes.</p></details>
+        <div class="eq-units">dBm + dBi − dB = dBm ✓; dBm − dBm = dB ✓; \(M/\sigma\): dB/dB = dimensionless ✓</div>
+        <div class="mini-calc" data-fn="iotCov" data-output="Coverage probability" data-unit="%" data-digits="1" data-plot="M" data-ymin="0" data-ymax="100" data-title="Try it — how much margin buys how much reliability?">
+          <div data-var="M" data-label="Mean link margin M" data-min="-15" data-max="30" data-step="0.5" data-value="7.7" data-unit="dB"></div>
+          <div data-var="s" data-label="Shadowing σ" data-min="2" data-max="12" data-step="0.5" data-value="6" data-unit="dB"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="iot-eq-pathloss">
+        <div class="eq-head"><span class="eq-label">Dual-slope path loss near the ground</span><span class="eq-num">(N2)</span></div>
+        <div class="eq-main">\[ \begin{gathered} L_{\text{FS}}(d) = 20\log_{10}\frac{4\pi d f}{c}, \qquad d_b = \frac{4\,h_t h_r}{\lambda} \\[6pt] L_p(d) = \begin{cases} L_{\text{FS}}(d) & d \le d_b \\ L_{\text{FS}}(d_b) + 10\,n\log_{10}\dfrac{d}{d_b} & d > d_b \end{cases} \end{gathered} \]</div>
+        <p class="eq-read">up to the break distance the loss is that of free space; beyond it, the loss grows by ten times the path-loss exponent n per decade of distance. The break distance is four times the product of the antenna heights divided by the wavelength.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Here</th></tr>
+          <tr><td>\(d\)</td><td>distance between the antennas (including the height difference)</td><td>m</td><td></td></tr>
+          <tr><td>\(f\), \(\lambda = c/f\)</td><td>carrier frequency and wavelength</td><td>Hz, m</td><td>0.345 m at 868 MHz; 0.123 m at 2.437 GHz</td></tr>
+          <tr><td>\(h_t\), \(h_r\)</td><td>gateway and node antenna heights</td><td>m</td><td>8 m, 1 m</td></tr>
+          <tr><td>\(n\)</td><td>path-loss exponent beyond the break point</td><td>–</td><td>3.5</td></tr>
+        </table>
+        <details><summary>Follow the derivation (two-ray model)</summary><ol class="steps">
+          <li>Free space: the Friis equation \(P_r/P_t = G_tG_r(\lambda/4\pi d)^2\) gives \(L_{\text{FS}} = 20\log_{10}(4\pi d/\lambda)\) (Friis, 1946).</li>
+          <li>Over flat ground the receiver also gets a reflected wave that travels an extra path \(\Delta \approx 2h_th_r/d\) and is phase-inverted by the reflection (reflection coefficient ≈ −1 at grazing incidence).</li>
+          <li>The phase difference \(\phi = 2\pi\Delta/\lambda = 4\pi h_th_r/(\lambda d)\) falls below about 1 radian for \(d > 4\pi h_th_r/\lambda\); the two waves then nearly cancel, and the sum has amplitude \(\approx \phi\) times the direct wave. The received power becomes \(P_t G_t G_r h_t^2 h_r^2/d^4\): forty decibels per decade, independent of frequency (Rappaport, 2002).</li>
+          <li>The model uses the conventional break distance \(4h_th_r/\lambda\) and lets the exponent n beyond it be chosen: 4 for the ideal two-ray case, lower where the ground is rough and the reflected wave is weaker.</li>
+          <li>Example: \(h_t\) = 8 m, \(h_r\) = 1 m, 868 MHz: \(d_b = 32/0.345 = 93\) m and \(L_{\text{FS}}(93\ \text{m}) = 70.6\) dB; at 1 km with n = 3.5: \(70.6 + 35\log_{10}(1000/93) = 106.7\) dB.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Flat terrain without hills (the Mälaren plain is gently rolling); crops are assumed to be below the antennas (autumn). The model ignores diffraction over buildings and the first-Fresnel-zone clearance discussed in Lesson 9.4; it is a planning estimate to be checked with a site survey (a few test nodes and the gateway's RSSI and SNR logs).</p></details>
+        <div class="eq-units">\(4\pi d f/c\): m × s⁻¹/(m s⁻¹) = dimensionless ✓; \(h_th_r/\lambda\): m·m/m = m ✓</div>
+        <div class="mini-calc" data-fn="iotPL" data-output="Path loss L<sub>p</sub>" data-unit="dB" data-digits="1" data-plot="d" data-title="Try it — distance, frequency and antenna height">
+          <div data-var="d" data-label="Distance d" data-min="10" data-max="5000" data-value="1000" data-scale="log" data-unit="m"></div>
+          <div data-var="f" data-label="Frequency f" data-min="0.4" data-max="2.5" data-step="0.001" data-value="0.868" data-unit="GHz"></div>
+          <div data-var="ht" data-label="Gateway height h<sub>t</sub>" data-min="1" data-max="30" data-step="0.5" data-value="8" data-unit="m"></div>
+          <div data-var="hr" data-label="Node height h<sub>r</sub>" data-min="0.3" data-max="3" data-step="0.1" data-value="1" data-unit="m"></div>
+          <div data-var="n" data-label="Exponent n" data-min="2" data-max="4.5" data-step="0.05" data-value="3.5"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="iot-eq-obstacles">
+        <div class="eq-head"><span class="eq-label">Wall and foliage losses</span><span class="eq-num">(N3)</span></div>
+        <div class="eq-main">\[ \begin{gathered} L_w = \sum_{\text{crossings}} L_{\text{mat}}(f) \\[6pt] L_{\text{glass}} = 2 + 0.2f, \qquad L_{\text{wood}} = 4.85 + 0.12f, \qquad L_{\text{concrete}} = 5 + 4f \\[6pt] L_v = \begin{cases} 0.45\,f^{0.284}\,d_v & 0 < d_v \le 14\ \text{m} \\ 1.33\,f^{0.284}\,d_v^{0.588} & 14 < d_v \le 400\ \text{m} \end{cases} \end{gathered} \]</div>
+        <p class="eq-read">every time the path crosses a building wall it loses a material-dependent amount that grows linearly with frequency in gigahertz; the loss in trees and crops depends on the total depth of foliage along the path, linearly for short depths and with the 0.588 power beyond 14 m.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(f\)</td><td>frequency (in these formulas, in GHz)</td><td>GHz</td></tr>
+          <tr><td>\(L_{\text{mat}}\)</td><td>penetration loss of one wall of the material (3GPP TR 38.901, Table 7.4.3-1, as reproduced by Rappaport et al., 2017)</td><td>dB</td></tr>
+          <tr><td>\(d_v\)</td><td>total depth of foliage along the path: forests, hedgerows and the greenhouse crop</td><td>m</td></tr>
+        </table>
+        <details><summary>Where the formulas come from</summary><ol class="steps">
+          <li>The 3GPP material formulas are straight-line fits to many penetration-loss measurements from 0.5 to 100 GHz; the concrete wall's steep slope reflects the strong absorption of wet cement at higher frequencies.</li>
+          <li>Weissberger's modified exponential decay model (Weissberger, 1982) fits measured excess losses of paths through trees for frequencies between about 230 MHz and 95 GHz: foliage attenuation grows more slowly than linearly with depth because part of the energy travels around and over the trees.</li>
+          <li>Example: a node in the barn (one wooden wall) 400 m from the gateway, path through 30 m of hedgerow at 868 MHz: \(L_w = 4.95\) dB and \(L_v = 1.33\times0.868^{0.284}\times30^{0.588} = 9.4\) dB.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Walls are treated as single homogeneous layers; windows, doors, metal cladding, insulation foil (very high loss) and interior walls are not resolved. The greenhouse crop is counted as foliage. Weissberger's model was fitted to in-leaf trees; in winter, deciduous trees attenuate less.</p></details>
+        <div class="eq-units">empirical fits: \(f\) in GHz and \(d_v\) in m give losses in dB ✓</div>
+        <div class="mini-calc" data-fn="iotFol" data-output="Foliage loss L<sub>v</sub>" data-unit="dB" data-digits="1" data-plot="d" data-title="Try it — how much forest can a signal cross?">
+          <div data-var="f" data-label="Frequency f" data-min="0.4" data-max="5" data-step="0.001" data-value="0.868" data-unit="GHz"></div>
+          <div data-var="d" data-label="Foliage depth d<sub>v</sub>" data-min="1" data-max="400" data-step="1" data-value="30" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="iot-eq-hata">
+        <div class="eq-head"><span class="eq-label">NB-IoT: Okumura–Hata loss and coupling loss</span><span class="eq-num">(N4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} L_U = 69.55 + 26.16\log_{10}f - 13.82\log_{10}h_b - a(h_m) \\ \qquad + (44.9 - 6.55\log_{10}h_b)\log_{10}d \\[6pt] a(h_m) = (1.1\log_{10}f - 0.7)\,h_m - (1.56\log_{10}f - 0.8) \\[6pt] L_{\text{sub}} = L_U - 2\left[\log_{10}\frac{f}{28}\right]^2 - 5.4 \\[6pt] \text{CL} = L + L_w - G_{\text{bs}} - G_n, \qquad M = 164\ \text{dB} - \text{CL} \end{gathered} \]</div>
+        <p class="eq-read">the median macro-cell loss depends on the frequency in megahertz, the base-station and mobile heights in metres and the distance in kilometres; a correction removes some loss for suburban and open areas; the coupling loss subtracts both antenna gains and adds building penetration, and NB-IoT still connects if the coupling loss stays below its 164 dB design target.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Here</th></tr>
+          <tr><td>\(f\)</td><td>carrier frequency</td><td>MHz</td><td>800 (band 20)</td></tr>
+          <tr><td>\(h_b\), \(h_m\)</td><td>base-station and node antenna heights</td><td>m</td><td>30; ≥ 1</td></tr>
+          <tr><td>\(d\)</td><td>distance</td><td>km</td><td>1–20</td></tr>
+          <tr><td>\(G_{\text{bs}}\), \(G_n\)</td><td>base-station sector antenna and node antenna gains</td><td>dBi</td><td>15 (assumed), 0</td></tr>
+          <tr><td>\(\text{CL}\)</td><td>coupling loss between antenna connectors</td><td>dB</td><td>target ≤ 164 dB</td></tr>
+        </table>
+        <details><summary>Where it comes from</summary><p>Hata (1980) fitted closed-form expressions to Okumura's extensive measurements in and around Tokyo for 150–1500 MHz, base stations 30–200 m high, mobiles 1–10 m and distances 1–20 km. The urban formula is corrected for suburban and open areas; the laboratory offers all three. The 164 dB maximum coupling loss is the coverage target of the 3GPP study that defined NB-IoT (3GPP TR 45.820): 20 dB more than GPRS, achieved mainly by repeating transmissions many times.</p></details>
+        <details><summary>Assumptions and validity</summary><p>Terrain, the real mast position and the operator's network planning are not known; the Hata curve is a median, and the shadowing σ applies around it. The base station is placed in the north-east at the chosen distance; the farm is small compared with that distance, so coverage is almost uniform except inside buildings.</p></details>
+        <div class="eq-units">all terms in dB; \(f\), \(h\) and \(d\) enter only through logarithms of their numerical values in MHz, m and km (an empirical fit) ✓</div>
+        <div class="mini-calc" data-fn="iotHata" data-output="Hata loss (suburban)" data-unit="dB" data-digits="1" data-plot="d" data-title="Try it — distance to the base station">
+          <div data-var="d" data-label="Distance d" data-min="1" data-max="20" data-step="0.5" data-value="6" data-unit="km"></div>
+          <div data-var="f" data-label="Frequency f" data-min="700" data-max="1500" data-step="10" data-value="800" data-unit="MHz"></div>
+          <div data-var="hb" data-label="Base-station height h<sub>b</sub>" data-min="30" data-max="200" data-step="5" data-value="30" data-unit="m"></div>
+          <div data-var="hm" data-label="Node height h<sub>m</sub>" data-min="1" data-max="10" data-step="0.5" data-value="1" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="iot-eq-fading">
+        <div class="eq-head"><span class="eq-label">Packet success under Rayleigh fading</span><span class="eq-num">(N5)</span></div>
+        <div class="eq-main">\[ P_s = \exp\!\left(-10^{-M_a/10}\right), \qquad P_{s,k} = 1 - \left(1 - P_s\right)^{k} \]</div>
+        <p class="eq-read">with Rayleigh fading, a packet arrives if its instantaneous power stays above the sensitivity, which happens with probability e to the power of minus the inverse of the linear margin; with k independent attempts or channels, the message fails only if all fail.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(M_a\)</td><td>actual mean margin at the node (mean margin minus its shadowing)</td><td>dB</td></tr>
+          <tr><td>\(k\)</td><td>attempts: 4 for Wi-Fi, Zigbee, NB-IoT (3 retries); 3 advertising channels for BLE; 1 for an unconfirmed LoRaWAN uplink</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Many scattered waves with random phases add up to a complex Gaussian field; its power γ is exponentially distributed around the mean \(\bar\gamma\): \(p(\gamma) = e^{-\gamma/\bar\gamma}/\bar\gamma\).</li>
+          <li>The packet is lost if γ falls below the threshold \(\gamma_{\text{th}}\) (the sensitivity): \(P(\gamma < \gamma_{\text{th}}) = 1 - e^{-\gamma_{\text{th}}/\bar\gamma}\).</li>
+          <li>The ratio \(\bar\gamma/\gamma_{\text{th}}\) is the linear margin \(10^{M_a/10}\), so \(P_s = e^{-10^{-M_a/10}}\): 36.8 % at 0 dB, 90.5 % at 10 dB, 99.0 % at 20 dB.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Rayleigh fading is the pessimistic case without a dominant line-of-sight path; in open fields a strong direct component (Rician fading) makes losses rarer. Retries are assumed to fade independently, and collisions with other transmitters are not modelled.</p></details>
+        <div class="eq-units">\(M_a/10\): dB/dB → dimensionless; \(P_s\) is a probability ✓</div>
+        <div class="mini-calc" data-formula="100*exp(-pow(10,-M/10))" data-output="Packet success (one attempt)" data-unit="%" data-digits="1" data-plot="M" data-ymin="0" data-ymax="100" data-title="Try it — margin against fading">
+          <div data-var="M" data-label="Actual margin M<sub>a</sub>" data-min="-10" data-max="30" data-step="0.5" data-value="10" data-unit="dB"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="iot-eq-toa">
+        <div class="eq-head"><span class="eq-label">LoRa time on air</span><span class="eq-num">(N6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} T_{\text{sym}} = \frac{2^{SF}}{B}, \qquad T_{\text{air}} = \left(n_{\text{pre}} + 4.25 + n_{\text{pay}}\right)T_{\text{sym}} \\[6pt] n_{\text{pay}} = 8 + \max\!\left(\left\lceil\frac{8PL - 4SF + 28 + 16}{4\,(SF - 2DE)}\right\rceil(CR + 4),\ 0\right) \end{gathered} \]</div>
+        <p class="eq-read">a symbol lasts two to the power SF divided by the bandwidth; the payload needs eight symbols plus a whole number of coded blocks; the time on air is the preamble plus the payload symbols times the symbol duration.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Here</th></tr>
+          <tr><td>\(B\)</td><td>bandwidth</td><td>125 kHz</td></tr>
+          <tr><td>\(PL\)</td><td>PHY payload = application payload + 13 bytes of LoRaWAN overhead</td><td>bytes</td></tr>
+          <tr><td>\(DE\)</td><td>low-data-rate optimisation, 1 when \(T_{\text{sym}} \ge 16\) ms (SF11, SF12)</td><td>0 or 1</td></tr>
+          <tr><td>\(CR\), \(n_{\text{pre}}\)</td><td>coding rate 4/5 (CR = 1); 8 preamble symbols</td><td>1; 8</td></tr>
+        </table>
+        <details><summary>Worked numbers</summary><p>With a 12-byte payload (PL = 25): SF7 → \(n_{\text{pay}} = 48\), \(T_{\text{air}} = 60.25\times1.024 = 61.7\) ms; SF12 → \(n_{\text{pay}} = 33\), \(T_{\text{air}} = 45.25\times32.77 = 1482.8\) ms (Semtech, 2015; the same formula as Eq. 9.4.6 of the lesson).</p></details>
+        <div class="eq-units">chips/(chips s⁻¹) = s ✓; symbol counts are dimensionless ✓</div>
+        <div class="mini-calc" data-fn="iotToa" data-output="Time on air" data-unit="ms" data-digits="1" data-plot="SF" data-title="Try it — payload and spreading factor">
+          <div data-var="PL" data-label="Application payload" data-min="1" data-max="51" data-step="1" data-value="12" data-unit="bytes"></div>
+          <div data-var="SF" data-label="Spreading factor" data-min="7" data-max="12" data-step="1" data-value="9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="iot-eq-duty">
+        <div class="eq-head"><span class="eq-label">Duty cycle and fair use</span><span class="eq-num">(N7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} T_{\text{min}} = \frac{T_{\text{air}}}{\mathit{DC}}, \qquad T_{\text{eff}} = \max\left(T, T_{\text{min}}\right) \\[6pt] N_{\text{h}} = \frac{\mathit{DC}\times3600\ \text{s}}{T_{\text{air}}}, \qquad N_{\text{day,TTN}} = \frac{30\ \text{s}}{T_{\text{air}}} \end{gathered} \]</div>
+        <p class="eq-read">the shortest legal interval is the time on air divided by the duty-cycle limit; the number of messages per hour is the limit times one hour divided by the time on air; The Things Network allows 30 s of airtime per day; a node asked to report faster than allowed can only report every T<sub>min</sub>.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Here</th></tr>
+          <tr><td>\(\mathit{DC}\)</td><td>duty-cycle limit of the 868.0–868.6 MHz sub-band</td><td>–</td><td>0.01</td></tr>
+          <tr><td>\(T\), \(T_{\text{eff}}\)</td><td>requested and actual reporting interval</td><td>s</td><td></td></tr>
+        </table>
+        <details><summary>Worked numbers</summary><p>SF12, 12 bytes: \(T_{\text{min}} = 1.483/0.01 = 148\) s, \(N_h = 36/1.483 = 24\) per hour, \(N_{\text{day}} = 30/1.483 = 20\) per day. SF7: 6.2 s, 584 per hour, 486 per day.</p></details>
+        <div class="eq-units">s/1 = s ✓; (1 × s)/s = count ✓</div>
+        <div class="mini-calc" data-formula="36000/toa" data-output="Messages per hour at 1 %" data-unit="h⁻¹" data-digits="0" data-plot="toa" data-title="Try it — the 1 % rule">
+          <div data-var="toa" data-label="Time on air" data-min="20" data-max="2500" data-value="206" data-scale="log" data-unit="ms"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="iot-eq-battery">
+        <div class="eq-head"><span class="eq-label">Average current and battery life</span><span class="eq-num">(N8)</span></div>
+        <div class="eq-main">\[ \bar I = \frac{\sum_k I_k t_k + I_{\text{sl}}\left(T_{\text{eff}} - \sum_k t_k\right)}{T_{\text{eff}}}, \qquad L = \frac{\eta\,C}{\bar I} \]</div>
+        <p class="eq-read">the average current is the charge of all active phases plus the sleep current over the rest of the reporting interval, divided by the interval; the battery life is the usable capacity divided by the average current.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>In the model</th></tr>
+          <tr><td>\(I_k, t_k\)</td><td>current and duration of phase k (measure, transmit, receive/associate)</td><td>mA, s</td><td>Table 2; e.g. SX1276: 29 mA at +13 dBm, 10.3 mA receiving</td></tr>
+          <tr><td>\(I_{\text{sl}}\)</td><td>sleep current: radio/MCU sleep plus extra board current</td><td>mA</td><td>ESP32 10 µA; nRF52840 3.16 µA; SX1276 + MCU 1.2 µA; NB-IoT PSM 4.2 µA; + slider</td></tr>
+          <tr><td>\(C\), \(\eta\)</td><td>nominal capacity and usable fraction</td><td>mAh, –</td><td>2600 mAh, 0.8</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Charge per cycle \(Q = \int I\,\mathrm{d}t = \sum_k I_kt_k + I_{\text{sl}}t_{\text{sleep}}\) for piecewise-constant currents.</li>
+          <li>The average current is \(Q/T_{\text{eff}}\), and a battery holding \(\eta C\) lasts \(\eta C/\bar I\) (Lesson 9.4, Eq. 9.4.8).</li>
+          <li>For long intervals \(\bar I \to I_{\text{sl}}\): the life reaches a ceiling \(\eta C/I_{\text{sl}}\) no matter how efficient the radio is. For short intervals \(\bar I \approx Q_{\text{msg}}/T\): life is proportional to the interval — the straight parts of the battery-life chart.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Phase durations are data-sheet-based estimates: Wi-Fi 0.3 s transmitting and 1.7 s associating and listening (ESP32; as in Lesson 9.4); BLE three advertising packets; Zigbee a data frame, CSMA and a poll of the parent; LoRa two receive windows of eight symbols; every node 0.5 s at 5 mA (0.5 s at 40 mA for the ESP32) to measure. Battery self-discharge, temperature, pulse-current limits and regulator efficiency are not modelled.</p></details>
+        <div class="eq-units">(mA·s + mA·s)/s = mA ✓; mAh/mA = h ✓</div>
+        <div class="mini-calc" data-fn="iotLife" data-output="Battery life" data-unit="years" data-digits="2" data-plot="T" data-title="Try it — charge per message, sleep current and interval">
+          <div data-var="T" data-label="Reporting interval T" data-min="10" data-max="86400" data-value="900" data-scale="log" data-unit="s"></div>
+          <div data-var="q" data-label="Charge per message" data-min="1" data-max="400" data-value="4.5" data-scale="log" data-unit="mA·s"></div>
+          <div data-var="ta" data-label="Active time per message" data-min="0.1" data-max="5" data-step="0.05" data-value="0.6" data-unit="s"></div>
+          <div data-var="Isl" data-label="Sleep current" data-min="1" data-max="5000" data-value="3.2" data-scale="log" data-unit="µA"></div>
+          <div data-var="C" data-label="Battery capacity" data-min="200" data-max="20000" data-value="2600" data-scale="log" data-unit="mAh"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="iot-eq-nbenergy">
+        <div class="eq-head"><span class="eq-label">NB-IoT energy per report from the 3GPP evaluation</span><span class="eq-num">(N9)</span></div>
+        <div class="eq-main">\[ \begin{gathered} E_{\text{msg}}(\text{CL}) = \frac{E_{\text{bat}}/L_{\text{days}} - P_{\text{PSM}}\times 24\ \text{h}}{N_{\text{day}}} \\[6pt] \ln E(\text{CL}) \ \text{interpolated linearly between}\ 144,\ 154,\ 164\ \text{dB} \end{gathered} \]</div>
+        <p class="eq-read">the energy of one report is the battery energy used per day minus what the device uses asleep in power-saving mode, divided by the number of reports per day; between the three evaluated coupling losses, the logarithm of the energy is interpolated linearly.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Value (TR 45.820 evaluation)</th></tr>
+          <tr><td>\(E_{\text{bat}}\)</td><td>battery energy</td><td>5 Wh</td></tr>
+          <tr><td>\(P_{\text{PSM}}\)</td><td>power in power-saving mode</td><td>0.015 mW</td></tr>
+          <tr><td>\(N_{\text{day}}\)</td><td>50-byte reports per day</td><td>12 (every 2 h)</td></tr>
+          <tr><td>\(L\)</td><td>reported battery life at 144 / 154 / 164 dB</td><td>≈ 22 / 11.5 / 2.7 years</td></tr>
+          <tr><td>\(E_{\text{msg}}\)</td><td>derived energy per report</td><td>79 / 249 / 1413 mJ</td></tr>
+        </table>
+        <details><summary>Follow the calculation</summary><ol class="steps">
+          <li>At 144 dB: \(5000\ \text{mWh}/(22\times365.25\ \text{d}) = 0.622\) mWh per day; PSM uses \(0.015\times24 = 0.36\) mWh; the 12 reports share 0.262 mWh: 0.0219 mWh = 79 mJ each.</li>
+          <li>At 164 dB the same steps give 1413 mJ: eighteen times more, because the base station and the device repeat each transmission many times to gain 20 dB (3GPP TR 45.820 assumed 500 mW when transmitting and 80 mW when receiving).</li>
+          <li>Check: with 1413 mJ and one report per day the battery lasts \(5000/(0.36 + 0.3925) = 6645\) days ≈ 18 years, the published value for this case.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Real modules and networks differ: connection set-up, release timers and the operator's settings for power-saving mode and eDRX can change the energy per report several-fold (Lauridsen et al., 2018). The derived values are converted to charge at 3.6 V.</p></details>
+        <div class="eq-units">(mWh d⁻¹ − mW × h d⁻¹)/(d⁻¹) = mWh ✓ (1 mWh = 3.6 J)</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator; click nodes to read their link budgets. <em>Save investigation</em> copies the settings and readouts to your notebook.</p>
+      <ol class="task-list">
+        <li><h4>How high must the gateway be?</h4><p>With <em>Fields on LoRaWAN</em>, record the spreading factor of every node for gateway heights of 4, 8, 12 and 20 m. Explain the change with the break distance of Eq. N2. What is the median battery life at each height?</p></li>
+        <li><h4>Choose a technology for each zone</h4><p>For five places — the greenhouse, the barn, the far end of the ley, the pasture trough and the lake buoy — find which technologies give a reliable link with the gateway on the farmhouse, and the battery life of each at a 15-min interval. Summarise in a table and recommend one network (or a combination) for the farm. Justify it with numbers.</p></li>
+        <li><h4>The 1 % rule in practice</h4><p>With LoRaWAN, ADR and 12-byte payloads, reduce the reporting interval until the first node becomes duty-cycle limited. Which spreading factor does it use, and what is T<sub>min</sub> from Eq. N7? How would you fix the problem without changing the interval?</p></li>
+        <li><h4>Does the mesh pay off?</h4><p>Load the Zigbee mesh preset. How many nodes need relays, and how many hops does the farthest node take? Switch the mesh off: what fraction of nodes remains reliable? Discuss what "mains-powered routers" means for a greenhouse installation.</p></li>
+        <li><h4>Measure your own site</h4><p>With a LoRa or Wi-Fi test node and a gateway that reports RSSI, record the signal at 15–30 places between 20 m and the edge of coverage. Paste the data into the site-survey tool, fit n and σ, and use them in the model. How much does the predicted coverage of your farm or campus change compared with the default n = 3.8 and σ = 6 dB?</p></li>
+        <li><h4>What eats the battery?</h4><p>For a LoRa node at SF7 reporting every hour, find the battery life with an extra board current of 2 µA and of 500 µA. Compute the share of the charge that goes into sleep in each case with Eq. N8, and explain why "the board, not the radio" often decides.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-iot-network">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"What is the time on air of a 12-byte LoRaWAN uplink at SF9 and 125 kHz (Eq. N6)? Check it in the airtime chart.","answer":205.8,"tol":0.01,"unit":"ms","hint":"PL = 25 bytes, T_sym = 512/125 000 s, DE = 0.","explain":"<p>\\(n_{\\text{pay}} = 8 + \\lceil(200 - 36 + 44)/36\\rceil\\times5 = 8 + 6\\times5 = 38\\); \\(T_{\\text{air}} = (12.25 + 38)\\times4.096 = 205.8\\) ms.</p>"},
+          {"type":"numeric","q":"How many such SF9 uplinks may a node send per hour under the 1 % duty cycle?","answer":174.9,"tol":0.02,"unit":"h⁻¹","hint":"N = 0.01 × 3600 s / T_air.","explain":"<p>\\(36\\ \\text{s}/0.2058\\ \\text{s} = 174.9\\), i.e. at most about one message every 21 s.</p>"},
+          {"type":"numeric","q":"A gateway antenna is 8 m high and a node 1 m. What is the two-ray break distance at 868 MHz (Eq. N2)?","answer":92.6,"tol":0.02,"unit":"m","hint":"λ = c/f = 0.345 m.","explain":"<p>\\(d_b = 4\\times8\\times1/0.3454 = 92.6\\) m. Beyond it, the loss grows by 10n dB per decade instead of 20 dB.</p>"},
+          {"type":"mcq","q":"Switch between technologies with the same ten field nodes and a 15-min interval. Why does Wi-Fi give by far the shortest battery life?","options":["Its transmit current is the highest","Associating with the access point and listening keeps the radio on for about 2 s per report at around 100 mA","2.4 GHz signals are absorbed by the air","The ESP32 sleep current is higher than that of the other chips"],"answer":1,"feedback":["The 190 mA transmit current lasts only 0.3 s; it is not the main cost.","","The atmosphere hardly attenuates 2.4 GHz; distance and obstacles do.","10 µA versus 1–4 µA matters only at very long intervals; at 15 min the active phase dominates."],"explain":"<p>The Wi-Fi report costs about 247 mA·s, of which 170 mA·s is association and listening (Table 2), versus 2.6 mA·s for BLE or Zigbee and 4.5 mA·s for LoRa at SF7.</p>"},
+          {"type":"tf","q":"With σ = 6 dB, a node whose mean link margin equals the 90 % fade margin (7.7 dB) will deliver about 90 % of its packets.","answer":false,"explain":"<p>False. The fade margin protects against <em>shadowing</em>: it gives a 90 % chance that the link works at that place at all (Eq. N1). Packet losses come from fast fading on top of that (Eq. N5): with 7.7 dB actual margin a single LoRa uplink succeeds about 84 % of the time, while protocols with retries deliver almost all packets.</p>"},
+          {"type":"numeric","q":"Using Table 1, how much does one concrete wall attenuate a 2.437 GHz Wi-Fi signal?","answer":14.75,"tol":0.02,"unit":"dB","explain":"<p>\\(L = 5 + 4\\times2.437 = 14.75\\) dB, against 8.5 dB at 868 MHz — one reason sensors in stone or concrete buildings are easier to reach with sub-GHz radios.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>The farm, its buildings, fields and forests are invented but typical of the Mälaren valley; terrain is flat; crops are below the antennas (autumn).</li>
+        <li>Path loss: free space to the two-ray break distance, then a user-chosen exponent (Eq. N2); obstacles: 3GPP TR 38.901 material formulas per wall crossing and Weissberger's model for the summed foliage depth, including the greenhouse crop (Eq. N3). Diffraction, Fresnel-zone obstruction, interior walls and terrain are ignored.</li>
+        <li>NB-IoT: Okumura–Hata median loss (open, suburban or urban variant) to a 30-m base station in the north-east, a 15 dBi sector antenna (assumed), wall losses for indoor nodes, and the 164 dB coupling-loss target (Eq. N4). Energy per report is derived from the published TR 45.820 battery-life evaluation (Eq. N9).</li>
+        <li>Receiver sensitivities and currents are data-sheet values: ESP32 (Wi-Fi, 802.11b 1 Mbit/s), nRF52840 (BLE and 802.15.4), SX1276 (LoRa, 125 kHz). Phase durations and the 0.5-s measurement phase are illustrative estimates.</li>
+        <li>Shadowing is log-normal with σ; one realisation per node (and per node pair for mesh links) is drawn and can be redrawn. Fast fading is Rayleigh; retries and channel diversity are independent (Eq. N5). Collisions, interference and ADR dynamics over time are not simulated.</li>
+        <li>LoRaWAN: EU868, 125 kHz, coding rate 4/5, 13 bytes of overhead, 1 % duty cycle in the 868.0–868.6 MHz sub-band; the receive windows stay open for 8 symbols each; ADR chooses the lowest SF whose actual margin exceeds the fade margin.</li>
+        <li>Zigbee mesh: nodes that relay are assumed mains-powered; routes use reliable links only (breadth-first, fewest hops).</li>
+        <li>The animation is time-compressed; packet ripples are longer for longer times on air but not to scale. MQTT payload values are simulated.</li>
+      </ul>
+      <h2 data-nonum>Sources</h2>
+      <ol class="references">
+        <li>Semtech Corporation. (2015). <em>SX1276/77/78/79: 137 MHz to 1020 MHz low power long range transceiver</em> (Datasheet, Rev. 4). <a href="https://www.semtech.com/products/wireless-rf/lora-connect/sx1276" target="_blank" rel="noopener">semtech.com</a></li>
+        <li>Nordic Semiconductor. (n.d.). <em>nRF52840 product brief</em> (Version 2.3). <a href="https://www.nordicsemi.com/Products/nRF52840" target="_blank" rel="noopener">nordicsemi.com/Products/nRF52840</a></li>
+        <li>Espressif Systems. (2025). <em>ESP32 series datasheet</em> (Version 5.3). <a href="https://documentation.espressif.com/esp32_datasheet_en.pdf" target="_blank" rel="noopener">documentation.espressif.com/esp32_datasheet_en.pdf</a></li>
+        <li>The Things Network. (n.d.). <em>Duty cycle</em>. Retrieved September 2026, from <a href="https://www.thethingsnetwork.org/docs/lorawan/duty-cycle/" target="_blank" rel="noopener">thethingsnetwork.org/docs/lorawan/duty-cycle</a> (summarising ETSI EN 300 220-2 V3.2.1 sub-band limits and the TTN fair-use policy).</li>
+        <li>3GPP. (2015). <em>TR 45.820: Cellular system support for ultra-low complexity and low throughput Internet of Things (CIoT)</em> (Release 13). 3rd Generation Partnership Project.</li>
+        <li>3GPP. (2022). <em>TR 38.901: Study on channel model for frequencies from 0.5 to 100 GHz</em> (Release 17). 3rd Generation Partnership Project.</li>
+        <li>Hata, M. (1980). Empirical formula for propagation loss in land mobile radio services. <em>IEEE Transactions on Vehicular Technology</em>, 29(3), 317–325. <a href="https://doi.org/10.1109/T-VT.1980.23859" target="_blank" rel="noopener">doi:10.1109/T-VT.1980.23859</a></li>
+        <li>Weissberger, M. A. (1982). <em>An initial critical summary of models for predicting the attenuation of radio waves by trees</em> (Report ESD-TR-81-101). Electromagnetic Compatibility Analysis Center, Annapolis, MD.</li>
+      </ol>
+      <h2 data-nonum>Background and further reading</h2>
+      <ul>
+        <li>Rappaport, T. S., Xing, Y., MacCartney, G. R., Molisch, A. F., Mellios, E., &amp; Zhang, J. (2017). Overview of millimeter wave communications for fifth-generation (5G) wireless networks — with a focus on propagation models. <em>IEEE Transactions on Antennas and Propagation</em>, 65(12), 6213–6230. <a href="https://doi.org/10.1109/TAP.2017.2734243" target="_blank" rel="noopener">doi:10.1109/TAP.2017.2734243</a></li>
+        <li>Rappaport, T. S. (2002). <em>Wireless Communications: Principles and Practice</em> (2nd ed.). Prentice Hall.</li>
+        <li>Friis, H. T. (1946). A note on a simple transmission formula. <em>Proceedings of the IRE</em>, 34(5), 254–256. <a href="https://doi.org/10.1109/JRPROC.1946.234568" target="_blank" rel="noopener">doi:10.1109/JRPROC.1946.234568</a></li>
+        <li>Adelantado, F., Vilajosana, X., Tuset-Peiro, P., Martinez, B., Melià-Seguí, J., &amp; Watteyne, T. (2017). Understanding the limits of LoRaWAN. <em>IEEE Communications Magazine</em>, 55(9), 34–40. <a href="https://doi.org/10.1109/MCOM.2017.1600613" target="_blank" rel="noopener">doi:10.1109/MCOM.2017.1600613</a></li>
+        <li>Lauridsen, M., Krigslund, R., Rohr, M., &amp; Madueno, G. (2018). An empirical NB-IoT power consumption model for battery lifetime estimation. In <em>2018 IEEE 87th Vehicular Technology Conference (VTC Spring)</em> (pp. 1–5). IEEE. <a href="https://doi.org/10.1109/VTCSpring.2018.8417653" target="_blank" rel="noopener">doi:10.1109/VTCSpring.2018.8417653</a></li>
+        <li>Mekki, K., Bajic, E., Chaxel, F., &amp; Meyer, F. (2019). A comparative study of LPWAN technologies for large-scale IoT deployment. <em>ICT Express</em>, 5(1), 1–7. <a href="https://doi.org/10.1016/j.icte.2017.12.005" target="_blank" rel="noopener">doi:10.1016/j.icte.2017.12.005</a></li>
+        <li>Banks, A., Briggs, E., Borgendale, K., &amp; Gupta, R. (Eds.). (2019). <em>MQTT Version 5.0</em>. OASIS Standard. <a href="https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html" target="_blank" rel="noopener">docs.oasis-open.org/mqtt/mqtt/v5.0</a></li>
+      </ul>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

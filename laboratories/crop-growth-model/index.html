@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crop growth model · Future Food Production</title>
+<meta name="description" content="A daily light-use-efficiency model of lettuce: leaf area, light interception, radiation-use efficiency with light, CO₂ and temperature modifiers, fresh weight and relative growth rate — with a growing 2D tray, scenario comparison and RUE calibration against your own data.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live calculators for the Derive tab (same parameters as model.js; Van Henten 1994) */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  function P(I, C, T) {
+    var Iw = I / 4.57, G = 7.32e-5 * Math.pow(2, (T - 20) / 10), Ck = C * 1.83e-6;
+    if (Ck <= G) return 0;
+    var eps = 17e-9 * (Ck - G) / (Ck + 2 * G), sc = Math.max(1e-9, -1.32e-5 * T * T + 5.94e-4 * T - 2.64e-3);
+    var sig = 1 / (1 / 0.004 + 1 / 0.007 + 1 / sc), a = eps * Iw, b = sig * (Ck - G);
+    return a * b / (a + b);
+  }
+  FFP_CALC.cgRUE = function (v) { return v.I > 0 ? 0.68 * 0.8 * P(v.I, v.C, v.T) * 1000 / (v.I * 1e-6) : 0; };
+  FFP_CALC.cgSigma = function (v) { return Math.max(0, -1.32e-5 * v.T * v.T + 5.94e-4 * v.T - 2.64e-3) * 1000; };
+})();
+</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .cg-timeline { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: linear-gradient(180deg, rgba(10,16,14,0), rgba(10,16,14,.78)); }
+  .cg-timeline button { width: 34px; height: 30px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2); background: rgba(10,16,14,.6); color: #e6eee9; cursor: pointer; font-size: 13px; }
+  .cg-timeline input[type=range] { flex: 1; accent-color: #6fd39a; }
+  .cg-timeline span { font: 600 .78rem var(--font-mono); color: #e6eee9; min-width: 108px; text-align: right; }
+  #tray { position: absolute; inset: 0; }
+  .cg-data { grid-column: 1 / -1; }
+  .cg-data textarea { width: 100%; min-height: 150px; font: 500 .82rem var(--font-mono); padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-sunk); color: var(--ink); resize: vertical; }
+  .cg-data .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+  @media (max-width: 860px) { .cg-data .row { grid-template-columns: 1fr; } }
+  .cg-data .note { font-size: .82rem; color: var(--muted); margin: 8px 0; line-height: 1.5; }
+  table.cg-fit { font-size: .84rem; margin: 6px 0 10px; }
+  table.cg-fit th { text-align: left; font-weight: 600; padding-right: 14px; color: var(--ink-2); vertical-align: top; }
+</style>
+</head>
+<body data-page="lab" data-slug="crop-growth-model">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Crop growth model</h1>
+    <p class="lead">How much will a lettuce head weigh in three weeks, and what would an extra hour of light, 300 ppm more CO₂ or a wider spacing change? This laboratory runs the kind of model growers and researchers use to answer such questions: leaves intercept light, intercepted light becomes dry matter with a radiation-use efficiency that depends on light intensity, CO₂ and temperature, and dry matter becomes fresh weight. Watch a raft of butterhead lettuce grow day by day, compare two scenarios side by side, and calibrate the model against your own measurements.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage">
+        <canvas id="tray" aria-label="Top view of a raft of lettuce plants growing according to the model"></canvas>
+        <div class="cg-timeline"><button type="button" id="tl-play" aria-label="Play growth">▶</button><input type="range" id="tl-day" min="0" max="24" step="0.05" value="24" aria-label="Day after transplanting"><span id="tl-label">Day 24</span></div>
+      </div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Growth of one plant</h3>
+      <div class="chart-sub">Head fresh weight (left) and total dry weight (right axis) per plant. Scenario B is dashed; your measurements and the calibrated model appear here too.</div>
+      <div class="chart" id="chart-growth"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Leaf area and light interception</h3>
+      <div class="chart-sub">Leaf area index (left) and the fraction of light the canopy intercepts, f = 1 − e<sup>−k·LAI</sup> (right). Re-spacing makes LAI and f drop. Once f approaches 1, extra leaf area adds almost nothing.</div>
+      <div class="chart" id="chart-lai"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Relative growth rate</h3>
+      <div class="chart-sub">RGR = d(ln W)/dt: fast while the canopy is open and every new leaf adds interception, slower once light rather than leaf area limits growth and as maintenance respiration grows with plant size.</div>
+      <div class="chart" id="chart-rgr"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Intercepted light</h3>
+      <div class="chart-sub">Light intercepted per day (shaded) compared with the DLI above the crop, and the cumulative intercepted light (right axis). The gap between the two lines is light that falls on the raft and is wasted.</div>
+      <div class="chart" id="chart-light"></div>
+    </div>
+    <div class="chart-card">
+      <h3>The Monteith plot</h3>
+      <div class="chart-sub">Crop dry weight per m² against cumulative intercepted light. In Monteith’s theory this is a straight line whose slope is the radiation-use efficiency; the dashed line has the model’s RUE. Curvature shows maintenance respiration and changes of density.</div>
+      <div class="chart" id="chart-monteith"></div>
+    </div>
+    <div class="chart-card cg-data">
+      <h3>Compare with my data</h3>
+      <div class="chart-sub">Paste measurements (day after transplanting, fresh weight per plant in g; one row per plant or per mean; comma, tab or semicolon separated) or load the course grow log saved in this browser. <em>Calibrate RUE</em> fits the model to your data by least squares (Levenberg–Marquardt), with the other settings as they are — set them to your growing conditions first.</div>
+      <div class="row">
+        <div><textarea id="cg-data" spellcheck="false" aria-label="Your data: day and fresh weight"></textarea></div>
+        <div>
+          <div class="ctl-buttons">
+            <button type="button" class="btn btn-sm" id="cg-example">Load example</button>
+            <button type="button" class="btn btn-sm" id="cg-growlog">Load my grow log</button>
+            <select id="cg-trt" hidden aria-label="Treatment"></select>
+            <button type="button" class="btn btn-sm" id="cg-parse">Compare &amp; plot</button>
+            <button type="button" class="btn btn-sm btn-primary" id="cg-fit">Calibrate RUE</button>
+            <button type="button" class="btn btn-sm" id="cg-csv">Download model CSV</button>
+          </div>
+          <label style="display:flex;gap:8px;align-items:center;font-size:.84rem;margin:8px 0"><input type="checkbox" id="cg-fitfw0"> also fit the transplant fresh weight</label>
+          <div class="note" id="cg-note"></div>
+          <div id="cg-result"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Play the cycle.</strong> Press ▶ below the tray. The default reproduces the Cornell hydroponic lettuce system: seedlings are transplanted at 97 plants m⁻², re-spaced to 38 plants m⁻² after 10 days and harvested 24 days after transplanting at a daily light integral of 17 mol m⁻² d⁻¹. Watch the raft (the white foam) disappear under the leaves: the uncovered raft is light the crop does not use. Turn on <em>Show light reaching the raft</em> to see it in amber.</li>
+        <li><strong>Read the growth curve.</strong> Fresh weight rises almost exponentially at first and then more linearly. The RGR chart shows why: early growth is limited by leaf area (every new leaf intercepts more light), later growth by the light itself.</li>
+        <li><strong>Re-spacing.</strong> On day 10, LAI and interception drop abruptly when the plants are moved apart — the heads now have room, but some light is wasted again until the canopy closes. Switch re-spacing off and compare the yield per m² and the head weight.</li>
+        <li><strong>Compare two scenarios.</strong> Press <em>Store as scenario B</em>, then change one factor — for example CO₂ from 700 to 400 ppm, or the photoperiod from 16 to 20 h at the same DLI. The tray splits into A and B, and every chart shows B dashed.</li>
+        <li><strong>Calibrate.</strong> In <em>Compare with my data</em>, press <em>Load example</em> (simulated data from a hydroponic experiment) and <em>Calibrate RUE</em>. The model finds the radiation-use efficiency that best explains the data. Then do the same with your own grow log.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A crop grows in proportion to the light it <strong>intercepts</strong>, not the light it receives. Interception depends on leaf area (and so on plant size and spacing); the conversion of intercepted light to dry matter — the <strong>radiation-use efficiency</strong> — depends on light intensity, CO₂ and temperature. Nearly every decision in controlled-environment agriculture acts on one of these two terms.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Growth as light interception times efficiency</h2>
+      <p>In the 1970s John Monteith noticed that, across many crops and seasons in Britain, the dry matter produced by a healthy crop was closely proportional to the solar radiation its leaves had intercepted (Monteith, 1977). The slope of this relationship — grams of dry matter per unit of intercepted radiation — is the <strong>radiation-use efficiency</strong> (RUE). For C3 crops in the field it is about 1.4 g per MJ of intercepted solar radiation; on a PAR-photon basis roughly 0.6 g per mole of photons (Sinclair &amp; Muchow, 1999). The idea separates growth into two questions that are much easier than “how does a plant grow?”: <em>how much light does the crop intercept?</em> and <em>how efficiently does it use it?</em></p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 250" role="img" aria-label="Flow diagram of the light-use-efficiency model: light, leaf area and interception, RUE, dry matter, fresh weight">
+          <defs><marker id="cgA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <rect x="20" y="30" width="130" height="54" rx="10" class="fill-amber-soft stroke-amber" stroke-width="1.5"/><text x="85" y="54" text-anchor="middle" class="t-small">DLI above the crop</text><text x="85" y="72" text-anchor="middle" class="t-small t-muted">mol m⁻² d⁻¹</text>
+          <rect x="200" y="30" width="150" height="54" rx="10" class="fill-accent-soft stroke-accent" stroke-width="1.5"/><text x="275" y="54" text-anchor="middle" class="t-small">interception f</text><text x="275" y="72" text-anchor="middle" class="t-small t-muted">1 − exp(−k·LAI)</text>
+          <rect x="400" y="30" width="130" height="54" rx="10" class="fill-water-soft stroke-water" stroke-width="1.5"/><text x="465" y="54" text-anchor="middle" class="t-small">× RUE(I, CO₂, T)</text><text x="465" y="72" text-anchor="middle" class="t-small t-muted">g mol⁻¹</text>
+          <rect x="570" y="30" width="110" height="54" rx="10" class="fill-accent-soft stroke-accent" stroke-width="1.5"/><text x="625" y="54" text-anchor="middle" class="t-small">dry matter</text><text x="625" y="72" text-anchor="middle" class="t-small t-muted">− respiration</text>
+          <g class="stroke" stroke-width="1.6" style="color:currentColor"><line x1="150" y1="57" x2="196" y2="57" marker-end="url(#cgA)"/><line x1="350" y1="57" x2="396" y2="57" marker-end="url(#cgA)"/><line x1="530" y1="57" x2="566" y2="57" marker-end="url(#cgA)"/></g>
+          <rect x="400" y="160" width="140" height="54" rx="10" class="fill-accent-soft stroke-accent" stroke-width="1.5"/><text x="470" y="184" text-anchor="middle" class="t-small">leaf area = SLA × W</text><text x="470" y="202" text-anchor="middle" class="t-small t-muted">LAI = density × leaf area</text>
+          <rect x="570" y="160" width="110" height="54" rx="10" class="fill-magenta-soft stroke-magenta" stroke-width="1.5"/><text x="625" y="184" text-anchor="middle" class="t-small">fresh weight</text><text x="625" y="202" text-anchor="middle" class="t-small t-muted">W / DMC</text>
+          <g class="stroke-accent" stroke-width="1.6" style="color:var(--accent)"><path d="M625 84 L625 156" marker-end="url(#cgA)" fill="none"/><path d="M570 188 L544 188" marker-end="url(#cgA)" fill="none"/><path d="M400 188 C300 188 275 150 275 88" marker-end="url(#cgA)" fill="none"/></g>
+          <text x="250" y="140" class="t-small t-muted">feedback: more leaves intercept more light</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> Structure of the model. The feedback loop — dry matter makes leaf area, leaf area intercepts light, light makes dry matter — produces exponential growth while the canopy is open and roughly linear growth once it has closed.</figcaption>
+      </figure>
+      <h3>How much light does the crop intercept?</h3>
+      <p>Light passing down through a canopy is absorbed layer by layer, just like light passing through a solution. Monsi and Saeki (1953; English translation 2005) showed that the light below a canopy falls exponentially with the leaf area above it, so the fraction intercepted is f = 1 − exp(−k·LAI). The <strong>leaf area index</strong> LAI is the leaf area per unit ground area, and the <strong>extinction coefficient</strong> k describes the leaf angle: flat (planophile) leaves such as those of lettuce have k ≈ 0.9, upright grasses ≈ 0.3–0.5. With k = 0.9, a canopy intercepts 59 % of the light at LAI = 1, 84 % at LAI = 2 and 93 % at LAI = 3. In the model, leaf area is the shoot dry weight times the <strong>specific leaf area</strong> SLA, and LAI is the leaf area per plant times the plant density. Young transplants therefore waste most of the light — which is why high-density seedling stages and re-spacing are standard in commercial hydroponics.</p>
+      <h3>How efficiently is intercepted light used?</h3>
+      <p>RUE is not a constant. At low light, leaves use photons efficiently; as light increases they approach saturation and each extra photon adds less. Photorespiration lowers the efficiency, and more so at low CO₂ and high temperature; CO₂ enrichment suppresses it. The model takes these effects from the lettuce model of Van Henten (1994), whose canopy photosynthesis equation (after Acock et al., 1978, and Goudriaan et al., 1985) combines a light-use efficiency that depends on CO₂ and temperature with a CO₂ conductance that depends on temperature. Van Henten calibrated and validated it against lettuce grown in Dutch greenhouses. Expressed per mole of intercepted PAR, the equation gives an RUE of 0.90 g of dry matter per mole at 250 µmol m⁻² s⁻¹, 400 ppm and 20 °C; the model reports three modifiers relative to that reference: light intensity f<sub>I</sub>, CO₂ f<sub>C</sub> and temperature f<sub>T</sub>.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“Only the daily light integral matters.” The DLI sets how many photons arrive, but the photoperiod sets how intense they are. Spreading the same DLI over 20 instead of 16 hours lowers the PPFD by a fifth, and because leaves use low light more efficiently, the same photons make more dry matter. The gain shrinks at high CO₂ and has limits: very long photoperiods can cause leaf injury in some crops, and electricity is often cheaper at night.</p></div>
+      <h3>From dry weight to fresh weight</h3>
+      <p>Growers sell fresh weight, and lettuce is about 95 % water. Van Henten (1994) measured a fresh-to-dry ratio of 22.5 (a dry-matter content of 4.4 %) for the heads; Cornell growers report 150 g heads with nearly 7 g of dry matter, i.e. about 4.7 % (Brechner &amp; Both, 2013). The dry-matter content itself rises with light and falls with rapid growth in humid conditions, so a model that predicts dry weight well can still be 10–20 % off in fresh weight. The model also allocates 7 % of the dry matter to the roots, which are not sold.</p>
+      <h3>Temperature</h3>
+      <p>Temperature acts in two ways. Photosynthesis responds through the CO₂ compensation point (photorespiration rises with temperature) and through the carboxylation conductance, which in Van Henten's parameterisation is zero at 5 and 40 °C and highest near 22 °C. Maintenance respiration, which the plant pays on all its living dry matter day and night, doubles with every 10 °C (Q₁₀ = 2). Warm nights therefore cost dry matter without adding any — a reason to lower night temperatures. Cornell experiments in a floating system found the most dry mass at about 24 °C air temperature (Thompson et al., 1998).</p>
+      <h3>Relative growth rate</h3>
+      <p>The <strong>relative growth rate</strong>, RGR = (1/W)(dW/dt) = d ln W/dt, is the growth rate per gram of plant. It is the natural way to compare plants of different size (Hunt et al., 2002). An RGR of 0.2 d⁻¹ means that the plant gains 20 % of its weight per day and doubles in about 3.5 days. RGR declines as the canopy closes — the plant keeps building leaves, but they mostly shade each other.</p>
+      <div class="callout frontier"><div class="callout-title">Research frontier</div><p>Plant factories now reach light-use efficiencies far above those of greenhouses because every photon is expensive. Research in 2020–2026 has focused on dynamic lighting and CO₂ (matching intensity to electricity prices), far-red light to expand leaves early and speed up canopy closure, and machine-vision systems that measure projected leaf area daily and assimilate it into growth models like this one to predict harvest dates (Kozai, 2013, gives the resource-use-efficiency framework).</p></div>
+      <h3>What the model leaves out</h3>
+      <p>The model is a “big-leaf” description of the canopy: it has no individual leaves, no nitrogen or water limitation, no effect of spectrum or of root-zone temperature, and it treats the crop as uniform. It is deliberately simple enough to calibrate with a handful of fresh-weight measurements — which is exactly what the <em>Compare with my data</em> panel does.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>State variable: the total dry weight W of one plant (g). The model is integrated with a fourth-order Runge–Kutta scheme in quarter-day steps. Parameters are from Van Henten (1994) unless stated otherwise; symbols follow his notation where possible.</p>
+
+      <div class="eq-box" id="eq-cg-lai">
+        <div class="eq-head"><span class="eq-label">Leaf area and leaf area index</span><span class="eq-num">(G1)</span></div>
+        <div class="eq-main">\[ \text{LA} = \text{SLA}\,(1-\tau)\,W, \qquad \text{LAI} = \rho\,\text{LA} \]</div>
+        <p class="eq-read">The leaf area of a plant is its shoot dry weight times the specific leaf area; the leaf area index is the leaf area of all plants on one square metre of ground.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(W\)</td><td>total dry weight of one plant</td><td>kg (g in the display)</td><td></td></tr>
+          <tr><td>\(\tau\)</td><td>root fraction of dry weight</td><td>–</td><td>0.07 (NFT lettuce)</td></tr>
+          <tr><td>SLA</td><td>specific leaf area (Van Henten’s shoot leaf area ratio)</td><td>m² kg⁻¹</td><td>62.5</td></tr>
+          <tr><td>\(\rho\)</td><td>plant density</td><td>plants m⁻²</td><td>97 → 38</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>SLA is constant. Van Henten calibrated it so that the canopy intercepts the right amount of light; for a heading lettuce much of this leaf area sits inside the head, so the computed LAI late in the cycle (10 or more) is larger than the area of exposed leaves. Because interception saturates, this hardly affects growth — try halving SLA and see how little the harvest weight changes.</p></details>
+        <div class="eq-units">m² kg⁻¹ × kg = m² per plant; × plants m⁻² → m² m⁻² ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-cg-interception">
+        <div class="eq-head"><span class="eq-label">Light interception (Beer–Lambert, Monsi–Saeki)</span><span class="eq-num">(G2)</span></div>
+        <div class="eq-main">\[ f = 1 - e^{-k\,\text{LAI}} \]</div>
+        <p class="eq-read">The fraction of light intercepted by the canopy rises exponentially towards one as leaf area index increases; k sets how quickly.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr><tr><td>\(f\)</td><td>fraction of the incident PAR intercepted</td><td>–</td><td></td></tr><tr><td>\(k\)</td><td>extinction coefficient (0.9 for planophile lettuce; Goudriaan &amp; Monteith, 1990)</td><td>–</td><td>0.9</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Think of the canopy as thin horizontal layers, each with leaf area dL per m² of ground. Each layer intercepts the fraction k dL of the light reaching it: dI = −k I dL.</li><li>Integrating from the top (L = 0, I = I₀) to the bottom (L = LAI): I = I₀ e<sup>−k LAI</sup>.</li><li>The intercepted fraction is (I₀ − I)/I₀ = 1 − e<sup>−k LAI</sup>. For small LAI it is ≈ k·LAI: every new leaf counts fully.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>A horizontally uniform canopy. Young, widely spaced plants form clumps, which in reality intercept somewhat less than the formula says. The tray view uses f/ρ as the projected area of each plant.</p></details>
+        <div class="eq-units">k·LAI is dimensionless, so f is a fraction ✓</div>
+        <div class="mini-calc" data-formula="1-exp(-k*lai)" data-output="Intercepted fraction f" data-digits="3" data-plot="lai">
+          <div data-var="lai" data-label="LAI" data-min="0" data-max="6" data-step="0.05" data-value="2" data-unit="m² m⁻²"></div>
+          <div data-var="k" data-label="k" data-min="0.3" data-max="1" data-step="0.01" data-value="0.9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cg-growth">
+        <div class="eq-head"><span class="eq-label">Daily dry-matter growth (Monteith)</span><span class="eq-num">(G3)</span></div>
+        <div class="eq-main">\[ \rho\,\frac{\mathrm{d}W}{\mathrm{d}t} = \text{RUE}(I, C, T)\cdot\text{DLI}\cdot f \;-\; R_m \]</div>
+        <p class="eq-read">The dry matter gained per square metre per day is the light intercepted by the canopy times the radiation-use efficiency, minus the dry matter used by maintenance respiration.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>DLI</td><td>daily light integral above the crop</td><td>mol m⁻² d⁻¹</td></tr><tr><td>RUE</td><td>g dry matter per mol intercepted PAR (Eq. G4)</td><td>g mol⁻¹</td></tr><tr><td>\(R_m\)</td><td>maintenance respiration of the crop (Eq. G5)</td><td>g m⁻² d⁻¹</td></tr><tr><td>\(I\)</td><td>PPFD during the photoperiod, DLI·10⁶/(3600·h)</td><td>µmol m⁻² s⁻¹</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Photons intercepted per day and m²: f·DLI.</li><li>Each mole of intercepted photons yields RUE grams of dry matter (growth respiration is already included in RUE through the yield factor c<sub>β</sub> = 0.8).</li><li>Subtract maintenance respiration and divide by the density to obtain the growth of one plant.</li><li>Worked example (default scenario, day 16): W = 4.12 g, ρ = 38 m⁻², LAI = 9.1, so f ≈ 1.00; RUE = 1.10 g mol⁻¹ at 295 µmol m⁻² s⁻¹, 700 ppm and 24 °C. Gross growth 1.10 × 17 × 1.00 = 18.7 g m⁻² d⁻¹; maintenance respiration 3.0 g m⁻² d⁻¹; per plant (18.7 − 3.0)/38 = 0.41 g d⁻¹ (RGR ≈ 0.095 d⁻¹). The head gains 0.41 × 0.93/0.044 ≈ 9 g of fresh weight per day — the model goes from 87 g on day 16 to 96 g on day 17.</li></ol></details>
+        <div class="eq-units">g mol⁻¹ × mol m⁻² d⁻¹ × (–) = g m⁻² d⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-cg-rue">
+        <div class="eq-head"><span class="eq-label">Radiation-use efficiency from canopy photosynthesis</span><span class="eq-num">(G4)</span></div>
+        <div class="eq-main">\[ \text{RUE} = c_\alpha c_\beta\,\frac{P(I,C,T)}{I}, \qquad P = \frac{\varepsilon I\;\sigma\,(C-\Gamma)}{\varepsilon I + \sigma\,(C-\Gamma)}, \qquad \varepsilon = c_\varepsilon\,\frac{C-\Gamma}{C+2\Gamma}, \qquad \frac{1}{\sigma} = \frac{1}{g_{bnd}} + \frac{1}{g_{stm}} + \frac{1}{\sigma_{car}(T)} \]</div>
+        <p class="eq-read">Canopy photosynthesis is a rectangular hyperbola: proportional to light at low light (slope ε, reduced by photorespiration), and limited by CO₂ supply through three conductances in series at high light. Dividing by the light gives the efficiency per photon; c<sub>α</sub> converts CO₂ to sugar and c<sub>β</sub> sugar to dry matter.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Value (Van Henten 1994)</th></tr>
+          <tr><td>\(c_\alpha,\ c_\beta\)</td><td>CO₂→CH₂O (30/44); yield factor for growth</td><td>0.68; 0.8</td></tr>
+          <tr><td>\(c_\varepsilon\)</td><td>light-use efficiency without photorespiration</td><td>17 × 10⁻⁹ kg CO₂ J⁻¹</td></tr>
+          <tr><td>\(\Gamma\)</td><td>CO₂ compensation point, 40 ppm at 20 °C, Q₁₀ = 2</td><td>7.32 × 10⁻⁵ kg m⁻³</td></tr>
+          <tr><td>\(g_{bnd},\ g_{stm}\)</td><td>boundary-layer and stomatal conductance for CO₂</td><td>0.004; 0.007 m s⁻¹</td></tr>
+          <tr><td>\(\sigma_{car}(T)\)</td><td>carboxylation conductance, −1.32×10⁻⁵T² + 5.94×10⁻⁴T − 2.64×10⁻³</td><td>m s⁻¹</td></tr>
+          <tr><td>\(I\)</td><td>PAR (4.57 µmol J⁻¹)</td><td>W m⁻²</td></tr>
+        </table>
+        <details><summary>Modifiers and calibration</summary><ol class="steps"><li>At 250 µmol m⁻² s⁻¹, 400 ppm and 20 °C the equation gives RUE<sub>ref</sub> = 0.90 g mol⁻¹. The laboratory writes RUE = RUE<sub>ref</sub>·RUE<sub>VH</sub>(I, C, T)/RUE<sub>VH</sub>(ref), so the slider “RUE at the reference conditions” scales the whole response while keeping its shape.</li><li>The readouts split the ratio into a light modifier f<sub>I</sub> (at 400 ppm, 20 °C), a CO₂ modifier f<sub>C</sub> (at the current light, 20 °C) and a temperature modifier f<sub>T</sub>.</li><li>Examples: doubling PPFD from 250 to 500 µmol m⁻² s⁻¹ lowers RUE by about 30 %; raising CO₂ from 400 to 1000 ppm raises it by about half at 250 µmol m⁻² s⁻¹.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Photosynthesis is evaluated at the mean PPFD of the photoperiod, which is exact for constant LED light and an approximation for daylight. The CO₂ response is that of Van Henten's greenhouse calibration; at 1000 ppm and above it may overestimate growth, and many crops acclimate to high CO₂.</p></details>
+        <div class="eq-units">(kg CO₂ m⁻² s⁻¹)/(mol photons m⁻² s⁻¹) × 0.544 kg DM (kg CO₂)⁻¹ = kg mol⁻¹ → × 1000 = g mol⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="cgRUE" data-output="RUE" data-unit="g mol⁻¹" data-digits="2" data-plot="I">
+          <div data-var="I" data-label="PPFD" data-min="20" data-max="1000" data-step="5" data-value="295" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="C" data-label="CO₂" data-min="200" data-max="1500" data-step="10" data-value="700" data-unit="ppm"></div>
+          <div data-var="T" data-label="Temperature" data-min="6" data-max="38" data-step="0.5" data-value="24" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cg-temperature">
+        <div class="eq-head"><span class="eq-label">Temperature responses and maintenance respiration</span><span class="eq-num">(G5)</span></div>
+        <div class="eq-main">\[ \Gamma(T) = \Gamma_{20}\,2^{(T-20)/10}, \qquad R_m = c_\beta\left[c_{r,s}(1-\tau) + c_{r,r}\tau\right] \rho W \sum_{\text{day, night}} t_i\,2^{(T_i-25)/10} \]</div>
+        <p class="eq-read">The CO₂ compensation point doubles with every 10 °C. Maintenance respiration is proportional to the living dry matter and doubles with every 10 °C; it runs for the photoperiod at the day temperature and for the rest of the day at the night temperature.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Value</th></tr><tr><td>\(c_{r,s},\ c_{r,r}\)</td><td>maintenance respiration of shoot and root at 25 °C (0.03 and 0.01 d⁻¹; Van Keulen et al. 1982, via Van Henten)</td><td>3.47 × 10⁻⁷, 1.16 × 10⁻⁷ s⁻¹</td></tr><tr><td>\(t_i\)</td><td>duration of the photoperiod and of the dark period</td><td>s</td></tr></table>
+        <details><summary>A number to remember</summary><p>At 25 °C the crop respires c<sub>β</sub>·(3.47 × 0.93 + 1.16 × 0.07) × 10⁻⁷ × 86 400 ≈ 0.023 of its dry weight per day; at 18 °C about 0.014 d⁻¹. For a 38-plant m⁻² crop of 4 g plants (150 g m⁻²) that is 2–3.5 g m⁻² d⁻¹ — about 15 % of the gross growth at harvest.</p></details>
+        <div class="eq-units">s⁻¹ × g m⁻² × s = g m⁻² (per day) ✓</div>
+        <div class="mini-calc" data-fn="cgSigma" data-output="Carboxylation conductance σ<sub>car</sub>" data-unit="mm s⁻¹" data-digits="2" data-plot="T">
+          <div data-var="T" data-label="Temperature" data-min="0" data-max="45" data-step="0.5" data-value="22" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cg-fw">
+        <div class="eq-head"><span class="eq-label">Fresh weight of the head</span><span class="eq-num">(G6)</span></div>
+        <div class="eq-main">\[ \text{FW} = \frac{(1-\tau)\,W}{\text{DMC}} \]</div>
+        <p class="eq-read">The saleable fresh weight is the shoot dry weight divided by the dry-matter content of the head.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr><tr><td>DMC</td><td>dry-matter content (dry/fresh weight)</td><td>–</td><td>1/22.5 = 4.4 %</td></tr></table>
+        <div class="eq-units">g / (g g⁻¹) = g ✓</div>
+        <div class="mini-calc" data-formula="w*(1-0.07)/(dmc/100)" data-output="Head fresh weight" data-unit="g" data-digits="0" data-plot="dmc">
+          <div data-var="w" data-label="Total dry weight W" data-min="0.1" data-max="15" data-step="0.1" data-value="7.5" data-unit="g"></div>
+          <div data-var="dmc" data-label="Dry-matter content" data-min="3" data-max="8" data-step="0.1" data-value="4.4" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cg-rgr">
+        <div class="eq-head"><span class="eq-label">Relative growth rate and doubling time</span><span class="eq-num">(G7)</span></div>
+        <div class="eq-main">\[ \text{RGR} = \frac{1}{W}\frac{\mathrm{d}W}{\mathrm{d}t} = \frac{\mathrm{d}\ln W}{\mathrm{d}t} \approx \frac{\ln W_2 - \ln W_1}{t_2 - t_1}, \qquad t_{2\times} = \frac{\ln 2}{\text{RGR}} \]</div>
+        <p class="eq-read">RGR is the growth per unit of existing plant; between two harvests it is the difference of the natural logarithms of weight divided by the time between them.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>RGR</td><td>relative growth rate</td><td>d⁻¹</td></tr><tr><td>\(t_{2\times}\)</td><td>doubling time</td><td>d</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>If RGR is constant, dW/W = RGR dt integrates to ln W₂ − ln W₁ = RGR(t₂ − t₁): exponential growth.</li><li>Doubling: ln 2 = RGR·t<sub>2×</sub>.</li><li>The log-difference formula gives the mean RGR over an interval even when RGR changes; that is how it is computed from harvests (Hunt et al., 2002) and how the chart computes it day by day.</li></ol></details>
+        <div class="eq-units">ln is dimensionless → d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="(log(w2)-log(w1))/dt" data-output="Mean RGR" data-unit="d⁻¹" data-digits="3" data-plot="w2">
+          <div data-var="w1" data-label="Weight at the first harvest" data-min="0.5" data-max="100" data-step="0.5" data-value="10" data-unit="g"></div>
+          <div data-var="w2" data-label="Weight at the second harvest" data-min="1" data-max="300" data-step="1" data-value="40" data-unit="g"></div>
+          <div data-var="dt" data-label="Days between harvests" data-min="1" data-max="21" data-step="1" data-value="7" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cg-calibration">
+        <div class="eq-head"><span class="eq-label">Calibration by least squares</span><span class="eq-num">(G8)</span></div>
+        <div class="eq-main">\[ \widehat{\text{RUE}} = \arg\min_{\text{RUE}} \sum_{i=1}^{n}\left[\text{FW}_{\text{obs},i} - \text{FW}_{\text{model}}(t_i;\ \text{RUE})\right]^2, \qquad \text{SE} = \sqrt{s^2\,\big(J^{\mathsf T}J\big)^{-1}} \]</div>
+        <p class="eq-read">The calibrated RUE is the value that minimises the sum of squared differences between observed and modelled fresh weights; its standard error follows from the scatter of the residuals and the sensitivity of the model to RUE.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(t_i,\ \text{FW}_{\text{obs},i}\)</td><td>day and fresh weight of observation i</td><td>d, g</td></tr><tr><td>\(s^2\)</td><td>residual variance, SSE/(n − p)</td><td>g²</td></tr><tr><td>\(J\)</td><td>Jacobian: ∂FW<sub>model</sub>/∂RUE at each t<sub>i</sub></td><td>g mol g⁻¹</td></tr></table>
+        <details><summary>How it is done</summary><ol class="steps"><li>The model is non-linear in RUE (because more growth makes more leaf area), so the minimum is found iteratively with the Levenberg–Marquardt algorithm, starting from the current slider value.</li><li>The Jacobian is computed numerically by running the model twice with slightly different RUE.</li><li>Optionally the transplant fresh weight is fitted as a second parameter, which is useful if you did not weigh the transplants.</li><li>Individual plants are used as observations (not means), so the standard error reflects plant-to-plant variation. Repeated weighing of the same plants makes the observations dependent; the SE is then too small.</li></ol></details>
+        <div class="eq-units">SSE in g²; SE of RUE in g mol⁻¹ ✓</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator and the charts. Tick each task when you are done; <em>Save investigation</em> copies your settings and results into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Same light, different photoperiod</h4><p>With the default settings, record the harvest fresh weight for photoperiods of 12, 16, 20 and 24 h at DLI 17 mol m⁻² d⁻¹. Explain the trend with the RUE readout and Eq. G4. Repeat at 400 and 1000 ppm CO₂: when is a long photoperiod most worthwhile?</p></li>
+        <li><h4>Spacing, re-spacing and yield</h4><p>Switch re-spacing off. Find the constant density that maximises the yield per m² per cycle while still producing heads of at least 150 g in 24 days. Compare with the Cornell strategy (97 → 38 m⁻²). Use the intercepted-light chart to explain why re-spacing raises the productivity of the growing area.</p></li>
+        <li><h4>What is CO₂ worth?</h4><p>Store the default as B, then lower CO₂ to 400 ppm. By how many days does the time to a 150 g head change? Repeat at a DLI of 8 and 25 mol m⁻² d⁻¹. At which light level does CO₂ enrichment pay off most in relative terms, and why (look at f<sub>C</sub>)?</p></li>
+        <li><h4>Warm nights</h4><p>Keep the day temperature at 24 °C and vary the night temperature from 12 to 26 °C. How much fresh weight does each degree of night warming cost at harvest? Which equation is responsible? Then find the day temperature that maximises growth at night 18 °C and explain the optimum with f<sub>T</sub>.</p></li>
+        <li><h4>Calibrate the model with data</h4><p>Load the example data, calibrate RUE, and report the estimate with its standard error, R² and RMSE. Then calibrate with <em>also fit the transplant fresh weight</em>. Does the RUE estimate change? Finally load your own grow log, set the model to your conditions (DLI from your PPFD and photoperiod, temperature, density) and calibrate. Discuss three reasons why your RUE differs from Van Henten's 0.90 g mol⁻¹.</p></li>
+        <li><h4>Is RUE really constant?</h4><p>In the Monteith plot, compare the model line with the dashed straight line of constant RUE. When and why do they diverge? Set maintenance respiration off and repeat. What would you need to measure in your own experiment to draw this plot with real data?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-crop-growth-model">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A lettuce canopy has LAI = 2 and an extinction coefficient k = 0.9. What fraction of the incident light does it intercept?","answer":0.835,"tol":0.01,"hint":"f = 1 − exp(−k·LAI).","explain":"<p>\\(f = 1 - e^{-0.9\\times2} = 1 - 0.165 = 0.835\\): 83.5 %.</p>"},
+          {"type":"numeric","q":"A lamp system delivers a DLI of 17 mol m⁻² d⁻¹ in a 16 h photoperiod. What is the PPFD during the photoperiod?","answer":295.1,"tol":0.01,"unit":"µmol m⁻² s⁻¹","hint":"PPFD = DLI × 10⁶ / (3600 × hours).","explain":"<p>\\(17\\times10^6/(3600\\times16) = 295\\) µmol m⁻² s⁻¹.</p>"},
+          {"type":"numeric","q":"A plant weighs 10 g on day 7 and 40 g on day 14. What is its mean relative growth rate over this week?","answer":0.198,"tol":0.02,"unit":"d⁻¹","hint":"RGR = (ln W₂ − ln W₁)/Δt.","explain":"<p>\\(\\ln(40/10)/7 = 1.386/7 = 0.198\\) d⁻¹ — the plant doubled every 3.5 days.</p>"},
+          {"type":"numeric","q":"A lettuce head contains 7.0 g of dry matter and has a dry-matter content of 4.4 %. What is its fresh weight?","answer":159,"tol":0.02,"unit":"g","explain":"<p>\\(7.0/0.044 = 159\\) g.</p>"},
+          {"type":"mcq","q":"In the model, spreading the same DLI over 20 h instead of 16 h increases growth. Why?","options":["The PPFD is lower, and canopy photosynthesis is closer to linear at low light, so each photon produces more dry matter","Longer days reduce maintenance respiration","A longer photoperiod increases the extinction coefficient k","More hours of light increase the leaf area index directly"],"answer":0,"feedback":["","Maintenance respiration runs day and night in the model; the photoperiod does not reduce it.","k describes leaf angle and is constant in the model.","Leaf area follows dry weight (Eq. G1); the photoperiod acts only through RUE."],"explain":"<p>Eq. G4 is a rectangular hyperbola in I: RUE = c<sub>α</sub>c<sub>β</sub>P(I)/I falls as I rises. At constant DLI a longer photoperiod lowers I and raises RUE.</p>"},
+          {"type":"tf","q":"In the model, doubling the plant density doubles the yield per square metre at harvest.","answer":false,"explain":"<p>False. Once the canopy has closed (f → 1), a square metre intercepts the same light whatever the density, so crop growth per m² is limited by light. Doubling density raises early interception and yield somewhat, but the heads become much smaller — test it with the density slider.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>One state variable (total dry weight per plant), a uniform “big-leaf” canopy and daily time steps (RK4, four sub-steps per day). No nutrient, water or root-zone limitations; no effect of light spectrum; no development stages (bolting, tipburn).</li>
+        <li>Parameters from the one-state lettuce model of Van Henten (1994), calibrated and validated for greenhouse lettuce: c<sub>α</sub> = 0.68, c<sub>β</sub> = 0.8, c<sub>ε</sub> = 17 × 10⁻⁹ kg J⁻¹, Γ₂₀ = 40 ppm, Q₁₀ = 2, g<sub>bnd</sub> = 0.004 m s⁻¹, g<sub>stm</sub> = 0.007 m s⁻¹, the σ<sub>car</sub>(T) polynomial, k = 0.9, SLA = 62.5 m² kg⁻¹, root fraction 0.07, maintenance respiration 3.47 × 10⁻⁷ and 1.16 × 10⁻⁷ s⁻¹ at 25 °C, fresh/dry ratio 22.5.</li>
+        <li>RUE is Van Henten's canopy photosynthesis per mole of intercepted PAR, evaluated at the mean PPFD of the photoperiod (exact for constant electric light, approximate for sunlight), with 4.57 µmol J⁻¹ for PAR; the slider scales it for calibration. CO₂ is assumed to be held during the photoperiod.</li>
+        <li>Temperature: one day and one night temperature; photosynthesis uses the day temperature, respiration both.</li>
+        <li>The default scenario follows the Cornell hydroponic lettuce system (Both et al., 1997; Brechner &amp; Both, 2013): DLI 17 mol m⁻² d⁻¹, 24 °C day and about 18.5 °C night, re-spacing from 97 to 38 plants m⁻² and harvest 24 days after transplanting, which produced heads of about 150 g. CO₂ was enriched up to 1000 ppm when the vents were closed; the model uses a constant 700 ppm as an approximation, and a transplant fresh weight of 1 g is assumed. With these settings the model gives 150 g at harvest.</li>
+        <li>The tray shows plants on a square grid; each head's projected area is f/ρ (the canopy interception shared among the plants). Head drawings are procedural illustrations; leaf number increases with fresh weight.</li>
+        <li>The example data set in the <em>Compare with my data</em> panel is simulated (generated with a lower RUE and random plant-to-plant variation) for practice; it is not a measured data set.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Van Henten, E. J. (1994). <em>Greenhouse Climate Management: An Optimal Control Approach</em> (PhD thesis). Wageningen Agricultural University. <a href="https://doi.org/10.18174/205106" target="_blank" rel="noopener">doi:10.18174/205106</a></li>
+        <li>Van Henten, E. J. (1994). Validation of a dynamic lettuce growth model for greenhouse climate control. <em>Agricultural Systems</em>, 45(1), 55–72. <a href="https://doi.org/10.1016/S0308-521X(94)90280-1" target="_blank" rel="noopener">doi:10.1016/S0308-521X(94)90280-1</a></li>
+        <li>Van Henten, E. J., &amp; Van Straten, G. (1994). Sensitivity analysis of a dynamic growth model of lettuce. <em>Journal of Agricultural Engineering Research</em>, 59(1), 19–31. <a href="https://doi.org/10.1006/jaer.1994.1061" target="_blank" rel="noopener">doi:10.1006/jaer.1994.1061</a></li>
+        <li>Monteith, J. L. (1977). Climate and the efficiency of crop production in Britain. <em>Philosophical Transactions of the Royal Society of London B</em>, 281(980), 277–294. <a href="https://doi.org/10.1098/rstb.1977.0140" target="_blank" rel="noopener">doi:10.1098/rstb.1977.0140</a></li>
+        <li>Monsi, M., &amp; Saeki, T. (2005). On the factor light in plant communities and its importance for matter production (English translation of the 1953 paper). <em>Annals of Botany</em>, 95(3), 549–567. <a href="https://doi.org/10.1093/aob/mci052" target="_blank" rel="noopener">doi:10.1093/aob/mci052</a></li>
+        <li>Goudriaan, J., &amp; Monteith, J. L. (1990). A mathematical function for crop growth based on light interception and leaf area expansion. <em>Annals of Botany</em>, 66(6), 695–701. <a href="https://doi.org/10.1093/oxfordjournals.aob.a088084" target="_blank" rel="noopener">doi:10.1093/oxfordjournals.aob.a088084</a></li>
+        <li>Sinclair, T. R., &amp; Muchow, R. C. (1999). Radiation use efficiency. <em>Advances in Agronomy</em>, 65, 215–265. <a href="https://doi.org/10.1016/S0065-2113(08)60914-1" target="_blank" rel="noopener">doi:10.1016/S0065-2113(08)60914-1</a></li>
+        <li>Hunt, R., Causton, D. R., Shipley, B., &amp; Askew, A. P. (2002). A modern tool for classical plant growth analysis. <em>Annals of Botany</em>, 90(4), 485–488. <a href="https://doi.org/10.1093/aob/mcf214" target="_blank" rel="noopener">doi:10.1093/aob/mcf214</a></li>
+        <li>Both, A. J., Albright, L. D., Langhans, R. W., Reiser, R. A., &amp; Vinzant, B. G. (1997). Hydroponic lettuce production influenced by integrated supplemental light levels in a controlled environment agriculture facility: experimental results. <em>Acta Horticulturae</em>, 418, 45–52. <a href="https://doi.org/10.17660/ActaHortic.1997.418.5" target="_blank" rel="noopener">doi:10.17660/ActaHortic.1997.418.5</a></li>
+        <li>Brechner, M., &amp; Both, A. J. (2013). <em>Hydroponic Lettuce Handbook</em>. Cornell University Controlled Environment Agriculture program.</li>
+        <li>Thompson, H. C., Langhans, R. W., Both, A. J., &amp; Albright, L. D. (1998). Shoot and root temperature effects on lettuce growth in a floating hydroponic system. <em>Journal of the American Society for Horticultural Science</em>, 123(3), 361–364. <a href="https://doi.org/10.21273/JASHS.123.3.361" target="_blank" rel="noopener">doi:10.21273/JASHS.123.3.361</a></li>
+        <li>Kozai, T. (2013). Resource use efficiency of closed plant production system with artificial light: concept, estimation and application to plant factory. <em>Proceedings of the Japan Academy, Series B</em>, 89(10), 447–461. <a href="https://doi.org/10.2183/pjab.89.447" target="_blank" rel="noopener">doi:10.2183/pjab.89.447</a></li>
+      </ol>
+      <p>Related: <a href="/lessons/growth-analysis/">Lesson 2.4 Plant growth analysis and crop models</a> · <a href="/laboratories/leaf-photosynthesis/">Inside a photosynthesising leaf</a> · <a href="/laboratories/grow-room-lighting/">Grow-room lighting designer</a> · <a href="/laboratories/statistics-workbench/">Statistics workbench</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Climate controller tuning · Future Food Production</title>
+<meta name="description" content="A 3D walk-in growth chamber with heater, evaporator, humidifier and a live sensor: tune on/off, P, PI, PID and model predictive controllers on the same disturbance day and compare tracking, overshoot, actuator wear and energy.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+#stage { aspect-ratio: 16 / 10.5; }
+.cc-info { max-width: min(430px, 70%); line-height: 1.45; font: 500 .74rem var(--font-sans); }
+.cc-info b { color: #9be7b6; }
+.tune-box { font-size: .78rem; }
+.tune-box table, .cmp-table table { width: 100%; border-collapse: collapse; font: 500 .74rem var(--font-mono); margin: 6px 0; }
+.tune-box th, .tune-box td, .cmp-table th, .cmp-table td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.tune-box th:first-child, .tune-box td:first-child, .cmp-table th:first-child, .cmp-table td:first-child { text-align: left; }
+.cmp-table th { font: 650 .72rem var(--font-sans); color: var(--muted); }
+.cmp-table td.best { color: var(--ok); font-weight: 700; }
+.cmp-table .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.cmp-table { overflow-x: auto; }
+.cmp-note { font-size: .74rem; color: var(--muted); margin: 4px 0 0; }
+.chart-card.wide { grid-column: 1 / -1; }
+</style>
+</head>
+<body data-page="lab" data-slug="climate-controller">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Climate controller tuning</h1>
+    <p class="lead">Take over the climate computer of a walk-in plant growth chamber. The same four-hour test day — a dawn set-point step, 650 W of LEDs switching on, a cold corridor, a door opened by a technician and an ultrasonic humidifier that cools the air as it evaporates — is thrown at five controllers: a thermostat, P, PI, PID and a model predictive controller. Tune them, identify the chamber with Ziegler–Nichols step and relay tests, and compare tracking error, overshoot, actuator wear and electricity. Click any piece of equipment to inspect it.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Temperature and set-point</h3>
+      <div class="chart-sub">True air temperature (what the plants feel), the noisy and lagging sensor reading the controller sees, and the slow thermal mass. Shaded: lights on, corridor cooling from 20 to 10 °C, door open. With MPC the dashed line is its current prediction.</div>
+      <div class="chart" id="chart-temp" style="height:330px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Control signal and humidity</h3>
+      <div class="chart-sub">Split-range output u: positive drives the heater, negative the evaporator (both saturate at 100 %). Right axis: relative humidity, which switches the humidifier on below 67 % and off above 73 %.</div>
+      <div class="chart" id="chart-u" style="height:330px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Cumulative electricity</h3>
+      <div class="chart-sub">Heater (resistive, 1 kWh of heat per kWh) and compressor (COP 3: 1 kWh of electricity removes 3 kWh of heat). After a comparison, dashed lines show every controller on the same day.</div>
+      <div class="chart" id="chart-energy" style="height:330px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Controller comparison</h3>
+      <div class="chart-sub">Each point is a complete test day: tracking error (IAE) against electricity. The best controllers sit in the lower-left corner; the table adds overshoot, settling, door recovery and actuator starts.</div>
+      <div class="chart" id="chart-compare" style="height:270px"></div>
+      <div class="cmp-table" id="compare-table"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ============================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the test day</h2>
+      <p>The simulation starts automatically with a well-tuned PI controller at 120× speed: four simulated hours take two real minutes. The chamber begins the day at its night set-point of 16 °C with the lights off.</p>
+      <ol>
+        <li><strong>The dawn step (10 min).</strong> The set-point jumps to 22 °C. Watch the heater coils on the back wall start to glow — they only become visibly red close to full power, because a coil at 50 % power stays below the ≈ 525 °C at which steel begins to glow. The air follows within minutes, but the dashed amber <em>slow mass</em> (panel skins, floor, nutrient tank) creeps upwards for hours and keeps soaking up heat.</li>
+        <li><strong>The humidifier.</strong> Warming air at constant water content means falling relative humidity (the right axis of the second chart). Below 67 % the humidifier switches on and a plume of mist rises beside the rack. Evaporating 0.4 kg of water per hour takes 270 W of sensible heat from the air: see the small dips in the temperature and the controller compensating.</li>
+        <li><strong>Lights on (60 min).</strong> 650 W of LEDs switch on. About 200 W leaves as water vapour (transpiration); the rest heats the air and the surfaces. The output crosses zero and the evaporator fans speed up; blue air streams leave the unit cooler above the rack.</li>
+        <li><strong>The corridor cools (100–110 min)</strong> from 20 to 10 °C. Thanks to 100 mm of insulation the chamber barely notices: the extra heat loss is only about 150 W.</li>
+        <li><strong>The door opens (150 min, 2 minutes).</strong> Warm chamber air flows out at the top of the doorway and cold corridor air in at the bottom: about 0.3 m³ s⁻¹, a 4–5 kW heat loss that saturates the heater. The temperature drops by several degrees within a minute — the hardest disturbance of the day.</li>
+        <li><strong>Switch to On/off</strong> (preset <em>Out-of-the-box thermostat</em>). The heater and the evaporator now fight: the dead time lets each stage overshoot into the other's band. Count the actuator starts and compare the electricity with the PI run. Then try the preset <em>Wide dead band</em>.</li>
+        <li><strong>Switch to MPC.</strong> The dashed magenta line is the controller's prediction over the next ten minutes, recomputed every 20 s. Notice that it starts heating <em>before</em> the dawn step and pre-cools before the lights switch on: it knows the schedule.</li>
+        <li><strong>Press <em>Compare all five controllers</em></strong> and read the scatter plot. Then run the <em>Step test</em> and the <em>Relay test</em> to tune the PI and PID controllers the Ziegler–Nichols way.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A controller is judged on several, conflicting criteria at once: how closely it tracks the set-point (IAE, overshoot, settling time), how well it rejects disturbances (door recovery), how hard it works the actuators (starts, noise) and how much electricity it uses. There is no single “best” controller, only the best compromise for your crop, your equipment and your electricity bill.</p></div>
+    </section>
+
+    <!-- ============================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>The chamber as a thermal circuit</h2>
+      <p>A walk-in growth chamber is an insulated box of sandwich panels — two steel skins bonded to 100 mm of polyurethane foam — with an air-handling unit that heats, cools and circulates the air. To control its temperature we need a model that is simple enough to reason with but captures what matters for control: <em>how quickly</em> the air temperature responds, <em>where</em> heat is stored and <em>which</em> disturbances push it around.</p>
+      <p>The simulator uses a <strong>two-node resistance–capacitance (RC) model</strong>, the thermal counterpart of an electrical circuit (Figure 1). Temperatures play the role of voltages, heat flows of currents, thermal conductances \(H\) (W K⁻¹) of electrical conductances and heat capacities \(C\) (J K⁻¹) of capacitors:</p>
+      <ul>
+        <li>The <strong>air node</strong> \(T_a\) lumps the 18 m³ of air (≈ 22 kJ K⁻¹) with the light, fast-responding internal mass that exchanges heat with it within seconds to minutes — shelves, trays, leaves and equipment housings (≈ 30 kJ K⁻¹). All the active equipment acts on this node.</li>
+        <li>The <strong>slow node</strong> \(T_m\) represents the heavy thermal mass: the inner steel skins of the panels, the surface layer of the floor slab and about 40 L of nutrient solution, some 1 MJ K⁻¹ in total. It exchanges heat with the air by convection (250 W K⁻¹) and loses heat through the insulation to the corridor (12 W K⁻¹).</li>
+        <li>The corridor temperature \(T_c\) is a boundary condition, a “voltage source”. Air infiltration (0.5 air changes per hour) connects it directly to the air node, and so does the open door.</li>
+      </ul>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 300" role="img" aria-label="Thermal RC network of the growth chamber: the air node with capacity C_a is connected to the slow-mass node with capacity C_m through conductance H_am, the slow mass is connected to the corridor through the envelope conductance H_env, and the air node is connected directly to the corridor through infiltration and door conductances; heater, evaporator, fans, lamps and humidifier inject or remove heat at the air node, and part of the lamp heat enters the slow mass">
+          <defs><marker id="cc-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <line x1="40" y1="250" x2="660" y2="250" class="stroke" stroke-width="1.6"/>
+          <text x="46" y="270" class="t-small t-muted">reference (0 K)</text>
+          <!-- air node -->
+          <circle cx="170" cy="130" r="7" class="fill-accent"/><text x="150" y="112" class="t-small" font-weight="650">T<tspan dy="3" font-size="9">a</tspan></text>
+          <line x1="170" y1="137" x2="170" y2="186" class="stroke" stroke-width="1.6"/>
+          <line x1="150" y1="186" x2="190" y2="186" class="stroke" stroke-width="2.4"/><line x1="150" y1="196" x2="190" y2="196" class="stroke" stroke-width="2.4"/>
+          <line x1="170" y1="196" x2="170" y2="250" class="stroke" stroke-width="1.6"/><text x="196" y="195" class="t-small">C<tspan dy="3" font-size="9">a</tspan><tspan dy="-3"> ≈ 52 kJ K⁻¹</tspan></text>
+          <!-- mass node -->
+          <circle cx="420" cy="130" r="7" class="fill-amber"/><text x="400" y="116" class="t-small" font-weight="650" text-anchor="end">T<tspan dy="3" font-size="9">m</tspan></text>
+          <line x1="420" y1="137" x2="420" y2="186" class="stroke" stroke-width="1.6"/>
+          <line x1="400" y1="186" x2="440" y2="186" class="stroke" stroke-width="2.4"/><line x1="400" y1="196" x2="440" y2="196" class="stroke" stroke-width="2.4"/>
+          <line x1="420" y1="196" x2="420" y2="250" class="stroke" stroke-width="1.6"/><text x="446" y="195" class="t-small">C<tspan dy="3" font-size="9">m</tspan><tspan dy="-3"> ≈ 1 MJ K⁻¹</tspan></text>
+          <!-- H_am -->
+          <line x1="177" y1="130" x2="260" y2="130" class="stroke" stroke-width="1.6"/><rect x="260" y="120" width="80" height="20" rx="3" class="fill-sunk" stroke="currentColor" stroke-width="1.4"/><line x1="340" y1="130" x2="413" y2="130" class="stroke" stroke-width="1.6"/>
+          <text x="300" y="112" class="t-small" text-anchor="middle">H<tspan dy="3" font-size="9">am</tspan><tspan dy="-3"> = 250 W K⁻¹</tspan></text>
+          <!-- H_env to corridor -->
+          <line x1="427" y1="130" x2="500" y2="130" class="stroke" stroke-width="1.6"/><rect x="500" y="120" width="70" height="20" rx="3" class="fill-sunk" stroke="currentColor" stroke-width="1.4"/><line x1="570" y1="130" x2="610" y2="130" class="stroke" stroke-width="1.6"/>
+          <text x="535" y="112" class="t-small" text-anchor="middle">H<tspan dy="3" font-size="9">env</tspan><tspan dy="-3"> = 12 W K⁻¹</tspan></text>
+          <circle cx="620" cy="160" r="18" class="fill-bg" stroke="currentColor" stroke-width="1.6"/><text x="620" y="165" class="t-small" text-anchor="middle">T<tspan dy="3" font-size="9">c</tspan></text>
+          <line x1="610" y1="130" x2="620" y2="130" class="stroke" stroke-width="1.6"/><line x1="620" y1="130" x2="620" y2="142" class="stroke" stroke-width="1.6"/><line x1="620" y1="178" x2="620" y2="250" class="stroke" stroke-width="1.6"/>
+          <text x="646" y="165" class="t-small t-muted">corridor</text>
+          <!-- infiltration + door path over the top -->
+          <path d="M170 123 L170 52 L620 52 L620 130" class="stroke-water" stroke-width="1.6" fill="none"/>
+          <rect x="250" y="42" width="90" height="20" rx="3" class="fill-water-soft" stroke="var(--water)" stroke-width="1.4"/>
+          <text x="295" y="34" class="t-small" text-anchor="middle" style="fill:var(--water)">H<tspan dy="3" font-size="9">inf</tspan><tspan dy="-3"> + H</tspan><tspan dy="3" font-size="9">door</tspan><tspan dy="-3"> (3 W K⁻¹ + up to 400 W K⁻¹)</tspan></text>
+          <!-- sources -->
+          <line x1="60" y1="130" x2="160" y2="130" class="stroke-magenta" stroke-width="1.8" marker-end="url(#cc-ar)" color="var(--magenta)"/>
+          <text x="20" y="100" class="t-small" style="fill:var(--magenta)">Q<tspan dy="3" font-size="9">h</tspan><tspan dy="-3"> − (1−φ</tspan><tspan dy="3" font-size="9">L</tspan><tspan dy="-3">)Q</tspan><tspan dy="3" font-size="9">c</tspan></text>
+          <text x="20" y="116" class="t-small" style="fill:var(--magenta)">+ fans + LED (conv.)</text>
+          <text x="20" y="152" class="t-small" style="fill:var(--magenta)">− humidifier L<tspan dy="3" font-size="9">v</tspan><tspan dy="-3">ṁ</tspan></text>
+          <line x1="520" y1="84" x2="429" y2="124" class="stroke-amber" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#cc-ar)" color="var(--amber)"/>
+          <text x="470" y="80" class="t-small" style="fill:var(--amber)">LED (radiative part)</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The chamber as a two-node thermal RC network (Eqs. C1–C2). The air node is small and fast; the slow mass is twenty times larger and is reached only through \(H_{am}\). Everything the controller does acts on the air node; the plants' comfort is the air temperature.</figcaption>
+      </figure>
+      <p>The two nodes give the chamber two very different time constants. On its own the air node relaxes with \(\tau_a = C_a/(H_{am}+H_{\text{inf}}) \approx 52\,000/253 \approx 200\) s, a few minutes. The slow mass needs \(C_m/H_{\text{env}}\) — many hours — to settle, because the insulation is so good. For the controller this means: a heater pulse moves the air within minutes, but the mass keeps absorbing heat long after a set-point change, so a controller without integral action never quite gets there, and a fixed “manual reset” is right only for one moment of the day.</p>
+
+      <h2 data-nonum>Delays, lags and why they limit the gain</h2>
+      <p>Between the controller's decision and the measured response sit several delays (Figure 2). The heater element must warm up (time constant 20 s), the evaporator's refrigerant circuit is slower still (45 s), conditioned air needs time to mix through the room before it reaches the sensor (a dead time of about 20 s), and the sensor itself — a PT1000 in an aspirated radiation shield — responds with its own time constant of 20 s. Each lag and delay adds <em>phase lag</em>. When the total phase lag at some frequency reaches 180°, negative feedback turns into positive feedback: if the loop gain at that frequency exceeds one, oscillations grow. The gain at which this happens is the <strong>ultimate gain</strong> \(K_u\), and the period of the oscillation the <strong>ultimate period</strong> \(P_u\). Every tuning rule is, in one way or another, a safe distance from this limit.</p>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 760 250" role="img" aria-label="Block diagram of the temperature control loop: the set-point minus the measurement gives the error, the controller computes the split-range output, which drives the heater or the evaporator through first-order lags and a dead time into the chamber; the chamber temperature is measured by a lagging, noisy sensor and fed back; disturbances from lamps, door, corridor and humidifier enter the chamber; the MPC also receives the lamp and set-point schedule as feed-forward">
+          <defs><marker id="cc-ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <text x="14" y="112" class="t-small">r</text>
+          <line x1="24" y1="108" x2="58" y2="108" class="stroke" stroke-width="1.6" marker-end="url(#cc-ar2)"/>
+          <circle cx="70" cy="108" r="12" class="fill-bg" stroke="currentColor" stroke-width="1.6"/><text x="62" y="104" class="t-small">+</text><text x="50" y="134" class="t-small" font-weight="700">−</text>
+          <line x1="82" y1="108" x2="118" y2="108" class="stroke" stroke-width="1.6" marker-end="url(#cc-ar2)"/><text x="92" y="100" class="t-small">e</text>
+          <rect x="120" y="84" width="110" height="48" rx="8" class="fill-accent-soft" stroke="var(--accent)" stroke-width="1.6"/><text x="175" y="104" class="t-small" text-anchor="middle" font-weight="650">controller</text><text x="175" y="121" class="t-small t-muted" text-anchor="middle">on/off · PID · MPC</text>
+          <line x1="230" y1="108" x2="268" y2="108" class="stroke" stroke-width="1.6" marker-end="url(#cc-ar2)"/><text x="244" y="100" class="t-small">u</text>
+          <rect x="270" y="60" width="110" height="36" rx="6" class="fill-magenta-soft" stroke="var(--magenta)" stroke-width="1.4"/><text x="325" y="76" class="t-small" text-anchor="middle">heater, τ<tspan dy="3" font-size="9">h</tspan><tspan dy="-3"> 20 s</tspan></text><text x="325" y="90" class="t-small t-muted" text-anchor="middle">u &gt; 0</text>
+          <rect x="270" y="120" width="110" height="36" rx="6" class="fill-water-soft" stroke="var(--water)" stroke-width="1.4"/><text x="325" y="136" class="t-small" text-anchor="middle">evaporator, τ<tspan dy="3" font-size="9">c</tspan><tspan dy="-3"> 45 s</tspan></text><text x="325" y="150" class="t-small t-muted" text-anchor="middle">u &lt; 0</text>
+          <path d="M380 78 L410 78 L410 108 M380 138 L410 138 L410 108 L428 108" class="stroke" stroke-width="1.6" fill="none" marker-end="url(#cc-ar2)"/>
+          <rect x="430" y="88" width="72" height="40" rx="6" class="fill-sunk" stroke="currentColor" stroke-width="1.4"/><text x="466" y="106" class="t-small" text-anchor="middle">dead time</text><text x="466" y="121" class="t-small" text-anchor="middle">e<tspan dy="-4" font-size="9">−θs</tspan></text>
+          <line x1="502" y1="108" x2="530" y2="108" class="stroke" stroke-width="1.6" marker-end="url(#cc-ar2)"/>
+          <rect x="532" y="80" width="110" height="56" rx="8" class="fill-amber-soft" stroke="var(--amber)" stroke-width="1.6"/><text x="587" y="102" class="t-small" text-anchor="middle" font-weight="650">chamber</text><text x="587" y="119" class="t-small t-muted" text-anchor="middle">two-node RC</text>
+          <line x1="642" y1="108" x2="700" y2="108" class="stroke" stroke-width="1.6" marker-end="url(#cc-ar2)"/><text x="706" y="112" class="t-small">T<tspan dy="3" font-size="9">a</tspan></text>
+          <text x="560" y="28" class="t-small t-muted">lamps · door · corridor · humidifier</text>
+          <line x1="587" y1="34" x2="587" y2="78" class="stroke-muted" stroke-width="1.6" marker-end="url(#cc-ar2)"/>
+          <path d="M672 108 L672 205 L470 205" class="stroke" stroke-width="1.6" fill="none" marker-end="url(#cc-ar2)"/>
+          <rect x="360" y="185" width="108" height="40" rx="6" class="fill-sunk" stroke="currentColor" stroke-width="1.4"/><text x="414" y="203" class="t-small" text-anchor="middle">sensor, τ<tspan dy="3" font-size="9">s</tspan><tspan dy="-3"> 20 s</tspan></text><text x="414" y="218" class="t-small t-muted" text-anchor="middle">+ noise σ</text>
+          <path d="M360 205 L70 205 L70 122" class="stroke" stroke-width="1.6" fill="none" marker-end="url(#cc-ar2)"/><text x="200" y="198" class="t-small">y (measured)</text>
+          <path d="M587 34 L587 20 L175 20 L175 82" class="stroke-magenta" stroke-width="1.3" stroke-dasharray="5 4" fill="none" marker-end="url(#cc-ar2)" color="var(--magenta)"/>
+          <text x="200" y="36" class="t-small" style="fill:var(--magenta)">MPC only: known schedule (lamps, set-point) as feed-forward</text>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> The control loop. The split-range output \(u\) drives either the heater (\(u&gt;0\)) or the evaporator (\(u&lt;0\)). Lags, the dead time and the sensor all delay the feedback; the controller never sees the true air temperature, only a late and noisy copy.</figcaption>
+      </figure>
+
+      <h2 data-nonum>Where the disturbances come from</h2>
+      <table>
+        <caption>Table 1. Disturbances of the test day and their size (from the model equations in the Derive tab).</caption>
+        <thead><tr><th>Disturbance</th><th>Physics</th><th class="num">Heat flow</th><th>Character</th></tr></thead>
+        <tbody>
+          <tr><td>LED lights on</td><td>electrical power becomes heat; transpiration turns part of it into latent heat</td><td class="num">+450 W sensible</td><td>large, step-like, <em>scheduled</em></td></tr>
+          <tr><td>Evaporator fans</td><td>fan power becomes heat</td><td class="num">+120 W</td><td>constant</td></tr>
+          <tr><td>Door open</td><td>buoyancy-driven exchange of warm and cold air</td><td class="num">−4 to −5 kW</td><td>very large, short, unpredictable</td></tr>
+          <tr><td>Corridor 20 → 10 °C</td><td>conduction through the insulated envelope + infiltration</td><td class="num">≈ −150 W</td><td>small, slow</td></tr>
+          <tr><td>Humidifier on</td><td>adiabatic evaporation of mist</td><td class="num">−270 W</td><td>on/off, driven by a second control loop</td></tr>
+        </tbody>
+      </table>
+      <p>The humidifier is a reminder that climate variables interact: the temperature loop changes the relative humidity (warm air holds more water), the humidity loop changes the temperature, and the evaporator dehumidifies while it cools. Real climate computers must coordinate several such loops.</p>
+
+      <h2 data-nonum>Five ways to decide what to do</h2>
+      <p><strong>On/off with hysteresis</strong> switches full power on and off. It is cheap and robust but always produces a limit cycle, and with a heater <em>and</em> a cooler it can overshoot from one stage into the other: dead time is the enemy of narrow bands. <strong>Proportional (P)</strong> control makes the correction proportional to the error, but a steady load (the fans, the lamps, the slow mass) can only be balanced by a steady error — the <em>offset</em>. <strong>PI</strong> control adds the integral of the error, which grows until the offset has gone; <em>anti-windup</em> stops the integral from growing absurdly while the actuator is saturated (during the door opening). <strong>PID</strong> adds a derivative term that anticipates the trend, allowing a higher gain, but it differentiates the sensor noise, so it is filtered and it wears the actuators. <strong>Model predictive control (MPC)</strong> simulates the chamber over the next few minutes for many candidate input sequences, picks the cheapest one according to a cost that weighs tracking error, electricity and abrupt changes, applies only its first move and repeats 20 s later. Because it knows the lamp and set-point schedule, it acts <em>before</em> these disturbances arrive; a disturbance observer corrects its model for everything it cannot know, such as the door.</p>
+      <div class="callout note"><div class="callout-title">Ziegler and Nichols, 1942</div><p>Ziegler and Nichols proposed two experiments that are still taught and used. In the <em>reaction-curve</em> method you step the controller output in manual and read the steepest slope \(R\) and apparent dead time \(L\) of the response. In the <em>ultimate-gain</em> method you raise a P controller's gain until the loop oscillates steadily. Modern controllers find \(K_u\) and \(P_u\) safely with a <em>relay test</em> (Åström &amp; Hägglund, 1984): the output is switched between two levels whenever the measurement crosses the set-point, which forces a small, controlled oscillation at the ultimate period. Both rule sets aim at a quarter-amplitude decay — aggressive by today's standards — so treat them as a starting point.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier</div><p>Commercial greenhouse and vertical-farm climate computers still run mostly PI loops with set-point schedules, but predictive and economic controllers that use weather and electricity-price forecasts are entering practice, and reinforcement-learning controllers are being benchmarked against MPC (see <a href="/lessons/control-optimisation/">Lesson 10.4</a>). All of them depend on a good process model and good sensors — the theme of the <a href="/laboratories/lettuce-digital-twin/">lettuce digital-twin laboratory</a>.</p></div>
+    </section>
+
+    <!-- ============================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The plant model (Eqs. C1–C5) is integrated with a fourth-order Runge–Kutta method in 1-s steps. The PID-type controllers and the thermostat sample the sensor every 2 s; the MPC re-plans every 20 s. All parameter values are listed in the symbol tables; they describe a representative 3.0 × 2.4 × 2.5 m walk-in chamber rather than one particular product.</p>
+
+      <div class="eq-box" id="eq-cc-air">
+        <div class="eq-head"><span class="eq-label">Energy balance of the air node</span><span class="eq-num">(C1)</span></div>
+        <div class="eq-main">\[ \begin{aligned} C_a\frac{\mathrm dT_a}{\mathrm dt} ={}& Q_h-(1-\varphi_L)\,Q_c+P_{\text{fan}}+f_{\text{conv}}\,Q_{\text{LED,s}}-L_v\,\dot m_{\text{hum}}\\ &-H_{am}(T_a-T_m)-\left(H_{\text{inf}}+H_{\text{door}}\right)(T_a-T_c) \end{aligned} \]
+        \[ C_a=\rho c_pV+C_{\text{fast}},\qquad H_{\text{inf}}=\frac{\rho c_pVn}{3600},\qquad Q_{\text{LED,s}}=P_{\text{LED}}-L_vE \]</div>
+        <p class="eq-read">the heat stored per second in the air (and the fast internal mass) equals the heat delivered by the heater, minus the sensible part of the evaporator's capacity, plus the heat of the fans and the convective part of the lamps' sensible heat, minus the heat taken by evaporating mist, minus the heat conducted to the slow mass and the heat carried away by air exchange with the corridor.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(T_a, T_m, T_c\)</td><td>air, slow-mass and corridor temperature</td><td>°C</td><td>–</td></tr>
+          <tr><td>\(C_a\)</td><td>heat capacity of air + fast internal mass</td><td>J K⁻¹</td><td>21.7 × 10³ + 30 × 10³</td></tr>
+          <tr><td>\(\rho, c_p, V\)</td><td>air density, specific heat, chamber volume</td><td>kg m⁻³, J kg⁻¹ K⁻¹, m³</td><td>1.2, 1005, 18</td></tr>
+          <tr><td>\(Q_h, Q_c\)</td><td>heat delivered by the heater; total capacity used by the evaporator</td><td>W</td><td>0–2000; 0–2500</td></tr>
+          <tr><td>\(\varphi_L\)</td><td>latent share of the evaporator capacity (Eq. C4)</td><td>–</td><td>0.05–0.5</td></tr>
+          <tr><td>\(P_{\text{fan}}\)</td><td>evaporator fan power, always on</td><td>W</td><td>120</td></tr>
+          <tr><td>\(P_{\text{LED}}, f_{\text{conv}}\)</td><td>lamp power; convective share of its sensible heat</td><td>W; –</td><td>650; 0.6</td></tr>
+          <tr><td>\(E, L_v\)</td><td>canopy transpiration; latent heat of vaporisation</td><td>kg s⁻¹; J kg⁻¹</td><td>0.30 kg h⁻¹ (lights on); 2.45 × 10⁶</td></tr>
+          <tr><td>\(\dot m_{\text{hum}}\)</td><td>humidifier output when on</td><td>kg s⁻¹</td><td>0.4 kg h⁻¹</td></tr>
+          <tr><td>\(H_{am}\)</td><td>convective conductance air ↔ slow mass</td><td>W K⁻¹</td><td>250</td></tr>
+          <tr><td>\(H_{\text{inf}}, n\)</td><td>infiltration conductance; air changes per hour</td><td>W K⁻¹; h⁻¹</td><td>3.0; 0.5</td></tr>
+          <tr><td>\(H_{\text{door}}\)</td><td>door exchange conductance (Eq. C3)</td><td>W K⁻¹</td><td>0 (closed) to ≈ 400</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Choose a control volume around the chamber air. The first law for an open system at constant pressure, with negligible kinetic and potential energy, says that the rate of change of stored enthalpy equals the heat flows in minus out plus the enthalpy carried in by entering air minus that carried out.</li>
+            <li>The stored heat is \(C_aT_a\). Fast masses (shelves, leaves) that follow the air within seconds are added to \(C_a\); the slow ones get their own node (C2).</li>
+            <li>Air entering at \(T_c\) and leaving at \(T_a\) with mass flow \(\dot m\) carries a net \(\dot m c_p(T_c-T_a)\); writing \(\dot m c_p = H\) gives the conductance form for infiltration and the door.</li>
+            <li>The lamps' electrical power ends up as heat. The part that evaporates water in the leaves leaves the air as vapour, so only \(Q_{\text{LED,s}} = P_{\text{LED}}-L_vE\) is sensible heat; 60 % of it heats the air directly, the rest is absorbed by surfaces (C2).</li>
+            <li>Mist from an ultrasonic humidifier evaporates in the air: the latent heat \(L_v\dot m_{\text{hum}}\) is taken from the air's sensible heat (adiabatic humidification).</li>
+            <li>An evaporator spends part of its capacity condensing water; only \((1-\varphi_L)Q_c\) cools the air sensibly.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The air is perfectly mixed (one temperature); in reality there are gradients of 0.5–1 K between the supply-air stream and the canopy. Heat capacities and conductances are constant. The latent heat of transpiration is taken from the lamps' power; plant-level energy balances show that under LEDs a large share of the absorbed radiation is indeed dissipated as latent heat (Graamans et al., 2017).</p></details>
+        <div class="eq-units">Every term is in W: \(C_a\,\mathrm dT_a/\mathrm dt\) J K⁻¹ × K s⁻¹ = W; \(L_v\dot m\): J kg⁻¹ × kg s⁻¹ = W; \(H\Delta T\): W K⁻¹ × K = W ✓</div>
+        <div class="mini-calc" data-formula="(1.2*1005*V + Cf*1000)/(Ham + 1.2*1005*V*n/3600)/60" data-output="Air-node time constant τₐ" data-unit="min" data-digits="1" data-plot="Cf" data-ymin="0" data-title="Try it — how fast does the air respond?">
+          <div data-var="V" data-label="Chamber volume V" data-min="2" data-max="60" data-step="1" data-value="18" data-unit="m³"></div>
+          <div data-var="Cf" data-label="Fast internal mass C<sub>fast</sub>" data-min="0" data-max="200" data-step="5" data-value="30" data-unit="kJ K⁻¹"></div>
+          <div data-var="Ham" data-label="Conductance to slow mass H<sub>am</sub>" data-min="50" data-max="800" data-step="10" data-value="250" data-unit="W K⁻¹"></div>
+          <div data-var="n" data-label="Air changes n" data-min="0" data-max="5" data-step="0.1" data-value="0.5" data-unit="h⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cc-mass">
+        <div class="eq-head"><span class="eq-label">Energy balance of the slow thermal mass</span><span class="eq-num">(C2)</span></div>
+        <div class="eq-main">\[ C_m\frac{\mathrm dT_m}{\mathrm dt} = H_{am}(T_a-T_m)+(1-f_{\text{conv}})\,Q_{\text{LED,s}}+L_v\,\dot m_{\text{dew}}-H_{\text{env}}(T_m-T_c) \]</div>
+        <p class="eq-read">the heat stored per second in the panels, floor and nutrient solution equals the heat they receive from the air by convection, plus the radiative part of the lamp heat, plus latent heat released by any dew that forms on them, minus the heat conducted through the insulation to the corridor.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(C_m\)</td><td>heat capacity of inner panel skins, floor surface layer and nutrient solution</td><td>J K⁻¹</td><td>1.0 × 10⁶</td></tr>
+          <tr><td>\(H_{\text{env}}\)</td><td>envelope conductance: \(U\,A\) of 100-mm PUR panels plus thermal bridges</td><td>W K⁻¹</td><td>12 (U ≈ 0.24 W m⁻² K⁻¹, A ≈ 41 m²)</td></tr>
+          <tr><td>\(\dot m_{\text{dew}}\)</td><td>condensation on surfaces when the air would exceed 99 % RH</td><td>kg s⁻¹</td><td>normally 0</td></tr>
+        </table>
+        <details><summary>Follow the reasoning: two time scales</summary>
+          <ol class="steps">
+            <li>With the heater off and \(T_c\) constant, Eqs. C1–C2 are two coupled linear ODEs. Their solution is a sum of two exponentials with time constants given by the eigenvalues of the system matrix.</li>
+            <li>Because \(C_m \gg C_a\), the eigenvalues separate: a fast one \(\approx (H_{am}+H_{\text{inf}})/C_a\) (air settles against the momentarily fixed mass, \(\tau\approx 200\) s) and a slow one \(\approx (H_{\text{env}}+H_{am}H_{\text{inf}}/(H_{am}+H_{\text{inf}}))/C_m\) (everything drifts together towards the corridor, \(\tau\approx 19\) h).</li>
+            <li>Consequence for control: after a set-point step, the air responds in minutes, but the slow mass keeps drawing \(H_{am}(T_a-T_m)\) — several hundred watts — for hours. A P controller's steady-state output, and therefore its offset, changes all day.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>All slow masses share one temperature and one conductance. A detailed model would give the floor, the walls and the water tank separate nodes; the two-node structure is the smallest that reproduces the fast/slow behaviour seen in step tests of real chambers.</p></details>
+        <div class="eq-units">J K⁻¹ × K s⁻¹ = W on the left; W K⁻¹ × K = W and J kg⁻¹ × kg s⁻¹ = W on the right ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-cc-door">
+        <div class="eq-head"><span class="eq-label">Air exchange through an open door</span><span class="eq-num">(C3)</span></div>
+        <div class="eq-main">\[ \dot V_{\text{door}} = \frac{C_d}{3}\,W H\sqrt{\frac{g\,H\,|T_a-T_c|}{\bar T}},\qquad H_{\text{door}} = \rho c_p\,\dot V_{\text{door}} \]</div>
+        <p class="eq-read">the volume of air that flows out through the doorway (and the same volume that flows in) per second equals one third of the discharge coefficient times the door width times its height times the square root of gravity times the height times the relative temperature difference.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\dot V_{\text{door}}\)</td><td>volume flow in each direction</td><td>m³ s⁻¹</td><td>≈ 0.32 at ΔT = 12 K</td></tr>
+          <tr><td>\(C_d\)</td><td>discharge coefficient of the opening</td><td>–</td><td>0.6</td></tr>
+          <tr><td>\(W, H\)</td><td>door width and height</td><td>m</td><td>0.9, 2.0</td></tr>
+          <tr><td>\(\bar T\)</td><td>mean absolute temperature</td><td>K</td><td>≈ 289</td></tr>
+          <tr><td>\(g\)</td><td>gravitational acceleration</td><td>m s⁻²</td><td>9.81</td></tr>
+        </table>
+        <details><summary>Follow the derivation (Brown &amp; Solvason, 1962)</summary>
+          <ol class="steps">
+            <li>Warm air is lighter. With the door closed, the pressure difference across it varies linearly with height; with a neutral plane at mid-height, at a distance \(s\) above or below it \(\Delta p(s) = \Delta\rho\,g\,s\).</li>
+            <li>Bernoulli gives the local velocity \(v(s) = \sqrt{2\Delta p/\rho} = \sqrt{2g(\Delta\rho/\rho)s}\): warm air leaves through the upper half, cold air enters through the lower half.</li>
+            <li>Integrate over the upper half with a discharge coefficient: \(\dot V = C_dW\int_0^{H/2}\sqrt{2g(\Delta\rho/\rho)s}\,\mathrm ds = C_dW\sqrt{2g\Delta\rho/\rho}\;\tfrac23\left(\tfrac H2\right)^{3/2} = \tfrac{C_d}{3}WH\sqrt{gH\,\Delta\rho/\rho}\).</li>
+            <li>For an ideal gas at equal pressure \(\Delta\rho/\rho = \Delta T/\bar T\), which gives Eq. C3. The exchanged sensible heat is \(\rho c_p\dot V\Delta T\), which grows with \(\Delta T^{3/2}\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A fully open door, no wind or fan-driven pressure differences, and no strip curtain. Refrigeration engineers use the same physics for cold-store doors; air curtains and strip curtains reduce the exchange by 60–90 %. The model ramps the flow on and off instantly and ignores the door's swing time.</p></details>
+        <div class="eq-units">\(\sqrt{\text{m s}^{-2}\cdot\text{m}\cdot\text{K}/\text{K}} = \text{m s}^{-1}\); × m × m = m³ s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="1.2*1005*(Cd/3)*W*H*sqrt(9.81*H*dT/(273.15+Tm))*dT/1000" data-output="Heat lost through the open door" data-unit="kW" data-digits="2" data-plot="dT" data-ymin="0" data-title="Try it — the cost of an open door">
+          <div data-var="dT" data-label="Temperature difference ΔT" data-min="0" data-max="30" data-step="0.5" data-value="12" data-unit="K"></div>
+          <div data-var="W" data-label="Door width W" data-min="0.6" data-max="2" data-step="0.05" data-value="0.9" data-unit="m"></div>
+          <div data-var="H" data-label="Door height H" data-min="1.8" data-max="3" data-step="0.05" data-value="2" data-unit="m"></div>
+          <div data-var="Cd" data-label="Discharge coefficient C<sub>d</sub>" data-min="0.3" data-max="0.8" data-step="0.05" data-value="0.6"></div>
+          <div data-var="Tm" data-label="Mean temperature" data-min="-10" data-max="35" data-step="1" data-value="16" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cc-humidity">
+        <div class="eq-head"><span class="eq-label">Water-vapour balance and relative humidity</span><span class="eq-num">(C4)</span></div>
+        <div class="eq-main">\[ m_{\text{air}}\frac{\mathrm dW}{\mathrm dt} = E+\dot m_{\text{hum}}-\frac{\varphi_L Q_c}{L_v}-\dot m_{\text{dew}}+\dot m_{\text{ex}}(W_c-W) \]
+        \[ \text{RH} = 100\,\frac{e}{e_s(T_a)},\qquad e=\frac{W\,p}{0.622+W},\qquad e_s(T)=0.6108\exp\!\left(\frac{17.27\,T}{T+237.3}\right) \]
+        \[ \varphi_L=\operatorname{clip}\!\left(0.1+0.4\,\frac{\text{RH}-50}{50},\ 0.05,\ 0.5\right) \]</div>
+        <p class="eq-read">the water held in the chamber air changes with transpiration plus humidifier output, minus the water condensed on the evaporator coil and on cold surfaces, plus the difference in water content of the air exchanged with the corridor. Relative humidity is the vapour pressure divided by the saturation vapour pressure at the air temperature.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(W, W_c\)</td><td>humidity ratio of chamber and corridor air</td><td>kg kg⁻¹</td><td>≈ 0.008–0.014; corridor at 40 % RH</td></tr>
+          <tr><td>\(m_{\text{air}}\)</td><td>mass of chamber air</td><td>kg</td><td>21.6</td></tr>
+          <tr><td>\(\dot m_{\text{ex}}\)</td><td>mass flow exchanged with the corridor (infiltration + door)</td><td>kg s⁻¹</td><td>0.003–0.4</td></tr>
+          <tr><td>\(e, e_s, p\)</td><td>vapour pressure, saturation vapour pressure, air pressure</td><td>kPa</td><td>–, –, 101.3</td></tr>
+          <tr><td>\(\varphi_L\)</td><td>latent share of evaporator capacity: a cold coil condenses more water from humid air</td><td>–</td><td>0.26 at 70 % RH</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Mass conservation for water vapour in the well-mixed chamber air: sources are transpiration and the humidifier, sinks are condensation and the net export by exchanged air.</li>
+            <li>The humidity ratio converts to vapour pressure with \(e = Wp/(0.622+W)\) (0.622 is the ratio of the molar masses of water and dry air); \(e_s\) is the Tetens-type formula used in FAO-56 (Allen et al., 1998).</li>
+            <li>The humidifier is itself controlled: on below 67 % RH, off above 73 % — a second on/off loop that interacts with the temperature loop through its evaporative cooling (C1).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>\(\varphi_L(\text{RH})\) is a simple empirical stand-in for a coil model with apparatus dew point and bypass factor; it captures the real trend that unit coolers dehumidify more in humid air. Transpiration is fixed rather than computed from a crop model (compare the <a href="/laboratories/stomata-transpiration/">stomata and transpiration laboratory</a>).</p></details>
+        <div class="eq-units">kg × (kg kg⁻¹) s⁻¹ = kg s⁻¹ on both sides; \(\varphi_LQ_c/L_v\): W ÷ J kg⁻¹ = kg s⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-cc-actuators">
+        <div class="eq-head"><span class="eq-label">Actuators, dead time, sensor and electricity</span><span class="eq-num">(C5)</span></div>
+        <div class="eq-main">\[ \tau_h\frac{\mathrm dQ_h}{\mathrm dt}=P_h\,\frac{u^+(t-\theta)}{100}-Q_h,\qquad \tau_c\frac{\mathrm dQ_c}{\mathrm dt}=Q_{c,\max}\,\frac{u^-(t-\theta)}{100}-Q_c \]
+        \[ \tau_s\frac{\mathrm dT_s}{\mathrm dt}=T_a-T_s,\qquad y_k = T_s(t_k)+v_k,\quad v_k\sim\mathcal N(0,\sigma^2) \]
+        \[ E_{\text{el}}=\int_0^{t}\left(P_h\frac{u^+}{100}+\frac{Q_{c,\max}}{\text{COP}}\,\frac{u^-}{100}\right)\mathrm dt' \]</div>
+        <p class="eq-read">the heat delivered by the heater approaches its commanded value with time constant \(\tau_h\), the command having been issued a dead time \(\theta\) earlier; likewise for the evaporator. The sensor temperature follows the air temperature with its own time constant and is read with random noise. Electricity is the heater's power plus the evaporator's capacity divided by the coefficient of performance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(u, u^+, u^-\)</td><td>controller output; \(u^+=\max(u,0)\), \(u^-=\max(-u,0)\) (split range)</td><td>%</td><td>−100 … +100</td></tr>
+          <tr><td>\(P_h, \tau_h\)</td><td>heater power; element time constant</td><td>W; s</td><td>2000; 20</td></tr>
+          <tr><td>\(Q_{c,\max}, \tau_c, \text{COP}\)</td><td>evaporator capacity; time constant; coefficient of performance</td><td>W; s; –</td><td>2500; 45; 3.0</td></tr>
+          <tr><td>\(\theta\)</td><td>transport dead time (mixing between unit and sensor)</td><td>s</td><td>20</td></tr>
+          <tr><td>\(\tau_s, \sigma\)</td><td>sensor time constant; noise standard deviation</td><td>s; °C</td><td>20; 0.03</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>A heating element is a small thermal mass heated electrically and cooled by the air stream: its heat output lags the electrical input as a first-order system, exactly like the sensor of <a href="/lessons/sensor-physics/">Lesson 9.1</a>.</li>
+            <li>The coil temperature in the 3D view is \(T_{\text{coil}}\approx T_a+680\,Q_h/P_h\) °C: at full power ≈ 700 °C (cherry red), at half power ≈ 360 °C (no visible glow).</li>
+            <li>A dead time \(\theta\) is implemented as a first-in-first-out buffer of past commands, 1 s per slot.</li>
+            <li>A vapour-compression cooler moves COP joules of heat per joule of electricity; a resistance heater converts one joule of electricity into one joule of heat. Cooling is therefore three times cheaper per watt than heating in this chamber.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The evaporator is modulating (inverter compressor or hot-gas bypass) for the continuous controllers and on/off for the thermostat; real compressors have minimum run and off times, which the “actuator starts” metric only approximates. The heater's electricity is counted from the command, which conserves energy over a cycle.</p></details>
+        <div class="eq-units">\(\tau\,\mathrm dQ/\mathrm dt\): s × W s⁻¹ = W ✓; \(E_{\text{el}}\): W × s = J (÷ 3.6 × 10⁶ → kWh) ✓</div>
+        <div class="mini-calc" data-formula="Q*h/COP/1000" data-output="Compressor electricity per day" data-unit="kWh d⁻¹" data-digits="2" data-plot="COP" data-ymin="0" data-title="Try it — cooling is cheaper than heating">
+          <div data-var="Q" data-label="Average cooling load" data-min="0" data-max="2500" data-step="50" data-value="600" data-unit="W"></div>
+          <div data-var="h" data-label="Hours per day" data-min="1" data-max="24" data-step="1" data-value="16" data-unit="h"></div>
+          <div data-var="COP" data-label="Coefficient of performance" data-min="1" data-max="6" data-step="0.1" data-value="3"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cc-onoff">
+        <div class="eq-head"><span class="eq-label">Two-stage thermostat with hysteresis</span><span class="eq-num">(C6)</span></div>
+        <div class="eq-main">\[ \text{heat}_k=\begin{cases}1 & y_k&lt;r-h\\ 0 & y_k\ge r\\ \text{heat}_{k-1}&\text{otherwise}\end{cases}\qquad \text{cool}_k=\begin{cases}1 & y_k&gt;r+h\\ 0 & y_k\le r\\ \text{cool}_{k-1}&\text{otherwise}\end{cases} \]
+        \[ u_k = 100\,(\text{heat}_k-\text{cool}_k) \]</div>
+        <p class="eq-read">the heater switches on when the reading falls more than \(h\) below the set-point and off when it reaches the set-point; the cooler switches on more than \(h\) above and off at the set-point. Between the two thresholds nothing changes.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(h\)</td><td>hysteresis half-width (each stage's differential)</td><td>°C</td><td>0.5</td></tr>
+          <tr><td>\(r, y_k\)</td><td>set-point; measurement at sample \(k\) (every 2 s)</td><td>°C</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the reasoning: why the stages fight</summary>
+          <ol class="steps">
+            <li>After the heater switches off at \(r\), heat already “in the pipeline” (element lag, dead time, sensor lag) keeps raising the reading. The overshoot is roughly the heating rate times the total delay: at 2 kW on 52 kJ K⁻¹ the air warms at 2.3 K min⁻¹, so a 40-s delay gives ≈ 1.5 K.</li>
+            <li>If this overshoot exceeds \(h\), the cooler switches on, overshoots downwards and triggers the heater: the stages hunt, wasting energy and wearing the compressor.</li>
+            <li>Choosing \(h\) larger than the expected overshoot stops the fight but widens the temperature swing: with an oversized actuator, on/off control cannot be both tight and efficient.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A single-sensor two-stage thermostat with no minimum on/off timers. Lesson 10.4 (Eq. 10.4.3) derives the limit-cycle period of a single-stage thermostat.</p></details>
+        <div class="eq-units">All thresholds are temperatures in °C; \(u\) in % ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-cc-pid">
+        <div class="eq-head"><span class="eq-label">Discrete PID: derivative filter and back-calculation anti-windup</span><span class="eq-num">(C7)</span></div>
+        <div class="eq-main">\[ v_k=u_0+K_ce_k+I_k+D_k,\qquad u_k=\operatorname{sat}_{[-100,\,100]}(v_k),\qquad e_k=r_k-y_k \]
+        \[ D_k=\frac{T_f}{T_f+\Delta t}\,D_{k-1}-\frac{K_cT_d}{T_f+\Delta t}\,(y_k-y_{k-1}),\qquad T_f=\frac{T_d}{N} \]
+        \[ I_{k+1}=I_k+\frac{K_c\Delta t}{T_i}\,e_k+\frac{\Delta t}{T_t}\,(u_k-v_k) \]</div>
+        <p class="eq-read">the unsaturated output is the bias plus the proportional, integral and derivative terms; the actuator receives it clipped to ±100 %. The derivative acts on the filtered rate of change of the measurement, not of the error, so set-point steps cause no kick. The integral grows with the error and is pulled back whenever the output is saturated, in proportion to how far the request exceeds the limit.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default (PI / PID)</th></tr>
+          <tr><td>\(K_c\)</td><td>controller gain</td><td>% °C⁻¹</td><td>25 / 35</td></tr>
+          <tr><td>\(T_i, T_d\)</td><td>integral and derivative time</td><td>s</td><td>240 / 180, – / 15</td></tr>
+          <tr><td>\(N, T_f\)</td><td>derivative filter factor; filter time constant</td><td>–; s</td><td>5; 3</td></tr>
+          <tr><td>\(T_t\)</td><td>tracking time of the anti-windup: \(T_i\) (PI) or \(\sqrt{T_iT_d}\) (PID)</td><td>s</td><td>–</td></tr>
+          <tr><td>\(\Delta t\)</td><td>sample time</td><td>s</td><td>2</td></tr>
+          <tr><td>\(u_0\)</td><td>bias (manual reset), used by the P controller</td><td>%</td><td>0</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Start from the ideal form \(u = u_0 + K_c\bigl[e + \tfrac1{T_i}\int e\,\mathrm dt - T_d\,\mathrm dy_f/\mathrm dt\bigr]\) (Lesson 10.4, Eq. 10.4.4) with the derivative applied to a first-order filtered measurement \(T_f\,\dot y_f + y_f = y\).</li>
+            <li>In the Laplace domain the filtered derivative term is \(-K_cT_ds\,Y/(T_fs+1)\). Replacing \(s\) by the backward difference \((1-q^{-1})/\Delta t\) and solving for \(D_k\) gives the recursion above.</li>
+            <li>The high-frequency gain of the derivative path is \(K_cT_d/(T_f+\Delta t)\approx K_cN\) when \(\Delta t\ll T_f\): with this lab's sampling interval (\(\Delta t = 2\) s, \(T_f = 1.5\) s) the filtered derivative gain of a PID with \(K_c = 35\) and \(N = 10\) is about 150 % per °C, so 0.03 °C of sensor noise already moves the output by about ±5–6 % (the \(K_cN\) shortcut would say ±10 %). This is why the actuator-start count explodes for aggressive PID settings.</li>
+            <li>Back-calculation (Åström &amp; Hägglund, 2006) adds \((u_k-v_k)/T_t\) to the integrator: zero when unsaturated, negative feedback on the integrator when the output is clipped, so the integral “tracks” the value that just keeps the actuator at its limit.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ideal (standard) form, fixed sample time, no set-point weighting. With a split-range actuator the process gain is similar on both sides here (heater 20 W %⁻¹, evaporator ≈ 18.5 W %⁻¹ sensible at 70 % RH), so one set of gains serves both; real chambers often schedule gains.</p></details>
+        <div class="eq-units">\(K_ce\): % °C⁻¹ × °C = %; \(K_c\Delta t\,e/T_i\): % °C⁻¹ × s × °C ÷ s = %; \(K_cT_d\Delta y/(T_f+\Delta t)\): % °C⁻¹ × s × °C ÷ s = % ✓</div>
+        <div class="mini-calc" data-formula="Kc*Td/(Td/N+dt)*sqrt(2)*s" data-output="Output noise from the derivative term (±1 SD)" data-unit="%" data-digits="1" data-plot="N" data-ymin="0" data-title="Try it — the price of derivative action">
+          <div data-var="Kc" data-label="Gain K<sub>c</sub>" data-min="5" data-max="80" data-step="1" data-value="35" data-unit="% °C⁻¹"></div>
+          <div data-var="Td" data-label="Derivative time T<sub>d</sub>" data-min="1" data-max="60" data-step="1" data-value="15" data-unit="s"></div>
+          <div data-var="N" data-label="Filter factor N" data-min="1" data-max="20" data-step="1" data-value="5"></div>
+          <div data-var="dt" data-label="Sample time Δt" data-min="1" data-max="10" data-step="1" data-value="2" data-unit="s"></div>
+          <div data-var="s" data-label="Sensor noise σ" data-min="0.005" data-max="0.2" data-step="0.005" data-value="0.03" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cc-zn">
+        <div class="eq-head"><span class="eq-label">Ziegler–Nichols rules and the relay test</span><span class="eq-num">(C8)</span></div>
+        <div class="eq-main">\[ a=R\,L:\qquad K_c^{\text{PI}}=\frac{0.9}{a},\ T_i=\frac{L}{0.3};\qquad K_c^{\text{PID}}=\frac{1.2}{a},\ T_i=2L,\ T_d=0.5L \]
+        \[ K_c^{\text{PI}}=0.45K_u,\ T_i=\frac{P_u}{1.2};\qquad K_c^{\text{PID}}=0.6K_u,\ T_i=\frac{P_u}{2},\ T_d=\frac{P_u}{8} \]
+        \[ K_u\approx\frac{4d}{\pi\sqrt{a_r^2-\varepsilon^2}} \]</div>
+        <p class="eq-read">from a step test, multiply the steepest slope of the response per unit of output change by the apparent dead time and divide 0.9 (PI) or 1.2 (PID) by the product to get the gain. From an ultimate-gain experiment, take fixed fractions of the ultimate gain and period. A relay that switches the output by ±d produces an oscillation of amplitude \(a_r\), from which the ultimate gain follows.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(R\)</td><td>steepest slope of the response divided by the output step Δu</td><td>°C s⁻¹ %⁻¹</td></tr>
+          <tr><td>\(L\)</td><td>apparent dead time: where the steepest tangent crosses the initial level</td><td>s</td></tr>
+          <tr><td>\(K_u, P_u\)</td><td>ultimate gain and period</td><td>% °C⁻¹, s</td></tr>
+          <tr><td>\(d, a_r, \varepsilon\)</td><td>relay amplitude; half peak-to-peak oscillation; relay hysteresis</td><td>%, °C, °C</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li><strong>Reaction curve.</strong> Ziegler and Nichols (1942) characterised a process by the tangent at its inflection point: slope \(R\) (per unit input) and intercept delay \(L\). For an FOPDT process \(R = K/\tau\) and \(L=\theta\), so \(0.9/(RL) = 0.9\,\tau/(K\theta)\) — the form used in Lesson 10.4.</li>
+            <li><strong>Ultimate gain.</strong> At \(K_c = K_u\) the loop has a phase lag of 180° and a gain of 1 at \(\omega_u = 2\pi/P_u\). The rules place the gain at 45–60 % of this limit.</li>
+            <li><strong>Relay.</strong> A relay with amplitude \(d\) is a very nonlinear gain; its describing function (the ratio of the fundamental of its square-wave output, \(4d/\pi\), to the input amplitude) is \(4d/(\pi a_r)\). A stable oscillation occurs where this equals \(1/|G(j\omega_u)| = K_u\). Hysteresis \(\varepsilon\) (needed against noise) shifts the switching and gives the \(\sqrt{a_r^2-\varepsilon^2}\) correction.</li>
+            <li>The laboratory also computes \(K_u\) of the <em>linearised</em> model from its frequency response, separately for heating and cooling. The relay's ultimate period lies between them because the relay exercises both actuators; its \(K_u\) comes out lower than both, a reminder that the describing function is only an approximation.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The rules target quarter-amplitude decay and give aggressive, poorly damped loops with large noise sensitivity; SIMC (Skogestad, 2003) or model-based tuning is usually preferred. The describing-function estimate of \(K_u\) is typically within 10–20 % for processes with lags and dead time.</p></details>
+        <div class="eq-units">\(a = RL\): °C s⁻¹ %⁻¹ × s = °C %⁻¹, so \(0.9/a\) is in % °C⁻¹ ✓; \(4d/(\pi a_r)\): % ÷ °C ✓</div>
+        <div class="mini-calc" data-formula="0.9/((Rm/6000)*L)" data-output="Ziegler–Nichols PI gain K_c" data-unit="% °C⁻¹" data-digits="1" data-plot="L" data-ymin="0" data-title="Try it — from reaction curve to controller gain">
+          <div data-var="Rm" data-label="Slope R (°C per minute for a 100 % step)" data-min="0.3" data-max="6" data-step="0.05" data-value="1.84" data-unit="°C min⁻¹"></div>
+          <div data-var="L" data-label="Apparent dead time L" data-min="5" data-max="240" data-step="5" data-value="60" data-unit="s"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-cc-mpc">
+        <div class="eq-head"><span class="eq-label">Model predictive control by brute force</span><span class="eq-num">(C9)</span></div>
+        <div class="eq-main">\[ \begin{aligned} \min_{u_1,u_2,u_3\in\mathcal U}\ J ={}& \sum_{k=1}^{N}\frac{\Delta t_c}{3600}\bigl(\hat T_{a,k}-r_k\bigr)^2+w_E\sum_{k=0}^{N-1}E_{\text{el},k}\\ &+w_\Delta\sum_{k=0}^{N-1}\left(\frac{u_k-u_{k-1}}{100}\right)^2 \end{aligned} \]
+        \[ \hat T_{a,k}=T^{\text{free}}_{k}+\sum_{j=1}^{3}\left(u_j^+S^{h}_{j,k}+u_j^-S^{c}_{j,k}\right) \]
+        \[ u_k=\begin{cases}u_1&k=0\\u_2&1\le k&lt;b\\u_3&b\le k&lt;N\end{cases},\qquad -100\le u_j\le 100 \]</div>
+        <p class="eq-read">choose three output levels — one for the next 20 s, one for the following block, one for the rest of the horizon — that minimise the sum of the squared predicted tracking errors, the weighted electricity and the weighted squared moves. The predicted temperature is the response with no further action plus each block's contribution, obtained from pre-computed unit responses of the heater and evaporator channels.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(N, \Delta t_c\)</td><td>horizon (steps); controller step</td><td>–; s</td><td>30; 20 (10 min)</td></tr>
+          <tr><td>\(T^{\text{free}}_{k}\)</td><td>prediction with zero further output, including commands already in the dead-time buffer, the lamp schedule, the measured corridor temperature and the estimated disturbance \(\hat d\)</td><td>°C</td><td>–</td></tr>
+          <tr><td>\(S^h_{j,k}, S^c_{j,k}\)</td><td>response at step \(k\) to 1 % heating / cooling during block \(j\)</td><td>°C %⁻¹</td><td>–</td></tr>
+          <tr><td>\(w_E\)</td><td>energy weight</td><td>°C² h kWh⁻¹</td><td>0.05</td></tr>
+          <tr><td>\(w_\Delta\)</td><td>move-suppression weight</td><td>–</td><td>0.02</td></tr>
+          <tr><td>\(\mathcal U\)</td><td>candidate grid: 17 levels + fine steps around the previous move for \(u_1\); 11 levels for \(u_2, u_3\)</td><td>%</td><td>≈ 3000 sequences</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>The internal model is the linear part of Eqs. C1, C2 and C5 (heater, evaporator with a nominal sensible share of 0.8, air, mass, sensor) discretised exactly with the matrix exponential on a 2-s grid: \(x_{i+1} = Ax_i + Bv_i\).</li>
+            <li>Because the model is linear in each actuator channel, the prediction for any candidate is a <em>superposition</em>: one free response plus six unit responses (3 blocks × 2 channels). Evaluating a candidate then costs only \(N\) multiply–adds per block, so ≈ 3000 candidates are scored in about a millisecond.</li>
+            <li>“Brute force” means that the cost of every candidate on the grid is computed and the minimum kept; a short local pattern search then refines the three levels to 1 % resolution. Move blocking (three levels instead of \(N\)) keeps the grid small.</li>
+            <li>Only \(u_1\) is applied. Twenty seconds later the horizon slides forward and the optimisation is repeated with new measurements: the receding-horizon principle turns an open-loop plan into feedback (Mayne, 2014).</li>
+            <li>The known future set-point and lamp schedule enter \(T^{\text{free}}\) and \(r_k\): this is why MPC starts heating before dawn and pre-cools before the lamps switch on.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Industrial MPC solves a quadratic or nonlinear programme with many more free moves (Qin &amp; Badgwell, 2003); brute force is used here because it is transparent and the input is one-dimensional. The internal model ignores humidity, the door and the RH-dependent latent share; the observer (C10) absorbs these errors. The “model error” slider scales its heat capacities to test robustness.</p></details>
+        <div class="eq-units">\(\Delta t_c(\hat T-r)^2/3600\): h × °C²; \(w_EE_{\text{el}}\): °C² h kWh⁻¹ × kWh = °C² h; the move term is dimensionless and weighted accordingly ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-cc-observer">
+        <div class="eq-head"><span class="eq-label">Disturbance observer for offset-free MPC</span><span class="eq-num">(C10)</span></div>
+        <div class="eq-main">\[ \begin{bmatrix}\hat x\\ \hat d\end{bmatrix}_{k|k}=\begin{bmatrix}\hat x\\ \hat d\end{bmatrix}_{k|k-1}+K\bigl(y_k-\hat T_{s,k|k-1}\bigr) \]
+        \[ \begin{bmatrix}\hat x\\ \hat d\end{bmatrix}_{k+1|k}=\begin{bmatrix}A&B_d\\0&1\end{bmatrix}\begin{bmatrix}\hat x\\ \hat d\end{bmatrix}_{k|k}+\begin{bmatrix}B_u\\0\end{bmatrix}v_k \]</div>
+        <p class="eq-read">every 2 s the model's estimate of air, mass and sensor temperature and of an unknown heat load is corrected in proportion to the difference between the measured and the predicted sensor reading; then the model is stepped forward with the known inputs. The unknown load is modelled as a slowly wandering constant.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\hat x = [\hat T_a,\hat T_m,\hat T_s]\)</td><td>estimated temperatures</td><td>°C</td></tr>
+          <tr><td>\(\hat d\)</td><td>estimated unmeasured heat load on the air (door, humidifier, model error)</td><td>W</td></tr>
+          <tr><td>\(K\)</td><td>steady-state Kalman gain, from iterating the Riccati equation</td><td>°C °C⁻¹, W °C⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>A model is never perfect. If the MPC predicted with a biased model it would settle with an offset, like a P controller.</li>
+            <li>Augmenting the state with a disturbance \(d\) that follows a random walk and estimating it from the innovations makes the prediction unbiased at steady state: this is the standard route to offset-free MPC.</li>
+            <li>The gain \(K\) follows from assumed process-noise and measurement-noise covariances (Kalman, 1960); it is computed once when the controller is created by iterating \(P\leftarrow APA^\top+Q\), \(K = PC^\top/(CPC^\top+R)\), \(P\leftarrow(I-KC)P\) to convergence.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Linear model, Gaussian noise, one lumped disturbance on the air node. The door's sudden loss appears in \(\hat d\) only after the sensor has seen it — no feedback controller can act before a disturbance is measured unless it is scheduled.</p></details>
+        <div class="eq-units">\(K\) maps °C of innovation to °C of state correction and to W of disturbance correction ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-cc-metrics">
+        <div class="eq-head"><span class="eq-label">Performance metrics</span><span class="eq-num">(C11)</span></div>
+        <div class="eq-main">\[ \text{IAE}=\frac{1}{3600}\int_0^{4\,\text{h}}\bigl|T_a(t)-r(t)\bigr|\,\mathrm dt,\qquad \text{OS}=\max_{10\le t&lt;60\ \text{min}}\bigl(T_a-r\bigr) \]
+        \[ t_s=\min\bigl\{t:\ |T_a-r|\le 0.3\ {}^{\circ}\text{C until } 60\ \text{min}\bigr\}-10\ \text{min} \]</div>
+        <p class="eq-read">the integral of absolute error adds up every degree-hour the true air temperature spends away from the set-point; the overshoot is the largest excursion above the new set-point after the dawn step; the settling time is how long after the step the air enters and stays within ±0.3 °C before the lights switch on.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>IAE</td><td>integral of absolute error over the 4-h test</td><td>°C h</td></tr>
+          <tr><td>OS, \(t_s\)</td><td>overshoot, settling time after the 16 → 22 °C step</td><td>°C, min</td></tr>
+          <tr><td>starts</td><td>number of times the heater or the evaporator starts (threshold 1.5 %, release 0.5 %)</td><td>–</td></tr>
+          <tr><td>\(E_{\text{el}}\)</td><td>electricity of heater and compressor (Eq. C5); lamps and fans excluded</td><td>kWh</td></tr>
+        </table>
+        <details><summary>Why several metrics?</summary><p>IAE rewards fast, tight control; overshoot and settling describe the set-point response; the door metrics describe disturbance rejection; starts approximate actuator wear; electricity is the running cost. Optimising one usually worsens another — the scatter plot shows the trade-off between IAE and energy explicitly.</p></details>
+        <div class="eq-units">°C × s ÷ 3600 s h⁻¹ = °C h ✓</div>
+      </div>
+    </section>
+
+    <!-- ============================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Press <em>Reset</em> before each clean run (changing settings mid-run is marked in the readouts), and use <em>Save investigation</em> to copy settings and results into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>The thermostat's dilemma</h4><p>With the on/off controller, run the test day for \(h\) = 0.25, 0.5, 1.0 and 1.5 °C (or use <em>Compare</em> after each change). Tabulate IAE, actuator starts and electricity. Explain with Eq. C6 why the electricity drops sharply once \(h\) exceeds a certain value, and estimate that value from the heating rate and the total delay. What would you recommend to a grower who only has a thermostat?</p></li>
+        <li><h4>Offset and the missing integral</h4><p>Select P control with \(K_c\) = 30 % °C⁻¹. Read the steady error just before the lights switch on and just before the door opens. Compute the output the chamber needs in each period and check the relation offset ≈ required output / \(K_c\). Then find the manual reset \(u_0\) that removes the offset before lights-on — does the same \(u_0\) work after lights-on? What does integral action do that a fixed bias cannot?</p></li>
+        <li><h4>Tune it the Ziegler–Nichols way</h4><p>Run the step test and the relay test. Record \(R\), \(L\), \(K_u\) and \(P_u\) and apply the four ZN settings in turn. Compare their IAE, overshoot, starts and energy with the default PI (25 % °C⁻¹, 240 s). Which rule is more aggressive, and what does the aggressiveness cost? Finally, detune the ZN PID (halve \(K_c\), double \(T_i\)) and look for the best compromise.</p></li>
+        <li><h4>Noise, filters and actuator wear</h4><p>With PID (\(K_c\) = 35, \(T_i\) = 180 s, \(T_d\) = 15 s), vary the derivative filter \(N\) from 2 to 20 and the sensor noise σ from 0.01 to 0.1 °C. Plot the number of actuator starts against \(K_cN\sigma\) and compare with the mini-calculator of Eq. C7. Would you use derivative action in this chamber?</p></li>
+        <li><h4>Dead time and a slow sensor</h4><p>Increase the dead time θ to 60 s and the sensor time constant to 90 s (preset <em>Slow, lagging sensor</em>). Rerun the relay test: how do \(K_u\) and \(P_u\) change, and why? Keep the default PI tuning and describe what happens to the loop. Relate your observations to the phase-lag argument in the Explain tab.</p></li>
+        <li><h4>What is prediction worth?</h4><p>Compare MPC with the best PI you found. Then (a) shorten the horizon to 5 steps, (b) set the model error to 0.5 and 2.0, and (c) raise the energy weight \(w_E\) from 0.05 to 2. For each case record IAE and kWh and mark the points in the IAE–energy plane. Where does MPC gain most over PI — at the dawn step, at lights-on or at the door opening — and why can it not do better at the door?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-climate-controller">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"The door (0.9 × 2.0 m, discharge coefficient 0.6) is open while the chamber is at 22 °C and the corridor at 10 °C. Using Eq. C3 with a mean temperature of 16 °C, how much sensible heat does the chamber lose per second? (ρc<sub>p</sub> = 1.2 × 1005 J m⁻³ K⁻¹)","answer":4.70,"tol":0.04,"unit":"kW","hint":"First compute the volume flow: (C_d/3)·W·H·√(g·H·ΔT/T̄) with T̄ = 289.15 K; then multiply by ρ·c_p·ΔT.","explain":"<p>\\(\\dot V = 0.2\\times0.9\\times2.0\\times\\sqrt{9.81\\times2.0\\times12/289.15} = 0.36\\times0.902 = 0.325\\) m³ s⁻¹. Heat loss \\(=1.2\\times1005\\times0.325\\times12 = 4.70\\) kW — more than twice the heater's 2 kW, which is why the heater saturates and the temperature falls during the door opening.</p>"},
+          {"type":"mcq","q":"Run the P controller (K<sub>c</sub> = 30 % °C⁻¹, bias 0). Just before the lamps switch on (about 58 min) the air is roughly 0.9 °C away from the 22 °C set-point. On which side, and why?","options":["Below 22 °C: the slow mass is still absorbing heat, so the chamber needs about +26 % heating, and a P controller only heats when the measurement is below the set-point","Above 22 °C: the fans heat the chamber, so the controller must cool","Exactly at 22 °C: a P controller has no offset once the temperature is steady","Below 22 °C because the sensor lags behind the air"],"answer":0,"feedback":["","The fans alone would indeed need cooling, but at this moment the cold slow mass draws more heat from the air than the fans supply.","Without integral action (or a correct bias) a P controller needs a non-zero error to produce a non-zero output.","Sensor lag delays the response but does not create a steady-state offset."],"explain":"<p>At quasi-steady state \\(u = K_c(r-y)\\), so \\(r-y = u/K_c \\approx 26/30 \\approx 0.9\\) °C: the air sits about 0.9 °C <em>below</em> the set-point. Later, when the lamps load the chamber and the mass has warmed, the required output turns negative and the offset changes sign. Integral action finds the required output automatically; a fixed bias is right only for one load.</p>"},
+          {"type":"numeric","q":"A step test gives a steepest slope R = 3.1 × 10⁻⁴ °C s⁻¹ per % of output and an apparent dead time L = 60 s. What PI gain K<sub>c</sub> does the Ziegler–Nichols reaction-curve rule give?","answer":48.4,"tol":0.03,"unit":"% °C⁻¹","hint":"a = R·L; K_c = 0.9/a.","explain":"<p>\\(a = 3.1\\times10^{-4}\\times60 = 0.0186\\) °C %⁻¹ and \\(K_c = 0.9/0.0186 = 48.4\\) % °C⁻¹, with \\(T_i = L/0.3 = 200\\) s. That is almost twice the default PI gain — typical of ZN's aggressive quarter-amplitude-decay target.</p>"},
+          {"type":"numeric","q":"A relay test with amplitude d = 25 % and hysteresis ε = 0.05 °C produces an oscillation with half peak-to-peak amplitude a = 0.38 °C. Estimate the ultimate gain K<sub>u</sub>.","answer":84.5,"tol":0.03,"unit":"% °C⁻¹","hint":"K_u ≈ 4d / (π √(a² − ε²)).","explain":"<p>\\(\\sqrt{0.38^2-0.05^2} = 0.3767\\) °C, so \\(K_u = 4\\times25/(\\pi\\times0.3767) = 84.5\\) % °C⁻¹. ZN then suggests a PID gain of \\(0.6K_u \\approx 51\\) % °C⁻¹.</p>"},
+          {"type":"multi","q":"Which of the following are reasons why the MPC starts heating <em>before</em> the set-point step at 10 min? (Select all that apply.)","options":["Its cost function contains the future set-point r<sub>k</sub> over the whole horizon","It measures the step before it happens","The chamber has lags and a dead time, so heat applied now shows up in the air temperature only later","Its disturbance observer detects the step in advance"],"answer":[0,2],"explain":"<p>MPC optimises predicted tracking error over the horizon, and the set-point schedule is known in advance (reference preview). Because heat needs time to reach the sensed air, acting early lowers the total cost. Nothing is measured in advance, and the observer only reacts to the past.</p>"},
+          {"type":"tf","q":"In this chamber, removing 1 kWh of heat with the evaporator costs less electricity than adding 1 kWh of heat with the heater.","answer":true,"explain":"<p>The heater converts electricity 1:1 into heat, while the vapour-compression cooler has a COP of 3: 1 kWh of heat removed costs about 0.33 kWh of electricity. That is why controllers that avoid heater–cooler fights, and MPC with an energy weight, save electricity.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ============================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>The chamber (3.0 × 2.4 × 2.5 m, 100-mm polyurethane sandwich panels) is a representative design; heat capacities and conductances were estimated from its dimensions and typical material properties, not taken from a specific product. Its behaviour — air responding in minutes, surfaces in hours — matches what step tests on walk-in chambers show.</li>
+        <li>Air is perfectly mixed; vertical gradients and the jet from the unit cooler are ignored. The dead time lumps mixing and transport delays into one value.</li>
+        <li>The lamps' sensible heat is split 60/40 between air and surfaces; a fixed transpiration of 0.30 kg h⁻¹ (lights on) removes latent heat. Plant growth, CO₂ and stomatal responses are not modelled.</li>
+        <li>The evaporator's latent share depends only on relative humidity (Eq. C4), a simplification of coil physics; the heater and evaporator are modelled as first-order lags; compressor minimum run times, defrost cycles and refrigerant dynamics are ignored.</li>
+        <li>The door is either fully open or closed; the flow follows the buoyancy formula of Brown and Solvason (1962) without wind, pressure differences or curtains.</li>
+        <li>Sensor noise is Gaussian and white with a fixed seed, so every controller in a comparison sees the same noise sequence; the controllers see the sensor, the metrics use the true air temperature.</li>
+        <li>The MPC uses a linearised model (no humidity, nominal sensible share 0.8), move blocking with three levels and brute-force search; industrial MPC solves a constrained optimisation over more moves.</li>
+        <li>The 3D scene is illustrative; heater glow, fan speed, mist and door position are driven by the simulated heat flows and states.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56). FAO.</li>
+        <li>Åström, K. J., &amp; Hägglund, T. (1984). Automatic tuning of simple regulators with specifications on phase and amplitude margins. <em>Automatica</em>, 20(5), 645–651. <a href="https://doi.org/10.1016/0005-1098(84)90014-1" target="_blank" rel="noopener">doi:10.1016/0005-1098(84)90014-1</a></li>
+        <li>Åström, K. J., &amp; Hägglund, T. (2006). <em>Advanced PID Control</em>. ISA – The Instrumentation, Systems, and Automation Society.</li>
+        <li>Åström, K. J., &amp; Rundqwist, L. (1989). Integrator windup and how to avoid it. In <em>1989 American Control Conference</em> (pp. 1693–1698). <a href="https://doi.org/10.23919/ACC.1989.4790464" target="_blank" rel="noopener">doi:10.23919/ACC.1989.4790464</a></li>
+        <li>Brown, W. G., &amp; Solvason, K. R. (1962). Natural convection through rectangular openings in partitions—1: Vertical partitions. <em>International Journal of Heat and Mass Transfer</em>, 5(9), 859–868. <a href="https://doi.org/10.1016/0017-9310(62)90184-9" target="_blank" rel="noopener">doi:10.1016/0017-9310(62)90184-9</a></li>
+        <li>Graamans, L., van den Dobbelsteen, A., Meinen, E., &amp; Stanghellini, C. (2017). Plant factories; crop transpiration and energy balance. <em>Agricultural Systems</em>, 153, 138–147. <a href="https://doi.org/10.1016/j.agsy.2017.01.003" target="_blank" rel="noopener">doi:10.1016/j.agsy.2017.01.003</a></li>
+        <li>Kalman, R. E. (1960). A new approach to linear filtering and prediction problems. <em>Journal of Basic Engineering</em>, 82(1), 35–45. <a href="https://doi.org/10.1115/1.3662552" target="_blank" rel="noopener">doi:10.1115/1.3662552</a></li>
+        <li>Langhans, R. W., &amp; Tibbitts, T. W. (Eds.). (1997). <em>Plant growth chamber handbook</em> (North Central Regional Research Publication No. 340). Iowa Agriculture and Home Economics Experiment Station.</li>
+        <li>Mayne, D. Q. (2014). Model predictive control: Recent developments and future promise. <em>Automatica</em>, 50(12), 2967–2986. <a href="https://doi.org/10.1016/j.automatica.2014.10.128" target="_blank" rel="noopener">doi:10.1016/j.automatica.2014.10.128</a></li>
+        <li>Qin, S. J., &amp; Badgwell, T. A. (2003). A survey of industrial model predictive control technology. <em>Control Engineering Practice</em>, 11(7), 733–764. <a href="https://doi.org/10.1016/S0967-0661(02)00186-7" target="_blank" rel="noopener">doi:10.1016/S0967-0661(02)00186-7</a></li>
+        <li>Skogestad, S. (2003). Simple analytic rules for model reduction and PID controller tuning. <em>Journal of Process Control</em>, 13(4), 291–309. <a href="https://doi.org/10.1016/S0959-1524(02)00062-8" target="_blank" rel="noopener">doi:10.1016/S0959-1524(02)00062-8</a></li>
+        <li>Ziegler, J. G., &amp; Nichols, N. B. (1942). Optimum settings for automatic controllers. <em>Transactions of the ASME</em>, 64(8), 759–765. <a href="https://doi.org/10.1115/1.4019264" target="_blank" rel="noopener">doi:10.1115/1.4019264</a></li>
+      </ol>
+      <p>For the theory behind every controller, work through <a href="/lessons/control-optimisation/">Lesson 10.4 — Control, optimisation and autonomous growing</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

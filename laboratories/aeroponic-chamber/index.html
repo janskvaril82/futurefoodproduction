@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aeroponic root chamber · Future Food Production</title>
+<meta name="description" content="A 3D high-pressure aeroponic unit driven by droplet physics and a root-film water balance: tune pressure, nozzles, droplet size and misting cycles, and survive a power cut.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Terminal velocity with the Schiller–Naumann drag correction (Eq. A3), mm/s */
+FFP_CALC.aeroVt = function (v) {
+  var T = v.T, d = v.d * 1e-6, mu = 1.458e-6 * Math.pow(T + 273.15, 1.5) / (T + 273.15 + 110.4);
+  var v0 = (998 - 1.2) * 9.81 * d * d / (18 * mu), u = v0;
+  for (var i = 0; i < 60; i++) { var Re = 1.2 * u * d / mu; var un = v0 / (1 + 0.15 * Math.pow(Re, 0.687)); u = 0.5 * (u + un); }
+  return u * 1000;
+};
+/* Single-cylinder impaction efficiency (Israel & Rosner 1982), Eq. A5 */
+FFP_CALC.aeroEta = function (v) {
+  var mu = 1.81e-5, stk = 998 * Math.pow(v.d * 1e-6, 2) * v.U / (9 * mu * v.dc * 1e-3);
+  if (stk <= 0.125) return 0; var x = stk - 0.125;
+  var e = 1 / (1 + 1.25 / x - 0.014 / (x * x) + 0.508e-4 / (x * x * x));
+  return Math.max(0, Math.min(1, 1 - Math.exp(-v.nr * e)));
+};
+/* Time for the root film to run dry after the mist stops (Eqs. A8–A9), min */
+FFP_CALC.aeroDry = function (v) {
+  var T = v.T, ps = 610.8 * Math.exp(17.27 * T / (T + 237.3)), rv = 0.018015 * ps / (8.314 * (T + 273.15));
+  var E = 0.01 * 0.08 * rv * (1 - v.rh / 100) * 1000, U = v.u / 86400;
+  return v.vf / (E + U) / 60;
+};
+</script>
+<style>
+.label3d.sm { font-size: 11px; padding: 3px 7px; }
+.label3d.sm small { font-size: 10px; }
+.mini-table { width: 100%; border-collapse: collapse; font-size: .78rem; margin-top: 8px; }
+.mini-table th, .mini-table td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+.mini-table th { color: var(--muted); font-weight: 600; }
+.mini-table th.num { text-align: right; }
+.mini-table td.num { text-align: right; font-family: var(--font-mono); font-size: .74rem; }
+</style>
+</head>
+<body data-page="lab" data-slug="aeroponic-chamber">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Aeroponic root chamber</h1>
+    <p class="lead">A high-pressure aeroponic unit, cut open. A pump charges an accumulator, a timer opens a solenoid for a few seconds every few minutes, and four stainless nozzles fill a dark chamber with mist. Whether the mist actually reaches the roots is decided by droplet physics — settling, evaporation and inertial impaction — and whether the roots stay alive between pulses is decided by a film of water only a few hundredths of a millimetre thick. Tune the spray, starve the roots, clog a nozzle or cut the power, and watch the root curtain respond.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Root wetness over time</h3>
+      <div class="chart-sub">Water film on the roots as a percentage of what the root surface can hold (mean of the eight plants and the driest plant), the water content of the fine roots, and the chamber humidity. Grey squares mark spray pulses. Cut the power to see how short the buffer is.</div>
+      <div class="chart" id="chart-wet"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Droplet sizes and where they go</h3>
+      <div class="chart-sub">Log-normal spray: the number distribution (green), the volume distribution (blue) and, for every droplet size, the fraction of the sprayed volume that ends up on the roots (magenta). Dashed amber: settling velocity (right axis, logarithmic). Fine droplets follow the air and evaporate; coarse droplets hit hard but wet only a few spots.</div>
+      <div class="chart" id="chart-dsd"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Daily water budget per plant: aeroponics versus NFT and DWC</h3>
+      <div class="chart-sub">Water that leaves each system per plant per day. The plant's own uptake dominates and is the same in every closed system; the differences come from evaporation losses and from the volume thrown away at each solution change (system volumes of 2, 3 and 10 L per plant, replaced every 21 days — illustrative designs). The table shows what really differs: the water held around the roots.</div>
+      <div class="chart" id="chart-water" style="height:250px"></div>
+      <div id="water-table"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Watch one misting cycle in real time.</strong> Set <em>Simulated time per real second</em> to <em>1 s</em> and press <em>Root zone</em>. When the amber LED on the timer lights, the solenoid opens: jets of mist rise from the four nozzles, the chamber fogs up and the root film jumps to 100 %. For a few seconds water drips from the root tips — that is <em>drainage</em>, the part of the deposit the root surface cannot hold. Then the film declines slowly as the plant drinks. Switch back to <em>2 min</em> per second to see many cycles as a saw-tooth in the first chart.</li>
+        <li><strong>Change the droplet size.</strong> Raise the pressure to 10 bar and shrink the orifice to 0.1 mm: the Sauter mean diameter falls below 15 µm, the mist becomes a fog that hangs in the chamber, and in the second chart the magenta deposition curve shows that the finest droplets are simply not captured. Now try 2 bar and 0.8 mm: coarse droplets rain onto the roots and the chamber floor within a second, but the large orifice sprays more than four times as much solution per plant (<em>Solution sprayed per plant</em>). Shorten the pulse to 1 s so that it sprays about as much as before, and <em>Root surface hit per pulse</em> falls — fewer, bigger droplets wet fewer spots.</li>
+        <li><strong>Aim the spray.</strong> The two rows of plants hang their roots on either side of the nozzle line. With a 40° cone most of the mist shoots up the gap between the two root curtains; with a 150° cone it wets the walls. Find the cone angle that maximises <em>Spray deposited on roots</em>.</li>
+        <li><strong>Clog a nozzle.</strong> Choose the preset <em>Clogged nozzle</em> and switch the root colours to <em>Film map</em>. The two plants above nozzle 2 turn red: with a narrow cone their neighbours' nozzles cannot help them. Widen the cone and watch the overlap rescue them.</li>
+        <li><strong>Cut the power.</strong> Press <em>Cut the power</em>. The pump and the timer stop, the solenoid closes, the chamber humidity drifts towards 85 % and the root film evaporates. Within minutes the fine roots lose their sheen, turn beige and — when their water content falls below 70 % — brown; the leaves wilt. Restart, tick <em>Controller on a UPS</em> and cut the power again: now the accumulator keeps spraying, pulse after pulse, and the pressure gauge steps down until the gas pre-charge is reached.</li>
+        <li><strong>Compare with other systems.</strong> In the third chart, the water the plant takes up is the same in aeroponics, NFT and deep-water culture. What aeroponics really changes is how little water it keeps around the roots — millilitres instead of litres.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>An aeroponic system delivers water in two steps that can each fail: droplets must <strong>reach and stick to</strong> the roots (droplet size, air speed, cone geometry), and the resulting film must <strong>last until the next pulse</strong> (film capacity versus uptake and evaporation). The engineering is a balance between a spray fine enough to cover every root hair and coarse enough to arrive, and a timer that pulses often enough for a buffer of a few millilitres per plant.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>The route from nozzle to root hair</h2>
+      <p>This laboratory turns the theory of <a href="/lessons/aeroponics/">Lesson 7.1</a> into a working machine. A diaphragm pump pressurises nutrient solution into a <strong>bladder accumulator</strong>; a pressure switch restarts the pump when the pressure falls below the set value and stops it 1.5 bar higher. A <strong>timer</strong> opens a normally-closed <strong>solenoid valve</strong> for \(t_{\text{on}}\) seconds every \(t_{\text{off}}\) minutes, and four <strong>pressure-swirl nozzles</strong> atomise the solution into a hollow cone of droplets. Every droplet then has three possible fates (Figure 1).</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 680 300" role="img" aria-label="Fate of spray droplets in an aeroponic chamber: impaction on roots, settling onto roots or walls, and evaporation">
+          <defs><marker id="ac-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <rect x="20" y="20" width="640" height="260" rx="10" class="fill-sunk" stroke="currentColor" stroke-width="1"/>
+          <rect x="20" y="20" width="640" height="18" class="fill-bg" stroke="currentColor" stroke-width="1"/>
+          <text x="340" y="33" text-anchor="middle" class="t-small">lid with net pots</text>
+          <g class="stroke-amber" stroke-width="1.6" fill="none">
+            <path d="M150 38 C146 90 158 140 150 210 M160 38 C170 90 150 150 166 200 M140 38 C132 80 128 130 134 190"/>
+            <path d="M530 38 C526 90 538 140 530 210 M540 38 C550 90 530 150 546 200 M520 38 C512 80 508 130 514 190"/>
+          </g>
+          <text x="96" y="120" class="t-small" text-anchor="end">root</text><text x="96" y="134" class="t-small" text-anchor="end">curtain</text>
+          <text x="584" y="120" class="t-small">root</text><text x="584" y="134" class="t-small">curtain</text>
+          <rect x="332" y="240" width="16" height="14" class="fill-bg" stroke="currentColor"/>
+          <text x="340" y="272" text-anchor="middle" class="t-small">nozzle (cone angle θ)</text>
+          <path d="M340 240 L230 120 M340 240 L450 120" class="stroke-muted" stroke-dasharray="4 4"/>
+          <g class="stroke-accent" stroke-width="1.8" fill="none" marker-end="url(#ac-ar)"><path d="M338 236 C300 200 230 170 172 150"/><path d="M342 236 C380 200 450 170 508 150"/></g>
+          <text x="178" y="222" class="t-small" style="fill:var(--accent)">① impaction (Stk ≳ 1)</text>
+          <g class="stroke-water" stroke-width="1.4" fill="none" marker-end="url(#ac-ar)"><path d="M340 232 L340 90"/><path d="M345 92 C360 110 366 160 372 244"/></g>
+          <text x="392" y="216" class="t-small" style="fill:var(--water)">② passes through, settles</text>
+          <text x="392" y="232" class="t-small" style="fill:var(--water)">on roots, walls or floor</text>
+          <g class="fill-magenta"><circle cx="300" cy="100" r="2"/><circle cx="312" cy="86" r="1.5"/><circle cx="290" cy="76" r="1.2"/><circle cx="276" cy="92" r="1"/></g>
+          <text x="226" y="66" class="t-small" style="fill:var(--magenta)">③ fine droplets evaporate</text>
+          <path d="M40 262 L640 262" class="stroke-water" stroke-width="3"/>
+          <text x="600" y="256" class="t-small" text-anchor="end">run-off to drain</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The fate of a spray droplet. Only part of the cone points at the two root curtains (geometric interception); of the droplets that arrive, those with a large Stokes number are captured by impaction; the rest pass through, and either settle — slowly — onto roots, walls or the floor, or evaporate if the air is not saturated.</figcaption>
+      </figure>
+      <h3>Why there is a best droplet size</h3>
+      <p>Two opposite requirements set the window of high-pressure aeroponics. <strong>Arrival</strong> favours large droplets: a droplet is captured by a root only if its inertia keeps it moving straight when the air bends around the root — a large Stokes number, which grows with the square of the diameter. Droplets below about 5 µm follow the air, settle at a fraction of a millimetre per second and, unless the chamber is saturated, evaporate within a second. <strong>Coverage</strong> favours small droplets: the same litre of solution divided into 10 µm droplets contains a thousand times more droplets than in 100 µm droplets, so it touches far more of the root surface. The simulator counts the droplets that land on each root system in one pulse and uses Poisson statistics to find the fraction of the root surface they hit; only that fraction can hold a water film. With the default nozzle (D₃₂ ≈ 30 µm) nearly every square millimetre of root is hit in each pulse; with 100 µm droplets carrying the same volume only about two thirds is.</p>
+      <h3>The root film is the water tank</h3>
+      <p>Between pulses the plant lives on the film of solution that clings to its roots and root hairs — about 2 mL per lettuce plant in this model (0.08 m² of root surface × 25 µm). The film is drained by the plant's own uptake (≈ 80 mL per day, 0.93 µL per second) and, if the chamber air is not saturated, by evaporation from the root surface. Water above the retention capacity drips off within tens of seconds. As long as the film stays above a quarter of its capacity the plant can take up water freely; below that, uptake is limited and the <strong>root water-stress index</strong> (the fraction of the plant's demand that is not met) rises above zero. When the film has gone, the plant starts to draw water out of its own fine roots, and root tissue exposed to unsaturated air dries out. Fine roots that lose more than 30 % of their water are assumed to be irreversibly damaged.</p>
+      <div class="callout warn"><div class="callout-title">A buffer measured in minutes</div><p>A lettuce plant in soil or in deep-water culture has days of water around its roots; in an aeroponic chamber it has minutes. That is why the <em>Pump failure: roots damaged after</em> readout matters as much as any growth figure. Redundancy — an accumulator, a UPS on the controller, a second pump, an alarm that reaches a person — is part of the physiology of an aeroponic crop.</p></div>
+      <h3>Nutrients travel with the water</h3>
+      <p>Each deposited millilitre carries nutrients at the solution concentration. The plant takes them up mostly by <em>mass flow</em> — with the water it absorbs — so the nitrogen uptake is the water uptake times the concentration. Most of the nitrogen sprayed onto the roots drains back to the reservoir. Evaporation from the root film removes water but leaves the salts behind, so in a leaky, unsaturated chamber the film becomes more concentrated between pulses — one reason why long pauses and dry chamber air are a bad combination.</p>
+      <h3>How much water does aeroponics really save?</h3>
+      <p>The third chart answers the popular claim that aeroponics uses a tiny fraction of the water of other systems (<a href="/lessons/aeroponics/">Lesson 7.1</a>, misconception box). In any closed, recirculating system nearly all the water leaves through the plant. Aeroponics can save the water thrown away at solution changes because it needs little solution in circulation, and it loses almost nothing by evaporation in a sealed chamber — but it gives up almost all of the water buffer around the roots.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>Symbols follow <a href="/lessons/aeroponics/">Lesson 7.1</a>, whose equations 7.1.1–7.1.10 are the starting point. Equation numbers A1–A12 refer to this laboratory.</p>
+
+      <div class="eq-box" id="eq-aero-lognormal">
+        <div class="eq-head"><span class="eq-label">Log-normal spray and its mean diameters</span><span class="eq-num">(A1)</span></div>
+        <div class="eq-main">\[ \begin{gathered} f_N(\ln d) = \frac{1}{\sqrt{2\pi}\,\ln\sigma_g}\exp\!\left[-\frac{(\ln d-\ln \text{CMD})^2}{2\ln^2\sigma_g}\right] \\ D_{32}=\text{CMD}\,e^{2.5\ln^2\sigma_g},\qquad D_{30}=\text{CMD}\,e^{1.5\ln^2\sigma_g} \end{gathered} \]</div>
+        <p class="eq-read">the logarithm of the droplet diameter is normally distributed around the logarithm of the count median diameter with standard deviation \(\ln\sigma_g\); every mean diameter follows from these two numbers. The simulator is given \(D_{32}\) by the nozzle and \(\sigma_g\) by you, and back-calculates the count median.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(f_N\)</td><td>number distribution per unit \(\ln d\)</td><td>–</td><td></td></tr>
+          <tr><td>CMD</td><td>count median diameter</td><td>µm</td><td>≈ 12</td></tr>
+          <tr><td>\(\sigma_g\)</td><td>geometric standard deviation</td><td>–</td><td>1.8</td></tr>
+          <tr><td>\(D_{32}\), \(D_{30}\)</td><td>Sauter mean and volume-mean diameters</td><td>µm</td><td>≈ 30, 21</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Moments of a log-normal variable: \(\langle d^k\rangle = \text{CMD}^k e^{k^2 s^2/2}\) with \(s=\ln\sigma_g\).</li>
+          <li>\(D_{32}=\langle d^3\rangle/\langle d^2\rangle = \text{CMD}\,e^{(9-4)s^2/2}=\text{CMD}\,e^{2.5s^2}\) (Lesson Eq. 7.1.2).</li>
+          <li>\(D_{30}=\langle d^3\rangle^{1/3}=\text{CMD}\,e^{1.5 s^2}\). One cubic metre of liquid therefore contains \(1/(\pi D_{30}^3/6)\) droplets — the number the coverage model (A7) needs.</li>
+          <li>The volume distribution is \(f_V \propto d^3 f_N\): another log-normal, shifted to the mass median diameter \(\text{MMD}=\text{CMD}\,e^{3s^2}\).</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Real sprays are only approximately log-normal (the Rosin–Rammler distribution is an alternative). The simulator integrates over 110 logarithmic size classes from 0.5 to 700 µm.</p></details>
+        <div class="eq-units">\(\text{CMD}\cdot e^{(\cdot)}\): µm × dimensionless = µm ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-nozzle">
+        <div class="eq-head"><span class="eq-label">Nozzle flow and droplet size versus pressure and orifice</span><span class="eq-num">(A2)</span></div>
+        <div class="eq-main">\[ Q = C_d\,\frac{\pi d_o^2}{4}\sqrt{\frac{2\Delta P}{\rho}},\qquad D_{32} = D_{\text{ref}}\left(\frac{d_o}{d_{o,\text{ref}}}\right)^{1/2}\left(\frac{\Delta P}{\Delta P_{\text{ref}}}\right)^{-0.4} \]</div>
+        <p class="eq-read">the flow through each nozzle is the discharge coefficient times the orifice area times the Bernoulli jet velocity; the Sauter mean diameter grows with the square root of the orifice diameter and falls with pressure to the power −0.4.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(C_d\)</td><td>discharge coefficient</td><td>–</td><td>0.6</td></tr>
+          <tr><td>\(d_o\)</td><td>orifice diameter</td><td>m</td><td>0.3 × 10⁻³</td></tr>
+          <tr><td>\(\Delta P\)</td><td>pressure drop across the nozzle (gauge pressure)</td><td>Pa</td><td>6.5–8 × 10⁵</td></tr>
+          <tr><td>\(D_{\text{ref}}\)</td><td>Sauter mean diameter of the reference nozzle (0.3 mm at 6 bar)</td><td>µm</td><td>30 (assumed)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Bernoulli between the pipe and the jet gives \(u=\sqrt{2\Delta P/\rho}\); multiplying by the orifice area and \(C_d\) gives \(Q\) (Lesson Eq. 7.1.6).</li>
+          <li>For pressure-swirl atomisers, empirical correlations collected by Lefebvre and McDonell (2017) give \(D_{32}\propto \dot m^{0.25}\Delta P^{-0.4}\). At constant pressure \(\dot m\propto d_o^2\), so \(D_{32}\propto d_o^{0.5}\).</li>
+          <li>The prefactor is calibrated so that the reference nozzle gives 30 µm, in the middle of the 5–50 µm range reported for high-pressure aeroponics (Lakhiar et al., 2018).</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>The exponents describe trends, not a specific product; real nozzle datasheets give measured droplet spectra. Extrapolated to 1–2 bar and 0.8 mm the formula gives about 75–100 µm — the coarse regime of low-pressure sprays.</p></details>
+        <div class="eq-units">\(\text{m}^2\sqrt{\text{Pa}/(\text{kg m}^{-3})}=\text{m}^2\cdot\text{m s}^{-1}=\text{m}^3\text{s}^{-1}\) ✓; the size ratio is dimensionless ✓</div>
+        <div class="mini-calc" data-formula="30*sqrt(dor/0.3)*pow(p/6,-0.4)" data-output="Sauter mean diameter D₃₂" data-unit="µm" data-digits="1" data-plot="p" data-title="Try it — droplet size of a misting nozzle">
+          <div data-var="p" data-label="Pressure ΔP" data-min="1" data-max="12" data-step="0.1" data-value="6.5" data-unit="bar"></div>
+          <div data-var="dor" data-label="Orifice d<sub>o</sub>" data-min="0.1" data-max="0.8" data-step="0.01" data-value="0.3" data-unit="mm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-settling">
+        <div class="eq-head"><span class="eq-label">Terminal velocity with inertia correction and time in the air</span><span class="eq-num">(A3)</span></div>
+        <div class="eq-main">\[ v_t = \frac{(\rho_p-\rho_a)\,g\,d^2}{18\,\mu\,\left(1+0.15\,\text{Re}^{0.687}\right)},\qquad \text{Re}=\frac{\rho_a v_t d}{\mu},\qquad t_{\text{fall}} = \frac{H}{v_t} \]</div>
+        <p class="eq-read">the settling velocity is Stokes' law divided by a drag-correction factor that grows with the droplet Reynolds number; because Re itself contains the velocity, the equation is solved by iteration. A droplet that is not captured spends a time equal to the chamber height divided by its settling velocity in the air.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(v_t\)</td><td>terminal settling velocity</td><td>m s⁻¹</td><td></td></tr>
+          <tr><td>\(\rho_p,\rho_a\)</td><td>density of solution and of air</td><td>kg m⁻³</td><td>998, 1.2</td></tr>
+          <tr><td>\(\mu\)</td><td>dynamic viscosity of air (Sutherland's law)</td><td>Pa s</td><td>1.81 × 10⁻⁵ at 20 °C</td></tr>
+          <tr><td>\(H\)</td><td>height of the chamber</td><td>m</td><td>0.46</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Force balance: weight minus buoyancy \((\rho_p-\rho_a)g\pi d^3/6\) equals drag \(C_D\,\tfrac{\pi d^2}{4}\,\tfrac12\rho_a v^2\).</li>
+          <li>In creeping flow \(C_D=24/\text{Re}\), which gives Stokes' law (Lesson Eq. 7.1.3).</li>
+          <li>For \(\text{Re}\) up to several hundred, Schiller and Naumann (1933) found \(C_D=\frac{24}{\text{Re}}(1+0.15\,\text{Re}^{0.687})\). Substituting gives the Stokes velocity divided by \(1+0.15\,\text{Re}^{0.687}\).</li>
+          <li>For a 20 µm droplet the correction is 0.9 %; for 100 µm (Re ≈ 2) it is 20 % — the reason Stokes' law overestimates the speed of coarse droplets.</li>
+        </ol></details>
+        <div class="eq-units">\(\dfrac{\text{kg m}^{-3}\,\text{m s}^{-2}\,\text{m}^2}{\text{kg m}^{-1}\text{s}^{-1}}=\text{m s}^{-1}\) ✓</div>
+        <div class="mini-calc" data-fn="aeroVt" data-output="Terminal velocity v<sub>t</sub>" data-unit="mm s⁻¹" data-digits="2" data-plot="d" data-title="Try it — settling with the drag correction">
+          <div data-var="d" data-label="Droplet diameter d" data-min="1" data-max="300" data-step="1" data-value="30" data-unit="µm" data-scale="log"></div>
+          <div data-var="T" data-label="Air temperature" data-min="5" data-max="35" data-step="1" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-evap">
+        <div class="eq-head"><span class="eq-label">Evaporation on the way: the d²-law survival fraction</span><span class="eq-num">(A4)</span></div>
+        <div class="eq-main">\[ t_{\text{ev}}=\frac{\rho_w R T d_0^2}{8 D_v M_w p_s(T)(1-\text{RH})},\qquad \frac{V(t)}{V_0}=\left(1-\frac{t}{t_{\text{ev}}}\right)^{3/2}\ \ (t &lt; t_{\text{ev}}) \]</div>
+        <p class="eq-read">a droplet's squared diameter shrinks linearly until it vanishes at the evaporation time (Lesson Eq. 7.1.5), so the fraction of its volume still present after a time t is one minus t over the evaporation time, to the power three halves.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(t_{\text{ev}}\)</td><td>time to evaporate completely</td><td>s</td></tr>
+          <tr><td>\(V/V_0\)</td><td>fraction of the droplet volume left</td><td>–</td></tr>
+          <tr><td>RH</td><td>relative humidity of the chamber air (fraction)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>d²-law: \(d^2(t)=d_0^2(1-t/t_{\text{ev}})\).</li>
+          <li>Volume scales with \(d^3=(d^2)^{3/2}\), hence \(V/V_0=(1-t/t_{\text{ev}})^{3/2}\).</li>
+          <li>The simulator applies this twice: over the flight to the roots, \(t=x/U\), and over the settling time of droplets that were not captured, \(t=H/v_t\).</li>
+        </ol></details>
+        <div class="eq-units">\(\left[\text{s}/\text{s}\right]^{3/2}\) — dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-impaction">
+        <div class="eq-head"><span class="eq-label">Capture by the root curtain: Stokes number and impaction efficiency</span><span class="eq-num">(A5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{Stk}=\frac{\rho_p d^2 U}{9\mu d_c},\qquad \eta_c=1-e^{-N_r\,\eta_I} \\ \eta_I=\left[1+\frac{1.25}{\text{Stk}-\tfrac18}-\frac{0.014}{(\text{Stk}-\tfrac18)^2}+\frac{5.08\times10^{-5}}{(\text{Stk}-\tfrac18)^3}\right]^{-1} \end{gathered} \]</div>
+        <p class="eq-read">the Stokes number compares the droplet's stopping distance with the root radius; for a single cylinder in potential flow the collection efficiency is the empirical fit of Israel and Rosner, zero below a Stokes number of one eighth; a droplet crossing a curtain of N<sub>r</sub> root layers escapes each with probability 1 − η<sub>I</sub>, so the curtain captures 1 − exp(−N<sub>r</sub>η<sub>I</sub>).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(U\)</td><td>air/droplet speed at the roots</td><td>m s⁻¹</td><td>0.6 × (d<sub>o</sub>/0.3 mm)(ΔP/6 bar)<sup>½</sup></td></tr>
+          <tr><td>\(d_c\)</td><td>root diameter (collector)</td><td>m</td><td>0.5 × 10⁻³</td></tr>
+          <tr><td>\(N_r\)</td><td>effective number of root layers crossed</td><td>–</td><td>1.5</td></tr>
+          <tr><td>\(\eta_I\), \(\eta_c\)</td><td>single-root and curtain capture efficiency</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>The stopping distance is \(U\tau\) with \(\tau=\rho_p d^2/18\mu\) (Lesson Eq. 7.1.4). Dividing by the root <em>radius</em> \(d_c/2\) gives the Stokes number used by Israel and Rosner (1982): twice the value obtained with the diameter.</li>
+          <li>Their fit reproduces numerical trajectories around a cylinder: \(\eta_I\) = 0.24 at Stk = 0.5, 0.41 at 1, 0.80 at 5 and 0.89 at 10.</li>
+          <li>The spray air speed \(U\) follows from momentum conservation in a jet: \(U\propto\sqrt{J}\) with the jet momentum flux \(J=\rho Q u\propto d_o^2\Delta P\), so \(U\propto d_o\sqrt{\Delta P}\). The reference value 0.6 m s⁻¹ is an assumption.</li>
+          <li>Only a fraction \(\varphi_g\) of the cone points at the curtains (0.06 m &lt; |z| &lt; 0.22 m at 0.18 m from the nozzle): the fraction of a uniform disc of radius \(R=x\tan(\theta/2)\) inside that band.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Potential flow over-predicts capture at low Reynolds numbers; real root curtains are hairy, wet and moving. \(N_r\), \(U\) and the curtain geometry are illustrative assumptions — use the model to compare designs, not to predict exact percentages.</p></details>
+        <div class="eq-units">\(\dfrac{\text{kg m}^{-3}\,\text{m}^2\,\text{m s}^{-1}}{\text{Pa s}\cdot\text{m}}=\dfrac{\text{kg s}^{-1}}{\text{kg s}^{-1}}\) — dimensionless ✓</div>
+        <div class="mini-calc" data-fn="aeroEta" data-output="Curtain capture η<sub>c</sub>" data-unit="" data-digits="3" data-plot="d" data-title="Try it — which droplets does a root curtain catch?">
+          <div data-var="d" data-label="Droplet diameter d" data-min="1" data-max="200" data-step="1" data-value="20" data-unit="µm" data-scale="log"></div>
+          <div data-var="U" data-label="Air speed at the roots U" data-min="0.1" data-max="3" data-step="0.05" data-value="0.6" data-unit="m s⁻¹"></div>
+          <div data-var="dc" data-label="Root diameter d<sub>c</sub>" data-min="0.1" data-max="2" data-step="0.05" data-value="0.5" data-unit="mm"></div>
+          <div data-var="nr" data-label="Root layers N<sub>r</sub>" data-min="0.5" data-max="5" data-step="0.1" data-value="1.5"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-deposition">
+        <div class="eq-head"><span class="eq-label">Deposition efficiency of the whole spray</span><span class="eq-num">(A6)</span></div>
+        <div class="eq-main">\[ \bar\eta = \int \varphi_g\Big[\eta_c S_1 + (1-\eta_c)\,S_1\,f_{\text{set}}\,S_2\Big]\, f_V(\ln d)\,\mathrm{d}\ln d \]</div>
+        <p class="eq-read">the fraction of the sprayed volume that lands on the roots is the volume-weighted average, over all droplet sizes, of: the part of the cone aimed at the roots, times the droplets captured directly (if they survive the flight), plus the droplets that pass through, survive a slow fall and land on the roots.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Value</th></tr>
+          <tr><td>\(\varphi_g\)</td><td>fraction of the cone aimed at the root curtains</td><td>0.6 at 90°</td></tr>
+          <tr><td>\(S_1, S_2\)</td><td>volume surviving evaporation during flight and during settling (Eq. A4)</td><td>≈ 1 near saturation</td></tr>
+          <tr><td>\(f_{\text{set}}\)</td><td>share of settling droplets that land on roots</td><td>0.35</td></tr>
+          <tr><td>\(f_V\)</td><td>normalised volume distribution (Eq. A1)</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Follow one size class of droplets. A fraction \(1-\varphi_g\) heads for the walls and drains.</li>
+          <li>Of the rest, \(1-S_1\) evaporates in flight, \(\eta_c S_1\) is captured, and \((1-\eta_c)S_1\) passes the curtain.</li>
+          <li>The passing droplets settle over \(H/v_t\); a fraction \(1-S_2\) evaporates, and of what survives \(f_{\text{set}}\) lands on roots.</li>
+          <li>Weighting by volume gives the water on the roots; the same bookkeeping gives the evaporated and drained fractions, which add up to one with \(\bar\eta\).</li>
+        </ol></details>
+        <div class="eq-units">all terms are fractions; \(\int f_V\,\mathrm{d}\ln d=1\) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-coverage">
+        <div class="eq-head"><span class="eq-label">Spray coverage of the root surface per pulse</span><span class="eq-num">(A7)</span></div>
+        <div class="eq-main">\[ c = 1-\exp\!\left(-\frac{N_{\text{dep}}\,\bar a}{A_r}\right),\qquad \bar a=\frac{\pi(\beta d)^2}{4},\qquad V_{\text{cap}} = c\,A_r h_f \]</div>
+        <p class="eq-read">if N deposited droplets land at random on a root area A<sub>r</sub>, each wetting a spot of area ā, the fraction of the surface that is hit at least once follows from the Poisson distribution; only the hit fraction can hold a film, so the film capacity is c times the root area times the film thickness.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(N_{\text{dep}}\)</td><td>droplets deposited on one root system in one pulse</td><td>–</td><td>≈ 10⁸</td></tr>
+          <tr><td>\(\beta\)</td><td>spread factor (spot diameter / droplet diameter)</td><td>–</td><td>2 (assumed)</td></tr>
+          <tr><td>\(A_r\)</td><td>wetted root area per plant</td><td>m²</td><td>0.08</td></tr>
+          <tr><td>\(h_f\)</td><td>film thickness a wetted root holds</td><td>m</td><td>25 × 10⁻⁶</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>If spots are placed at random, the number covering a given point is Poisson-distributed with mean \(m=N_{\text{dep}}\bar a/A_r\).</li>
+          <li>The probability that a point is <em>not</em> covered is \(e^{-m}\), so the covered fraction is \(1-e^{-m}\).</li>
+          <li>Because \(N_{\text{dep}}\propto 1/d^3\) for a given volume while \(\bar a\propto d^2\), \(m\propto 1/d\): halving the droplet size doubles \(m\).</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Capillary spreading along roots and root hairs, and the random position of successive pulses, improve real coverage; the assumption that only the covered fraction holds a film is a deliberate simplification to show why coarse sprays wet roots unevenly.</p></details>
+        <div class="eq-units">\(\dfrac{\text{--}\cdot\text{m}^2}{\text{m}^2}\) dimensionless ✓; \(V_{\text{cap}}\): m² × m = m³ ✓</div>
+        <div class="mini-calc" data-formula="100*(1-exp(-(vdep*1e-6/(PI/6*pow(d*1e-6,3)))*PI*pow(2*d*1e-6,2)/4/0.08))" data-output="Root surface hit" data-unit="%" data-digits="1" data-plot="d" data-title="Try it — the same water, different droplet sizes">
+          <div data-var="vdep" data-label="Volume deposited per plant per pulse" data-min="0.1" data-max="5" data-step="0.1" data-value="1.5" data-unit="mL"></div>
+          <div data-var="d" data-label="Droplet diameter (all equal)" data-min="5" data-max="300" data-step="1" data-value="30" data-unit="µm" data-scale="log"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-film">
+        <div class="eq-head"><span class="eq-label">Water balance of the root film and the root water-stress index</span><span class="eq-num">(A8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \frac{\mathrm{d}V}{\mathrm{d}t} = \bar\eta\,q\,s(t) - U\,f(V) - E\,g(V) - \frac{\max(0,\,V-V_{\text{cap}})}{\tau_d} \\ f(V)=\min\!\left(1,\frac{V}{\phi_c V_{\text{cap}}}\right),\qquad \text{RWSI}=1-f(V) \end{gathered} \]</div>
+        <p class="eq-read">the film volume grows by the deposited spray while the solenoid is open, and shrinks by plant uptake, by evaporation and by drainage of whatever exceeds the capacity. Uptake is unrestricted until the film falls below a critical fraction of its capacity; the root water-stress index is the fraction of the plant's demand that is not met.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(V\)</td><td>film volume on one plant's roots</td><td>mL</td><td>0–2</td></tr>
+          <tr><td>\(q\)</td><td>spray flow directed at this plant</td><td>mL s⁻¹</td><td>≈ 0.8</td></tr>
+          <tr><td>\(s(t)\)</td><td>1 while the solenoid is open, else 0</td><td>–</td><td></td></tr>
+          <tr><td>\(U\)</td><td>plant water uptake (≈ transpiration)</td><td>mL s⁻¹</td><td>80 mL d⁻¹ = 9.3 × 10⁻⁴</td></tr>
+          <tr><td>\(\phi_c\)</td><td>film fraction below which uptake is limited</td><td>–</td><td>0.25 (assumed)</td></tr>
+          <tr><td>\(\tau_d\)</td><td>drainage time constant</td><td>s</td><td>30 (assumed)</td></tr>
+          <tr><td>\(g(V)\)</td><td>switches evaporation off when the film is empty</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Mass balance of a control volume around one root system: accumulation = input − outputs.</li>
+          <li>Over one steady cycle the film returns to the same value, so \(\bar\eta q\,t_{\text{on}} \ge (U+E)(t_{\text{on}}+t_{\text{off}})\) — the minimum duty cycle of Lesson Eq. 7.1.7, shown in the <em>Duty cycle</em> readout.</li>
+          <li>The ODE is integrated with time steps of 0.25–2 s, eight times (one per plant, each with its own nozzle share and coverage).</li>
+        </ol></details>
+        <div class="eq-units">mL s⁻¹ = mL s⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-rootevap">
+        <div class="eq-head"><span class="eq-label">Evaporation from the root surface</span><span class="eq-num">(A9)</span></div>
+        <div class="eq-main">\[ E = h_m\,A_r\,\frac{M_w\,p_s(T)}{R\,T}\,(1-\text{RH}) \]</div>
+        <p class="eq-read">evaporation from the wet roots equals the mass-transfer coefficient times the root area times the saturation vapour density times one minus the relative humidity (Lesson Eq. 7.1.8).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(h_m\)</td><td>mass-transfer coefficient</td><td>m s⁻¹</td><td>0.01</td></tr>
+          <tr><td>\(p_s(T)\)</td><td>saturation vapour pressure (Tetens)</td><td>Pa</td><td>2338 at 20 °C</td></tr>
+        </table>
+        <details><summary>After a power failure</summary><p>Without mist, leaks bring the chamber towards the humidity of the room. The simulator lets RH relax to the value <em>after the mist stops</em> with a time constant of 5 min, and the film empties in \(t=V/(U+E)\) — the calculator below.</p></details>
+        <div class="eq-units">\(\text{m s}^{-1}\cdot\text{m}^2\cdot\text{kg m}^{-3}=\text{kg s}^{-1}\) ✓</div>
+        <div class="mini-calc" data-fn="aeroDry" data-output="Film empty after" data-unit="min" data-digits="1" data-plot="rh" data-title="Try it — how long does the film last without mist?">
+          <div data-var="rh" data-label="Chamber RH" data-min="50" data-max="99.5" data-step="0.5" data-value="85" data-unit="%"></div>
+          <div data-var="vf" data-label="Film volume at the start" data-min="0.2" data-max="3" data-step="0.1" data-value="1.8" data-unit="mL"></div>
+          <div data-var="u" data-label="Plant uptake" data-min="20" data-max="250" data-step="5" data-value="80" data-unit="mL d⁻¹"></div>
+          <div data-var="T" data-label="Temperature" data-min="10" data-max="32" data-step="1" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-tissue">
+        <div class="eq-head"><span class="eq-label">Desiccation of fine-root tissue</span><span class="eq-num">(A10)</span></div>
+        <div class="eq-main">\[ \begin{aligned} W_t\frac{\mathrm{d}\theta}{\mathrm{d}t} = &amp;-\Big[f_d\,(U-U_{\text{act}}) + E\,\theta\,\big(1-g(V)\big)\Big] \\ &amp;+ W_t\,\frac{1-\theta}{\tau_r}\quad\text{while } V &gt; 0.2\,V_{\text{cap}} \end{aligned} \]</div>
+        <p class="eq-read">the relative water content θ of the fine roots falls when the shoot keeps pulling water that the film cannot supply and when the bare root surface evaporates; after rewetting it recovers with a time constant τ<sub>r</sub>. Below θ = 0.7 the damage is taken as irreversible and the roots turn brown.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\theta\)</td><td>relative water content of fine roots</td><td>–</td><td>1 = turgid</td></tr>
+          <tr><td>\(W_t\)</td><td>water in fine-root tissue per plant</td><td>g</td><td>9 (10 g fresh roots, assumed)</td></tr>
+          <tr><td>\(f_d\)</td><td>share of the unmet demand drawn from the roots</td><td>–</td><td>0.5 (assumed)</td></tr>
+          <tr><td>\(\tau_r\)</td><td>rehydration time constant</td><td>s</td><td>600 (assumed)</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>This is a deliberately simple "bucket" model of root tissue, calibrated only to the common observation that exposed aeroponic roots die within tens of minutes in dry air. Stomatal closure, hydraulic redistribution and the different sensitivity of root tips and root hairs are not modelled.</p></details>
+        <div class="eq-units">g × s⁻¹ = g s⁻¹ ✓ (1 mL of water ≈ 1 g)</div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-accumulator">
+        <div class="eq-head"><span class="eq-label">Accumulator pressure, pump switching and back-up pulses</span><span class="eq-num">(A11)</span></div>
+        <div class="eq-main">\[ \begin{gathered} p_{\text{abs}} = \frac{p_0\,V_0}{V_0 - V_\ell},\qquad \frac{\mathrm{d}V_\ell}{\mathrm{d}t}=Q_{\text{pump}}\,[\text{pump on}] - \sum_j Q_j(p)\,[\text{valve open}] \\ N_{\text{pulses}}\approx\frac{V_0\, p_0\left(\frac{1}{p_0}-\frac{1}{p_{\max}}\right)}{t_{\text{on}}\sum_j Q_j} \end{gathered} \]</div>
+        <p class="eq-read">the gas in the bladder obeys Boyle's law, so the pressure rises as liquid is pumped in; the liquid volume grows while the pump runs and shrinks while the nozzles spray. After a power cut, a controller on a UPS keeps firing pulses until the liquid stored above the pre-charge pressure is used up.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(V_0\)</td><td>accumulator volume</td><td>L</td><td>2</td></tr>
+          <tr><td>\(p_0\)</td><td>gas pre-charge (absolute), 90 % of the cut-in pressure</td><td>bar(a)</td><td>6.8</td></tr>
+          <tr><td>\(V_\ell\)</td><td>stored liquid volume</td><td>L</td><td></td></tr>
+          <tr><td>\(Q_{\text{pump}}\)</td><td>pump delivery</td><td>L min⁻¹</td><td>1.2</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Isothermal gas: \(p V_g = p_0V_0\) and \(V_g=V_0-V_\ell\) (Lesson Eq. 7.1.10).</li>
+          <li>The nozzle flow depends on the actual pressure (Eq. A2), so pulses become weaker — and droplets coarser — as the accumulator empties.</li>
+          <li>At the pre-charge pressure the bladder is fully expanded and no more liquid can be delivered.</li>
+        </ol></details>
+        <div class="eq-units">bar · L / L = bar ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-aero-nutrients">
+        <div class="eq-head"><span class="eq-label">Nutrient delivery and uptake by mass flow</span><span class="eq-num">(A12)</span></div>
+        <div class="eq-main">\[ N_{\text{del}} = C_N\,\bar\eta\,q\,t_{\text{on}},\qquad N_{\text{up}} = C_N\,U_{\text{act}},\qquad \text{CF}=\frac{V_1}{V_1-E\,t_{\text{off}}} \]</div>
+        <p class="eq-read">each pulse delivers the deposited volume times the nitrogen concentration; the plant takes nitrogen up with the water it absorbs; evaporation between pulses concentrates the film by the factor CF.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(C_N\)</td><td>nitrogen concentration of the solution</td><td>mg L⁻¹</td><td>150</td></tr>
+          <tr><td>\(V_1\)</td><td>film volume after the pulse</td><td>mL</td><td></td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Uptake is assumed to follow the water at the solution concentration. Real roots take up ions selectively, so the film composition drifts (see <a href="/lessons/nutrient-solution-chemistry/">Lesson 5.2</a>); the concentration factor only shows the direction of the effect.</p></details>
+        <div class="eq-units">mg L⁻¹ × mL = mg × 10⁻³ ✓ (the simulator converts)</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Tick each task when you are done; <em>Save investigation</em> copies your settings and results into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Find the droplet-size window</h4><p>Keep the cone at 90° and the cycle at 5 s / 5 min. Vary pressure and orifice so that D₃₂ runs from about 14 µm to 80 µm. Record <em>Spray deposited on roots</em> and <em>Root surface hit per pulse</em> for at least six settings and plot both against D₃₂. Explain the shape of each curve with Eqs. A5 and A7. Which D₃₂ gives the best compromise, and how does your answer compare with the 5–50 µm range of high-pressure aeroponics and with the ≈ 11 µm air-assisted nozzle that performed best for lettuce in Tunio et al. (2021)?</p></li>
+        <li><h4>Design the timer</h4><p>For a lettuce crop taking up 80, 150 and 250 mL per plant per day, find the longest pause that keeps the lowest root film above 50 % with 5 s pulses. Compare your pauses with \(t_{\text{off,max}}\) of Lesson Eq. 7.1.7, and explain why the simulator's answer is shorter or longer.</p></li>
+        <li><h4>Clogging and cone overlap</h4><p>Clog nozzle 2 by 100 %. For cone angles of 40°, 90° and 140°, record the lowest film, the coverage and the deposition. Which cone angle makes the system most tolerant of a single blocked nozzle, and what does it cost? Propose a nozzle layout that would be single-fault tolerant.</p></li>
+        <li><h4>Survive a power cut</h4><p>With the default settings, find how long the roots survive a power cut (readout and live simulation) for chamber humidities after the failure of 95 %, 85 % and 70 %. Then give the controller a UPS and find the smallest accumulator that keeps the roots alive for 60 min. Sketch a fault tree for "roots desiccate".</p></li>
+        <li><h4>How much water does misting save?</h4><p>Use the third chart to compare the daily water loss per plant of the three systems. How large would the aeroponic reservoir have to be before aeroponics lost its advantage? Write a two-sentence correction of the claim that aeroponics "uses 98 % less water".</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-aeroponic-chamber">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A nozzle with a 0.25 mm orifice and a discharge coefficient of 0.6 runs at 7.0 bar. What is its flow in L h⁻¹ (ρ = 998 kg m⁻³)?","answer":3.97,"tol":0.03,"unit":"L h⁻¹","hint":"Eq. A2: \\(Q=C_d\\,\\pi d_o^2/4\\,\\sqrt{2\\Delta P/\\rho}\\); 1 m³ s⁻¹ = 3.6 × 10⁶ L h⁻¹.","explain":"<p>\\(Q=0.6\\times\\pi(0.25\\times10^{-3})^2/4\\times\\sqrt{2\\times7\\times10^5/998}=0.6\\times4.909\\times10^{-8}\\times37.45=1.103\\times10^{-6}\\) m³ s⁻¹ = 3.97 L h⁻¹.</p>"},
+          {"type":"numeric","q":"A misting nozzle produces D₃₂ = 30 µm at 6 bar. Using Eq. A2, what is D₃₂ at 10 bar with the same orifice?","answer":24.45,"tol":0.02,"unit":"µm","hint":"\\(D_{32}\\propto\\Delta P^{-0.4}\\).","explain":"<p>\\(30\\times(10/6)^{-0.4}=30\\times0.815=24.5\\) µm. Raising the pressure by two thirds makes the droplets only 18 % smaller.</p>"},
+          {"type":"mcq","q":"In the simulator, narrowing the cone from 90° to 40° reduces the spray deposited on the roots. Why?","options":["Narrow cones produce larger droplets that bounce off the roots","The narrow jet shoots up the gap between the two root curtains, so less of the spray is aimed at roots","Narrow cones spray less liquid per second","The chamber humidity falls when the cone is narrow"],"answer":1,"feedback":["Droplet size depends on pressure and orifice, not on the cone angle, in this model.","","The flow through the orifice does not depend on the cone angle (Eq. A2).","The humidity is set independently of the cone."],"explain":"<p>The geometric interception \\(\\varphi_g\\) is the fraction of the spray disc that falls on the root bands at 0.06 m &lt; |z| &lt; 0.22 m. A narrow cone puts most of the disc in the central gap; a very wide cone puts much of it on the walls.</p>"},
+          {"type":"numeric","q":"The mist stops. One plant holds 2.0 mL of film, takes up 80 mL d⁻¹, and loses water by evaporation at 1.39 µL s⁻¹ (RH 90 %, 20 °C). How many minutes until the film is gone?","answer":14.4,"tol":0.03,"unit":"min","hint":"Convert the uptake to mL s⁻¹ (÷ 86 400) and add the evaporation (1.39 × 10⁻³ mL s⁻¹).","explain":"<p>\\(U=80/86\\,400=9.26\\times10^{-4}\\) mL s⁻¹; \\(U+E=2.32\\times10^{-3}\\) mL s⁻¹; \\(t=2.0/2.32\\times10^{-3}=862\\) s = 14.4 min. After that the fine roots start to dry.</p>"},
+          {"type":"multi","q":"Which measures lengthen the time the roots survive a power cut? (Select all that apply.)","options":["A tighter lid that keeps the chamber humidity higher","A UPS on the controller together with a larger accumulator","Longer pauses between pulses in normal operation","A cooler root zone"],"answer":[0,1,3],"explain":"<p>Higher humidity and lower temperature reduce evaporation (Eq. A9); a UPS lets the accumulator keep delivering pulses (Eq. A11). Longer pauses in normal operation only make the film lower when the failure starts.</p>"},
+          {"type":"tf","q":"Doubling the pulse length (for example from 5 s to 10 s) roughly doubles the water the plants take up per day.","answer":false,"explain":"<p>False. Uptake is set by the plant (transpiration). Once the film is full, extra deposition drains back to the reservoir — watch the drip rate and the <em>Solution sprayed per plant</em> readout.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>Eight butterhead lettuce plants in two rows; four identical nozzles on the centre line, one under each pair. Each nozzle's deposit is shared between plants according to a Gaussian footprint whose width grows with the cone angle; losses at the chamber ends are neglected.</li>
+        <li>Droplet sizes are log-normal. D₃₂ follows the pressure-swirl scaling of Eq. A2, calibrated to 30 µm for a 0.3 mm nozzle at 6 bar; the spray air speed at the roots (0.6 m s⁻¹ for the reference nozzle) scales with the square root of the jet momentum flux. Both calibrations are assumptions chosen to reproduce the 5–50 µm range and the 20–50 % deposition used in Lesson 7.1.</li>
+        <li>Capture by the roots uses the potential-flow impaction efficiency of a single cylinder (Israel &amp; Rosner, 1982) for a curtain of 1.5 root layers of 0.5 mm roots; settling droplets that were not captured land on roots with probability 0.35. Diffusion, interception and electrostatic effects are neglected (they matter below about 1 µm).</li>
+        <li>Evaporation follows the d²-law at the chamber humidity with the droplet at air temperature (no wet-bulb cooling), which slightly overestimates evaporation.</li>
+        <li>The root film holds 25 µm on 0.08 m² of roots per plant (Lesson 7.1), but only on the fraction of the surface hit by droplets in a pulse (Poisson coverage with a spread factor of 2). Uptake is unrestricted above 25 % of capacity; water above capacity drains with a 30 s time constant.</li>
+        <li>Fine-root desiccation is a bucket model (9 g of tissue water per plant, irreversible damage below 70 % relative water content). It illustrates time scales and is not a physiological prediction.</li>
+        <li>After a power failure the chamber humidity relaxes to the chosen value with a 5 min time constant. The accumulator is isothermal (Boyle); rapid discharge is closer to adiabatic and delivers somewhat less.</li>
+        <li>NFT and deep-water culture in the water chart are illustrative designs: 3 and 10 L of solution per plant, 5 and 3 mL d⁻¹ of evaporation, a 1.5 L min⁻¹ NFT channel serving 20 plants; all systems replace their solution every 21 days.</li>
+        <li>The 3D chamber has a transparent front for teaching; real root chambers are opaque, because light on roots and solution promotes algae and pathogens.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Anderson, M. S., Ewert, M. K., &amp; Keener, J. F. (2018). <em>Life Support Baseline Values and Assumptions Document</em> (NASA/TP-2015-218570/REV1). NASA Johnson Space Center. <a href="https://ntrs.nasa.gov/citations/20180001338" target="_blank" rel="noopener">ntrs.nasa.gov/citations/20180001338</a> — lettuce transpiration of 2.1 kg m⁻² d⁻¹, the basis of the default uptake.</li>
+        <li>Eldridge, B. M., Manzoni, L. R., Graham, C. A., Rodgers, B., Farmer, J. R., &amp; Dodd, A. N. (2020). Getting to the roots of aeroponic indoor farming. <em>New Phytologist</em>, 228(4), 1183–1192. <a href="https://doi.org/10.1111/nph.16780" target="_blank" rel="noopener">doi:10.1111/nph.16780</a></li>
+        <li>Hinds, W. C. (1999). <em>Aerosol Technology: Properties, Behavior, and Measurement of Airborne Particles</em> (2nd ed.). Wiley.</li>
+        <li>Israel, R., &amp; Rosner, D. E. (1982). Use of a generalized Stokes number to determine the aerodynamic capture efficiency of non-Stokesian particles from a compressible gas flow. <em>Aerosol Science and Technology</em>, 2(1), 45–51. <a href="https://doi.org/10.1080/02786828308958612" target="_blank" rel="noopener">doi:10.1080/02786828308958612</a></li>
+        <li>Lakhiar, I. A., Gao, J., Syed, T. N., Chandio, F. A., &amp; Buttar, N. A. (2018). Modern plant cultivation technologies in agriculture under controlled environment: a review on aeroponics. <em>Journal of Plant Interactions</em>, 13(1), 338–352. <a href="https://doi.org/10.1080/17429145.2018.1472308" target="_blank" rel="noopener">doi:10.1080/17429145.2018.1472308</a></li>
+        <li>Lefebvre, A. H., &amp; McDonell, V. G. (2017). <em>Atomization and Sprays</em> (2nd ed.). CRC Press. <a href="https://doi.org/10.1201/9781315120911" target="_blank" rel="noopener">doi:10.1201/9781315120911</a></li>
+        <li>Schiller, L., &amp; Naumann, A. (1933). Über die grundlegenden Berechnungen bei der Schwerkraftaufbereitung. <em>Zeitschrift des Vereines Deutscher Ingenieure</em>, 77, 318–320.</li>
+        <li>Tunio, M. H., Gao, J., Lakhiar, I. A., Solangi, K. A., Qureshi, W. A., Shaikh, S. A., &amp; Chen, J. (2021). Influence of atomization nozzles and spraying intervals on growth, biomass yield, and nutrient uptake of butter-head lettuce under aeroponics system. <em>Agronomy</em>, 11(1), 97. <a href="https://doi.org/10.3390/agronomy11010097" target="_blank" rel="noopener">doi:10.3390/agronomy11010097</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

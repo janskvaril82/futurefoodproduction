@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autonomous weeding robot · Future Food Production</title>
+<meta name="description" content="Drive a solar-powered, camera-guided weeding robot along sugar-beet rows in 3D. Tune the classifier threshold, speed and spray resolution, and compare spot spraying with broadcast herbicide use: ROC curve, confusion matrix, weed-control efficacy, crop damage, work rate and solar energy balance.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* live calculators with more than one expression (Derive tab) */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  function erf(x) { var s = x < 0 ? -1 : 1; x = Math.abs(x); var t = 1 / (1 + 0.3275911 * x); var y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return s * y; }
+  function Phi(x) { return 0.5 * (1 + erf(x / Math.SQRT2)); }
+  /* expected treated fraction (%) for patchy weeds: log-Gaussian intensity, Eq. R6 */
+  FFP_CALC.frTreated = function (v) {
+    var a = Math.pow(v.cell / 100, 2), s = v.sigma, tpr = Phi(v.d - v.tau), fpr = 1 - Phi(v.tau), sum = 0, w = 0;
+    for (var i = 0; i <= 120; i++) { var z = -6 + 12 * i / 120, g = Math.exp(-0.5 * z * z); var lz = v.lam * Math.exp(s * z - s * s / 2); sum += g * (1 - Math.exp(-a * (lz * tpr + v.rho * fpr))); w += g; }
+    return 100 * sum / w;
+  };
+  /* weed-control efficacy (%) for random weeds, Eq. R7 */
+  FFP_CALC.frWce = function (v) {
+    var a = Math.pow(v.cell / 100, 2), tpr = Phi(v.d - v.tau), fpr = 1 - Phi(v.tau);
+    var sig = v.vel * v.jit / 1000, m = v.cell / 200 - 0.012, ph = m <= 0 ? 0 : (sig < 1e-9 ? 1 : 2 * Phi(m / sig) - 1);
+    var e = Math.exp(-a * (v.lam * tpr + v.rho * fpr));
+    return v.eh * (1 - (1 - tpr * ph) * e);
+  };
+  FFP_CALC.frPhi = function (v) { return 100 * Phi(v.d - v.tau); };
+  FFP_CALC.frHit = function (v) { var sig = v.vel * v.jit / 1000, m = v.cell / 200 - v.r / 100; return m <= 0 ? 0 : 100 * (sig < 1e-9 ? 1 : 2 * Phi(m / sig) - 1); };
+})();
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .stage canvas.robot-cam { position: absolute; top: 56px; right: 12px; width: 288px; height: 202px; z-index: 4; border-radius: 10px; border: 1px solid rgba(255,255,255,.28); box-shadow: 0 6px 22px rgba(0,0,0,.35); background: #0b1014; pointer-events: none; }
+  @media (max-width: 760px) { .stage canvas.robot-cam { width: 180px; height: 126px; top: 52px; } }
+  table.cm { width: 100%; border-collapse: separate; border-spacing: 4px; margin: 8px 0 2px; font-size: .78rem; }
+  table.cm th { font-weight: 600; color: var(--muted); text-align: center; padding: 2px 4px; }
+  table.cm td { text-align: center; border-radius: 8px; padding: 6px 4px; color: #fff; }
+  table.cm td b { display: block; font: 600 1.05rem var(--font-mono); }
+  table.cm td span { display: block; font-size: .72rem; opacity: .95; }
+  table.cm td small { display: block; font: 500 .66rem var(--font-mono); opacity: .85; }
+  .cm-note { font: 500 .72rem var(--font-mono); color: var(--muted); }
+</style>
+</head>
+<body data-page="lab" data-slug="field-robot">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Autonomous weeding robot</h1>
+    <p class="lead">A solar-powered robot straddles six rows of young sugar beet. Three cameras look at every plant, a neural network scores it, and a row of nozzles fires a 6 cm puff of herbicide on each plant it believes is a weed. Tune the classifier's threshold, the driving speed and the spray resolution, and watch what it costs: weeds that escape, crop plants that are hit, herbicide saved compared with spraying the whole field, hectares per day on sunlight alone. Then hold the manufacturers' savings claims up against independent field trials.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>ROC curve of the weed detector</h3>
+      <div class="chart-sub">True-positive rate against false-positive rate as the threshold τ moves. Motion blur at the current speed pulls the curve down from the standing-still curve; the dot is your operating point.</div>
+      <div class="chart" id="chart-roc"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Scores and confusion matrix</h3>
+      <div class="chart-sub">Classifier scores of crop plants and weeds, weighted by how many there are per m². Everything right of τ is sprayed. The matrix counts the plants the simulated robot has inspected (with the model's expected rates).</div>
+      <div class="chart" id="chart-scores" style="height:200px"></div>
+      <div id="cm"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Herbicide saved vs weed control</h3>
+      <div class="chart-sub">Every threshold gives one point: the curve is the price of weed control in herbicide. Amber: manufacturers' savings claims (no efficacy stated); blue box and diamond: independent field trials in maize (other crops and weed densities — compare with care).</div>
+      <div class="chart" id="chart-trade"></div>
+    </div>
+    <div class="chart-card">
+      <h3>The speed trade-off</h3>
+      <div class="chart-sub">Faster driving covers more ground but blurs the images, shifts the spray pulses and, on solar power, drains the day's energy sooner. Red: frames or nozzle timing can no longer keep up.</div>
+      <div class="chart" id="chart-speed"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Follow one plant.</strong> In front of the robot, three cyan pyramids show what the cameras see: each images a 1.0 m × 0.7 m patch covering two crop rows. A plant entering a footprint gets a white box; when it reaches the centre line the classifier decides — <span style="color:#c2185b">magenta</span> means "weed, spray it", <span style="color:#2e7d32">green</span> means "crop, leave it". The picture in the top-right corner is the middle camera's own view, with the network's confidence next to each box.</li>
+        <li><strong>Watch the nozzles.</strong> About 0.9 m behind the cameras, a boom with one solenoid valve per 6 cm fires a short puff each time a "weed" passes underneath, leaving a small wet square on the soil. Sprayed weeds wilt (sped up here — real herbicides take days). <span style="color:#e67e22">Orange rings</span> mark weeds that survived, <span style="color:#d32f2f">red rings</span> crop plants that were hit.</li>
+        <li><strong>Move the threshold τ.</strong> Lower it to 0: magenta boxes appear on beet plants too, the ROC dot slides up and to the right, more crop is hit and more herbicide is used — but almost no weed escapes. Raise it to 3: the crop is safe, but about half of the weeds survive. There is no setting that is right for every farm: the threshold is a decision about which error costs more.</li>
+        <li><strong>Drive faster.</strong> Increase the speed from 0.5 to 2.5 m s⁻¹. The camera view smears, the ROC curve sinks below the standing-still curve and weed control falls; the robot now covers five times more ground per hour, but its solar roof can power it for only a few hours a day.</li>
+        <li><strong>Coarsen the spray.</strong> Change the spray cell from 6 cm to 50 cm (as when a conventional boom switches individual nozzles). Weed control improves a little — every pulse covers more — but the herbicide saving collapses. Compare the curve with the literature in the third chart: the independent trials used conventional booms.</li>
+        <li><strong>Inspect a plant.</strong> Click on any seedling to see its species, its classifier score, the decision and the outcome. Fat hen, a relative of sugar beet, is the weed the robot most often mistakes for the crop.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A weeding robot turns one statistical decision — "is this plant a weed?" — into agronomy and economics. The <strong>threshold</strong> trades missed weeds against damaged crop, the <strong>spray resolution</strong> and the <strong>weed density and patchiness</strong> decide how much herbicide is saved, and the <strong>speed</strong> trades hectares per hour against image quality, placement accuracy and energy.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Perceive, decide, act — in less than a second</h2>
+      <p>Field robots for weeding combine three steps that must all work within the time the robot needs to drive from its cameras to its tools (Slaughter et al., 2008; Allmendinger et al., 2022):</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 250" role="img" aria-label="Pipeline of a camera-guided spot sprayer from image capture to nozzle">
+          <defs><marker id="fr-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-accent"/></marker></defs>
+          <line x1="20" y1="200" x2="680" y2="200" class="stroke" stroke-width="2"/>
+          <text x="672" y="222" text-anchor="end" class="t-small t-muted">direction of travel →</text>
+          <rect x="520" y="50" width="70" height="36" rx="6" class="fill-sunk stroke" stroke-width="1.2"/>
+          <text x="555" y="72" text-anchor="middle" class="t-small">camera</text>
+          <polygon points="555,86 505,198 605,198" class="fill-water-soft stroke-water" stroke-width="1" opacity="0.8"/>
+          <text x="555" y="236" text-anchor="middle" class="t-small">footprint (0.7 m)</text>
+          <rect x="360" y="40" width="120" height="44" rx="8" class="fill-accent-soft stroke-accent" stroke-width="1.2"/>
+          <text x="420" y="58" text-anchor="middle" class="t-small" font-weight="600">neural network</text>
+          <text x="420" y="74" text-anchor="middle" class="t-small">score s per plant</text>
+          <rect x="220" y="40" width="110" height="44" rx="8" class="fill-magenta-soft stroke-magenta" stroke-width="1.2"/>
+          <text x="275" y="58" text-anchor="middle" class="t-small" font-weight="600">decision</text>
+          <text x="275" y="74" text-anchor="middle" class="t-small">spray if s &gt; τ</text>
+          <line x1="520" y1="62" x2="484" y2="62" class="stroke-accent" stroke-width="1.6" marker-end="url(#fr-arr)"/>
+          <line x1="360" y1="62" x2="334" y2="62" class="stroke-accent" stroke-width="1.6" marker-end="url(#fr-arr)"/>
+          <rect x="120" y="120" width="60" height="26" rx="5" class="fill-sunk stroke" stroke-width="1.2"/>
+          <text x="150" y="137" text-anchor="middle" class="t-small">valve</text>
+          <line x1="220" y1="62" x2="150" y2="116" class="stroke-accent" stroke-width="1.6" marker-end="url(#fr-arr)"/>
+          <polygon points="150,146 132,198 168,198" class="fill-amber-soft stroke-amber" stroke-width="1"/>
+          <text x="150" y="236" text-anchor="middle" class="t-small">6 cm spray pulse</text>
+          <line x1="150" y1="170" x2="555" y2="170" class="stroke-muted" stroke-width="1" stroke-dasharray="4 3"/>
+          <text x="352" y="162" text-anchor="middle" class="t-small">D = 0.9 m: travel time D/v must exceed t<tspan baseline-shift="sub" font-size="9">inf</tspan> + t<tspan baseline-shift="sub" font-size="9">valve</tspan></text>
+          <circle cx="545" cy="194" r="5" class="fill-magenta"/><circle cx="572" cy="193" r="5" class="fill-accent"/>
+          <text x="28" y="30" class="t-small t-muted">perceive → decide → act while the plant travels D at speed v</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The robot's timeline. A frame is captured, the network scores every plant, plants above the threshold are scheduled for a pulse, and the valve opens when the plant arrives under the nozzle. At speed v the plant travels D in D/v seconds — this is the time budget for inference and valve opening.</figcaption>
+      </figure>
+
+      <h3>From images to a decision</h3>
+      <p>Modern detectors are convolutional neural networks trained on thousands of labelled field images (Hasan et al., 2021). Whatever their architecture, their output for each plant can be summarised as a <em>score</em>: high for "weed-like", low for "crop-like". Because plants vary — size, growth stage, occlusion, lighting, dust on the lens — the scores of crop plants and of weeds form two overlapping distributions. The laboratory models them as normal distributions one standard deviation wide, separated by the <em>separability</em> d′ (signal-detection theory; Macmillan &amp; Creelman, 2005). Sliding a threshold τ along the score axis trades the two errors: a <strong>false negative</strong> leaves a weed to compete with the crop and set seed; a <strong>false positive</strong> sprays a crop plant, which a non-selective product would kill. Plotting the true-positive rate against the false-positive rate for all thresholds gives the <strong>ROC curve</strong>; the area under it (AUC) is the probability that a randomly chosen weed scores higher than a randomly chosen crop plant (Fawcett, 2006).</p>
+      <p>Not all weeds are equally hard. Grass weeds are monocots with narrow leaves and are easy to tell from beet; fat hen (<i>Chenopodium album</i>) belongs to the same plant family as sugar beet (Amaranthaceae) and its young leaves look similar. The laboratory gives each species its own separability (an illustrative assumption), so a strict threshold selectively lets the "look-alike" weeds survive — a mechanism that can shift a field's weed flora over the years.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"The detector is 95 % accurate, so the crop is safe." Accuracy mixes the two errors and depends on how many weeds there are. With 11 beet plants and 2 weeds per m², a detector that calls every plant "crop" is already 85 % accurate. What matters in the field are the <em>recall</em> (share of weeds found), the <em>false-positive rate</em> on the crop, and the <em>precision</em> of the "weed" calls — which falls when weeds are rare, because the few weeds are swamped by false alarms on the many crop plants.</p></div>
+
+      <h3>Why speed is not free</h3>
+      <p>During the exposure time t<sub>e</sub> the ground moves b = v t<sub>e</sub> under the camera: at 2 m s⁻¹ and 1 ms that is 2 mm, several pixels at a ground resolution of 0.4 mm. Blur removes exactly the fine details — leaf margins, hairs, vein patterns — that distinguish a young weed from a crop plant; networks trained on blurred images cope better but still lose performance (Genze et al., 2022). Robots therefore use short exposures with bright LED flashes. Speed also shrinks the time budget for inference and valve opening, and it converts timing jitter into placement error: 5 ms of jitter at 2 m s⁻¹ is a 1 cm shift of a 6 cm spray spot.</p>
+
+      <h3>How much herbicide is saved?</h3>
+      <p>A spot sprayer applies the normal dose per square metre, but only on the cells it sprays. The saving is therefore one minus the <strong>treated fraction</strong> of the field — and that depends on how many cells contain a weed (weed density and patchiness), on how big a cell is, and on false alarms on the crop. The laboratory generalises the Poisson spray-cell model of the lesson <a href="/lessons/agricultural-robotics/">Agricultural robotics and automation</a> (Eq. 11.4.4) to plant-level detection and to patchy weeds. Weeds are almost always aggregated in patches (Cardina et al., 1997), which leaves large weed-free areas and raises the saving.</p>
+      <div class="callout warn"><div class="callout-title">Reading savings claims critically</div><p>Manufacturers report large savings: John Deere's See &amp; Spray an average of 59 % over more than one million acres of maize, soybean and cotton in 2024 (John Deere, 2024); Ecorobotix "50 % to over 95 %" for its ARA sprayer with 6 cm × 6 cm spots; FarmDroid "up to 94 %" for its micro-sprayer. Independent trials are more modest: ten maize experiments with a camera-controlled 36 m boom saved on average 25 % (range 2–73 %) at 72–99 % weed-control efficacy and yields equal to broadcast spraying (Gerhards et al., 2026); an on-farm maize trial with drone-based weed maps saved 47 % at equal efficacy (Allmendinger et al., 2024); earlier patch-spraying studies reported at least 50 % (Gerhards et al., 2022). The model shows why the numbers differ: the saving is a property of <em>the field and the sprayer together</em> — weed density, patchiness, spray-cell size and false-alarm rate — and of the reference (the same product broadcast, or a different programme). A claim without those conditions cannot be transferred to your field.</p></div>
+
+      <h3>Work rate and energy</h3>
+      <p>A robot's work rate is speed × working width × field efficiency. Slow, light, solar-powered robots trade speed for endurance: the FarmDroid FD20, for example, drives at up to 950 m h⁻¹ with a working width of up to 3.5 m, is specified for up to 5 ha per day, weighs 1250 kg and has a battery listed as "6 kW" (presumably 6 kWh) for up to 12 hours of extra operation (FarmDroid, 2025). A tractor-mounted camera sprayer such as the Ecorobotix ARA works at 7.2 km h⁻¹ over 6.2 m, up to 4 ha per hour (Ecorobotix, 2026). The energy per hectare falls with speed because the electronics consume power whether the robot moves or not, while the rolling resistance costs a fixed amount of energy per metre travelled.</p>
+      <div class="callout frontier"><div class="callout-title">Frontier (2024–2026)</div><p>Micro-dosing robots place single droplets of a few micrograms of herbicide on each weed (Utstumo et al., 2018), laser weeders heat the growing point instead of spraying, and "green-on-green" detection has become commercial in row crops. In the EU, spot spraying supports the integrated pest management required by Directive 2009/128/EC and the Farm to Fork aim to halve the use and risk of chemical pesticides by 2030 (European Commission, 2020) — but only if the savings are measured honestly.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>Symbols used throughout: λ weeds m⁻², ρ crop plants m⁻² (sugar beet: 0.9 emergence ÷ (0.5 m × 0.18 m) = 10 m⁻²), τ threshold, v speed, ℓ spray-cell side (nozzle spacing = pulse length), a = ℓ² cell area.</p>
+
+      <div class="eq-box" id="eq-fr-sdt">
+        <div class="eq-head"><span class="eq-label">Detection rates of an equal-variance Gaussian classifier</span><span class="eq-num">(R1)</span></div>
+        <div class="eq-main">\[ \begin{gathered} s\mid\text{crop}\sim\mathcal N(0,1),\qquad s\mid\text{weed}_i\sim\mathcal N(d_i',1) \\[4pt] \text{TPR}_i = \Phi(d_i'-\tau),\qquad \text{FPR} = \Phi(-\tau),\qquad \text{AUC} = \sum_i \pi_i\,\Phi\!\left(\frac{d_i'}{\sqrt2}\right) \end{gathered} \]</div>
+        <p class="eq-read">crop scores are standard normal and the scores of weed species i are normal with mean d′ᵢ; the probability that a weed of species i scores above the threshold is Φ of d′ᵢ minus τ, the probability that a crop plant does is Φ of minus τ, and the area under the ROC curve is the share-weighted Φ of d′ over root two.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(s\)</td><td>classifier score of a plant</td><td>–</td><td>–</td></tr>
+          <tr><td>\(d_i'\)</td><td>separability of species \(i\): \(d_0'\times\) multiplier (fat hen 0.7, chickweed 1.0, mayweed 1.15, grass weeds 1.35)</td><td>–</td><td>\(d_0' = 3\)</td></tr>
+          <tr><td>\(\pi_i\)</td><td>share of species \(i\) among the weeds</td><td>–</td><td>0.35 / 0.25 / 0.15 / 0.25</td></tr>
+          <tr><td>\(\tau\)</td><td>decision threshold</td><td>–</td><td>slider</td></tr>
+          <tr><td>\(\Phi\)</td><td>standard normal cumulative distribution function</td><td>–</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A weed is called "weed" when \(s&gt;\tau\). For \(s\sim\mathcal N(d',1)\): \(P(s&gt;\tau) = 1-\Phi(\tau-d') = \Phi(d'-\tau)\), using the symmetry \(1-\Phi(x)=\Phi(-x)\).</li>
+            <li>For crop plants \(d'=0\): \(\text{FPR}=\Phi(-\tau)\).</li>
+            <li>Averaging over species with shares \(\pi_i\) gives the overall recall \(\text{TPR}=\sum_i\pi_i\Phi(d_i'-\tau)\).</li>
+            <li>AUC is \(P(s_{\text{weed}}&gt;s_{\text{crop}})\). The difference of two independent normal scores is \(\mathcal N(d',2)\), so \(P(\cdot)=\Phi(d'/\sqrt2)\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Real networks output calibrated or uncalibrated probabilities, not normal scores, and plants of the same species differ by growth stage. The Gaussian model captures the essential trade-off and is the standard textbook model of signal detection (Macmillan &amp; Creelman, 2005). The species multipliers are illustrative, not measured.</p></details>
+        <div class="eq-units">All quantities are probabilities or dimensionless scores ✓</div>
+        <div class="mini-calc" data-fn="frPhi" data-output="True-positive rate for one species" data-unit="%" data-digits="1" data-plot="tau" data-ymin="0" data-ymax="100">
+          <div data-var="d" data-label="Separability d′" data-min="0.5" data-max="5" data-step="0.05" data-value="3"></div>
+          <div data-var="tau" data-label="Threshold τ" data-min="-2" data-max="6" data-step="0.05" data-value="1.5"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-fr-blur">
+        <div class="eq-head"><span class="eq-label">Motion blur lowers separability</span><span class="eq-num">(R2)</span></div>
+        <div class="eq-main">\[ b = v\,t_e, \qquad d'_{\text{eff}} = \frac{d_0'}{\sqrt{1+(b/b_c)^2}}, \qquad n_{\text{px}} = \frac{b}{\text{GSD}} \]</div>
+        <p class="eq-read">the blur length is speed times exposure time; the effective separability is the standing-still separability divided by the square root of one plus the squared ratio of blur length to the size of the features the classifier relies on; in pixels the blur is the blur length over the ground sampling distance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(b\)</td><td>motion-blur length on the ground</td><td>m</td><td>–</td></tr>
+          <tr><td>\(t_e\)</td><td>exposure time</td><td>s</td><td>0.1–5 ms</td></tr>
+          <tr><td>\(b_c\)</td><td>characteristic size of discriminating leaf features</td><td>m</td><td>0.003 (assumed)</td></tr>
+          <tr><td>GSD</td><td>ground sampling distance</td><td>m px⁻¹</td><td>0.0004</td></tr>
+        </table>
+        <details><summary>Where the form comes from</summary>
+          <ol class="steps">
+            <li>Blur is a convolution with a line of length \(b\): features smaller than \(b\) are averaged away, larger ones survive.</li>
+            <li>Treat the information the classifier uses as coming from features of size about \(b_c\). If blur adds an independent "smearing" of size \(b\), the effective feature contrast falls like \(b_c/\sqrt{b_c^2+b^2}\) — the same quadrature addition used for combined resolutions in optics.</li>
+            <li>Separability is proportional to feature contrast, so \(d'_{\text{eff}}=d_0'\,b_c/\sqrt{b_c^2+b^2}\). The functional form is a modelling assumption; its consequence — performance drops once the blur approaches the leaf-feature scale — agrees with the experience that detection rates drop at higher vehicle speeds unless exposure is shortened or the network is trained on blurred images (Genze et al., 2022).</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(b\): m s⁻¹ × s = m ✓; \(b/b_c\): m/m dimensionless ✓; \(n_{\text{px}}\): m / (m px⁻¹) = px ✓</div>
+        <div class="mini-calc" data-formula="d0/sqrt(1 + pow(v*te/1000/0.003, 2))" data-output="Effective separability d′" data-digits="2" data-plot="v">
+          <div data-var="d0" data-label="d′ standing still" data-min="0.5" data-max="5" data-step="0.05" data-value="3"></div>
+          <div data-var="v" data-label="Speed v" data-min="0" data-max="4" data-step="0.05" data-value="2" data-unit="m s⁻¹"></div>
+          <div data-var="te" data-label="Exposure t<sub>e</sub>" data-min="0.1" data-max="5" data-step="0.05" data-value="1" data-unit="ms"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-fr-coverage">
+        <div class="eq-head"><span class="eq-label">Frame rate and timing limits</span><span class="eq-num">(R3)</span></div>
+        <div class="eq-main">\[ c = \min\!\left(1,\ \frac{L_f}{v\,t_{\text{inf}}}\right),\qquad v_{\max} = \frac{D}{t_{\text{inf}}+t_{\text{valve}}} \]</div>
+        <p class="eq-read">the share of the ground that is imaged is one, or the footprint length divided by the distance travelled while one frame is processed if that is longer; and the robot can only hit what it has seen if the travel time from the camera to the nozzles is longer than the processing plus valve delay.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(c\)</td><td>imaging coverage (plants never imaged are missed)</td><td>–</td><td>–</td></tr>
+          <tr><td>\(L_f\)</td><td>footprint length along the direction of travel</td><td>m</td><td>0.7</td></tr>
+          <tr><td>\(t_{\text{inf}}\)</td><td>processing (inference) time per frame</td><td>s</td><td>slider</td></tr>
+          <tr><td>\(D\)</td><td>distance from the footprint centre to the nozzle line</td><td>m</td><td>0.9</td></tr>
+          <tr><td>\(t_{\text{valve}}\)</td><td>valve opening delay</td><td>s</td><td>0.012</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>If frames are processed back-to-back, a new frame starts every \(t_{\text{inf}}\) seconds, during which the robot moves \(v\,t_{\text{inf}}\). If that exceeds the footprint length, strips of ground are never photographed: the imaged share is \(L_f/(v\,t_{\text{inf}})\).</li>
+            <li>Coverage multiplies both the true- and the false-positive rate in the model (\(\text{TPR}' = c\,\text{TPR}\), \(\text{FPR}' = c\,\text{FPR}\)).</li>
+            <li>A plant detected at the camera arrives under the nozzles \(D/v\) seconds later; the decision and the valve must be faster than that.</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(L_f/(v\,t)\): m / (m s⁻¹ × s) dimensionless ✓; \(v_{\max}\): m/s ✓</div>
+        <div class="mini-calc" data-formula="100*min(1, 0.7/(v*t/1000))" data-output="Ground imaged" data-unit="%" data-digits="0" data-plot="v" data-ymin="0" data-ymax="100">
+          <div data-var="v" data-label="Speed v" data-min="0.1" data-max="4" data-step="0.05" data-value="2" data-unit="m s⁻¹"></div>
+          <div data-var="t" data-label="Processing time t<sub>inf</sub>" data-min="10" data-max="600" data-step="5" data-value="300" data-unit="ms"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-fr-hit">
+        <div class="eq-head"><span class="eq-label">Placement accuracy of a spray pulse</span><span class="eq-num">(R4)</span></div>
+        <div class="eq-main">\[ \varepsilon\sim\mathcal N\!\big(0,(v\,\sigma_t)^2\big),\qquad P_{\text{hit}} = P\!\left(|\varepsilon| \le \tfrac{\ell}{2}-r\right) = 2\,\Phi\!\left(\frac{\ell/2-r}{v\,\sigma_t}\right)-1 \]</div>
+        <p class="eq-read">timing jitter becomes a placement error proportional to speed; the pulse still covers a plant of effective radius r if the error is smaller than half the cell minus r, which happens with probability two Φ minus one.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\sigma_t\)</td><td>timing uncertainty (frame timestamp, speed estimate, valve)</td><td>s</td><td>0.002 (slider)</td></tr>
+          <tr><td>\(\ell\)</td><td>pulse length = cell side</td><td>m</td><td>0.06</td></tr>
+          <tr><td>\(r\)</td><td>half the weed radius (a weed counts as hit when at least its central half is covered)</td><td>m</td><td>0.010–0.014</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The pulse is aimed at the measured plant position; a timing error \(\delta t\) shifts it by \(v\,\delta t\) along the direction of travel.</li>
+            <li>The plant is covered if the shift is less than the margin \(\ell/2-r\) in either direction. For a normal error with standard deviation \(v\sigma_t\), \(P(|\varepsilon|\le m) = \Phi(m/v\sigma_t)-\Phi(-m/v\sigma_t) = 2\Phi(m/v\sigma_t)-1\).</li>
+            <li>Across the direction of travel the nozzle column containing the plant is opened, so there is no lateral error in the model.</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(m/(v\sigma_t)\): m / (m s⁻¹ × s) = dimensionless ✓</div>
+        <div class="mini-calc" data-fn="frHit" data-output="Probability that the pulse hits" data-unit="%" data-digits="1" data-plot="vel" data-ymin="0" data-ymax="100">
+          <div data-var="vel" data-label="Speed v" data-min="0.1" data-max="4" data-step="0.05" data-value="2" data-unit="m s⁻¹"></div>
+          <div data-var="jit" data-label="Timing uncertainty σ<sub>t</sub>" data-min="0" data-max="20" data-step="0.5" data-value="5" data-unit="ms"></div>
+          <div data-var="cell" data-label="Cell size ℓ" data-min="4" data-max="50" data-step="1" data-value="6" data-unit="cm"></div>
+          <div data-var="r" data-label="Margin r" data-min="0" data-max="3" data-step="0.1" data-value="1.2" data-unit="cm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-fr-treated">
+        <div class="eq-head"><span class="eq-label">Treated area and herbicide use (Boolean coverage)</span><span class="eq-num">(R5)</span></div>
+        <div class="eq-main">\[ \Lambda = \lambda\,\text{TPR}' + \rho\,\text{FPR}',\qquad f_T = 1-e^{-a\Lambda},\qquad S = 1-f_T,\qquad V_{\text{spot}} = f_T\,V_{\text{bc}} \]</div>
+        <p class="eq-read">the pulses are laid down with density Lambda, the weeds found plus the crop plants mistaken for weeds; if pulses of area a are placed at random, the covered fraction of the field is one minus e to the minus a Lambda; the saving is the uncovered fraction and the spray volume is the covered fraction of the broadcast volume.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\Lambda\)</td><td>density of spray pulses</td><td>m⁻²</td></tr>
+          <tr><td>\(a=\ell^2\)</td><td>area of one pulse (cell)</td><td>m²</td></tr>
+          <tr><td>\(f_T, S\)</td><td>treated fraction; saving relative to broadcast</td><td>–</td></tr>
+          <tr><td>\(V_{\text{bc}}, V_{\text{spot}}\)</td><td>broadcast and spot spray volumes</td><td>L ha⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Pulses are centred on detected plants. Seen from a fixed point of the field, pulse centres within the area \(a\) around it cover it; their number is Poisson with mean \(a\Lambda\).</li>
+            <li>The point is untreated with probability \(e^{-a\Lambda}\) (no pulse), so the treated fraction is \(1-e^{-a\Lambda}\) — the coverage formula of a Boolean model in stochastic geometry.</li>
+            <li>Special case: with \(\rho\,\text{FPR}\) replaced by a false-alarm probability per empty cell, this is the spray-cell model of the lesson (Eq. 11.4.4).</li>
+            <li>Small cells: \(f_T\approx a\Lambda\), each detection costs one cell. Large cells or many weeds: \(f_T\to1\), spot spraying becomes broadcast spraying.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The dose per treated square metre equals the broadcast dose; drift, nozzle overlap and the minimum dose per pulse are ignored. Crop plants are regularly spaced, not Poisson, which matters little when FPR is small.</p></details>
+        <div class="eq-units">\(a\Lambda\): m² × m⁻² dimensionless ✓; \(V\): (–) × L ha⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="100*(1 - exp(-pow(cell/100,2)*(lam*tpr/100 + rho*fpr/100)))" data-output="Treated fraction f_T" data-unit="%" data-digits="2" data-plot="lam">
+          <div data-var="lam" data-label="Weed density λ" data-min="0.5" data-max="100" data-step="0.5" data-value="12" data-unit="m⁻²" data-scale="log"></div>
+          <div data-var="tpr" data-label="Recall TPR′" data-min="0" data-max="100" data-step="1" data-value="88" data-unit="%"></div>
+          <div data-var="rho" data-label="Crop density ρ" data-min="1" data-max="40" data-step="0.5" data-value="10" data-unit="m⁻²"></div>
+          <div data-var="fpr" data-label="False-positive rate FPR′" data-min="0" data-max="50" data-step="0.5" data-value="6.7" data-unit="%"></div>
+          <div data-var="cell" data-label="Cell side ℓ" data-min="4" data-max="100" data-step="1" data-value="6" data-unit="cm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-fr-patchy">
+        <div class="eq-head"><span class="eq-label">Patchy weeds: a log-Gaussian intensity</span><span class="eq-num">(R6)</span></div>
+        <div class="eq-main">\[ \lambda(\mathbf x) = \bar\lambda\,e^{\sigma Z(\mathbf x)-\sigma^2/2},\qquad f_T = \mathbb E_Z\!\left[1-e^{-a\left(\lambda(\mathbf x)\,\text{TPR}'+\rho\,\text{FPR}'\right)}\right] \]</div>
+        <p class="eq-read">the local weed density is the mean density times the exponential of sigma times a smooth standard normal random field, corrected so that the mean stays λ̄; the treated fraction is the Boolean coverage averaged over the field.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(Z(\mathbf x)\)</td><td>Gaussian random field with mean 0, variance 1 and a patch size of a few metres (the 3D field uses fractal noise)</td><td>–</td></tr>
+          <tr><td>\(\sigma\)</td><td>patchiness (0 = random Poisson weeds)</td><td>–</td></tr>
+          <tr><td>\(\bar\lambda\)</td><td>mean weed density</td><td>m⁻²</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>For \(Z\sim\mathcal N(0,1)\), \(\mathbb E[e^{\sigma Z}] = e^{\sigma^2/2}\) (moment-generating function of the normal distribution), so the factor \(e^{-\sigma^2/2}\) keeps the mean density at \(\bar\lambda\).</li>
+            <li>Conditional on \(Z\), weeds are Poisson (a log-Gaussian Cox process; Møller et al., 1998), so Eq. R5 holds locally.</li>
+            <li>Because \(1-e^{-x}\) is concave, averaging over patches gives a <em>smaller</em> treated fraction than inserting the mean density (Jensen's inequality): patchiness increases the saving.</li>
+            <li>The expectation is evaluated by numerical quadrature over \(Z\).</li>
+          </ol>
+        </details>
+        <div class="eq-units">Exponent: dimensionless ✓; \(\lambda\): m⁻² ✓</div>
+        <div class="mini-calc" data-fn="frTreated" data-output="Treated fraction f_T" data-unit="%" data-digits="2" data-plot="sigma" data-ymin="0">
+          <div data-var="lam" data-label="Mean weed density λ̄" data-min="0.5" data-max="100" data-step="0.5" data-value="12" data-unit="m⁻²" data-scale="log"></div>
+          <div data-var="sigma" data-label="Patchiness σ" data-min="0" data-max="2.5" data-step="0.05" data-value="1"></div>
+          <div data-var="d" data-label="Separability d′" data-min="0.5" data-max="5" data-step="0.05" data-value="3"></div>
+          <div data-var="tau" data-label="Threshold τ" data-min="-2" data-max="6" data-step="0.05" data-value="1.5"></div>
+          <div data-var="rho" data-label="Crop density ρ" data-min="1" data-max="40" data-step="0.5" data-value="10" data-unit="m⁻²"></div>
+          <div data-var="cell" data-label="Cell side ℓ" data-min="4" data-max="100" data-step="1" data-value="6" data-unit="cm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-fr-wce">
+        <div class="eq-head"><span class="eq-label">Weed-control efficacy, escapes and crop plants hit</span><span class="eq-num">(R7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{WCE} = \frac{e_h}{\bar\lambda}\;\mathbb E_Z\!\left[\lambda\sum_i\pi_i\Big(1-(1-\text{TPR}_i'\,P_{\text{hit},i})\,e^{-a\Lambda}\Big)\right] \\[4pt] N_{\text{esc}} = \bar\lambda\,(1-\text{WCE}),\qquad H_c = \mathbb E_Z\!\left[1-(1-\text{FPR}'\,P_{\text{hit},c})\,e^{-a\Lambda}\right] \end{gathered} \]</div>
+        <p class="eq-read">a weed dies if it is covered — by its own pulse when it was detected and hit, or by a pulse aimed at a neighbour — and the herbicide works; escapes are the weeds that survive; a crop plant is hit if it was mistaken for a weed and hit, or lies in a neighbour's pulse.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(e_h\)</td><td>kill rate of a weed that receives the dose</td><td>–</td></tr>
+          <tr><td>\(N_{\text{esc}}\)</td><td>surviving weeds</td><td>m⁻²</td></tr>
+          <tr><td>\(H_c\)</td><td>share of crop plants hit by spray</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A weed escapes coverage only if its own pulse fails (probability \(1-\text{TPR}'P_{\text{hit}}\)) <em>and</em> no other pulse covers it (probability \(e^{-a\Lambda}\), Eq. R5): these events are independent in a Poisson field.</li>
+            <li>Weeds are more numerous where \(\lambda\) is high, so the average over the field is weighted by \(\lambda(\mathbf x)\).</li>
+            <li>Broadcast spraying corresponds to \(\text{WCE}=e_h\) and \(S=0\); spot spraying can at most match it.</li>
+          </ol>
+        </details>
+        <div class="eq-units">Probabilities (–); \(N_{\text{esc}}\): m⁻² × (–) = m⁻² ✓</div>
+        <div class="mini-calc" data-fn="frWce" data-output="Weed-control efficacy (random weeds)" data-unit="%" data-digits="1" data-plot="tau" data-ymin="0" data-ymax="100">
+          <div data-var="d" data-label="Separability d′" data-min="0.5" data-max="5" data-step="0.05" data-value="3"></div>
+          <div data-var="tau" data-label="Threshold τ" data-min="-2" data-max="6" data-step="0.05" data-value="1.5"></div>
+          <div data-var="lam" data-label="Weed density λ" data-min="0.5" data-max="100" data-step="0.5" data-value="12" data-unit="m⁻²"></div>
+          <div data-var="rho" data-label="Crop density ρ" data-min="1" data-max="40" data-step="0.5" data-value="10" data-unit="m⁻²"></div>
+          <div data-var="cell" data-label="Cell side ℓ" data-min="4" data-max="100" data-step="1" data-value="6" data-unit="cm"></div>
+          <div data-var="vel" data-label="Speed v" data-min="0.1" data-max="4" data-step="0.05" data-value="0.5" data-unit="m s⁻¹"></div>
+          <div data-var="jit" data-label="Timing uncertainty σ<sub>t</sub>" data-min="0" data-max="20" data-step="0.5" data-value="2" data-unit="ms"></div>
+          <div data-var="eh" data-label="Kill rate e<sub>h</sub>" data-min="70" data-max="100" data-step="1" data-value="95" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-fr-precision">
+        <div class="eq-head"><span class="eq-label">Precision depends on how common weeds are</span><span class="eq-num">(R8)</span></div>
+        <div class="eq-main">\[ \text{precision} = \frac{\lambda\,\text{TPR}}{\lambda\,\text{TPR} + \rho\,\text{FPR}} \]</div>
+        <p class="eq-read">the share of "weed" calls that are right is the density of weeds found divided by the density of all plants called weeds.</p>
+        <details><summary>Follow the reasoning</summary><p>This is Bayes' theorem with the prior odds λ : ρ. The same detector has high precision in a weedy field and low precision in a clean one — the reason why a sprayer that looks excellent in a trial with 50 weeds m⁻² may spray mostly crop plants in a well-managed field.</p></details>
+        <div class="eq-units">(m⁻²)/(m⁻²) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*lam*tpr/(lam*tpr + rho*fpr)" data-output="Precision" data-unit="%" data-digits="1" data-plot="lam" data-ymin="0" data-ymax="100">
+          <div data-var="lam" data-label="Weed density λ" data-min="0.1" data-max="100" data-step="0.1" data-value="2" data-unit="m⁻²" data-scale="log"></div>
+          <div data-var="tpr" data-label="Recall TPR" data-min="0.1" data-max="1" data-step="0.01" data-value="0.9"></div>
+          <div data-var="rho" data-label="Crop density ρ" data-min="1" data-max="40" data-step="0.5" data-value="10" data-unit="m⁻²"></div>
+          <div data-var="fpr" data-label="False-positive rate" data-min="0" data-max="0.3" data-step="0.005" data-value="0.05"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-fr-workrate">
+        <div class="eq-head"><span class="eq-label">Work rate</span><span class="eq-num">(R9)</span></div>
+        <div class="eq-main">\[ W = \frac{v\,w\,\eta_f}{10^{4}\ \text{m}^2\,\text{ha}^{-1}}\times 3600\ \text{s h}^{-1} = 0.36\,v\,w\,\eta_f \]</div>
+        <p class="eq-read">the area treated per hour is speed times working width times field efficiency, converted to hectares per hour.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(W\)</td><td>effective work rate</td><td>ha h⁻¹</td><td>–</td></tr>
+          <tr><td>\(v, w\)</td><td>speed; working width (six 0.5 m beet rows)</td><td>m s⁻¹; m</td><td>–; 3.0</td></tr>
+          <tr><td>\(\eta_f\)</td><td>field efficiency (headland turns, refilling)</td><td>–</td><td>0.9</td></tr>
+        </table>
+        <details><summary>Check against a manufacturer's specification</summary><p>Ecorobotix ARA: \(v = 7.2\ \text{km h}^{-1} = 2\ \text{m s}^{-1}\), \(w = 6.2\ \text{m}\): \(0.36\times2\times6.2 = 4.5\ \text{ha h}^{-1}\) theoretical; with \(\eta_f = 0.9\), 4.0 ha h⁻¹ — the manufacturer's "up to 4 ha per hour". FarmDroid FD20: 950 m h⁻¹ = 0.264 m s⁻¹ over 3.5 m gives 0.33 ha h⁻¹, i.e. about 5 ha in 15 hours.</p></details>
+        <div class="eq-units">m s⁻¹ × m × s h⁻¹ / (m² ha⁻¹) = ha h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="0.36*v*w*eta" data-output="Work rate" data-unit="ha h⁻¹" data-digits="2" data-plot="v">
+          <div data-var="v" data-label="Speed v" data-min="0.1" data-max="4" data-step="0.01" data-value="0.5" data-unit="m s⁻¹"></div>
+          <div data-var="w" data-label="Working width w" data-min="1" data-max="36" data-step="0.1" data-value="3" data-unit="m"></div>
+          <div data-var="eta" data-label="Field efficiency η<sub>f</sub>" data-min="0.5" data-max="1" data-step="0.01" data-value="0.9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-fr-energy">
+        <div class="eq-head"><span class="eq-label">Solar energy balance of the robot</span><span class="eq-num">(R10)</span></div>
+        <div class="eq-main">\[ \begin{gathered} P = P_0 + \frac{m\,g\,C_{rr}\,v}{\eta_d} + P_{\text{pump}},\qquad E_{PV} = A\,\eta_{PV}\,H\,\text{PR} \\[4pt] h_E = \frac{E_{PV}}{P},\qquad \frac{E}{\text{ha}} = \frac{P}{W} \end{gathered} \]</div>
+        <p class="eq-read">the electrical power is the constant load of computers, cameras and flash plus the power to overcome rolling resistance, divided by the drivetrain efficiency, plus the pump; the roof collects the panel area times efficiency times the day's irradiation times a performance ratio; dividing gives the hours of work per day, and power over work rate the energy per hectare.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(P_0\)</td><td>computers, cameras, flash, GNSS</td><td>W</td><td>250 (slider)</td></tr>
+          <tr><td>\(m, g\)</td><td>robot mass; 9.81 m s⁻²</td><td>kg</td><td>1000 (slider)</td></tr>
+          <tr><td>\(C_{rr}\)</td><td>rolling (motion) resistance coefficient on tilled soil</td><td>–</td><td>0.08 (assumed)</td></tr>
+          <tr><td>\(\eta_d\)</td><td>motor and drivetrain efficiency</td><td>–</td><td>0.75</td></tr>
+          <tr><td>\(A, \eta_{PV}\)</td><td>roof panel area; module efficiency</td><td>m²; –</td><td>7.8; 0.21</td></tr>
+          <tr><td>\(H\)</td><td>daily irradiation on the horizontal roof: NASA POWER clearness index × extraterrestrial irradiation</td><td>kWh m⁻² d⁻¹</td><td>≈ 5.5 (Lund, May)</td></tr>
+          <tr><td>PR</td><td>performance ratio (temperature, wiring, charging)</td><td>–</td><td>0.85</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Moving at constant speed on level ground, the wheels must overcome the motion resistance force \(C_{rr}mg\); power is force × speed.</li>
+            <li>The electronics draw \(P_0\) regardless of speed, so the energy per hectare \(P/W\) falls with speed — until blur and timing make the work worse (Eqs. R2–R4).</li>
+            <li>Sanity check with the FarmDroid FD20 (1250 kg, 0.264 m s⁻¹): with \(C_{rr}=0.08\) the drive needs about 345 W; with 150 W of electronics and 40 W for the pump, about 0.54 kW, so a 6 kWh battery would last about 11 hours — the manufacturer states "up to 12 hours of extra operation".</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Level ground, constant speed, no tool draft (the hoes are raised in this simulation); \(C_{rr}\) varies strongly with soil moisture and tyre design (Wong, 2022). Batteries are not modelled: the area per day is what sunlight alone can sustain.</p></details>
+        <div class="eq-units">kg × m s⁻² × m s⁻¹ = W ✓; m² × kWh m⁻² d⁻¹ = kWh d⁻¹ ✓; kWh d⁻¹ / kW = h d⁻¹ ✓; kW / (ha h⁻¹) = kWh ha⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="(P0 + m*9.81*crr*v/0.75 + 40)/1000/(0.36*v*3*0.9)" data-output="Energy per hectare" data-unit="kWh ha⁻¹" data-digits="2" data-plot="v">
+          <div data-var="v" data-label="Speed v" data-min="0.1" data-max="4" data-step="0.01" data-value="0.5" data-unit="m s⁻¹"></div>
+          <div data-var="P0" data-label="Electronics P<sub>0</sub>" data-min="50" data-max="800" data-step="10" data-value="250" data-unit="W"></div>
+          <div data-var="m" data-label="Mass m" data-min="300" data-max="2000" data-step="10" data-value="1000" data-unit="kg"></div>
+          <div data-var="crr" data-label="C<sub>rr</sub>" data-min="0.03" data-max="0.25" data-step="0.005" data-value="0.08"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator; save each result with <em>Save investigation</em>. Let the robot drive at least 30 m (use 8×) before you read the simulated counts — random fluctuations are large on short distances.</p>
+      <ol class="task-list">
+        <li><h4>Set the threshold like an agronomist</h4><p>With the default robot, find the threshold that keeps crop plants hit below 1 % when a non-selective product is used. What weed-control efficacy and escapes per m² do you get? Now find the threshold that gives 90 % weed control. Which of the two would you choose for a sugar-beet crop that is weakly competitive in its early weeks, and what would change your mind?</p></li>
+        <li><h4>The cost of speed</h4><p>Find the highest speed at which the robot still achieves 85 % weed-control efficacy. Then shorten the exposure to 0.3 ms and repeat. How much does the work rate change, and what does the solar roof allow per day at each speed? Explain the shape of the "area per day" curve with Eq. R10.</p></li>
+        <li><h4>Why do savings differ so much?</h4><p>At 5, 20 and 50 weeds m⁻² (σ = 1), record the herbicide saving for spray cells of 6, 12, 25 and 50 cm. Which combination reproduces the 25 % average saving of the independent maize trials (Gerhards et al., 2026)? Which reproduces the "50 % to over 95 %" of the manufacturer? Write three questions you would ask a salesperson who promises "up to 95 % savings".</p></li>
+        <li><h4>Patchy weeds</h4><p>Keep the mean weed density at 12 m⁻² and change the patchiness from 0 to 2. How do the saving, the weed-control efficacy and the precision change? Use Eq. R6 and Jensen's inequality to explain the direction of the effect, and discuss why patchy weed distributions (Cardina et al., 1997) are good news for spot spraying.</p></li>
+        <li><h4>Which weeds survive?</h4><p>Lower the separability to 1.8 and use a high threshold. Drive 30 m and inspect the orange-ringed escapes by clicking on them. Which species dominate? What would happen to the weed flora of the field if this robot were used for several years, and how could the problem be managed?</p></li>
+        <li><h4>A week of sunshine</h4><p>A grower in Skåne has 20 ha of sugar beet to treat within one week in mid-May. Can a robot powered only by its 7.8 m² roof do it? Find a combination of speed and electronics power that meets the deadline while keeping at least 85 % weed control. Compare your answer with the specifications of a commercial solar robot (FarmDroid, 2025).</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-field-robot">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A weed species has separability d′ = 2.5 and the threshold is τ = 1.5. What share of these weeds is detected (Eq. R1)?","answer":84.1,"tol":0.02,"unit":"%","hint":"TPR = Φ(d′ − τ) = Φ(1.0).","explain":"<p>\\(\\Phi(2.5-1.5)=\\Phi(1.0)=0.841\\): 84.1 % of the weeds of this species are found.</p>"},
+          {"type":"numeric","q":"With the threshold at τ = 2.0, what percentage of crop plants are called weeds (Eq. R1)?","answer":2.28,"tol":0.03,"unit":"%","explain":"<p>\\(\\text{FPR}=\\Phi(-2)=0.0228\\), i.e. 2.3 % of the crop plants.</p>"},
+          {"type":"numeric","q":"Weeds at 10 m⁻² are detected with TPR′ = 0.90; crop plants (10 m⁻²) are mistaken for weeds with FPR′ = 0.02. The spray cell is 6 cm × 6 cm and weeds are randomly scattered. What herbicide saving compared with broadcast spraying do you expect (Eq. R5)?","answer":96.7,"tol":0.01,"unit":"%","hint":"a = 0.0036 m²; Λ = 10 × 0.9 + 10 × 0.02.","explain":"<p>\\(\\Lambda = 9 + 0.2 = 9.2\\) m⁻², \\(a\\Lambda = 0.0036\\times9.2 = 0.0331\\), \\(f_T = 1-e^{-0.0331} = 0.0326\\). Saving \\(= 1-f_T = 96.7\\) %.</p>"},
+          {"type":"numeric","q":"The robot drives at 2 m s⁻¹ with an exposure time of 1.5 ms. How long is the motion blur on the ground, in millimetres (Eq. R2)?","answer":3,"tol":0.02,"unit":"mm","explain":"<p>\\(b = v\\,t_e = 2\\times0.0015 = 0.003\\) m = 3 mm — as large as the leaf features the classifier needs, so \\(d'\\) falls to about 71 % of its standstill value.</p>"},
+          {"type":"mcq","q":"Why did the independent maize trials of Gerhards et al. (2026) save less herbicide (25 % on average) than manufacturers' claims of 50–95 %?","options":["A conventional 36 m boom switches nozzles that each spray a much larger area than a 6 cm cell, so every detection treats more ground","The camera in the trials had a lower frame rate than the manufacturers' robots","Maize is sprayed with more water per hectare than sugar beet","Independent researchers do not trust the machines and override them"],"answer":0,"feedback":["","Nothing in the abstract indicates missed frames; the authors themselves point to nozzles covering less area and weed-species classification as ways to save more.","The spray volume does not change the treated fraction.","The trials ran the targeted application automatically at 10 km h⁻¹."],"explain":"<p>The treated fraction \\(1-e^{-a\\Lambda}\\) grows quickly with the cell area \\(a\\) (Eq. R5). Weed density and the reference also matter; the authors note that further savings would need nozzles covering less area, species classification and economic thresholds.</p>"},
+          {"type":"multi","q":"At 2.5 m s⁻¹ the weed-control efficacy of the default robot has dropped. Which changes raise it again? (Select all that apply.)","options":["Shortening the exposure time","Lowering the threshold τ","Using larger spray cells","Adding more solar panels to the roof"],"answer":[0,1,2],"explain":"<p>Shorter exposure reduces blur (Eq. R2); a lower threshold finds more weeds at the cost of more crop hits (Eq. R1); larger cells tolerate placement errors and cover neighbouring weeds (Eqs. R4–R5) at the cost of more herbicide. Solar panels only change the hours of operation per day.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Field.</strong> Sugar beet in 0.5 m rows with 0.18 m seed spacing and 90 % emergence (lettuce: 0.375 m × 0.30 m). Weeds of four species with fixed shares (fat hen 35 %, chickweed 25 %, scentless mayweed 15 %, grass weeds 25 %), placed by a log-Gaussian Cox process with a patch size of a few metres. Plants do not grow during the pass.</li>
+        <li><strong>Detector.</strong> Equal-variance Gaussian scores per plant; species separability multipliers 0.7–1.35 are illustrative assumptions, not measurements. Every plant inside the working width is localised; only its classification can be wrong. Background objects (stones, residues) never trigger the sprayer.</li>
+        <li><strong>Speed effects.</strong> Blur reduces separability according to Eq. R2 with an assumed feature scale of 3 mm and 0.4 mm per pixel; frames are processed back-to-back (Eq. R3); timing jitter is normal (Eq. R4). The camera view in the scene shows the blur at half the real pixel scale.</li>
+        <li><strong>Spraying.</strong> One pulse of length ℓ per detected plant, centred on it (with placement error) in the nozzle column that contains it; the treated area receives the full broadcast dose; drift, droplet size, nozzle overlap and the minimum pulse length are ignored. A weed counts as hit if its central half is covered; a hit weed dies with probability e<sub>h</sub>. Wilting in the scene is accelerated for visibility.</li>
+        <li><strong>Energy.</strong> Level ground, constant speed, raised hoes (no draft); roof irradiation from the NASA POWER monthly clearness index and the extraterrestrial irradiation of the date; no battery storage and no night-time charging.</li>
+        <li><strong>Simulation versus model.</strong> The readouts and charts are expected values (Eqs. R1–R10). The 3D robot generates one random field and counts what happens; its counts converge to the expected values over tens of metres.</li>
+        <li>The robot is a generic design inspired by commercial solar robots and spot sprayers; it does not represent any particular product.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Allmendinger, A., Spaeth, M., Saile, M., Peteinatos, G. G., &amp; Gerhards, R. (2022). Precision chemical weed management strategies: A review and a design of a new CNN-based modular spot sprayer. <em>Agronomy</em>, 12(7), 1620. <a href="https://doi.org/10.3390/agronomy12071620" target="_blank" rel="noopener">doi:10.3390/agronomy12071620</a></li>
+        <li>Allmendinger, A., Spaeth, M., Saile, M., Peteinatos, G. G., &amp; Gerhards, R. (2024). Agronomic and technical evaluation of herbicide spot spraying in maize based on high-resolution aerial weed maps — An on-farm trial. <em>Plants</em>, 13(15), 2164. <a href="https://doi.org/10.3390/plants13152164" target="_blank" rel="noopener">doi:10.3390/plants13152164</a></li>
+        <li>Cardina, J., Johnson, G. A., &amp; Sparrow, D. H. (1997). The nature and consequence of weed spatial distribution. <em>Weed Science</em>, 45(3), 364–373. <a href="https://doi.org/10.1017/S0043174500092997" target="_blank" rel="noopener">doi:10.1017/S0043174500092997</a></li>
+        <li>Ecorobotix. (2026). <em>ARA620 UHP sprayer</em> [Product specifications]. <a href="https://ecorobotix.com/crop-care/ara-620-uhp-sprayer/" target="_blank" rel="noopener">https://ecorobotix.com/crop-care/ara-620-uhp-sprayer/</a></li>
+        <li>European Commission. (2020). <em>A Farm to Fork Strategy for a fair, healthy and environmentally-friendly food system</em> (COM(2020) 381 final). <a href="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52020DC0381" target="_blank" rel="noopener">https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52020DC0381</a></li>
+        <li>European Parliament and Council. (2009). Directive 2009/128/EC of 21 October 2009 establishing a framework for Community action to achieve the sustainable use of pesticides. <em>Official Journal of the European Union</em>, L 309, 71–86. <a href="https://eur-lex.europa.eu/eli/dir/2009/128/oj" target="_blank" rel="noopener">https://eur-lex.europa.eu/eli/dir/2009/128/oj</a></li>
+        <li>FarmDroid. (2025). <em>FarmDroid FD20: Automatic seeding &amp; weed control</em> [Factsheet, model FD20 2025 v2.5]. <a href="https://farmdroid.com/wp-content/uploads/Factsheet-FD20-metricimperial-2025.pdf" target="_blank" rel="noopener">farmdroid.com</a></li>
+        <li>Fawcett, T. (2006). An introduction to ROC analysis. <em>Pattern Recognition Letters</em>, 27(8), 861–874. <a href="https://doi.org/10.1016/j.patrec.2005.10.010" target="_blank" rel="noopener">doi:10.1016/j.patrec.2005.10.010</a></li>
+        <li>Genze, N., Ajekwe, R., Güreli, Z., Haselbeck, F., Grieb, M., &amp; Grimm, D. G. (2022). Deep learning-based early weed segmentation using motion blurred UAV images of sorghum fields. <em>Computers and Electronics in Agriculture</em>, 202, 107388. <a href="https://doi.org/10.1016/j.compag.2022.107388" target="_blank" rel="noopener">doi:10.1016/j.compag.2022.107388</a></li>
+        <li>Gerhards, R., Andújar Sanchez, D., Hamouz, P., Peteinatos, G. G., Christensen, S., &amp; Fernandez-Quintanilla, C. (2022). Advances in site-specific weed management in agriculture — A review. <em>Weed Research</em>, 62(2), 123–133. <a href="https://doi.org/10.1111/wre.12526" target="_blank" rel="noopener">doi:10.1111/wre.12526</a></li>
+        <li>Gerhards, R., Spaeth, M., Özcan, S., Zimmermann, B., Schönleber, N., Bahrs, E., Schwaderer, P., &amp; Sturm, D. (2026). Targeted application of herbicides in maize (<em>Zea mays</em> L.) using a camera-controlled boom-sprayer. <em>Weed Research</em>, 66(2), e70087. <a href="https://doi.org/10.1111/wre.70087" target="_blank" rel="noopener">doi:10.1111/wre.70087</a></li>
+        <li>Hasan, A. S. M. M., Sohel, F., Diepeveen, D., Laga, H., &amp; Jones, M. G. K. (2021). A survey of deep learning techniques for weed detection from images. <em>Computers and Electronics in Agriculture</em>, 184, 106067. <a href="https://doi.org/10.1016/j.compag.2021.106067" target="_blank" rel="noopener">doi:10.1016/j.compag.2021.106067</a></li>
+        <li>John Deere. (2024, September 23). <em>See &amp; Spray 59 percent herbicide savings</em> [News release: 59 % average herbicide savings on more than one million acres in the 2024 season]. <a href="https://www.deere.com/en-us/john-deere-news/see-spray-59-percent-herbicide-savings" target="_blank" rel="noopener">deere.com</a></li>
+        <li>Macmillan, N. A., &amp; Creelman, C. D. (2005). <em>Detection theory: A user's guide</em> (2nd ed.). Lawrence Erlbaum Associates.</li>
+        <li>Møller, J., Syversveen, A. R., &amp; Waagepetersen, R. P. (1998). Log Gaussian Cox processes. <em>Scandinavian Journal of Statistics</em>, 25(3), 451–482. <a href="https://doi.org/10.1111/1467-9469.00115" target="_blank" rel="noopener">doi:10.1111/1467-9469.00115</a></li>
+        <li>Slaughter, D. C., Giles, D. K., &amp; Downey, D. (2008). Autonomous robotic weed control systems: A review. <em>Computers and Electronics in Agriculture</em>, 61(1), 63–78. <a href="https://doi.org/10.1016/j.compag.2007.05.008" target="_blank" rel="noopener">doi:10.1016/j.compag.2007.05.008</a></li>
+        <li>Utstumo, T., Urdal, F., Brevik, A., Dørum, J., Netland, J., Overskeid, Ø., Berge, T. W., &amp; Gravdahl, J. T. (2018). Robotic in-row weed control in vegetables. <em>Computers and Electronics in Agriculture</em>, 154, 36–45. <a href="https://doi.org/10.1016/j.compag.2018.08.043" target="_blank" rel="noopener">doi:10.1016/j.compag.2018.08.043</a></li>
+        <li>Wong, J. Y. (2022). <em>Theory of ground vehicles</em> (5th ed.). Wiley. <a href="https://doi.org/10.1002/9781119719984" target="_blank" rel="noopener">doi:10.1002/9781119719984</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

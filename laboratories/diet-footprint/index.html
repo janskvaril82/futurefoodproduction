@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diet footprint composer · Future Food Production</title>
+<meta name="description" content="Compose a daily diet gram by gram from 39 foods and compute its greenhouse-gas, land, freshwater and eutrophication footprint with Poore &amp; Nemecek (2018) data against per-capita shares of the EAT–Lancet food-system boundaries.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  #stage { background: #1a120c; }
+  .df-tip { position: absolute; z-index: 6; display: none; pointer-events: none; max-width: 330px; background: rgba(10,16,14,.92); color: #e6eee9; border: 1px solid rgba(255,255,255,.18); border-radius: 10px; padding: 8px 11px; font: 500 .75rem/1.5 var(--font-sans); backdrop-filter: blur(8px); }
+  .df-tip b { color: #fff; }
+  .df-groups { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 2px 0; font: 500 .76rem var(--font-sans); color: var(--ink-2); }
+  .df-groups i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  .food-group { border-top: 1px solid var(--line); margin-top: 8px; }
+  .food-group > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 10px 0 6px; font: 650 .82rem var(--font-sans); color: var(--ink); }
+  .food-group > summary::-webkit-details-marker { display: none; }
+  .food-group > summary::after { content: '+'; margin-left: 4px; font: 600 .8rem var(--font-mono); color: var(--muted); }
+  .food-group[open] > summary::after { content: '−'; }
+  .food-group > summary i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .food-group .fg-name { flex: 1; }
+  .food-group .fg-sum { font: 500 .7rem var(--font-mono); color: var(--muted); white-space: nowrap; }
+  .food-ctl { margin: 4px 0 6px; padding: 2px 4px; border-radius: 8px; transition: background .4s; }
+  .food-ctl .ctl-lab { font-size: .82rem; }
+  .food-ctl img.fi { width: 1.35em; height: 1.35em; vertical-align: -0.34em; margin-right: .45em; }
+  .food-ctl.flash { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  #chart-radar { height: 330px; }
+  #chart-nutri { height: 250px; }
+  #chart-range { height: 660px; }
+  .chart-card.wide { grid-column: 1 / -1; }
+  @media (max-width: 700px) {
+    #stage { aspect-ratio: 3 / 4; }
+    #stage .hud-chip { font-size: .64rem; padding: 3px 7px; }
+    #stage .stage-hud { max-width: 72%; gap: 4px; }
+  }
+  .card-seg { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 4px 0 8px; }
+  .card-seg .seg { margin: 0; min-width: 280px; }
+  #swaps { display: grid; gap: 8px; }
+  .sw-card { border: 1px solid var(--line); border-radius: 12px; padding: 9px 11px; background: var(--bg); }
+  .sw-head { display: flex; align-items: center; gap: 10px; font-size: .84rem; line-height: 1.35; }
+  .sw-head > div { flex: 1; }
+  .sw-head .btn { flex: none; }
+  .sw-emo { display: flex; align-items: center; gap: 1px; flex: none; }
+  .sw-emo img.sw-i { width: 30px; height: 30px; }
+  .sw-arrow { color: var(--muted); font-size: .85rem; margin: 0 1px; }
+  .sw-basis { font-size: .74rem; color: var(--muted); margin-top: 2px; }
+  .sw-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .sw-chip { font: 500 .7rem var(--font-mono); padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); }
+  .sw-chip em { font-style: normal; opacity: .75; }
+  .sw-chip.good { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+  .sw-chip.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+</style>
+</head>
+<body data-page="lab" data-slug="diet-footprint">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Diet footprint composer</h1>
+    <p class="lead">What you eat changes the planet more than almost any other everyday choice. Compose a day's diet gram by gram from 39 foods and watch its greenhouse-gas, land, freshwater and eutrophication footprint appear on the plate — computed with the median results of the largest life-cycle meta-analysis of food to date (Poore &amp; Nemecek, 2018: about 38,700 farms in 119 countries). Every plate is compared with your fair share of the EAT–Lancet food-system boundaries for 10 billion people. A swap engine finds the changes that matter most, and a nutrition check makes sure the diet still feeds you.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage tall" id="stage"></div>
+      <div class="df-groups" id="df-groups"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Footprint by food group</h3>
+      <div class="chart-sub">Each footprint as a percentage of your daily budget, stacked by food group. Above the dashed line the diet uses more than its share. *Eutrophying emissions have no EAT–Lancet boundary in this unit; their benchmark is the planetary health diet computed with the same data.</div>
+      <div class="chart" id="chart-groups" style="height:330px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Diet versus budget</h3>
+      <div class="chart-sub">Overshoot factor for each footprint on a logarithmic radial scale (¼× to 16×). The dashed green circle is 1×: exactly the budget. The grey dashed polygon is the EAT–Lancet planetary health diet, computed with the same footprint data.</div>
+      <div class="chart" id="chart-radar"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Smart swaps</h3>
+      <div class="chart-sub">The five substitutions with the largest saving for the current diet, each for 100 g of the food (or all of it if you eat less), with the same protein, energy or mass. Green chips are savings, red chips trade-offs. Apply one and watch the plate.</div>
+      <div id="swaps"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Nutrition check</h3>
+      <div class="chart-sub">Energy, protein and mass eaten, coloured by food group. The black tick is your requirement; the shaded band is ±10 % for energy and 1–2.5 times the protein requirement. A low-footprint diet that leaves you hungry is not a solution.</div>
+      <div class="chart" id="chart-nutri"></div>
+    </div>
+    <div class="chart-card wide">
+      <h3>How variable are food footprints?</h3>
+      <div class="chart-sub">For every food: the range from the 10th to the 90th percentile of producers (bar), the median (circle) and the mean (tick) in the Poore &amp; Nemecek (2018) data, sorted by median. Names in bold are in your diet. Switch the functional unit to see why per-kilogram and per-protein comparisons can rank foods differently.</div>
+      <div class="card-seg">
+        <div class="seg" id="range-ind" role="group" aria-label="Footprint"><button type="button" data-v="ghg" aria-pressed="true">Climate</button><button type="button" data-v="land" aria-pressed="false">Land</button><button type="button" data-v="water" aria-pressed="false">Water</button><button type="button" data-v="eut" aria-pressed="false">Eutrophication</button></div>
+        <div class="seg" id="range-fu" role="group" aria-label="Functional unit"><button type="button" data-v="kg" aria-pressed="true">per kg</button><button type="button" data-v="prot" aria-pressed="false">per 100 g protein</button><button type="button" data-v="kcal" aria-pressed="false">per 1000 kcal</button></div>
+      </div>
+      <div class="chart" id="chart-range"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the plate</h2>
+      <ol>
+        <li><strong>Start with the average Swedish diet</strong> (loaded by default). The plate is sized by greenhouse-gas emissions and its area represents your daily climate budget. The food spills far over the rim: the climate gauge reads about 4×. Hover over the bubbles — beef, milk, cheese and pork dominate.</li>
+        <li><strong>Resize the plate by mass.</strong> Set <em>Size foods on the plate by</em> to <em>Mass eaten</em>. Now milk, bread, potatoes and vegetables dominate and the meat bubbles shrink. In this diet, dairy, eggs, meat and fish are 36 % of the mass but 82 % of the greenhouse gases and 79 % of the land use.</li>
+        <li><strong>Load the EAT–Lancet planetary health diet.</strong> Land, water and eutrophication fall towards the budget, but climate still overshoots about 2×. Read the <em>Explain</em> tab to find out why even the reference diet overshoots when measured with today's median producers and a metric that includes CO₂ from land-use change and energy.</li>
+        <li><strong>Try the vegan and high-meat diets.</strong> The vegan diet brings every footprint down, but not all to zero overshoot; the high-meat diet (about 200 g of meat per day) needs about seven times its climate budget and five times its land budget.</li>
+        <li><strong>Let the swap engine work.</strong> Go back to the Swedish diet and press <em>Apply</em> on the first suggestion. Replacing 100 g of beef from beef herds by beans and lentils with the same protein saves almost 6 kg CO₂e per day.</li>
+        <li><strong>Change the producer, not the diet.</strong> Switch <em>Producer footprint</em> from median to <em>Low (P10)</em>. Buying only from the best 10 % of producers cuts the Swedish diet's climate footprint by 38 %; switching to the planetary health diet at median producers cuts it by 47 %; doing both cuts it by 70 %.</li>
+        <li><strong>Study the variability chart.</strong> The best 10 % of beef producers still emit more per kilogram than the worst 10 % of pea, pulse or tofu producers. Switch to <em>per 100 g protein</em> and notice how milk moves up next to cheese.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A diet's footprint is dominated by a few foods with very high impact per kilogram — above all beef from beef herds, lamb, cheese and other animal products. Changing <em>what</em> we eat reduces footprints more than changing <em>who</em> produces it, but the largest reductions come from both.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From a plate of food to a planetary budget</h2>
+      <p>The composer is a small <em>consumption-based life-cycle model</em>. Each food you add is multiplied by its environmental footprint per kilogram, the products are summed over the whole diet, and the total is compared with a per-person share of a global budget (Figure 1). Everything else — the plate, the gauges, the charts — is a view of these few sums.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 720 230" role="img" aria-label="Calculation chain from grams eaten to overshoot factor">
+          <defs><marker id="dfA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <rect x="10" y="40" width="120" height="70" rx="10" class="fill-sunk" stroke="currentColor"/>
+          <text x="70" y="68" text-anchor="middle">grams eaten</text><text x="70" y="88" text-anchor="middle" class="t-small t-muted">m_i per day</text>
+          <rect x="165" y="40" width="150" height="70" rx="10" class="fill-amber-soft" stroke="currentColor"/>
+          <text x="240" y="62" text-anchor="middle">× footprint per kg</text><text x="240" y="82" text-anchor="middle" class="t-small t-muted">e_ik (Poore &amp; Nemecek)</text><text x="240" y="98" text-anchor="middle" class="t-small t-muted">median of ≈38,700 farms</text>
+          <rect x="350" y="40" width="130" height="70" rx="10" class="fill-accent-soft" stroke="currentColor"/>
+          <text x="415" y="68" text-anchor="middle">Σ over foods</text><text x="415" y="88" text-anchor="middle" class="t-small t-muted">daily footprint F_k</text>
+          <rect x="515" y="40" width="195" height="70" rx="10" class="fill-magenta-soft" stroke="currentColor"/>
+          <text x="612" y="62" text-anchor="middle">÷ per-capita budget</text><text x="612" y="82" text-anchor="middle" class="t-small t-muted">b_k = B_k / (N · 365)</text><text x="612" y="98" text-anchor="middle" class="t-small t-muted">→ overshoot O_k</text>
+          <line x1="130" y1="75" x2="163" y2="75" stroke="currentColor" stroke-width="1.6" marker-end="url(#dfA)"/>
+          <line x1="315" y1="75" x2="348" y2="75" stroke="currentColor" stroke-width="1.6" marker-end="url(#dfA)"/>
+          <line x1="480" y1="75" x2="513" y2="75" stroke="currentColor" stroke-width="1.6" marker-end="url(#dfA)"/>
+          <rect x="165" y="150" width="150" height="56" rx="10" class="fill-water-soft" stroke="currentColor"/>
+          <text x="240" y="174" text-anchor="middle">× energy, protein</text><text x="240" y="193" text-anchor="middle" class="t-small t-muted">food composition (SLV)</text>
+          <rect x="350" y="150" width="130" height="56" rx="10" class="fill-sunk" stroke="currentColor"/>
+          <text x="415" y="174" text-anchor="middle">nutrition check</text><text x="415" y="193" text-anchor="middle" class="t-small t-muted">kcal, protein</text>
+          <path d="M70 110 V178 H163" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#dfA)"/>
+          <line x1="315" y1="178" x2="348" y2="178" stroke="currentColor" stroke-width="1.4" marker-end="url(#dfA)"/>
+          <text x="612" y="140" text-anchor="middle" class="t-small">B_k: EAT–Lancet boundary</text><text x="612" y="158" text-anchor="middle" class="t-small">N: people sharing it</text>
+          <line x1="612" y1="130" x2="612" y2="112" stroke="currentColor" stroke-width="1.2" marker-end="url(#dfA)"/>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The calculation chain. Four footprints are computed in parallel: greenhouse-gas emissions, land use, freshwater withdrawals and eutrophying emissions. The same grams feed a nutrition check.</figcaption>
+      </figure>
+
+      <h3>Where the footprints come from</h3>
+      <p>Poore and Nemecek (2018) collected about 570 life-cycle assessment studies covering roughly 38,700 commercially viable farms and 1,600 processors, packaging types and retailers in 119 countries. They harmonised the studies to one system boundary — from the production of farm inputs to the shop shelf — and one set of indicators, then weighted and resampled the results to represent global production of 40 products. Their <em>Data S2</em> gives, for each product, the 5th, 10th, 50th (median), 90th and 95th percentile and the mean footprint per kilogram of <em>retail weight</em>: 1 kg of bread, 1 kg of dry lentils, 1 litre of milk, 1 kg of fat- and bone-free meat. The four indicators used here are:</p>
+      <ul>
+        <li><strong>Greenhouse-gas emissions</strong> in kg CO₂-equivalents, with IPCC AR5 100-year global warming potentials including climate–carbon feedbacks. They include CO₂ from land-use change and energy, CH₄ from cattle and rice, and N₂O from fertilised soils and manure.</li>
+        <li><strong>Land use</strong> in m²·year: the area occupied for a year to produce 1 kg, including arable land, fallow, temporary and permanent pasture.</li>
+        <li><strong>Freshwater withdrawals</strong> in litres: irrigation, drinking water for animals, aquaculture ponds and processing water taken from rivers, lakes and aquifers. Rain that falls on the field (green water) is not counted.</li>
+        <li><strong>Eutrophying emissions</strong> in g PO₄³⁻-equivalents (CML2 baseline): nitrogen and phosphorus lost to water and ammonia and nitrogen oxides emitted to air, weighted by their potential to over-fertilise ecosystems.</li>
+      </ul>
+      <div class="callout note"><div class="callout-title">Why the median?</div><p>Footprint distributions are strongly skewed: a minority of producers — beef raised on recently deforested land, rice in flooded paddies, fish ponds with poor feed conversion — have very high impacts. For beef from beef herds the median is 60 kg CO₂e per kg but the mean is 99 kg. The median describes a <em>typical</em> producer; the mean is what adds up to the global total. Use the <em>Producer footprint</em> control to compare them, and note that summing medians does not give the median diet.</p></div>
+
+      <h3>Per kilogram, per protein or per kilocalorie?</h3>
+      <p>Foods do different jobs in a diet, so the choice of functional unit matters (see <a href="/lessons/life-cycle-thinking/">Lesson 1.3</a>). Per kilogram, beef from beef herds emits about 75 times more than dry peas; per 100 g of protein the ratio is about 81. Milk looks harmless per kilogram (2.65 kg CO₂e) because it is mostly water, but per 100 g of protein (7.4 kg CO₂e) it is similar to cheese (7.1 kg CO₂e). Rice has a moderate footprint per kilogram but a large one per gram of protein, because it is a starchy staple rather than a protein food. When you compare two foods, compare them in the role they play: the swap engine therefore swaps protein foods at equal protein, staples at equal energy and oils at equal mass.</p>
+
+      <h3>Your share of the planetary boundaries</h3>
+      <p>The EAT–Lancet Commission (Willett et al., 2019) proposed global boundaries for food production that should keep the Earth system in a safe state while feeding about 10 billion people in 2050. Dividing a global boundary \(B\) by the number of people \(N\) and the days of the year gives a per-person daily budget — an equal-per-capita “fair share”:</p>
+      <table>
+        <caption>EAT–Lancet (2019) food-system boundaries and the per-person daily budgets used by the composer (10 billion people)</caption>
+        <tr><th>Boundary</th><th class="num">Global value</th><th class="num">Per person per day</th><th>What the boundary measures</th></tr>
+        <tr><td>Climate change</td><td class="num">5 Gt CO₂e yr⁻¹</td><td class="num">1.37 kg CO₂e</td><td>CH₄ and N₂O from food production only</td></tr>
+        <tr><td>Land-system change</td><td class="num">13 million km²</td><td class="num">3.56 m²·yr (1,300 m²)</td><td>cropland area</td></tr>
+        <tr><td>Freshwater use</td><td class="num">2,500 km³ yr⁻¹</td><td class="num">685 L</td><td>consumptive blue-water use</td></tr>
+        <tr><td>Nitrogen, phosphorus</td><td class="num">90 Tg N, 8 Tg P yr⁻¹</td><td class="num">–</td><td>fertiliser application (no per-food data here)</td></tr>
+      </table>
+      <p>Because the boundaries and the footprints were defined by different research groups, they do not measure exactly the same thing. The composer compares them anyway — that is what the brief of “fair shares” asks — but you must read the result with the differences in mind:</p>
+      <ul>
+        <li><strong>Climate:</strong> the boundary counts only methane and nitrous oxide, because it assumes that CO₂ from deforestation will stop and that energy will be decarbonised. Poore and Nemecek's footprints include CO₂ from land-use change (2.38 of their 13.7 Gt CO₂e, 17 %), cultivated organic soils (0.55 Gt) and the post-farm supply chain — processing, transport, packaging and retail (2.42 Gt). About two fifths of their total is therefore largely CO₂ outside the boundary's scope, so the climate overshoot shown here is an upper estimate.</li>
+        <li><strong>Land:</strong> the boundary is for cropland, while the footprints include pasture. Diets rich in grazing-based beef and lamb look worse against a cropland budget than they would against total agricultural land.</li>
+        <li><strong>Water:</strong> withdrawals are larger than consumptive use, because part of the withdrawn water returns to rivers and aquifers. The water overshoot is again an upper estimate — yet most diets stay below the budget.</li>
+        <li><strong>Eutrophication:</strong> the boundaries limit fertiliser application, not emissions. As a benchmark the composer uses the eutrophying emissions of the planetary health diet computed with the same data (marked *).</li>
+      </ul>
+      <p>For a like-for-like comparison, choose <em>Compare with: Planetary health diet</em>. Then 1× means “as much as the EAT–Lancet reference diet, produced by today's typical producers”.</p>
+      <div class="callout warn"><div class="callout-title">Why does even the planetary health diet overshoot?</div><p>With median producers it emits 2.93 kg CO₂e per day, 2.1 times the climate share. EAT–Lancet never claimed that the diet alone would fit: the boundaries are respected only when the dietary shift is combined with productivity improvements and at least halved food loss and waste — exactly the three levers of the <a href="/laboratories/planetary-boundaries-dashboard/">Planetary boundaries dashboard</a>. Switch to <em>Low (P10)</em> producers and the planetary health diet falls to 1.2 times the climate share.</p></div>
+
+      <h3>What a Swedish diet looks like through this lens</h3>
+      <p>The default diet is an approximation of the average Swedish adult diet, built from the Swedish Food Agency's national dietary survey <em>Riksmaten vuxna 2010–11</em> (1,797 adults, four-day food records). The survey reports food groups in the form eaten; the composer converts them to the raw or dry retail weights used by Poore and Nemecek and splits groups such as “meat” and “vegetables” into items using the Swedish Board of Agriculture's consumption statistics for 2024 (details in <em>Assumptions &amp; sources</em>). It reproduces about 88 % of the energy (1,740 of 1,978 kcal) and 87 % of the protein (70 of 81 g) reported by the survey — the rest is in soups, sauces, desserts, cream and other foods without a counterpart in the footprint data — so its footprint is a slight underestimate.</p>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example</span><span class="we-title">Replacing 100 g of beef with lentils</span></div>
+        <div class="we-problem"><p>A person eats 100 g of beef from a beef herd per day. They replace it with dry beans and lentils that supply the same protein. How much greenhouse gas do they save per day and per year, using median footprints (beef 60.36 kg CO₂e kg⁻¹ and 20.1 g protein per 100 g; pulses 1.39 kg CO₂e kg⁻¹ and 23.2 g protein per 100 g)?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution"><ol class="steps">
+          <li><strong>Protein to replace:</strong> \(100\ \text{g}\times 20.1/100 = 20.1\) g protein.</li>
+          <li><strong>Pulses with the same protein:</strong> \(m = 100 \times 20.1/23.2 = 86.6\) g of dry pulses (about 230 g cooked).</li>
+          <li><strong>Emissions before and after:</strong> \(0.100\times 60.36 = 6.04\) kg CO₂e and \(0.0866\times 1.39 = 0.12\) kg CO₂e.</li>
+          <li><strong>Saving:</strong> \(6.04 - 0.12 = 5.92\) kg CO₂e per day, or \(5.92\times 365 = 2{,}160\) kg ≈ 2.2 t CO₂e per year — more than four times a person's annual climate share of 0.5 t.</li>
+        </ol><span class="answer">≈ 5.9 kg CO₂e per day, ≈ 2.2 t CO₂e per year</span></div></details>
+      </div>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“Eating local is the most important thing.” In Poore and Nemecek's global accounting, transport causes about 6 % of food's greenhouse-gas emissions (0.80 of 13.7 Gt CO₂e) and packaging about 5 %; land-use change, livestock and crop production cause most of the rest. What you eat matters far more than how far it travelled — although air-freighted produce is an exception.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the composer</h2>
+      <div class="eq-box" id="eq-df-footprint">
+        <div class="eq-head"><span class="eq-label">Daily footprint of a diet</span><span class="eq-num">(D1)</span></div>
+        <div class="eq-main">\[ F_k = \frac{1}{1-w}\sum_{i} \frac{m_i}{1000}\, e_{ik} \]</div>
+        <p class="eq-read">the footprint of type k is the sum, over all foods, of the kilograms bought per day times the footprint per kilogram; household waste w means more has to be bought than is eaten.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(F_k\)</td><td>daily footprint for indicator \(k\) (climate, land, water, eutrophication)</td><td>kg CO₂e d⁻¹, m²·yr d⁻¹, L d⁻¹, g PO₄³⁻e d⁻¹</td></tr>
+          <tr><td>\(m_i\)</td><td>mass of food \(i\) eaten per day (retail form: raw meat, dry pulses and grains)</td><td>g d⁻¹</td></tr>
+          <tr><td>\(e_{ik}\)</td><td>footprint of food \(i\) per kg of retail weight (median, mean or percentile)</td><td>per kg</td></tr>
+          <tr><td>\(w\)</td><td>fraction of purchased food wasted at home</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Life-cycle footprints are linear in the amount produced: producing twice as much food requires twice the land and emits twice the gas (attributional LCA).</li>
+          <li>Footprints of different foods therefore add: \(F_k=\sum_i M_i e_{ik}\), where \(M_i\) is the purchased mass in kg.</li>
+          <li>If a fraction \(w\) of what is bought is thrown away, the purchase is \(M_i = (m_i/1000)/(1-w)\).</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Linearity ignores economies of scale and market effects (a consequential analysis would ask which production changes when demand changes). The footprint data include losses up to retail but not at home. The same waste fraction is applied to all foods, although in reality bread, fruit and vegetables are wasted more often than oils or coffee.</p></details>
+        <div class="eq-units">\(\text{g d}^{-1}\times\dfrac{1\ \text{kg}}{1000\ \text{g}}\times\dfrac{\text{kg CO}_2\text{e}}{\text{kg}} = \text{kg CO}_2\text{e d}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="m/1000*e/(1-w/100)" data-output="Daily footprint of one food" data-unit="kg CO₂e d⁻¹" data-digits="2" data-plot="m">
+          <div data-var="m" data-label="Mass eaten m" data-min="0" data-max="400" data-step="5" data-value="100" data-unit="g d⁻¹"></div>
+          <div data-var="e" data-label="Footprint per kg e (beef herd: 60.36)" data-min="0" data-max="120" data-step="0.01" data-value="60.36" data-unit="kg CO₂e kg⁻¹"></div>
+          <div data-var="w" data-label="Household waste w" data-min="0" data-max="40" data-step="1" data-value="0" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-df-fu">
+        <div class="eq-head"><span class="eq-label">Converting functional units</span><span class="eq-num">(D2)</span></div>
+        <div class="eq-main">\[ e_{ik} = c_i\, e^{\text{FU}}_{ik}, \qquad c_{\text{oil}} = \frac{1}{\rho_{\text{oil}}}, \qquad c_{\text{pasta}} = \frac{\varepsilon_{\text{pasta}}}{\varepsilon_{\text{bread}}} \]</div>
+        <p class="eq-read">the footprint per kilogram of food as eaten equals the published footprint per functional unit times a conversion factor: one over the density for oils published per litre, and an energy ratio when a food is approximated by a similar product.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(e^{\text{FU}}_{ik}\)</td><td>footprint per published functional unit</td><td>per L or per kg</td><td>Data S2</td></tr>
+          <tr><td>\(c_i\)</td><td>conversion factor from functional unit to kg</td><td>–</td><td>1 for most foods</td></tr>
+          <tr><td>\(\rho_{\text{oil}}\)</td><td>density of vegetable oil</td><td>kg L⁻¹</td><td>0.92</td></tr>
+          <tr><td>\(\varepsilon\)</td><td>energy density (pasta 3,580; bread 2,675 kcal kg⁻¹)</td><td>kcal kg⁻¹</td><td>SLV; P&amp;N</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Milk, soy drink, beer and wine are published per litre and taken as 1 kg per litre (true within 3 %). Pasta is not among the 40 products; it is given the footprint of wheat bread per unit of food energy, because both impacts come almost entirely from growing wheat. Yoghurt and fil use the milk footprint and pears the apple footprint.</p></details>
+        <div class="eq-units">\(\dfrac{\text{kg CO}_2\text{e}}{\text{L}}\times\dfrac{\text{L}}{\text{kg}} = \dfrac{\text{kg CO}_2\text{e}}{\text{kg}}\) ✓</div>
+        <div class="mini-calc" data-formula="eL/rho" data-output="Footprint per kg of oil" data-unit="kg CO₂e kg⁻¹" data-digits="2" data-plot="rho">
+          <div data-var="eL" data-label="Footprint per litre (rapeseed oil: 3.52)" data-min="0" data-max="10" data-step="0.01" data-value="3.52" data-unit="kg CO₂e L⁻¹"></div>
+          <div data-var="rho" data-label="Oil density ρ" data-min="0.85" data-max="0.95" data-step="0.005" data-value="0.92" data-unit="kg L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-df-budget">
+        <div class="eq-head"><span class="eq-label">Per-capita daily budget</span><span class="eq-num">(D3)</span></div>
+        <div class="eq-main">\[ b_k = \frac{B_k}{N \cdot 365\ \text{d yr}^{-1}} \]</div>
+        <p class="eq-read">each person's daily budget is the global boundary divided equally among all people and among the days of a year.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(B_k\)</td><td>global food-system boundary (EAT–Lancet 2019)</td><td>per year</td><td>5 Gt CO₂e; 13 M km²; 2,500 km³</td></tr>
+          <tr><td>\(N\)</td><td>number of people sharing the boundary</td><td>persons</td><td>10 × 10⁹</td></tr>
+          <tr><td>\(b_k\)</td><td>per-person daily budget</td><td>per person per day</td><td>1.37 kg CO₂e; 3.56 m²·yr; 685 L</td></tr>
+        </table>
+        <details><summary>Follow the derivation for land</summary><ol class="steps">
+          <li>A cropland boundary of 13 million km² = 1.3 × 10¹³ m² shared by 10¹⁰ people gives 1,300 m² per person.</li>
+          <li>Occupying 1,300 m² for a whole year is 1,300 m²·yr per year; per day it is \(1300/365 = 3.56\) m²·yr d⁻¹, the unit of the land footprint.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Equal per-capita shares are one of several possible allocation principles; others weight historical responsibility, need or capability. The shares also ignore where food is produced: Swedish diets use land and water in Brazil, Spain and Norway.</p></details>
+        <div class="eq-units">\(\dfrac{\text{kg CO}_2\text{e yr}^{-1}}{\text{persons}\cdot\text{d yr}^{-1}} = \text{kg CO}_2\text{e person}^{-1}\,\text{d}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="B*1e12/(N*1e9*365)" data-output="Daily climate budget" data-unit="kg CO₂e person⁻¹ d⁻¹" data-digits="2" data-plot="N">
+          <div data-var="B" data-label="Climate boundary B" data-min="2" data-max="10" data-step="0.1" data-value="5" data-unit="Gt CO₂e yr⁻¹"></div>
+          <div data-var="N" data-label="People N" data-min="7" data-max="11" data-step="0.1" data-value="10" data-unit="bn"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-df-overshoot">
+        <div class="eq-head"><span class="eq-label">Overshoot factor</span><span class="eq-num">(D4)</span></div>
+        <div class="eq-main">\[ O_k = \frac{F_k}{b_k} \]</div>
+        <p class="eq-read">the overshoot factor is how many times the diet's footprint exceeds the personal budget; 1 means exactly the budget.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(O_k\)</td><td>overshoot factor (gauges, radar)</td><td>–</td></tr>
+          <tr><td>\(F_k\), \(b_k\)</td><td>daily footprint (Eq. D1) and budget (Eq. D3)</td><td>same unit</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The radar and gauges use a base-2 logarithmic scale, so that 2× and ½× lie equally far from 1×. With the <em>Planetary health diet</em> basis, \(b_k\) is replaced by the footprint of the EAT–Lancet reference diet computed with the same statistic, so all four overshoots are like-for-like.</p></details>
+        <div class="eq-units">Ratio of equal units — dimensionless. ✓</div>
+        <div class="mini-calc" data-formula="F/b" data-output="Overshoot O" data-unit="×" data-digits="2" data-plot="F">
+          <div data-var="F" data-label="Daily climate footprint F" data-min="0.5" data-max="12" data-step="0.01" data-value="5.49" data-unit="kg CO₂e d⁻¹"></div>
+          <div data-var="b" data-label="Daily budget b" data-min="0.5" data-max="3" data-step="0.01" data-value="1.37" data-unit="kg CO₂e d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-df-nutrition">
+        <div class="eq-head"><span class="eq-label">Energy, protein and the protein energy share</span><span class="eq-num">(D5)</span></div>
+        <div class="eq-main">\[ E = \sum_i \frac{m_i\,\varepsilon_i}{100}, \qquad P = \sum_i \frac{m_i\,p_i}{100}, \qquad \text{E\%}_{\text{prot}} = \frac{4\,P}{E}\times 100 \]</div>
+        <p class="eq-read">energy and protein intake are sums of the grams eaten times the content per 100 g; because a gram of protein supplies about 4 kcal, four times the protein divided by the energy gives the share of energy from protein.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\varepsilon_i\), \(p_i\)</td><td>energy and protein content per 100 g (Swedish Food Agency database)</td><td>kcal, g per 100 g</td></tr>
+          <tr><td>\(E\), \(P\)</td><td>daily energy and protein intake</td><td>kcal d⁻¹, g d⁻¹</td></tr>
+          <tr><td>\(P_{\text{req}}\)</td><td>protein requirement \(=0.83\ \text{g kg}^{-1}\times\) body weight (EFSA)</td><td>g d⁻¹</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Only energy and protein are checked; a complete assessment would include protein quality (amino-acid scores, see <a href="/lessons/protein-transition/">Lesson 12.1</a>), fibre, fats, iron, zinc, calcium, iodine, vitamin B₁₂ and vitamin D. A vegan diet, for example, needs vitamin B₁₂ from fortified foods or supplements.</p></details>
+        <div class="eq-units">\(\dfrac{\text{g d}^{-1}\cdot\text{kcal}}{100\ \text{g}} = \text{kcal d}^{-1}\); \(\dfrac{4\ \text{kcal g}^{-1}\cdot\text{g d}^{-1}}{\text{kcal d}^{-1}}\) is dimensionless. ✓</div>
+        <div class="mini-calc" data-formula="400*P/En" data-output="Protein share of energy" data-unit="%" data-digits="1" data-plot="P">
+          <div data-var="P" data-label="Protein P" data-min="20" data-max="200" data-step="1" data-value="70" data-unit="g d⁻¹"></div>
+          <div data-var="En" data-label="Energy E" data-min="1200" data-max="4000" data-step="10" data-value="1740" data-unit="kcal d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-df-swap">
+        <div class="eq-head"><span class="eq-label">Iso-nutrient substitution</span><span class="eq-num">(D6)</span></div>
+        <div class="eq-main">\[ m_Y = m_X\,\frac{q_X}{q_Y}, \qquad \Delta F_k = \frac{m_X\,e_{Xk} - m_Y\,e_{Yk}}{1000\,(1-w)} \]</div>
+        <p class="eq-read">to replace a mass of food X by food Y that supplies the same nutrient, scale by the ratio of their nutrient contents; the saving is the footprint removed minus the footprint added.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(m_X\), \(m_Y\)</td><td>mass removed and mass added</td><td>g d⁻¹</td></tr>
+          <tr><td>\(q\)</td><td>nutrient content used as the basis: protein, energy or 100 (equal mass)</td><td>g or kcal per 100 g</td></tr>
+          <tr><td>\(\Delta F_k\)</td><td>saving (positive) or penalty (negative)</td><td>per day</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>The nutrient removed is \(m_X q_X/100\); the nutrient added is \(m_Y q_Y/100\).</li>
+          <li>Equal nutrient requires \(m_X q_X = m_Y q_Y\), hence \(m_Y = m_X q_X/q_Y\).</li>
+          <li>Apply Eq. D1 to both foods and subtract.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Iso-protein swaps ignore protein quality (digestibility, amino acids) and all other nutrients. Beef supplies iron and vitamin B₁₂; pulses supply fibre and folate. Real diets change several foods at once.</p></details>
+        <div class="eq-units">\(\text{g}\cdot\dfrac{\text{g protein}/100\ \text{g}}{\text{g protein}/100\ \text{g}} = \text{g}\) ✓</div>
+        <div class="mini-calc" data-formula="(mX*eX - mX*qX/qY*eY)/1000" data-output="Daily saving" data-unit="kg CO₂e d⁻¹" data-digits="2" data-plot="mX">
+          <div data-var="mX" data-label="Mass of X removed (beef herd)" data-min="0" data-max="300" data-step="5" data-value="100" data-unit="g"></div>
+          <div data-var="eX" data-label="Footprint of X" data-min="0" data-max="100" data-step="0.01" data-value="60.36" data-unit="kg CO₂e kg⁻¹"></div>
+          <div data-var="qX" data-label="Protein in X" data-min="1" data-max="40" data-step="0.1" data-value="20.1" data-unit="g/100 g"></div>
+          <div data-var="eY" data-label="Footprint of Y (pulses)" data-min="0" data-max="20" data-step="0.01" data-value="1.39" data-unit="kg CO₂e kg⁻¹"></div>
+          <div data-var="qY" data-label="Protein in Y" data-min="1" data-max="40" data-step="0.1" data-value="23.2" data-unit="g/100 g"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-df-nu">
+        <div class="eq-head"><span class="eq-label">Footprint per nutritional unit</span><span class="eq-num">(D7)</span></div>
+        <div class="eq-main">\[ e^{\text{prot}}_{ik} = \frac{e_{ik}}{10\,p_i/100}, \qquad e^{\text{kcal}}_{ik} = \frac{e_{ik}}{10\,\varepsilon_i/1000} \]</div>
+        <p class="eq-read">the footprint per 100 g of protein is the footprint per kilogram divided by the number of 100-g portions of protein in a kilogram; the footprint per 1000 kcal is the footprint per kilogram divided by the number of 1000-kcal portions in a kilogram.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(10\,p_i\)</td><td>grams of protein in one kilogram of food</td><td>g kg⁻¹</td></tr>
+          <tr><td>\(10\,\varepsilon_i\)</td><td>kilocalories in one kilogram of food</td><td>kcal kg⁻¹</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Per-protein values are shown only for foods with at least 2 g protein per 100 g, and per-energy values only for foods with at least 20 kcal per 100 g; for other foods the denominator is so small that the ratio is meaningless.</p></details>
+        <div class="eq-units">\(\dfrac{\text{kg CO}_2\text{e kg}^{-1}}{(\text{g protein kg}^{-1})/(100\ \text{g protein})} = \text{kg CO}_2\text{e per 100 g protein}\) ✓</div>
+        <div class="mini-calc" data-formula="e/(p/10)" data-output="Footprint per 100 g protein" data-unit="kg CO₂e" data-digits="2" data-plot="p">
+          <div data-var="e" data-label="Footprint per kg (milk: 2.65)" data-min="0" data-max="100" data-step="0.01" data-value="2.65" data-unit="kg CO₂e kg⁻¹"></div>
+          <div data-var="p" data-label="Protein content p" data-min="1" data-max="40" data-step="0.1" data-value="3.6" data-unit="g/100 g"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-df-cooked">
+        <div class="eq-head"><span class="eq-label">From food as eaten to retail weight</span><span class="eq-num">(D8)</span></div>
+        <div class="eq-main">\[ m_{\text{retail}} = m_{\text{eaten}}\,\frac{c_{\text{eaten}}}{c_{\text{retail}}} \]</div>
+        <p class="eq-read">a food eaten cooked is converted to its raw or dry retail weight by conserving a component that cooking does not change: its energy (grains, pulses) or its protein (meat), divided by the content of the retail form.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example</th></tr>
+          <tr><td>\(m_{\text{eaten}}\)</td><td>mass eaten (dietary survey)</td><td>g d⁻¹</td><td>26 g cooked pasta</td></tr>
+          <tr><td>\(c_{\text{eaten}}\), \(c_{\text{retail}}\)</td><td>energy or protein per 100 g of the eaten and retail forms</td><td>kcal or g per 100 g</td><td>128 and 358 kcal</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Boiling adds water and frying removes water, but neither creates energy or protein, so \(m_{\text{eaten}}c_{\text{eaten}} = m_{\text{retail}}c_{\text{retail}}\).</li>
+          <li>Solving gives the equation. For pasta: \(26\times128/358 = 9.3\) g dry pasta.</li>
+          <li>For meat, protein conservation with the Swedish Food Agency's raw (18.5 g) and fried (22.0 g) pork shoulder gives a cooked-to-raw mass ratio of 0.84.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Fat dripping from meat or absorbed during frying breaks energy conservation, which is why protein is used for meat. The method is used only to build the Swedish preset; when you compose your own diet, enter raw meat and dry grains and pulses.</p></details>
+        <div class="eq-units">\(\text{g}\cdot\dfrac{\text{kcal}/100\ \text{g}}{\text{kcal}/100\ \text{g}} = \text{g}\) ✓</div>
+        <div class="mini-calc" data-formula="me*ce/cr" data-output="Retail (dry) mass" data-unit="g d⁻¹" data-digits="1" data-plot="me">
+          <div data-var="me" data-label="Mass eaten" data-min="0" data-max="300" data-step="1" data-value="26" data-unit="g d⁻¹"></div>
+          <div data-var="ce" data-label="Content of eaten form (cooked pasta)" data-min="1" data-max="400" data-step="1" data-value="128" data-unit="kcal/100 g"></div>
+          <div data-var="cr" data-label="Content of retail form (dry pasta)" data-min="1" data-max="900" data-step="1" data-value="358" data-unit="kcal/100 g"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the composer to answer. <em>Save investigation</em> stores your settings and results in your notebook; <em>Download diet and footprints</em> gives a CSV for your report.</p>
+      <ol class="task-list">
+        <li><h4>Anatomy of a Swedish plate</h4><p>With the average Swedish diet, list the three foods that contribute most to each of the four footprints (hover over the plate with each plate view). Compute the share of mass and of each footprint that comes from dairy, eggs, meat and fish. Which footprint is dominated by a food that is not an animal product?</p></li>
+        <li><h4>Fit the plate</h4><p>Starting from the Swedish diet, change it until climate is below 2× and land below 1.5× the boundary share, while energy stays within ±10 % of 2,500 kcal and protein meets the requirement for 70 kg. Use the swap engine or edit foods directly. Record your diet and explain which changes did most of the work.</p></li>
+        <li><h4>Producers or consumers?</h4><p>For the Swedish diet, compare four cases: median producers, the best 10 % of producers (P10), the planetary health diet at median producers, and the planetary health diet at P10 producers. Which lever is larger for each footprint? Relate your answer to the title of Poore and Nemecek's paper, <em>Reducing food's environmental impacts through producers and consumers</em>.</p></li>
+        <li><h4>Beef from dairy herds</h4><p>The Swedish preset assumes half of the beef comes from dairy herds. Move all beef to <em>Beef (beef herd)</em>, then all to <em>Beef (dairy herd)</em>. How much does the climate footprint change? Explain, using the idea of co-products and allocation from <a href="/lessons/life-cycle-thinking/">Lesson 1.3</a>, why beef from dairy herds has a lower footprint per kilogram — and why its water footprint is higher.</p></li>
+        <li><h4>Per kilogram or per protein?</h4><p>In the variability chart, compare the ranking of cheese, milk, chicken, pork, eggs and rice per kilogram, per 100 g protein and per 1000 kcal. Which foods move most, and why? Which functional unit would you use to compare a plant-based burger with a beef burger?</p></li>
+        <li><h4>Whose fair share?</h4><p>Change the number of people sharing the boundaries from 10 to 8 billion (roughly today) and to 11 billion. How does the verdict on the planetary health diet change? Then switch <em>Compare with</em> to the planetary health diet. Using the table of what each boundary measures in <em>Explain</em>, discuss which of the two comparisons is fairer for the climate footprint.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-diet-footprint">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the composer to answer","questions":[
+          {"type":"numeric","q":"Load the <em>EAT–Lancet planetary health diet</em> (median producers, boundary share, 10 billion people). By what factor does its climate footprint exceed the daily climate budget?","answer":2.14,"tol":0.02,"unit":"×","hint":"Read the climate gauge, or divide the greenhouse-gas readout by 1.37 kg CO₂e d⁻¹.","explain":"<p>The diet emits 2.93 kg CO₂e per day and the budget is \\(5\\times10^{12}/(10^{10}\\times365) = 1.37\\) kg CO₂e per day, so \\(O = 2.93/1.37 = 2.14\\).</p>"},
+          {"type":"numeric","q":"Replace 100 g of beef from a beef herd by dry beans and lentils with the same protein (median producers, no waste). How much greenhouse gas is saved per day?","answer":5.92,"tol":0.02,"unit":"kg CO₂e d⁻¹","hint":"Use Eq. D6: m_Y = 100 × 20.1/23.2 g, then compare 0.1 kg × 60.36 with m_Y × 1.39.","explain":"<p>\\(m_Y = 100\\times20.1/23.2 = 86.6\\) g. Saving \\(= 0.100\\times60.36 - 0.0866\\times1.39 = 6.04 - 0.12 = 5.92\\) kg CO₂e per day.</p>"},
+          {"type":"mcq","q":"Starting from the average Swedish diet at median producers, which single change lowers its climate footprint the most?","options":["Keep the diet but buy everything from the best 10 % of producers (P10)","Switch to the planetary health diet with median producers","Replace all beef from beef herds with beef from dairy herds","Stop drinking coffee and wine"],"answer":1,"feedback":["P10 producers cut the footprint from 5.49 to 3.38 kg CO₂e d⁻¹ (−38 %): large, but not the largest.","","This lowers it only from 5.49 to 4.94 kg CO₂e d⁻¹ (−10 %).","Coffee and wine together contribute only about 0.23 kg CO₂e d⁻¹ (−4 %)."],"explain":"<p>The planetary health diet at median producers emits 2.93 kg CO₂e d⁻¹, 47 % less than the Swedish diet. Doing both — the planetary health diet from P10 producers — gives 1.67 kg CO₂e d⁻¹ (−70 %).</p>"},
+          {"type":"multi","q":"In the variability chart (climate, per kg), which foods have a 10th-percentile footprint below zero?","options":["Tree nuts","Dark chocolate","Beans &amp; lentils","Rice","Apples &amp; pears"],"answer":[0,1],"explain":"<p>Nuts (P10 = −3.65 kg CO₂e kg⁻¹) and dark chocolate (P10 = −0.10) can have negative footprints: when tree crops replace annual cropland, the carbon stored in the trees and soil is credited to the product.</p>"},
+          {"type":"tf","q":"With the vegan preset (median producers, boundary share, 10 billion people), all four footprints are within their budgets.","answer":false,"explain":"<p>Climate (1.44×) and land (1.23×) still exceed the boundary shares; water (0.46×) and eutrophication (0.46×) are within. Part of the remaining overshoot comes from the metric mismatch explained in the Explain tab.</p>"},
+          {"type":"numeric","q":"What is the daily per-person climate budget if the 5 Gt CO₂e yr⁻¹ boundary is shared by 8 billion people?","answer":1.71,"tol":0.02,"unit":"kg CO₂e d⁻¹","hint":"Eq. D3: b = B/(N × 365).","explain":"<p>\\(b = 5\\times10^{12}/(8\\times10^{9}\\times365) = 1.71\\) kg CO₂e per person per day.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Footprints.</strong> Per-kilogram footprints are the 10th percentile, median, mean and 90th percentile of the resampled global distributions in Poore and Nemecek (2018), Data S2, sheet <em>Results – Retail Weight</em>, downloaded from the first author's website. Greenhouse gases use IPCC AR5 100-year GWPs with climate–carbon feedbacks; eutrophication uses CML2 baseline factors. The default statistic is the median.</li>
+        <li><strong>Functional units.</strong> Meat is fat- and bone-free raw meat; grains, pulses and oats are dry; milk, soy drink, beer and wine are per litre (1 L ≈ 1 kg); oils per litre are converted with a density of 0.92 kg L⁻¹. Proxies: pasta = wheat bread footprint per unit of food energy; yoghurt and fil = milk; pears = apples; sugar = beet sugar; farmed fish = the P&amp;N farmed-fish average (wild-caught fish is not in the retail data).</li>
+        <li><strong>Nutrition.</strong> Energy and protein per 100 g from the Swedish Food Agency food database (API, 2026 version): bread 209, pasta 845, oats 702, rice 2481, potatoes 230, lentils 884 and brown beans 875, peas 891, soy drink 907, almonds 1575, hazelnuts 1558, walnuts 1576, peanuts 1561, tomato 364, onion 344, carrot 289, white cabbage 370 and broccoli 325, cucumber 339, red pepper 351, mushroom 333 and iceberg lettuce 340, apple 588 and pear 583, banana 553, orange 551, bilberries 555, strawberries 526 and grapes 587, plum 582, kiwi 565 and mango 574, milk 3 % 123, hard cheese 96, egg 1225, beef mince 951, lamb 5067, pork shoulder 969, chicken with skin 1165, farmed salmon 6225, boiled shrimp 1395, oils 2189, 35 and 4131, sugar 1892, dark chocolate 6907, beer 1906, wines 1907 and 1908. Firm tofu (≈17 % protein, matching the P&amp;N functional unit) from USDA FoodData Central 172475. Brewed coffee (≈2 kcal per 100 mL) is counted as zero energy.</li>
+        <li><strong>Budgets.</strong> Per-capita shares of the EAT–Lancet (2019) boundaries for climate (5 Gt CO₂e yr⁻¹, CH₄ + N₂O), cropland (13 million km²) and freshwater use (2,500 km³ yr⁻¹). The eutrophication benchmark is the planetary health diet's own footprint. The climate, land and water comparisons mix metrics (all greenhouse gases vs CH₄ + N₂O; cropland + pasture vs cropland; withdrawals vs consumption) and therefore overstate the overshoot; the <em>Planetary health diet</em> basis avoids this.</li>
+        <li><strong>Average Swedish diet (approximation).</strong> Mean intakes of 1,797 adults in Riksmaten vuxna 2010–11 (Table 7), converted to retail weights with Eq. D8 (pasta, rice, porridge, legumes by energy; meat, poultry and fish by the pork-shoulder protein ratio 0.84). Meat (63 g cooked) and sausage (21 g, counted as meat) are split into beef 43.5 %, pork 53.5 % and lamb 2.9 % in proportion to Swedish total consumption in 2024 (Jordbruksverket, table JO1301K2); beef is assumed to come half from dairy herds (a round-number assumption to be tested in Task 4). Vegetables and fruit are split by 2024 direct consumption (JO1301K1). Fish and shellfish are 80:20 as reported by the survey. Added sugar is the survey's 47.9 g d⁻¹; spreads and cooking oil (total consumption 1.40 kg per person in 2024) are counted as rapeseed oil; flour, fat and cheese in buns, cakes, pizza, pies and pancakes (75 g d⁻¹) are estimated with typical recipe shares (40 % flour, 10–15 % fat, 12 % cheese in pizza). Coffee is the 2024 national consumption of roasted coffee (6.42 kg per person). The preset reproduces 88 % of the survey's energy intake and 87 % of its protein intake.</li>
+        <li><strong>Other presets.</strong> The planetary health diet maps Willett et al. (2019, Table 1) onto the 39 foods (whole grains 232 g as bread, pasta, rice and oats; soy foods as tofu with equal protein; lard omitted); it supplies 2,434 kcal. The vegan and high-meat diets are illustrative compositions, not survey data.</li>
+        <li><strong>Not included.</strong> Nutrients other than energy and protein; biodiversity and pesticide impacts; differences between organic and conventional production; seasonality and the country of origin (the global distributions stand in for all origins).</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Poore, J., &amp; Nemecek, T. (2018). Reducing food's environmental impacts through producers and consumers. <em>Science</em>, 360(6392), 987–992. <a href="https://doi.org/10.1126/science.aaq0216" target="_blank" rel="noopener">doi:10.1126/science.aaq0216</a> — data: Data S2 (<a href="https://josephpoore.com/" target="_blank" rel="noopener">josephpoore.com</a>)</li>
+        <li>Willett, W., Rockström, J., Loken, B., Springmann, M., Lang, T., Vermeulen, S., … Murray, C. J. L. (2019). Food in the Anthropocene: the EAT–Lancet Commission on healthy diets from sustainable food systems. <em>The Lancet</em>, 393(10170), 447–492. <a href="https://doi.org/10.1016/S0140-6736(18)31788-4" target="_blank" rel="noopener">doi:10.1016/S0140-6736(18)31788-4</a></li>
+        <li>Amcoff, E., Edberg, A., Enghardt Barbieri, H., Lindroos, A. K., Nälsén, C., Pearson, M., &amp; Warensjö Lemming, E. (2012). <em>Riksmaten – vuxna 2010–11: Livsmedels- och näringsintag bland vuxna i Sverige</em>. Uppsala: Livsmedelsverket. <a href="https://www.livsmedelsverket.se/globalassets/publikationsdatabas/rapporter/2011/riksmaten_2010_20111.pdf" target="_blank" rel="noopener">livsmedelsverket.se</a></li>
+        <li>Livsmedelsverket (2026). <em>Livsmedelsdatabasen</em> (Swedish food composition database), open API. <a href="https://soknaringsinnehall.livsmedelsverket.se/" target="_blank" rel="noopener">soknaringsinnehall.livsmedelsverket.se</a></li>
+        <li>Jordbruksverket (2025–2026). <em>Konsumtion av livsmedel</em>, statistical database tables JO1301K1 (direct consumption) and JO1301K2 (total consumption), 1960–2025. <a href="https://statistik.sjv.se/" target="_blank" rel="noopener">statistik.sjv.se</a></li>
+        <li>U.S. Department of Agriculture, Agricultural Research Service (2019). <em>FoodData Central, SR Legacy</em>, FDC ID 172475: Tofu, raw, firm, prepared with calcium sulfate. <a href="https://fdc.nal.usda.gov/" target="_blank" rel="noopener">fdc.nal.usda.gov</a></li>
+        <li>EFSA Panel on Dietetic Products, Nutrition and Allergies (2012). Scientific opinion on dietary reference values for protein. <em>EFSA Journal</em>, 10(2), 2557. <a href="https://doi.org/10.2903/j.efsa.2012.2557" target="_blank" rel="noopener">doi:10.2903/j.efsa.2012.2557</a></li>
+        <li>Blomhoff, R., Andersen, R., Arnesen, E. K., Christensen, J. J., Eneroth, H., Erkkola, M., … Trolle, E. (2023). <em>Nordic Nutrition Recommendations 2023</em>. Copenhagen: Nordic Council of Ministers. <a href="https://doi.org/10.6027/nord2023-003" target="_blank" rel="noopener">doi:10.6027/nord2023-003</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>
