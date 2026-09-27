@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Protein quality calculator · Future Food Production</title>
+<meta name="description" content="Blend plant, microbial, insect and animal proteins from a published amino-acid and ileal-digestibility database, and compute DIAAS, PDCAAS, the limiting amino acid, the amount you would have to eat and the best complementary blends.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+.pq-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: -1px; box-shadow: 0 0 0 2px rgba(0,0,0,.15); }
+.pq-tip { position: absolute; z-index: 6; display: none; pointer-events: none; max-width: 300px; background: rgba(10,16,14,.92); color: #e6eee9; border: 1px solid rgba(255,255,255,.16); border-radius: 10px; padding: 8px 11px; font: 500 .76rem/1.45 Inter, system-ui, sans-serif; backdrop-filter: blur(6px); }
+.pq-tip b { color: #9be7b6; }
+.pq-tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.pq-opt { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.pq-opt th, .pq-opt td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.pq-opt th { font: 650 .72rem var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.pq-opt td.num, .pq-opt th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pq-opt tbody tr:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.pq-ok { color: var(--ok); font-weight: 700; } .pq-warn { color: var(--warn); font-weight: 700; } .pq-bad { color: var(--danger); font-weight: 700; }
+.prose table.pq-db { font-size: .8rem; }
+.prose table.pq-db td, .prose table.pq-db th { padding: 5px 6px; white-space: nowrap; }
+.prose table.pq-db td.pq-ing { white-space: normal; min-width: 150px; }
+.prose table.pq-db td small { display: block; font-size: .78em; color: var(--muted); }
+.pq-notes { font-size: .86rem; }
+.pq-notes li { margin-bottom: 4px; }
+.pq-sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+.pq-note { font-size: .8rem; color: var(--muted); margin: 6px 2px 0; }
+</style>
+</head>
+<body data-page="lab" data-slug="protein-quality">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Protein quality calculator</h1>
+    <p class="lead">Is a pea-protein burger as good as beef for a growing child? Can bread and peas together beat either alone? Mix up to four proteins from a database of 17 ingredients — legumes, cereals, potato and rapeseed, mycoprotein, spirulina, insects, egg, milk and beef — whose amino acids and ileal digestibilities were measured in published studies. The amino-acid flower shows, petal by petal, how far each indispensable amino acid covers the FAO reference pattern; the calculator returns DIAAS, PDCAAS, the limiting amino acid, how much of the blend a person would have to eat, and searches thousands of blends for the best complementary combination.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage" aria-label="Amino-acid flower of the current blend"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Where do the digestible amino acids come from?</h3>
+      <div class="chart-sub">Digestible amino acid supplied by each ingredient, per gram of blend protein, as a percentage of the reference pattern (stacked). Grey: amino acid eaten but not absorbed by the end of the small intestine. The shortest total bar sets the DIAAS.</div>
+      <div class="chart" id="chart-stack" style="height:300px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Complementation curve of ingredients 1 and 2</h3>
+      <div class="chart-sub">Each line is one amino acid's digestible content relative to the reference as the protein comes more and more from ingredient 2. The black envelope — the lowest line at every mixture — is the DIAAS; its peak is the best two-way blend.</div>
+      <div class="chart" id="chart-comp" style="height:300px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>DIAAS landscape of ingredients 1–3</h3>
+      <div class="chart-sub">Every possible mass mixture of the first three ingredients (corners = pure ingredient); with only two selected, the database ingredient that makes the best three-way blend is suggested as the third corner. Colour = DIAAS; solid line = 100 %, dashed = 75 %. ○ your blend, ★ best blend. Click anywhere to set the mixture.</div>
+      <div class="chart" id="chart-tern" style="height:340px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>How much would you have to eat?</h3>
+      <div class="chart-sub">Grams per day of each ingredient alone (as eaten or as sold) — and of your blend — needed to meet the quality-adjusted protein need of the person in the controls. Colours: legumes, cereals, tuber/oilseed, fungal/algal, insects, animal.</div>
+      <div class="chart" id="chart-need" style="height:450px"></div>
+    </div>
+  </div>
+
+  <div class="chart-card" style="margin:0 0 16px">
+    <h3>Best-blend optimiser</h3>
+    <div class="chart-sub">Grid search over mass shares (1 % steps for pairs, 2.5 % for triples, each component at least 5 %; 5 % steps when optimising your own 2–4 ingredients). The objective, pattern and person are set in the controls; click <em>Apply</em> to load a blend into the flower.</div>
+    <div id="opt-table"></div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Read the flower.</strong> The default blend is 76 % whole-grain wheat and 24 % pea protein concentrate by mass. Each of the nine petals is one indispensable amino acid (sulfur amino acids, SAA = methionine + cysteine, and aromatic amino acids, AAA = phenylalanine + tyrosine, are counted together, as FAO requires). The glowing ring is 100 % of the reference pattern: a petal that reaches it supplies, per gram of protein, as much of that amino acid as the reference person needs. The shortest petal — outlined in red — is the <em>first-limiting</em> amino acid, and its length is the DIAAS in the centre.</li>
+        <li><strong>Remove the peas.</strong> Set ingredient 2 to <em>none</em>. Wheat alone has a stunted lysine petal (≈ 45 % for a young child) while its sulfur-amino-acid petal overshoots the ring. Now choose pea for ingredient 1 alone: the picture flips — plenty of lysine, too little SAA (DIAAS ≈ 62). This is the classic cereal–legume complementarity.</li>
+        <li><strong>Blend them back and move the slider.</strong> Watch the stacked colours in each petal: the lysine petal is mostly pea-coloured, the SAA petal mostly wheat-coloured. The complementation chart shows the lysine and SAA lines crossing; the best blend sits near their crossing — but a third amino acid, tryptophan, caps the score at about 90.</li>
+        <li><strong>Change the reference pattern.</strong> Switch from <em>6 mo–3 y</em> to <em>Older/adult</em>. Every petal lengthens, because older children and adults need less of every indispensable amino acid per gram of protein; the same blend now scores about 100. DIAAS always refers to a specific age group.</li>
+        <li><strong>Look at the dashed outline.</strong> It shows the amino acids that were <em>eaten</em>; the coloured petal shows what was <em>absorbed</em> by the end of the small intestine. Try rapeseed meal, crickets or mealworms: the gap is large. For egg, milk and beef it is almost invisible.</li>
+        <li><strong>Check the quantity.</strong> Open the bar chart <em>How much would you have to eat?</em>. Maize, rice and wheat need roughly 1–2 kg per day to cover the quality-adjusted protein need of a 70 kg person, because they are both low in protein and low in lysine. Protein quality and protein quantity are different things.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Protein quality is decided by the <strong>scarcest digestible indispensable amino acid relative to need</strong> — Liebig's barrel applied to nutrition. Because each ingredient is short of different amino acids, a blend is scored after summing the digestible amino acids on a protein basis. That is why blends can beat every one of their ingredients, and why the best plant-only blends reach the scores of animal proteins.</p></div>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"Plant proteins are incomplete." Every ingredient in the database contains all nine indispensable amino acids; none has a petal of zero. What differs is the <em>proportion</em> of each amino acid and how much is digested — which is exactly what this laboratory measures.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From amino acids to a single quality score</h2>
+      <p>The body cannot make nine of the twenty amino acids fast enough: histidine, isoleucine, leucine, lysine, methionine, phenylalanine, threonine, tryptophan and valine. Two dispensable amino acids are made from indispensable ones (cysteine from methionine, tyrosine from phenylalanine), so requirements are set for the sums SAA and AAA. Protein synthesis needs all of them at the same time; surplus amino acids cannot be stored and are oxidised. A protein therefore feeds growth and repair only as far as its scarcest indispensable amino acid allows.</p>
+      <h3>The reference patterns</h3>
+      <p>FAO (2013) turned the WHO/FAO/UNU (2007) amino-acid requirements into three <em>scoring patterns</em> — the amount of each amino acid a gram of "ideal" protein must contain for the person to meet all needs when eating exactly the required amount of protein. For regulatory claims, FAO recommends the young-child pattern for all foods except infant formula, because it is the most demanding one after infancy.</p>
+      <table>
+        <caption>Table 1. FAO (2013) recommended amino-acid scoring patterns (mg per g protein), as used in the simulator.</caption>
+        <thead><tr><th>Pattern</th><th class="num">His</th><th class="num">Ile</th><th class="num">Leu</th><th class="num">Lys</th><th class="num">SAA</th><th class="num">AAA</th><th class="num">Thr</th><th class="num">Trp</th><th class="num">Val</th></tr></thead>
+        <tbody>
+          <tr><td>Infant (0–6 months) — human milk</td><td class="num">21</td><td class="num">55</td><td class="num">96</td><td class="num">69</td><td class="num">33</td><td class="num">94</td><td class="num">44</td><td class="num">17</td><td class="num">55</td></tr>
+          <tr><td>Young child (6 months–3 years)</td><td class="num">20</td><td class="num">32</td><td class="num">66</td><td class="num">57</td><td class="num">27</td><td class="num">52</td><td class="num">31</td><td class="num">8.5</td><td class="num">43</td></tr>
+          <tr><td>Older child, adolescent, adult</td><td class="num">16</td><td class="num">30</td><td class="num">61</td><td class="num">48</td><td class="num">23</td><td class="num">41</td><td class="num">25</td><td class="num">6.6</td><td class="num">40</td></tr>
+        </tbody>
+      </table>
+      <h3>Digestibility: ileal, not faecal</h3>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 680 250" role="img" aria-label="Where protein digestibility is measured: at the end of the small intestine (ileal) or in the faeces (faecal)">
+          <defs><marker id="pqa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <rect x="20" y="70" width="110" height="60" rx="10" class="fill-amber-soft" stroke="currentColor" stroke-width="1"/>
+          <text x="75" y="96" text-anchor="middle" class="t-small">food protein</text>
+          <text x="75" y="114" text-anchor="middle" class="t-small t-muted">amino acids a</text>
+          <line x1="130" y1="100" x2="178" y2="100" stroke="currentColor" stroke-width="1.6" marker-end="url(#pqa)"/>
+          <rect x="180" y="70" width="170" height="60" rx="30" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+          <text x="265" y="96" text-anchor="middle" class="t-small">stomach + small intestine</text>
+          <text x="265" y="114" text-anchor="middle" class="t-small t-muted">enzymatic digestion</text>
+          <line x1="265" y1="70" x2="265" y2="30" class="stroke-accent" stroke-width="2" marker-end="url(#pqa)"/>
+          <text x="275" y="38" class="t-small" style="fill:var(--accent)">absorbed amino acids → body protein</text>
+          <line x1="350" y1="100" x2="408" y2="100" stroke="currentColor" stroke-width="1.6" marker-end="url(#pqa)"/>
+          <line x1="378" y1="140" x2="378" y2="112" class="stroke-magenta" stroke-width="1.6"/>
+          <text x="378" y="156" text-anchor="middle" class="t-small" style="fill:var(--magenta)">ileal sampling point</text>
+          <text x="378" y="172" text-anchor="middle" class="t-small t-muted">(cannulated pig, ileostomy)</text>
+          <rect x="410" y="70" width="130" height="60" rx="10" class="fill-sunk" stroke="currentColor" stroke-width="1"/>
+          <text x="475" y="96" text-anchor="middle" class="t-small">large intestine</text>
+          <text x="475" y="114" text-anchor="middle" class="t-small t-muted">bacteria use N</text>
+          <line x1="540" y1="100" x2="588" y2="100" stroke="currentColor" stroke-width="1.6" marker-end="url(#pqa)"/>
+          <rect x="590" y="75" width="72" height="50" rx="10" class="fill-sunk" stroke="currentColor" stroke-width="1"/>
+          <text x="626" y="104" text-anchor="middle" class="t-small">faeces</text>
+          <text x="265" y="212" text-anchor="middle" class="t-small">ileal digestibility d = 1 − (amino acid at ileum − endogenous losses) / intake</text>
+          <text x="475" y="232" text-anchor="middle" class="t-small t-muted">faecal digestibility counts N that bacteria removed in the colon — it overestimates</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> Amino acids are absorbed in the small intestine. Nitrogen that disappears in the large intestine is used by bacteria and does not supply amino acids to the host, so digestibility measured at the end of the ileum (DIAAS) reflects absorption better than digestibility measured in the faeces (PDCAAS). The ileal values in this laboratory are <em>standardised</em>: corrected for the basal endogenous amino acids the gut itself secretes, which makes them additive in blends and practically equal to true ileal digestibility (Stein, 2024).</figcaption>
+      </figure>
+      <p>Measuring ileal digestibility in people requires ileostomy patients or stable-isotope methods, so FAO (2013) recommends true ileal digestibility "preferably determined in humans, but if this is not possible, in growing pigs or in growing rats in that order". Fifteen of the seventeen ingredients in the database were measured in cannulated growing pigs (twelve in single studies, three as means of the INRA–CIRAD–AFZ feed tables); spirulina comes from a <sup>15</sup>N-labelling study in rats, and mycoprotein from a standardised in vitro digestion (INFOGEST). Their scores are therefore less certain, which the <em>Assumptions &amp; sources</em> tab states explicitly.</p>
+      <h3>DIAAS versus PDCAAS</h3>
+      <p><strong>PDCAAS</strong> (FAO/WHO, 1991) multiplies the amino-acid score of the <em>undigested</em> protein by one faecal crude-protein digestibility and truncates the result at 1.0. <strong>DIAAS</strong> (FAO, 2013) multiplies each amino acid by <em>its own</em> ileal digestibility before taking the minimum, and is not truncated when a single ingredient is scored. FAO (2013) adds that DIAAS values above 100 % "should not be truncated except where calculating DIAAS for protein or amino acid intakes for mixed diets or sole source foods". The simulator follows that rule: DIAAS is shown untruncated, but the protein <em>need</em> uses min(1, DIAAS/100). Where amino-acid-specific digestibility is unavailable, FAO allowed faecal crude-protein digestibility to be applied to all amino acids as an interim measure — exactly the PDCAAS shortcut.</p>
+      <div class="callout note"><div class="callout-title">Claims</div><p>FAO (2013) suggested DIAAS cut-offs for protein claims: no quality claim below 75, "good" (source) quality for 75–99 and "excellent/high" quality from 100. A food must first qualify on protein <em>quantity</em> (e.g., 10 % of the 50 g reference value per 100 g); quality cannot substitute for quantity.</p></div>
+      <h3>Complementation and the protein basis</h3>
+      <p>Cereals are short of lysine but rich in sulfur amino acids; legumes are the reverse; potato protein is well balanced; insects and mycoprotein are most often limited by sulfur amino acids. Because scores are defined per gram of protein, a blend must be computed on a <strong>protein basis</strong>: 50 % wheat and 50 % pea protein concentrate by mass is only 18 % wheat protein, because the concentrate contains 4.7 times more protein per gram. The mass sliders therefore drive a protein-share calculation, shown in the flower's side panel.</p>
+      <p>The optimiser exploits a simple geometric fact. As the share of one ingredient rises, every amino-acid ratio changes linearly (Eq. P4); the DIAAS is the lowest of nine straight lines, a concave "tent" whose peak lies where two lines cross — or on a third, flat line such as tryptophan in wheat–pea blends. With three ingredients the lines become planes and the landscape a triangle, which the DIAAS-landscape chart draws in full.</p>
+      <h3>Quality meets quantity</h3>
+      <p>The quality-adjusted protein need divides the requirement by min(1, DIAAS/100): a protein with DIAAS 50 must be eaten in double amount to deliver the same limiting amino acid. Dividing by the protein content of the ingredient converts protein to grams of food. Scored with the adult pattern, rice (9 % protein, DIAAS 64) then needs about 1.0 kg per day for a 70 kg adult at 0.83 g kg⁻¹ d⁻¹; soy protein isolate (93 % protein, DIAAS 98) needs about 64 g.</p>
+      <div class="callout frontier"><div class="callout-title">Frontier 2024–2026</div><p>Growing-pig DIAAS databases have expanded rapidly (Stein, 2024), mixed-meal DIAAS has been shown to be additive in pigs (Fanelli et al., 2022, 2024), and human dual-isotope methods are being used to measure amino-acid digestibility directly in people. Standardised in vitro digestion (INFOGEST) is being tested as a cheaper screen for novel proteins such as mycoprotein, but in vitro scores still need validation against in vivo data (Ariëns et al., 2026).</p></div>
+      <p>See also Lesson 12.1 <a href="/lessons/protein-transition/">The protein transition: nutrition and footprints</a> and Lesson 12.2 <a href="/lessons/plant-based-proteins/">Plant-based proteins and texturisation</a>.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the calculator</h2>
+      <div class="eq-box" id="eq-pq-content">
+        <div class="eq-head"><span class="eq-label">Amino-acid content per gram of protein</span><span class="eq-num">(P1)</span></div>
+        <div class="eq-main">\[ c_i = 1000\,\frac{a_i}{\text{CP}}, \qquad c_{\text{SAA}} = c_{\text{Met}} + c_{\text{Cys}},\quad c_{\text{AAA}} = c_{\text{Phe}} + c_{\text{Tyr}} \]</div>
+        <p class="eq-read">the content of amino acid \(i\) in milligrams per gram of protein equals a thousand times its concentration in the food divided by the crude-protein concentration, both on the same basis; methionine and cysteine, and phenylalanine and tyrosine, are added.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(a_i\)</td><td>analysed amino acid in the food (as fed or dry matter)</td><td>g per 100 g</td></tr>
+          <tr><td>\(\text{CP}\)</td><td>crude protein, nitrogen × 6.25, same basis as \(a_i\)</td><td>g per 100 g</td></tr>
+          <tr><td>\(c_i\)</td><td>content per gram of protein</td><td>mg g⁻¹</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>All scores use the conventional nitrogen-to-protein factor 6.25. Insects contain nitrogen in chitin and mycoprotein in chitin, glucosamine and RNA; with a lower factor (e.g., 5.33 for insects) the "protein" shrinks and every \(c_i\) rises. Malla et al. (2022) report both; the database uses 6.25 so that all ingredients are compared on the same basis.</p></details>
+        <div class="eq-units">(g per 100 g) / (g per 100 g) × 1000 mg g⁻¹ = mg g⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="1000*a/cp" data-output="Content c" data-unit="mg g⁻¹ protein" data-digits="1" data-plot="cp" data-title="Try it — lysine in whole-grain wheat (Mathai et al., 2017)">
+          <div data-var="a" data-label="Lysine in food a" data-min="0.05" data-max="10" data-step="0.01" data-value="0.39" data-unit="g per 100 g"></div>
+          <div data-var="cp" data-label="Crude protein CP" data-min="5" data-max="95" data-step="0.1" data-value="11.67" data-unit="g per 100 g"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pq-digestible">
+        <div class="eq-head"><span class="eq-label">Digestible amino-acid content</span><span class="eq-num">(P2)</span></div>
+        <div class="eq-main">\[ c^{\text{dig}}_i = d_i\,c_i, \qquad c^{\text{dig}}_{\text{SAA}} = d_{\text{Met}}\,c_{\text{Met}} + d_{\text{Cys}}\,c_{\text{Cys}} \]</div>
+        <p class="eq-read">the digestible content equals the content multiplied by that amino acid's ileal digestibility; for the sums SAA and AAA, each member is multiplied by its own digestibility before adding.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(d_i\)</td><td>standardised (≈ true) ileal digestibility of amino acid \(i\)</td><td>–</td></tr>
+          <tr><td>\(c^{\text{dig}}_i\)</td><td>digestible content</td><td>mg g⁻¹ protein</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary><ol class="steps"><li>Of \(c_i\) milligrams eaten per gram of protein, a fraction \(d_i\) has been absorbed by the end of the ileum.</li><li>Standardised digestibility adds back the amino acids the gut secretes regardless of diet (basal endogenous losses), so it describes the food, not the experiment, and is additive in mixtures (Stein, 2024).</li><li>Cysteine is usually less digestible than methionine (e.g., pea concentrate 0.75 vs 0.90), so SAA must be summed after weighting, not before.</li></ol></details>
+        <div class="eq-units">– × mg g⁻¹ = mg g⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="dm*met + dc*cys" data-output="Digestible SAA" data-unit="mg g⁻¹ protein" data-digits="1" data-plot="dc" data-title="Try it — sulfur amino acids in pea protein concentrate">
+          <div data-var="met" data-label="Methionine c<sub>Met</sub>" data-min="2" data-max="40" data-step="0.1" data-value="9.0" data-unit="mg g⁻¹"></div>
+          <div data-var="cys" data-label="Cysteine c<sub>Cys</sub>" data-min="2" data-max="40" data-step="0.1" data-value="11.6" data-unit="mg g⁻¹"></div>
+          <div data-var="dm" data-label="Digestibility d<sub>Met</sub>" data-min="0.5" data-max="1" data-step="0.01" data-value="0.90"></div>
+          <div data-var="dc" data-label="Digestibility d<sub>Cys</sub>" data-min="0.5" data-max="1" data-step="0.01" data-value="0.75"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pq-share">
+        <div class="eq-head"><span class="eq-label">From mass shares to protein shares</span><span class="eq-num">(P3)</span></div>
+        <div class="eq-main">\[ w_k = \frac{m_k\,x_k}{\sum_j m_j\,x_j}, \qquad x_{\text{mix}} = \frac{\sum_j m_j\,x_j}{\sum_j m_j} \]</div>
+        <p class="eq-read">the share of the blend's protein that comes from ingredient \(k\) is its mass times its protein content, divided by the total protein; the protein content of the blend is total protein over total mass.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(m_k\)</td><td>mass (or mass share) of ingredient \(k\) in the blend</td><td>g or %</td></tr>
+          <tr><td>\(x_k\)</td><td>protein content of ingredient \(k\)</td><td>g g⁻¹</td></tr>
+          <tr><td>\(w_k\)</td><td>protein share of ingredient \(k\), \(\sum w_k = 1\)</td><td>–</td></tr>
+        </table>
+        <div class="eq-units">(g × g g⁻¹) / (g × g g⁻¹) = – ✓</div>
+        <div class="mini-calc" data-formula="100*mA*xA/(mA*xA + (100-mA)*xB)" data-output="Protein share of A" data-unit="%" data-digits="1" data-plot="mA" data-ymin="0" data-ymax="100" data-title="Try it — wheat (A, 11.7 % protein) with pea concentrate (B, 54.5 %)">
+          <div data-var="mA" data-label="Mass share of A" data-min="0" data-max="100" data-step="1" data-value="76" data-unit="%"></div>
+          <div data-var="xA" data-label="Protein content x<sub>A</sub>" data-min="0.05" data-max="0.95" data-step="0.001" data-value="0.117"></div>
+          <div data-var="xB" data-label="Protein content x<sub>B</sub>" data-min="0.05" data-max="0.95" data-step="0.001" data-value="0.545"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pq-blend">
+        <div class="eq-head"><span class="eq-label">Digestible amino acids of a blend</span><span class="eq-num">(P4)</span></div>
+        <div class="eq-main">\[ c^{\text{dig}}_{\text{mix},i} = \sum_k w_k\,c^{\text{dig}}_{k,i} \]</div>
+        <p class="eq-read">the digestible content of amino acid \(i\) per gram of blend protein is the protein-share-weighted sum of the ingredients' digestible contents.</p>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Take 1 g of blend protein. Ingredient \(k\) supplies \(w_k\) grams of it.</li><li>Those \(w_k\) grams carry \(w_k c^{\text{dig}}_{k,i}\) mg of digestible amino acid \(i\).</li><li>Add over the ingredients. The result is linear in the shares, so every amino-acid ratio in the complementation chart is a straight line.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Digestibility is assumed additive: an ingredient is digested the same way alone and in a meal. Fanelli et al. (2022, 2024) found no difference between measured and predicted DIAAS of combined meals in pigs, which supports the assumption for cooked mixed meals. Interactions (e.g., antinutritional factors from one ingredient reducing the digestibility of another) are ignored.</p></details>
+        <div class="eq-units">– × mg g⁻¹ = mg g⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pq-diaas">
+        <div class="eq-head"><span class="eq-label">Digestible indispensable amino-acid score</span><span class="eq-num">(P5)</span></div>
+        <div class="eq-main">\[ \text{DIAAS} = 100\,\min_{i}\ \frac{c^{\text{dig}}_{\text{mix},i}}{r_i} \]</div>
+        <p class="eq-read">DIAAS is one hundred times the smallest ratio between the digestible content of an indispensable amino acid and the same amino acid in the reference pattern; that amino acid is the first-limiting one.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(r_i\)</td><td>FAO (2013) scoring pattern for the chosen age group (Table 1 of the Explain tab)</td><td>mg g⁻¹ protein</td></tr>
+          <tr><td>DIAAS</td><td>score, not truncated</td><td>%</td></tr>
+        </table>
+        <div class="eq-units">(mg g⁻¹)/(mg g⁻¹) = – ; × 100 → % ✓</div>
+        <div class="mini-calc" data-formula="100*min((w*la + (1-w)*lb)/rl, (w*sa + (1-w)*sb)/rs)" data-output="DIAAS (Lys and SAA only)" data-unit="%" data-digits="1" data-plot="w" data-ymin="0" data-title="Try it — wheat (A) and pea concentrate (B), child pattern">
+          <div data-var="w" data-label="Protein share of A, w" data-min="0" data-max="1" data-step="0.01" data-value="0.44"></div>
+          <div data-var="la" data-label="Digestible Lys in A" data-min="5" data-max="100" data-step="0.1" data-value="25.7" data-unit="mg g⁻¹"></div>
+          <div data-var="lb" data-label="Digestible Lys in B" data-min="5" data-max="100" data-step="0.1" data-value="72.4" data-unit="mg g⁻¹"></div>
+          <div data-var="sa" data-label="Digestible SAA in A" data-min="5" data-max="60" data-step="0.1" data-value="34.3" data-unit="mg g⁻¹"></div>
+          <div data-var="sb" data-label="Digestible SAA in B" data-min="5" data-max="60" data-step="0.1" data-value="16.8" data-unit="mg g⁻¹"></div>
+          <div data-var="rl" data-label="Reference Lys" data-min="40" data-max="70" data-step="1" data-value="57" data-unit="mg g⁻¹"></div>
+          <div data-var="rs" data-label="Reference SAA" data-min="15" data-max="35" data-step="1" data-value="27" data-unit="mg g⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pq-pdcaas">
+        <div class="eq-head"><span class="eq-label">Amino-acid score and PDCAAS</span><span class="eq-num">(P6)</span></div>
+        <div class="eq-main">\[ \text{PDCAAS} = \min\!\left(1,\ \text{AAS}\cdot\text{TD}_{\text{f,mix}}\right) \] \[ \text{AAS} = \min_i \frac{\sum_k w_k c_{k,i}}{r_i}, \qquad \text{TD}_{\text{f,mix}} = \sum_k w_k\,\text{TD}_{\text{f},k} \]</div>
+        <p class="eq-read">the amino-acid score uses total (undigested) contents; PDCAAS multiplies it by the protein-weighted faecal digestibility of crude protein and never exceeds one.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\text{TD}_{\text{f},k}\)</td><td>faecal (total-tract) crude-protein digestibility of ingredient \(k\)</td><td>–</td></tr>
+          <tr><td>AAS</td><td>amino-acid score of the undigested blend</td><td>–</td></tr>
+        </table>
+        <details><summary>Why PDCAAS and DIAAS differ</summary><ol class="steps"><li>One digestibility for all amino acids hides poorly digested ones (lysine damaged by heat, cysteine in legumes).</li><li>Faecal digestibility counts nitrogen used by colonic bacteria as "digested", overestimating absorption — Mathai et al. (2017) found pig PDCAAS-like values above DIAAS for pea, soy and wheat.</li><li>Truncation at 1 hides the surplus of high-quality proteins that can compensate for poorer ones in a meal.</li><li>In the simulator PDCAAS is scored against the same pattern as DIAAS; the original 1991 method used the FAO/WHO/UNU (1985) pre-school child pattern.</li></ol></details>
+        <div class="eq-units">– × – = – ✓</div>
+        <div class="mini-calc" data-formula="min(1, aas*td)" data-output="PDCAAS" data-unit="" data-digits="2" data-plot="td" data-ymin="0" data-ymax="1.1">
+          <div data-var="aas" data-label="Amino-acid score AAS" data-min="0.3" data-max="1.6" data-step="0.01" data-value="0.76"></div>
+          <div data-var="td" data-label="Faecal digestibility TD<sub>f</sub>" data-min="0.6" data-max="1" data-step="0.01" data-value="0.94"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pq-need">
+        <div class="eq-head"><span class="eq-label">Quality-adjusted protein need and mass of blend</span><span class="eq-num">(P7)</span></div>
+        <div class="eq-main">\[ P_{\text{need}} = \frac{m_{\text{body}}\,r_P}{\min\!\left(1,\ \text{DIAAS}/100\right)}, \qquad M_{\text{blend}} = \frac{P_{\text{need}}}{x_{\text{mix}}} \]</div>
+        <p class="eq-read">the protein a person must eat equals body mass times the protein requirement, divided by the DIAAS as a fraction (capped at one); the mass of blend is that protein divided by the blend's protein content.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(m_{\text{body}}\)</td><td>body mass</td><td>kg</td></tr>
+          <tr><td>\(r_P\)</td><td>protein requirement for high-quality protein (0.66 average, 0.83 safe level for adults)</td><td>g kg⁻¹ d⁻¹</td></tr>
+          <tr><td>\(P_{\text{need}}\)</td><td>quality-adjusted protein intake</td><td>g d⁻¹</td></tr>
+          <tr><td>\(M_{\text{blend}}\)</td><td>mass of blend to eat per day</td><td>g d⁻¹</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The whole day's protein is assumed to come from the blend. The FAO scoring patterns are the amino-acid requirements divided by the protein requirement, so dividing the protein need by DIAAS is equivalent to meeting the need for the limiting amino acid. A DIAAS above 100 cannot reduce the need below the protein requirement itself — hence the cap. Energy, fibre and satiety limits (can anyone eat 2 kg of maize a day?) are not considered.</p></details>
+        <div class="eq-units">(kg × g kg⁻¹ d⁻¹)/– = g d⁻¹; (g d⁻¹)/(g g⁻¹) = g d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="bw*rp/min(1,D/100)/x" data-output="Mass to eat" data-unit="g d⁻¹" data-digits="0" data-plot="D" data-title="Try it — 70 kg adult eating whole-grain wheat">
+          <div data-var="bw" data-label="Body mass" data-min="10" data-max="120" data-step="1" data-value="70" data-unit="kg"></div>
+          <div data-var="rp" data-label="Requirement r<sub>P</sub>" data-min="0.66" data-max="1.6" data-step="0.01" data-value="0.83" data-unit="g kg⁻¹ d⁻¹"></div>
+          <div data-var="D" data-label="DIAAS" data-min="20" data-max="140" data-step="1" data-value="54" data-unit="%"></div>
+          <div data-var="x" data-label="Protein content x" data-min="0.05" data-max="0.95" data-step="0.001" data-value="0.117" data-unit="g g⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pq-opt">
+        <div class="eq-head"><span class="eq-label">The best two-way blend: where the limiting lines cross</span><span class="eq-num">(P8)</span></div>
+        <div class="eq-main">\[ w^{*} = \frac{b_2/r_2 - b_1/r_1}{(a_1 - b_1)/r_1 - (a_2 - b_2)/r_2} \]</div>
+        <p class="eq-read">for two ingredients A (share \(w\)) and B (share \(1-w\)) whose limiting amino acids are 1 and 2, the protein share of A that maximises the lower of the two ratios is found by setting the two ratios equal.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(a_1, a_2\)</td><td>digestible contents of amino acids 1 and 2 in A</td><td>mg g⁻¹</td></tr>
+          <tr><td>\(b_1, b_2\)</td><td>the same in B</td><td>mg g⁻¹</td></tr>
+          <tr><td>\(w^{*}\)</td><td>optimal protein share of A</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Ratio 1 is \(\rho_1(w) = [w a_1 + (1-w) b_1]/r_1\), ratio 2 is \(\rho_2(w) = [w a_2 + (1-w) b_2]/r_2\) (Eq. P4 with two ingredients).</li><li>If A is rich in amino acid 2 but poor in 1, \(\rho_1\) falls and \(\rho_2\) rises with \(w\); the minimum of a falling and a rising line is largest where they meet.</li><li>Setting \(\rho_1 = \rho_2\) and solving the linear equation for \(w\) gives \(w^*\).</li><li>With nine amino acids the true optimum is the peak of the lower envelope of nine lines — a small <em>linear programme</em>. Herreman et al. (2020) solved it with a spreadsheet solver; this laboratory uses an exhaustive grid search, which is simpler to understand and fast enough for 17 ingredients.</li></ol></details>
+        <details><summary>Worked example — wheat and pea concentrate, young-child pattern</summary><ol class="steps"><li>Digestible Lys: wheat 25.7, pea 72.4 mg g⁻¹; digestible SAA: wheat 34.3, pea 16.8 mg g⁻¹; \(r_{\text{Lys}} = 57\), \(r_{\text{SAA}} = 27\).</li><li>\(w^* = (16.8/27 - 72.4/57)/[(25.7-72.4)/57 - (34.3-16.8)/27] = (0.622 - 1.270)/(-0.819 - 0.648) = 0.442\): 44 % of the protein from wheat.</li><li>Both ratios then equal \([0.442\times34.3 + 0.558\times16.8]/27 = 0.91\).</li><li>But digestible tryptophan is about 7.6 mg g⁻¹ in both ingredients (ratio ≈ 0.90 whatever the mix), so the blend's DIAAS is capped at ≈ 90 by tryptophan. In mass terms: \(0.442/0.1167 : 0.558/0.5446 = 3.7 : 1.0\), i.e. about 79 % wheat — compare the optimiser.</li></ol><span class="answer">w* ≈ 0.44 (protein basis); DIAAS ≈ 90, limited by Trp</span></details>
+        <div class="eq-units">(mg g⁻¹ / mg g⁻¹)/(mg g⁻¹ / mg g⁻¹) = – ✓</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Tick each task when you are done; use <em>Save investigation</em> to store your settings and results in your notebook.</p>
+      <ol class="task-list">
+        <li><h4>The cereal–legume handshake</h4><p>Load <em>Bread + pea protein</em>. Using the complementation chart and the optimiser (scope: <em>my selected ingredients</em>), find the best wheat : pea ratio for a young child. Why can no mixture of these two ingredients score above ≈ 90, even though lysine and SAA can both be pushed above 90 %? Name the amino acid responsible and explain with Eq. P4.</p></li>
+        <li><h4>Quality is not quantity</h4><p>For a 70 kg adult (0.83 g kg⁻¹ d⁻¹, older-child/adult pattern), record the grams per day needed for rice, whole-grain wheat, pea concentrate, soy isolate, egg and beef. Rank them, and separate the two causes: how much of the difference comes from protein content and how much from DIAAS? Which result surprised you?</p></li>
+        <li><h4>Design an excellent plant-only blend</h4><p>Set the optimiser to <em>plant ingredients only</em>, 3 components. Find a blend with DIAAS ≥ 100 for young children. Then switch the objective to <em>fewest grams per day</em>. Do the two objectives agree? Propose a real food (bread, pasta, drink, burger) that could be made from your blend and discuss taste, texture and cost.</p></li>
+        <li><h4>New proteins in the mix</h4><p>Crickets, mealworms and mycoprotein are mainly limited by sulfur amino acids. Which single ingredient from the database complements each of them best? Compare the resulting DIAAS with egg. Then read the data notes for these three ingredients: which result would you trust least, and why?</p></li>
+        <li><h4>Digestibility is a design variable</h4><p>Compare the dashed outline and the petals for rapeseed meal. Using the database table (Assumptions &amp; sources), recalculate its lysine ratio by hand if the lysine digestibility of a food-grade, heat-treated rapeseed protein isolate (≈ 95 %, Stein, 2024) applied instead of 75 %. What does this tell you about the role of processing (dehulling, extraction, heat treatment) in protein quality?</p></li>
+        <li><h4>Connect to your project</h4><p>Take a protein-rich product you eat (or plan to develop). Estimate its ingredients and their shares from the label, build it in the simulator and report DIAAS, the limiting amino acid and whether a "source of protein" claim would be justified on quality grounds. List two ways to reformulate it.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-protein-quality">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Score pea protein concentrate alone (100 % of the blend) against the 6 mo–3 y pattern. What is its DIAAS?","answer":62,"abstol":1,"unit":"%","hint":"Set ingredient 1 to pea protein concentrate and the others to none.","explain":"<p>Sulfur amino acids limit: digestible SAA = 9.0 × 0.90 + 11.6 × 0.75 ≈ 16.8 mg g⁻¹; 16.8/27 = 0.62 → DIAAS 62, as reported by Mathai et al. (2017).</p>"},
+          {"type":"numeric","q":"The default blend is 76 % whole-grain wheat and 24 % pea protein concentrate by mass. What share of its protein comes from the pea concentrate?","answer":59.6,"tol":0.02,"unit":"%","hint":"Eq. P3: w = m x / Σ m x, with x = 0.1167 for wheat and 0.5446 for pea.","explain":"<p>\\(24\\times0.5446/(24\\times0.5446 + 76\\times0.1167) = 13.07/(13.07+8.87) = 0.596\\): a quarter of the mass but 60 % of the protein.</p>"},
+          {"type":"mcq","q":"Load the preset ‘Rice & beans’ (60 % polished rice, 40 % faba bean, 6 mo–3 y pattern). Which amino acid limits the blend?","options":["Lysine","Sulfur amino acids","Tryptophan","Threonine"],"answer":2,"feedback":["Lysine is short in rice, but faba bean supplies plenty: the Lys petal is ≈ 85 %.","Faba bean is SAA-poor, but rice supplies SAA: that petal is ≈ 92 %.","","Threonine is ≈ 94 %."],"explain":"<p>Both rice and faba bean are relatively low in digestible tryptophan (faba bean Trp digestibility is only 0.75), so the Trp petal (≈ 76 %) is the shortest — a reminder that complementation fixes lysine and SAA but can expose a third amino acid.</p>"},
+          {"type":"numeric","q":"A 70 kg adult (0.83 g kg⁻¹ d⁻¹) gets all protein from whole-grain wheat, scored with the older-child/adult pattern. How many grams of wheat per day are needed?","answer":929,"tol":0.03,"unit":"g d⁻¹","hint":"Eq. P7 with DIAAS ≈ 54 and x = 0.1167.","explain":"<p>\\(P_{\\text{need}} = 70\\times0.83/0.536 = 108\\) g protein; \\(108/0.1167 = 929\\) g of wheat per day.</p>"},
+          {"type":"tf","q":"Switching the scoring pattern from ‘6 mo–3 y’ to ‘older child/adult’ can never lower the DIAAS of a food or blend.","answer":true,"explain":"<p>Every value in the older-child/adult pattern is lower than or equal to the corresponding young-child value (Table 1), so every ratio \\(c^{\\text{dig}}_i/r_i\\) rises and so does its minimum.</p>"},
+          {"type":"multi","q":"Which ingredients reach a DIAAS of at least 100 on their own for young children (6 mo–3 y)? Select all that apply.","options":["Egg (boiled)","Milk (skimmed milk powder)","Beef (rib-eye roast)","Soy protein isolate","Potato protein concentrate","Mycoprotein"],"answer":[0,1,2],"explain":"<p>Egg ≈ 109 (His), milk ≈ 105 (SAA) and beef ≈ 121 (Val) exceed 100. Soy isolate (≈ 84, SAA), potato protein concentrate (≈ 93, His) and mycoprotein (in vitro ≈ 83, SAA) do not — but potato protein lifts almost any plant blend above 100.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>Scores follow FAO (2013): nine indispensable amino acids with SAA and AAA summed, age-specific scoring patterns (Table 1 of the Explain tab), amino-acid-specific ileal digestibility, crude protein = N × 6.25.</li>
+        <li>Blends are scored on a protein basis (Eqs. P3–P4) and digestibility is assumed additive (no interactions between ingredients), which pig studies of mixed meals support (Fanelli et al., 2022, 2024).</li>
+        <li>Each ingredient is one specific product from one study (or a feed-table mean). Real products vary with cultivar, processing and cooking in digestible amino acids: across published pig datasets, Herreman et al. (2020) found DIAAS ranges of 53, 43 and 44 points within wheat, rapeseed and maize, respectively. Treat the scores as representative, not as properties of every product with that name.</li>
+        <li>Pig standardised ileal digestibility is used as a proxy for human true ileal digestibility (FAO, 2013; Stein, 2024). Exceptions: spirulina (rats; one mean digestibility, 82.8 %, applied to all amino acids) and mycoprotein (in vitro INFOGEST digestion; composition back-calculated from digestible amounts assuming a uniform 79 % digestibility). These two are the least certain entries.</li>
+        <li>Rapeseed is represented by defatted rapeseed meal (feed grade), the form on which most published digestibility data are based; food-grade rapeseed protein isolates are much more digestible when heat-treated (Stein, 2024).</li>
+        <li>PDCAAS uses a faecal crude-protein digestibility per ingredient: pig total-tract values where available, human values from FAO/WHO/UNU (1985) for rice, oats, maize, egg and beef, the rat value for spirulina, and — for insects, where faecal data were not reported — the ileal digestibility of crude protein as a proxy. PDCAAS is scored against the same pattern as DIAAS.</li>
+        <li>Reactive lysine (lysine damaged by Maillard reactions during heating) is not distinguished from total lysine; heat-processed products could therefore be overestimated.</li>
+        <li>The protein need uses one requirement per kilogram of body mass for the whole day's protein; energy intake, meal distribution and non-protein benefits of foods (micronutrients, fibre) are outside the model.</li>
+      </ul>
+      <h2 data-nonum>The database</h2>
+      <p>The table is generated from the same data file the simulator uses. <button class="btn btn-sm" id="db-csv" type="button">Download the database as CSV</button></p>
+      <div id="db-table"></div>
+      <p class="pq-note">Checks: with these data the simulator reproduces the published DIAAS of each pig study to within ±1 point (e.g., pea concentrate 62/73, soy isolate 84/98, wheat 45/54, skimmed milk powder 105/123, egg 109/135 vs 110/135, beef rib-eye 121/130, cricket 76/89, mealworm 55/64 vs 54/64 for the young-child/older patterns).</p>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Ariëns, R. M. C., Polanowska, K., Somhorst, D., Boudewijn, A., Pouvreau, L., de Jong, G. A. H., &amp; Bastiaan-Net, S. (2026). In vitro protein digestibility and colonic fermentation of mycoprotein-based meat analogues. <em>Current Research in Food Science</em>, 13, 101488. <a href="https://doi.org/10.1016/j.crfs.2026.101488" target="_blank" rel="noopener">doi:10.1016/j.crfs.2026.101488</a></li>
+        <li>Bailey, H. M., Mathai, J. K., Berg, E. P., &amp; Stein, H. H. (2020). Most meat products have digestible indispensable amino acid scores that are greater than 100, but processing may increase or reduce protein quality. <em>British Journal of Nutrition</em>, 124(1), 14–22. <a href="https://doi.org/10.1017/S0007114520000641" target="_blank" rel="noopener">doi:10.1017/S0007114520000641</a></li>
+        <li>Cervantes-Pahm, S. K., Liu, Y., &amp; Stein, H. H. (2014). Digestible indispensable amino acid score and digestible amino acids in eight cereal grains. <em>British Journal of Nutrition</em>, 111(9), 1663–1672. <a href="https://doi.org/10.1017/S0007114513004273" target="_blank" rel="noopener">doi:10.1017/S0007114513004273</a></li>
+        <li>Edwards, D. G., &amp; Cummings, J. H. (2010). The protein quality of mycoprotein. <em>Proceedings of the Nutrition Society</em>, 69(OCE4), E331. <a href="https://doi.org/10.1017/S0029665110001400" target="_blank" rel="noopener">doi:10.1017/S0029665110001400</a></li>
+        <li>Fanelli, N. S., Bailey, H. M., Thompson, T. W., Delmore, R., Nair, M. N., &amp; Stein, H. H. (2022). Digestible indispensable amino acid score (DIAAS) is greater in animal-based burgers than in plant-based burgers if determined in pigs. <em>European Journal of Nutrition</em>, 61(1), 461–475. <a href="https://doi.org/10.1007/s00394-021-02658-1" target="_blank" rel="noopener">doi:10.1007/s00394-021-02658-1</a></li>
+        <li>Fanelli, N. S., Martins, J. C. F. R., &amp; Stein, H. H. (2024). The digestible indispensable amino acid score (DIAAS) in eggs and egg-containing breakfast meals is greater than in toast breads or hash browns served without eggs. <em>Journal of Nutritional Science</em>, 13, e68. <a href="https://doi.org/10.1017/jns.2024.71" target="_blank" rel="noopener">doi:10.1017/jns.2024.71</a></li>
+        <li>FAO. (2013). <em>Dietary protein quality evaluation in human nutrition: Report of an FAO Expert Consultation</em> (FAO Food and Nutrition Paper 92). Food and Agriculture Organization of the United Nations.</li>
+        <li>FAO/WHO. (1991). <em>Protein quality evaluation: Report of the Joint FAO/WHO Expert Consultation</em> (FAO Food and Nutrition Paper 51). Food and Agriculture Organization of the United Nations.</li>
+        <li>FAO/WHO/UNU. (1985). <em>Energy and protein requirements: Report of a joint FAO/WHO/UNU expert consultation</em> (WHO Technical Report Series 724). World Health Organization.</li>
+        <li>Finnigan, T. J. A., Wall, B. T., Wilde, P. J., Stephens, F. B., Taylor, S. L., &amp; Freedman, M. R. (2019). Mycoprotein: the future of nutritious nonmeat protein, a symposium review. <em>Current Developments in Nutrition</em>, 3(6), nzz021. <a href="https://doi.org/10.1093/cdn/nzz021" target="_blank" rel="noopener">doi:10.1093/cdn/nzz021</a></li>
+        <li>Herreman, L., Nommensen, P., Pennings, B., &amp; Laus, M. C. (2020). Comprehensive overview of the quality of plant- and animal-sourced proteins based on the digestible indispensable amino acid score. <em>Food Science &amp; Nutrition</em>, 8(10), 5379–5391. <a href="https://doi.org/10.1002/fsn3.1809" target="_blank" rel="noopener">doi:10.1002/fsn3.1809</a></li>
+        <li>Malla, N., Nørgaard, J. V., Lærke, H. N., Heckmann, L.-H. L., &amp; Roos, N. (2022). Some insect species are good-quality protein sources for children and adults: digestible indispensable amino acid score (DIAAS) determined in growing pigs. <em>The Journal of Nutrition</em>, 152(4), 1042–1051. <a href="https://doi.org/10.1093/jn/nxac019" target="_blank" rel="noopener">doi:10.1093/jn/nxac019</a></li>
+        <li>Mathai, J. K., Liu, Y., &amp; Stein, H. H. (2017). Values for digestible indispensable amino acid scores (DIAAS) for some dairy and plant proteins may better describe protein quality than values calculated using the concept for protein digestibility-corrected amino acid scores (PDCAAS). <em>British Journal of Nutrition</em>, 117(4), 490–499. <a href="https://doi.org/10.1017/S0007114517000125" target="_blank" rel="noopener">doi:10.1017/S0007114517000125</a></li>
+        <li>Sauvant, D., Perez, J.-M., &amp; Tran, G. (Eds.). (2004). <em>Tables of composition and nutritional value of feed materials: pigs, poultry, cattle, sheep, goats, rabbits, horses and fish</em>. Wageningen Academic Publishers. <a href="https://doi.org/10.3920/978-90-8686-668-7" target="_blank" rel="noopener">doi:10.3920/978-90-8686-668-7</a> (online edition: INRA–CIRAD–AFZ feed tables, <a href="https://www.feedtables.com" target="_blank" rel="noopener">feedtables.com</a>)</li>
+        <li>Stein, H. H. (2024). The pig is an excellent model to determine amino acid digestibility of human foods and to generate data needed to meet human amino acid requirements. <em>Frontiers in Nutrition</em>, 11, 1434430. <a href="https://doi.org/10.3389/fnut.2024.1434430" target="_blank" rel="noopener">doi:10.3389/fnut.2024.1434430</a></li>
+        <li>Tessier, R., Calvez, J., Khodorova, N., &amp; Gaudichon, C. (2021). Protein and amino acid digestibility of <sup>15</sup>N Spirulina in rats. <em>European Journal of Nutrition</em>, 60(4), 2263–2269. <a href="https://doi.org/10.1007/s00394-020-02368-0" target="_blank" rel="noopener">doi:10.1007/s00394-020-02368-0</a></li>
+        <li>U.S. Department of Agriculture, Agricultural Research Service. (2019). <em>FoodData Central, SR Legacy: Seaweed, spirulina, dried (FDC ID 170495)</em>. <a href="https://fdc.nal.usda.gov/" target="_blank" rel="noopener">fdc.nal.usda.gov</a></li>
+        <li>WHO/FAO/UNU. (2007). <em>Protein and amino acid requirements in human nutrition: Report of a joint WHO/FAO/UNU expert consultation</em> (WHO Technical Report Series 935). World Health Organization.</li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

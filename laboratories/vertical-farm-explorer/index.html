@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vertical farm explorer · Future Food Production</title>
+<meta name="description" content="Walk through a 3D plant factory and change tiers, LED intensity, HVAC and economics: an annual energy, water, CO₂ and cost balance gives kWh per kg, litres per kg, yield per square metre and cost per kg of lettuce.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+#stage { aspect-ratio: 16 / 9.5; }
+.label3d.sm { font-size: 11px; padding: 3px 7px; }
+.label3d.sm small { font-size: 10px; }
+</style>
+</head>
+<body data-page="lab" data-slug="vertical-farm-explorer">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Vertical farm explorer</h1>
+    <p class="lead">Step inside a plant factory with artificial lighting: rows of white racks, tier upon tier of lettuce glowing under LEDs, air ducts overhead and a plant room humming next door. Every number here comes from an annual balance of the building — photons to lettuce, electricity to heat, heat to cooling, transpired water to condensate, and money to kilograms. Change the number of tiers, the aisles, the light and the prices, and watch the building, the kilowatt-hours per kilogram and the cost per kilogram respond. Then walk through it.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Where each kilowatt-hour goes</h3>
+      <div class="chart-sub">Energy flows per kilogram of fresh lettuce (kWh kg⁻¹). Almost everything that enters as electricity leaves as heat through the HVAC; the thin green band is the chemical energy stored in the crop.</div>
+      <div class="chart tall" id="chart-sankey" style="height:340px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>What a kilogram of lettuce costs</h3>
+      <div class="chart-sub"><span id="cost-total"></span> Capital = depreciation and interest (capital recovery factor) plus 1.5 % maintenance per year.</div>
+      <div class="chart" id="chart-cost" style="height:270px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Which assumptions matter? (sensitivity)</h3>
+      <div class="chart-sub">Change in production cost when one parameter is lowered (blue) or raised (magenta) by 20 %, all others fixed. Long bars are the levers worth pulling — and the numbers worth measuring well.</div>
+      <div class="chart" id="chart-sens" style="height:290px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Compared with greenhouses and fields</h3>
+      <div class="chart-sub">Per kg of fresh lettuce, or per m² of land. Plant factory and Swedish greenhouse (Kiruna, 68° N, with lamps): model results of Graamans et al. (2018), converted from dry weight with your dry-matter content. Arizona greenhouse and field: Barbosa et al. (2015). Västerås greenhouse: light-based yield estimate (Assumptions tab). Empty bars: no published value in these sources.</div>
+      <div class="seg" id="comp-mode" role="group" aria-label="Comparison metric" style="margin:4px 0 6px"><button type="button" data-v="kwh" aria-pressed="true">Energy</button><button type="button" data-v="water" aria-pressed="false">Water</button><button type="button" data-v="yield" aria-pressed="false">Land</button></div>
+      <div class="chart" id="chart-comp" style="height:280px"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Take the tour.</strong> Use the <em>Aisle</em>, <em>Tier close-up</em> and <em>Plant room</em> buttons, then press <em>Walk through the farm</em> and walk down an aisle with W A S D (drag to look around). Each rack carries lettuce at four growth stages, from transplants at the west end to heads ready for harvest at the east end; a scissor lift reaches the upper tiers and an automated guided vehicle carries trays to packing. In the plant room, the air-handling units remove the heat of the LEDs and collect the transpired water as condensate.</li>
+        <li><strong>Stack the tiers.</strong> Move <em>Growing tiers</em> from 4 to 14. The building grows taller, the cultivation area and the yield per square metre of floor rise in proportion — but look at the <em>Electricity per kg</em> readout: it does not change. Stacking saves land, not energy.</li>
+        <li><strong>Turn up the light.</strong> Raise the PPFD from 150 to 350 µmol m⁻² s⁻¹. The LEDs glow brighter, the daily light integral and the yield increase, and so does the cooling load. Check the head weight and the DLI warning: lettuce above about 17 mol m⁻² d⁻¹ risks tip-burn.</li>
+        <li><strong>Follow the kilowatt-hours.</strong> In the Sankey diagram, only about 60 % of the electricity leaves the LEDs as light, most of the light is absorbed by leaves, and 2–4 % ends up as chemical energy in lettuce. The rest is heat that the HVAC removes — at the cost of more electricity.</li>
+        <li><strong>Move the farm.</strong> Compare the presets <em>Swedish grid &amp; price</em>, <em>Japanese PFAL</em>, <em>High-cost start-up</em> and <em>2030 efficient</em>. Which cost items change most, and why is electricity only 10–20 % of the cost?</li>
+        <li><strong>Watch day and night.</strong> The farm clock runs at half an hour per second: at 06:00 the LEDs switch on, and after the photoperiod they go out and only the work lights remain.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A plant factory converts electricity into lettuce with an overall efficiency of only 1–3 %. Its advantages — tiny land and water use, year-round production, no pesticides — are real, but every kilogram carries a large and unavoidable energy bill (light), a heat-removal bill (HVAC) and, above all, fixed costs for labour and the building that only a high yield per square metre can dilute.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>The plant factory as a balance of photons, heat, water and money</h2>
+      <p>Kozai (2013) described the closed plant production system as a box with six components — an insulated, nearly airtight room, multi-tier racks, LED lamps, air conditioners, CO₂ supply and a nutrient-solution system — and defined an efficiency for each resource it uses. This laboratory follows that approach for one year of lettuce production.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 680 290" role="img" aria-label="Cross-section of a plant factory showing racks with tiers and LEDs, air ducts, the air-handling unit with cooling coil and condensate, and flows of electricity, heat, CO₂ and water">
+          <defs><marker id="vf-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <rect x="20" y="30" width="470" height="240" rx="6" class="fill-bg" stroke="currentColor" stroke-width="1.5"/>
+          <g stroke="currentColor" stroke-width="1">
+            <rect x="60" y="80" width="130" height="180" class="fill-sunk"/><rect x="250" y="80" width="130" height="180" class="fill-sunk"/>
+          </g>
+          <g class="fill-accent-soft" stroke="currentColor" stroke-width=".6">
+            <rect x="64" y="236" width="122" height="20"/><rect x="64" y="196" width="122" height="20"/><rect x="64" y="156" width="122" height="20"/><rect x="64" y="116" width="122" height="20"/>
+            <rect x="254" y="236" width="122" height="20"/><rect x="254" y="196" width="122" height="20"/><rect x="254" y="156" width="122" height="20"/><rect x="254" y="116" width="122" height="20"/>
+          </g>
+          <g class="fill-magenta"><rect x="68" y="229" width="114" height="3"/><rect x="68" y="189" width="114" height="3"/><rect x="68" y="149" width="114" height="3"/><rect x="68" y="109" width="114" height="3"/><rect x="258" y="229" width="114" height="3"/><rect x="258" y="189" width="114" height="3"/><rect x="258" y="149" width="114" height="3"/><rect x="258" y="109" width="114" height="3"/></g>
+          <text x="125" y="72" text-anchor="middle" class="t-small">rack: tiers + LEDs</text>
+          <text x="220" y="250" text-anchor="middle" class="t-small t-muted">aisle</text>
+          <rect x="60" y="38" width="320" height="18" rx="9" class="fill-sunk" stroke="currentColor"/><text x="220" y="51" text-anchor="middle" class="t-small">supply duct (cool, dry air)</text>
+          <rect x="520" y="60" width="140" height="200" rx="8" class="fill-water-soft" stroke="currentColor" stroke-width="1.2"/>
+          <text x="590" y="82" text-anchor="middle" font-weight="600">Air handling</text>
+          <rect x="545" y="100" width="90" height="50" class="fill-bg" stroke="currentColor"/><text x="590" y="122" text-anchor="middle" class="t-small">cooling coil</text><text x="590" y="137" text-anchor="middle" class="t-small t-muted">COP 3–6</text>
+          <rect x="560" y="200" width="60" height="40" rx="4" class="fill-water" opacity=".5" stroke="currentColor"/><text x="590" y="224" text-anchor="middle" class="t-small">condensate</text>
+          <path d="M590 150 L590 198" class="stroke-water" stroke-width="2" marker-end="url(#vf-ar)"/>
+          <path d="M520 110 L382 50" class="stroke-water" stroke-width="2" marker-end="url(#vf-ar)"/>
+          <path d="M440 160 L518 140" class="stroke-danger" stroke-width="2" marker-end="url(#vf-ar)"/><text x="444" y="182" class="t-small" style="fill:var(--danger)">warm, humid air</text>
+          <path d="M660 110 L672 110" class="stroke-danger" stroke-width="2"/><text x="600" y="276" text-anchor="middle" class="t-small">heat rejected outdoors →</text>
+          <path d="M560 240 C520 266 420 272 330 262" class="stroke-water" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#vf-ar)"/><text x="470" y="258" class="t-small" style="fill:var(--water)">reused as irrigation water</text>
+          <text x="40" y="22" class="t-small">electricity → LEDs → photons → leaves → heat + latent heat (transpiration) + a little chemical energy</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> A plant factory in section. LEDs under each tier light the plants below; almost all of their electricity ends as heat in the room, part of it as latent heat in the water vapour transpired by the crop. The air-handling units cool and dry the air: the heat is rejected outdoors and the vapour condenses on the cooling coil, where it is collected and reused.</figcaption>
+      </figure>
+      <h3>Photons make lettuce: light-use efficiency</h3>
+      <p>The single most important crop number is the <strong>light-use efficiency</strong> (LUE): grams of harvested dry matter per mole of photons reaching the crop. Jin et al. (2023) collected published data and found an average of 0.55 g mol⁻¹ for lettuce in vertical farms, 0.39 g mol⁻¹ in greenhouses and 0.23 g mol⁻¹ in the field, against a theoretical maximum of 1.26–1.81 g mol⁻¹. Kozai (2013) expressed the same idea as an energy ratio: 3.2–4.3 % of the photosynthetically active radiation reaching a plant community ends up as chemical energy in dry matter. With 20 MJ per kg of dry matter and ≈ 0.22 MJ per mole of PAR photons, that is 0.35–0.47 g mol⁻¹ — the same order of magnitude. Because lettuce is about 95 % water, 0.55 g DW mol⁻¹ becomes about 11 g of fresh lettuce per mole of photons.</p>
+      <h3>Tiers save land, not energy</h3>
+      <p>Stacking tiers multiplies the cultivation area on the same floor: the <em>space-use efficiency</em> is the cultivation area divided by the floor area. Every square metre of cultivation area, however, needs the same photons, so the electricity per kilogram is independent of the number of tiers. What stacking does change is the yield per square metre of land, and the capital and labour cost per kilogram if the building cost scales with floor area.</p>
+      <h3>Every kilowatt-hour becomes heat</h3>
+      <p>LEDs with a photon efficacy of 2.8 µmol J⁻¹ turn about 57 % of their electricity into PAR light (4.9 µmol J⁻¹ of radiant PAR); the rest is heat at the fixture. The photons are absorbed by leaves, walls and trays and also become heat — sensible heat that warms the air and latent heat carried by transpired water vapour — except for the 2–4 % stored as chemical energy in the crop. The HVAC must remove all this heat. With a cooling COP of 4 it needs one kilowatt-hour of electricity for every four kilowatt-hours of heat. In Tokyo, Kozai (2013) reported that lighting, air conditioning and other equipment used 85, 10 and 5 % of the electricity, with an annual mean COP of 5–6.</p>
+      <h3>Water: condensate is the secret</h3>
+      <p>In a sealed plant factory almost all transpired water condenses on the cooling coil and can be reused as irrigation water. Kozai (2013) gives a water-use efficiency of 0.95–0.98, against 0.02–0.03 for a ventilated greenhouse, where the vapour leaves through the vents. The net water use per kilogram is therefore dominated by the water that leaves in the product itself — about one litre per kilogram — compared with 20 L kg⁻¹ in a hydroponic greenhouse and 250 L kg⁻¹ in the field in Arizona (Barbosa et al., 2015).</p>
+      <h3>The money</h3>
+      <p>Zhuang et al. (2022) analysed the construction and operating costs of plant factories in Japan. Per square metre of plantable area and year, lettuce production cost about US$ 279 for labour, 166 for electricity, 86 for seeds and nutrients and 157 for packaging and logistics, on top of an investment of US$ 668–3409 per m² (US$ 1808 at a scale of 3000 m²). A 30 % fall in yield or price would push a typical factory into loss. Lovat et al. (2025) showed from first principles that current vertical farms need about 250 kWh per kg of dry matter — roughly 10 kWh per kg of lettuce — and that electricity alone makes dry staples such as wheat far too expensive to grow this way.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"With cheap renewable electricity, vertical farms become cheap." In the Swedish preset electricity is only about a tenth of the cost; labour and capital dominate. Cheap, clean power removes the carbon problem (the grid emission factor), but profitability depends at least as much on yield per square metre, automation and building cost.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier 2024–2026</div><p>Research aims at higher light-use efficiency (dynamic spacing to keep the canopy closed, far-red and dynamic light recipes, cultivars bred for vertical farms), LEDs approaching 3.5–4 µmol J⁻¹, heat pumps that sell the waste heat to district-heating networks — attractive in Sweden — and automation to cut labour. Several high-profile vertical-farm companies went bankrupt in 2023–2025, a reminder that the economics in this laboratory are unforgiving.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>All quantities are per square metre of cultivation area and year unless stated. Equation numbers V1–V10 refer to this laboratory; see also <a href="/lessons/energy-balance/">Lesson 8.1</a> (Eq. 8.1.10).</p>
+
+      <div class="eq-box" id="eq-vf-sue">
+        <div class="eq-head"><span class="eq-label">Cultivation area and space-use efficiency</span><span class="eq-num">(V1)</span></div>
+        <div class="eq-main">\[ A_c = N_t\,n_r\,n_s\,L_s\,d_r\,f_t,\qquad \text{SUE}=\frac{A_c}{A_{\text{floor}}},\qquad n_r=\left\lfloor\frac{W-2w_s+a}{d_r+a}\right\rfloor \]</div>
+        <p class="eq-read">the cultivation area is the number of tiers times the number of rack rows, racks per row, rack length and depth, and the fraction of each shelf covered by trays; the space-use efficiency divides it by the floor area. The number of rows that fit is the usable room width plus one aisle, divided by rack depth plus aisle width, rounded down.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(N_t\)</td><td>tiers per rack</td><td>–</td><td>1–14</td></tr>
+          <tr><td>\(n_r, n_s\)</td><td>rack rows; racks per row</td><td>–</td><td>4–6; 2</td></tr>
+          <tr><td>\(L_s, d_r\)</td><td>rack length and depth</td><td>m</td><td>8.75; 1.25</td></tr>
+          <tr><td>\(f_t\)</td><td>tray fill</td><td>–</td><td>0.92</td></tr>
+          <tr><td>\(W, w_s, a\)</td><td>room width, side aisle, aisle width</td><td>m</td><td>14; 1.2; 0.6–1.6</td></tr>
+        </table>
+        <div class="eq-units">m² ÷ m² — dimensionless ✓</div>
+        <div class="mini-calc" data-formula="tiers*foot*0.92/floor" data-output="Space-use efficiency" data-unit="m² per m²" data-digits="2" data-plot="tiers" data-title="Try it — stacking the racks">
+          <div data-var="tiers" data-label="Tiers" data-min="1" data-max="14" data-step="1" data-value="8"></div>
+          <div data-var="foot" data-label="Rack footprint" data-min="50" data-max="250" data-step="1" data-value="109" data-unit="m²"></div>
+          <div data-var="floor" data-label="Floor area" data-min="150" data-max="500" data-step="1" data-value="308" data-unit="m²"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-vf-yield">
+        <div class="eq-head"><span class="eq-label">Yield from light-use efficiency</span><span class="eq-num">(V2)</span></div>
+        <div class="eq-main">\[ Y = \frac{\text{LUE}\cdot\text{DLI}\cdot 365\,u}{1000\;\text{DM}},\qquad \text{DLI}=\frac{\text{PPFD}\cdot H\cdot3600}{10^6},\qquad \text{LUE}=\text{LUE}_P\,\frac{E_{\text{mol}}}{f} \]</div>
+        <p class="eq-read">the fresh yield per square metre and year is the light-use efficiency times the photons received per year, divided by the dry-matter fraction; Kozai's energy-based efficiency converts to grams per mole with the energy of a mole of PAR photons and the energy content of dry matter.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(Y\)</td><td>fresh yield per m² of cultivation area</td><td>kg m⁻² yr⁻¹</td><td>40–90</td></tr>
+          <tr><td>LUE</td><td>harvested dry matter per mole of photons at the canopy</td><td>g mol⁻¹</td><td>0.55 (Jin et al., 2023)</td></tr>
+          <tr><td>\(u\)</td><td>fraction of the year in production</td><td>–</td><td>0.95</td></tr>
+          <tr><td>DM</td><td>dry-matter fraction of lettuce</td><td>–</td><td>0.05</td></tr>
+          <tr><td>\(\text{LUE}_P, E_{\text{mol}}, f\)</td><td>energy-based LUE; energy of a mole of PAR photons; energy in dry matter</td><td>–; MJ mol⁻¹; MJ kg⁻¹</td><td>0.032–0.043; ≈ 0.22; 20 (Kozai, 2013)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Photons per year at the canopy: \(\text{DLI}\times365u\) mol m⁻².</li>
+          <li>Dry matter: \(\text{LUE}\times\text{DLI}\times365u\) grams; divide by 1000 for kilograms and by DM for fresh mass.</li>
+          <li>Kozai defines \(\text{LUE}_P=f D/\text{PAR}_P\) (energy stored ÷ PAR energy received). One mole of PAR photons carries \(E_{\text{mol}}\approx0.22\) MJ, so \(D/\text{mol}=\text{LUE}_P E_{\text{mol}}/f\): 0.032 × 0.22/20 kg = 0.35 g mol⁻¹.</li>
+        </ol></details>
+        <div class="eq-units">\(\dfrac{\text{g mol}^{-1}\cdot\text{mol m}^{-2}\text{d}^{-1}\cdot\text{d yr}^{-1}}{\text{g kg}^{-1}}=\text{kg DW m}^{-2}\text{yr}^{-1}\) ÷ DM → kg FW ✓</div>
+        <div class="mini-calc" data-formula="lue*ppfd*h*3600/1e6*365*0.95/1000/(dm/100)" data-output="Fresh yield" data-unit="kg m⁻² yr⁻¹" data-digits="1" data-plot="ppfd" data-title="Try it — photons to lettuce">
+          <div data-var="ppfd" data-label="PPFD" data-min="100" data-max="400" data-step="5" data-value="250" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="h" data-label="Photoperiod" data-min="10" data-max="22" data-step="0.5" data-value="16" data-unit="h"></div>
+          <div data-var="lue" data-label="LUE" data-min="0.2" data-max="1.2" data-step="0.01" data-value="0.55" data-unit="g DW mol⁻¹"></div>
+          <div data-var="dm" data-label="Dry matter" data-min="3.5" data-max="7" data-step="0.1" data-value="5" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-vf-head">
+        <div class="eq-head"><span class="eq-label">Head weight and crop cycle</span><span class="eq-num">(V3)</span></div>
+        <div class="eq-main">\[ W_{\text{head}}=\frac{\text{LUE}\cdot\text{DLI}\cdot t_c}{\text{DM}\cdot\rho_p},\qquad \text{harvests per year}=\frac{365\,u}{t_c} \]</div>
+        <p class="eq-read">the fresh weight of one head is the dry matter grown per square metre during one crop cycle, converted to fresh weight and shared among the plants on that square metre.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(t_c\)</td><td>days from transplanting to harvest</td><td>d</td><td>30</td></tr>
+          <tr><td>\(\rho_p\)</td><td>planting density</td><td>plants m⁻²</td><td>25</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>LUE is treated as constant through the cycle. In reality young plants intercept little light, which is why factories respace plants as they grow; the annual yield (V2) assumes the average LUE already includes this.</p></details>
+        <div class="eq-units">\(\dfrac{\text{g mol}^{-1}\cdot\text{mol m}^{-2}\text{d}^{-1}\cdot\text{d}}{\text{plants m}^{-2}}\) = g DW per plant ÷ DM → g FW ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-vf-light">
+        <div class="eq-head"><span class="eq-label">Lighting electricity</span><span class="eq-num">(V4)</span></div>
+        <div class="eq-main">\[ E_L=\frac{\text{DLI}\cdot365\,u\cdot10^6}{\eta_{\text{ph}}\,\eta_{\text{cap}}\cdot3.6\times10^6},\qquad \frac{E_L}{Y}=\frac{0.2778\;\text{DM}}{\eta_{\text{ph}}\,\eta_{\text{cap}}\,\text{LUE}/1000} \]</div>
+        <p class="eq-read">the lighting electricity per square metre per year is the photons delivered divided by the photons each joule produces and the fraction that reaches the crop, converted to kilowatt-hours. Per kilogram, the daily light integral cancels: only efficacy, capture, LUE and dry matter remain.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\eta_{\text{ph}}\)</td><td>LED photon efficacy</td><td>µmol J⁻¹</td><td>2.8</td></tr>
+          <tr><td>\(\eta_{\text{cap}}\)</td><td>photon capture efficiency</td><td>–</td><td>0.85</td></tr>
+          <tr><td>0.2778</td><td>\(10^6\ \mu\text{mol}/(3.6\times10^6\ \text{J kWh}^{-1})\)</td><td>kWh mol⁻¹ per µmol J⁻¹</td><td></td></tr>
+        </table>
+        <div class="eq-units">\(\dfrac{\mu\text{mol}}{\mu\text{mol J}^{-1}}=\text{J}\) ÷ 3.6 × 10⁶ J kWh⁻¹ = kWh ✓</div>
+        <div class="mini-calc" data-formula="0.2778*(dm/100)/(eff*cap*lue/1000)" data-output="Lighting electricity" data-unit="kWh kg⁻¹" data-digits="1" data-plot="eff" data-title="Try it — the four numbers that set the energy bill">
+          <div data-var="eff" data-label="Photon efficacy" data-min="1.5" data-max="4.2" data-step="0.05" data-value="2.8" data-unit="µmol J⁻¹"></div>
+          <div data-var="cap" data-label="Capture efficiency" data-min="0.5" data-max="1" data-step="0.01" data-value="0.85"></div>
+          <div data-var="lue" data-label="LUE" data-min="0.2" data-max="1.2" data-step="0.01" data-value="0.55" data-unit="g DW mol⁻¹"></div>
+          <div data-var="dm" data-label="Dry matter" data-min="3.5" data-max="7" data-step="0.1" data-value="5" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-vf-hvac">
+        <div class="eq-head"><span class="eq-label">Energy balance and HVAC electricity</span><span class="eq-num">(V5)</span></div>
+        <div class="eq-main">\[ Q = E_L+E_{\text{aux}}-E_{\text{chem}},\qquad E_{\text{HVAC}}=\frac{Q}{\text{COP}},\qquad E_{\text{tot}}=E_L+E_{\text{aux}}+E_{\text{HVAC}},\qquad \frac{\text{kWh}}{\text{kg}}=\frac{E_{\text{tot}}}{Y} \]</div>
+        <p class="eq-read">the heat the air conditioning must remove equals all electricity used in the room minus the energy stored in the crop; the HVAC needs that heat divided by its coefficient of performance; the total electricity per kilogram follows.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(E_{\text{aux}}\)</td><td>fans, pumps, controls (fraction of \(E_L\))</td><td>kWh m⁻² yr⁻¹</td><td>6 %</td></tr>
+          <tr><td>\(E_{\text{chem}}\)</td><td>chemical energy in harvested dry matter (17.5 kJ g⁻¹)</td><td>kWh m⁻² yr⁻¹</td><td>2–4 % of \(E_L\)</td></tr>
+          <tr><td>COP</td><td>cooling coefficient of performance</td><td>–</td><td>3–6</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Heat conduction through the insulated envelope and air leakage (0.01–0.02 air changes per hour, Kozai 2013) are neglected; in a cold climate they reduce the cooling load slightly in winter. A constant annual COP stands for a real COP that varies with outdoor temperature (4 in summer, 10 in winter in Tokyo).</p></details>
+        <div class="eq-units">kWh m⁻² yr⁻¹ ÷ kg m⁻² yr⁻¹ = kWh kg⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-vf-chain">
+        <div class="eq-head"><span class="eq-label">From electricity to photons to biomass</span><span class="eq-num">(V6)</span></div>
+        <div class="eq-main">\[ E_{\text{PAR}}=E_L\,\frac{\eta_{\text{ph}}}{4.9\ \mu\text{mol J}^{-1}},\qquad E_{\text{abs}}=0.9\,\eta_{\text{cap}}\,E_{\text{PAR}},\qquad E_{\text{chem}}=\frac{17.5\ \text{kJ g}^{-1}\cdot\text{LUE}\cdot\text{DLI}\cdot365\,u}{3600\ \text{kJ kWh}^{-1}} \]</div>
+        <p class="eq-read">the radiant PAR output is the electrical input times the photon efficacy divided by the number of photons per joule of PAR radiation; 90 % of the photons that reach the canopy are absorbed; the chemical energy is the dry matter produced times its heat of combustion.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>4.9</td><td>PAR photons per joule of radiant PAR energy for horticultural LED spectra (as in Lesson 8.1)</td><td>µmol J⁻¹</td></tr>
+        </table>
+        <div class="eq-units">kWh × (µmol J⁻¹ ÷ µmol J⁻¹) = kWh ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-vf-water">
+        <div class="eq-head"><span class="eq-label">Transpiration, condensate and net water use</span><span class="eq-num">(V7)</span></div>
+        <div class="eq-main">\[ T=\frac{0.6\,(E_{\text{abs}}-E_{\text{chem}})\cdot3.6}{\lambda},\qquad W_{\text{net}}=T\,(1-r)+Y\,(1-\text{DM}),\qquad \frac{\text{L}}{\text{kg}}=\frac{W_{\text{net}}}{Y} \]</div>
+        <p class="eq-read">60 % of the light energy absorbed by the crop and not stored drives transpiration; the vapour is condensed on the cooling coil with recovery r; the net water used is what escapes plus the water that leaves in the harvested lettuce.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\lambda\)</td><td>latent heat of vaporisation</td><td>MJ kg⁻¹</td><td>2.45</td></tr>
+          <tr><td>\(r\)</td><td>fraction of transpired water recovered</td><td>–</td><td>0.95 (Kozai 2013: 0.95–0.98)</td></tr>
+          <tr><td>0.6</td><td>latent share of the absorbed, non-stored energy (assumption, as in Lesson 8.1)</td><td>–</td><td></td></tr>
+        </table>
+        <div class="eq-units">kWh × 3.6 MJ kWh⁻¹ ÷ MJ kg⁻¹ = kg ✓ (1 kg water ≈ 1 L)</div>
+      </div>
+
+      <div class="eq-box" id="eq-vf-co2">
+        <div class="eq-head"><span class="eq-label">CO₂ supply and emissions</span><span class="eq-num">(V8)</span></div>
+        <div class="eq-main">\[ m_{\text{CO}_2}=\frac{0.40\cdot\text{DW}\cdot 44.01/12.011}{\text{CUE}},\qquad \text{CO}_2\text{e}=\frac{\text{kWh}}{\text{kg}}\cdot EF_{\text{grid}} \]</div>
+        <p class="eq-read">the CO₂ to buy is the carbon in the harvested dry matter (40 %) expressed as CO₂ and divided by the CO₂ use efficiency; the greenhouse-gas emission of the electricity is the kilowatt-hours per kilogram times the grid emission factor.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>CUE</td><td>CO₂ use efficiency: fixed ÷ supplied</td><td>–</td><td>0.87–0.89 (Kozai, 2013)</td></tr>
+          <tr><td>\(EF_{\text{grid}}\)</td><td>grid emission factor</td><td>g CO₂ kWh⁻¹</td><td>Sweden 35, EU-27 211 (2024; Ember via Our World in Data)</td></tr>
+        </table>
+        <div class="eq-units">kg DW × (g g⁻¹) × (g mol⁻¹ ÷ g mol⁻¹) = kg CO₂ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-vf-cost">
+        <div class="eq-head"><span class="eq-label">Production cost per kilogram</span><span class="eq-num">(V9)</span></div>
+        <div class="eq-main">\[ c=\frac{E_{\text{tot}}\,p_e+I\,(\text{CRF}+m)+C_{\text{lab}}}{Y}+c_{\text{cons}}+c_{\text{pack}},\qquad \text{CRF}=\frac{i}{1-(1+i)^{-n}} \]</div>
+        <p class="eq-read">the cost of a kilogram is the yearly electricity bill, the annualised investment (capital recovery factor plus maintenance) and the labour cost per square metre, divided by the yield, plus consumables and packaging per kilogram.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(p_e\)</td><td>electricity price</td><td>€ kWh⁻¹</td><td>0.084 (Sweden, Eurostat 2025-S1)</td></tr>
+          <tr><td>\(I\)</td><td>investment per m² of cultivation area</td><td>€ m⁻²</td><td>1650 (≈ US$ 1808; Zhuang et al., 2022)</td></tr>
+          <tr><td>\(i, n, m\)</td><td>interest rate, depreciation period, maintenance</td><td>–, yr, –</td><td>5 %, 15, 1.5 %</td></tr>
+          <tr><td>\(C_{\text{lab}}\)</td><td>labour cost per m² per year</td><td>€ m⁻² yr⁻¹</td><td>255 (≈ US$ 279)</td></tr>
+          <tr><td>\(c_{\text{cons}}, c_{\text{pack}}\)</td><td>seeds/nutrients/water; packaging and logistics</td><td>€ kg⁻¹</td><td>0.78; 1.25</td></tr>
+        </table>
+        <details><summary>Where the defaults come from</summary><p>Zhuang et al. (2022) report, per m² of plantable area and year for Japanese lettuce factories: labour US$ 279, electricity 166, seeds and nutrients 86, water and others 12, packaging and logistics 157, with a yield of 115 kg m⁻² yr⁻¹, a 15-year life, 5 % interest and 1.5 % maintenance. The per-kilogram consumable costs are their values divided by their yield and converted at ≈ 0.92 € per US$.</p></details>
+        <div class="eq-units">€ m⁻² yr⁻¹ ÷ kg m⁻² yr⁻¹ = € kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="I*(r/100/(1-pow(1+r/100,-n))+0.015)" data-output="Annual capital cost" data-unit="€ m⁻² yr⁻¹" data-digits="0" data-plot="n" data-title="Try it — annualising an investment">
+          <div data-var="I" data-label="Investment I" data-min="500" data-max="4000" data-step="10" data-value="1650" data-unit="€ m⁻²"></div>
+          <div data-var="r" data-label="Interest rate" data-min="0.5" data-max="12" data-step="0.5" data-value="5" data-unit="%"></div>
+          <div data-var="n" data-label="Depreciation period" data-min="5" data-max="25" data-step="1" data-value="15" data-unit="yr"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-vf-land">
+        <div class="eq-head"><span class="eq-label">Land-use advantage</span><span class="eq-num">(V10)</span></div>
+        <div class="eq-main">\[ \frac{Y_{\text{land}}}{Y_{\text{field}}}=\frac{Y\,A_c/A_{\text{building}}}{3.9\ \text{kg m}^{-2}\text{yr}^{-1}},\qquad A_{\text{building}}=\frac{A_{\text{floor}}}{1-s} \]</div>
+        <p class="eq-read">the land advantage is the yield per square metre of building — the grow room plus a share s of support areas — divided by the field yield of lettuce in Arizona.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(s\)</td><td>share of the building used for nursery, packing, plant rooms</td><td>–</td><td>0.3</td></tr>
+          <tr><td>3.9</td><td>field lettuce yield (Barbosa et al., 2015)</td><td>kg m⁻² yr⁻¹</td><td></td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The land needed to generate the electricity is not counted. Lovat et al. (2025) estimate about 5 m² yr of photovoltaic land per kg of dry matter — for lettuce, about a quarter of a square metre per kilogram of fresh weight.</p></details>
+        <div class="eq-units">kg m⁻² yr⁻¹ ÷ kg m⁻² yr⁻¹ — dimensionless ✓</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Tick each task when you are done; <em>Save investigation</em> copies your settings and results into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>How tall should the farm be?</h4><p>With the Swedish preset, vary the number of tiers from 2 to 14. Record the yield per m² of floor, the electricity per kg and the cost per kg. Explain with Eqs. V1, V4 and V9 which of them depend on the number of tiers and which do not. What limits the number of tiers in practice (think of air flow, labour, building height)?</p></li>
+        <li><h4>The energy bill</h4><p>Find a combination of LED efficacy, capture efficiency and light-use efficiency that brings the electricity below 8 kWh per kg. Which of the three is the hardest to improve, and why? Compare your result with the 10 kWh per kg reported for a commercial farm by Lovat et al. (2025) and the 247 kWh per kg dry weight of Graamans et al. (2018).</p></li>
+        <li><h4>Sweden versus Japan</h4><p>Compare the <em>Swedish grid &amp; price</em> and <em>Japanese PFAL</em> presets. Tabulate the cost items (cost chart) and the CO₂ emitted per kg (set the grid factor to your best estimate for Japan and justify it). Where would you build a plant factory, and what would you do with its waste heat in Västerås?</p></li>
+        <li><h4>Sensitivity and risk</h4><p>Use the sensitivity chart to rank the parameters for the <em>High-cost start-up</em>. Zhuang et al. (2022) found that a 30 % drop in yield or price bankrupts a typical factory. Reproduce this: by how much does the cost per kg rise if LUE falls by 30 %? Which parameter would you measure first in a pilot farm?</p></li>
+        <li><h4>Greenhouse or plant factory?</h4><p>Use the comparison chart (energy, water, land) and the Explain tab to write a one-page recommendation for lettuce production for Västerås: plant factory, heated greenhouse with lamps, or imported field lettuce. State your criteria and weights explicitly.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-vertical-farm-explorer">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A grow room of 308 m² holds racks with a footprint of 175 m². With 10 tiers and trays covering 92 % of each shelf, what is the space-use efficiency (m² cultivation per m² floor)?","answer":5.23,"tol":0.02,"unit":"m² m⁻²","hint":"Eq. V1: SUE = tiers × footprint × tray fill / floor.","explain":"<p>\\(10\\times175\\times0.92/308=5.23\\).</p>"},
+          {"type":"numeric","q":"LEDs with 3.0 µmol J⁻¹, 80 % photon capture, LUE 0.55 g DW mol⁻¹ and 5 % dry matter. How much lighting electricity per kg of fresh lettuce (Eq. V4)?","answer":10.52,"tol":0.02,"unit":"kWh kg⁻¹","hint":"\\(0.2778\\times\\text{DM}/(\\eta_{ph}\\eta_{cap}\\,\\text{LUE}/1000)\\).","explain":"<p>\\(0.2778\\times0.05/(3.0\\times0.8\\times0.00055)=10.5\\) kWh kg⁻¹. The DLI cancels out.</p>"},
+          {"type":"numeric","q":"Lighting uses 10.0 kWh per kg of lettuce and fans 0.6 kWh per kg; 0.25 kWh per kg is stored as chemical energy in the lettuce. With a cooling COP of 4.0, how much HVAC electricity is needed per kg?","answer":2.59,"tol":0.02,"unit":"kWh kg⁻¹","hint":"Eq. V5: heat = electricity in − chemical energy; HVAC = heat/COP.","explain":"<p>\\((10.0+0.6-0.25)/4.0=2.59\\) kWh kg⁻¹, so the total is 13.2 kWh kg⁻¹.</p>"},
+          {"type":"numeric","q":"An investment of 1650 € per m² is depreciated over 15 years at 5 % interest, plus 1.5 % maintenance per year. What is the annual capital cost per m² (Eq. V9)?","answer":183.7,"tol":0.02,"unit":"€ m⁻² yr⁻¹","hint":"CRF = 0.05/(1 − 1.05⁻¹⁵).","explain":"<p>CRF = 0.0963; \\(1650\\times(0.0963+0.015)=183.7\\) € m⁻² yr⁻¹.</p>"},
+          {"type":"mcq","q":"With the Swedish preset, which parameter changes the production cost most when it is varied by ±20 %? (Use the sensitivity chart.)","options":["Electricity price","Light-use efficiency","HVAC COP","LED photon efficacy"],"answer":1,"feedback":["Electricity is only about a tenth of the cost at Swedish prices.","","The HVAC uses only about 2 kWh kg⁻¹.","It affects only the electricity for light."],"explain":"<p>LUE sets the yield, and the yield divides every cost that is paid per square metre — labour, capital and electricity. That is why breeding, light recipes and spacing matter so much.</p>"},
+          {"type":"tf","q":"Doubling the number of tiers halves the electricity needed per kilogram of lettuce.","answer":false,"explain":"<p>False. Each square metre of cultivation area needs the same photons (Eq. V4); stacking doubles the yield per square metre of floor but not the yield per kilowatt-hour.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>A 22 m × 14 m grow room with two 8.75 m × 1.25 m racks per row, tier pitch 0.45 m, 1.5 m end and cross aisles and 1.2 m side aisles; the plant room and other support areas are a chosen share of the building. The 3D farm shows the racks, tiers and LED intensity of the model; plants are drawn at a representative spacing.</li>
+        <li>Lettuce yield is proportional to the photons received (constant light-use efficiency, Jin et al. 2023). There is no response to CO₂, temperature or VPD, no tip-burn and no light saturation; a DLI above ≈ 17 mol m⁻² d⁻¹ is flagged.</li>
+        <li>All electricity used in the room becomes heat, apart from the chemical energy in harvested dry matter (17.5 kJ g⁻¹); envelope losses and gains are neglected; the HVAC works at a constant annual COP; auxiliaries are a fixed fraction of the lighting electricity.</li>
+        <li>Transpiration takes 60 % of the absorbed, non-stored light energy (as in Lesson 8.1); 4.9 µmol of PAR photons per joule of radiant PAR; 90 % canopy absorption.</li>
+        <li>Costs per m² of cultivation area and consumables per kg follow the Japanese data of Zhuang et al. (2022), converted at ≈ 0.92 € per US$; the start-up and 2030 presets change them as scenario assumptions, not data. Revenues, taxes, subsidies, heat sales and land costs are not included.</li>
+        <li>The Swedish greenhouse yield in the comparison is a light-based estimate: Västerås monthly PAR (NASA POWER climatology, as in the Sun-path laboratory) × 0.65 transmission, lamps topping up to 17 mol m⁻² d⁻¹ (max. 180 µmol m⁻² s⁻¹ for 18 h), LUE 0.39 g mol⁻¹ (greenhouse mean of Jin et al. 2023).</li>
+        <li>Grid emission factors are 2024 location-based life-cycle averages (Ember, via Our World in Data): Sweden 35 and EU-27 211 g CO₂e kWh⁻¹. They change from year to year, so use current national factors for real assessments.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Barbosa, G. L., Gadelha, F. D. A., Kublik, N., Proctor, A., Reichelm, L., Weissinger, E., Wohlleb, G. M., &amp; Halden, R. U. (2015). Comparison of land, water, and energy requirements of lettuce grown using hydroponic vs. conventional agricultural methods. <em>International Journal of Environmental Research and Public Health</em>, 12(6), 6879–6891. <a href="https://doi.org/10.3390/ijerph120606879" target="_blank" rel="noopener">doi:10.3390/ijerph120606879</a></li>
+        <li>Ember. (2026). <em>Carbon intensity of electricity generation</em> [Data set, processed by Our World in Data; accessed September 2026]. <a href="https://ourworldindata.org/grapher/carbon-intensity-electricity" target="_blank" rel="noopener">ourworldindata.org</a></li>
+        <li>Eurostat. (2025). <em>Electricity prices for non-household consumers — bi-annual data (from 2007 onwards)</em> [nrg_pc_205]. <a href="https://ec.europa.eu/eurostat/databrowser/view/nrg_pc_205/default/table" target="_blank" rel="noopener">ec.europa.eu/eurostat</a></li>
+        <li>Graamans, L., Baeza, E., van den Dobbelsteen, A., Tsafaras, I., &amp; Stanghellini, C. (2018). Plant factories versus greenhouses: Comparison of resource use efficiency. <em>Agricultural Systems</em>, 160, 31–43. <a href="https://doi.org/10.1016/j.agsy.2017.11.003" target="_blank" rel="noopener">doi:10.1016/j.agsy.2017.11.003</a></li>
+        <li>Jin, W., Formiga Lopez, D., Heuvelink, E., &amp; Marcelis, L. F. M. (2023). Light use efficiency of lettuce cultivation in vertical farms compared with greenhouse and field. <em>Food and Energy Security</em>, 12(1), e391. <a href="https://doi.org/10.1002/fes3.391" target="_blank" rel="noopener">doi:10.1002/fes3.391</a></li>
+        <li>Kozai, T. (2013). Resource use efficiency of closed plant production system with artificial light: Concept, estimation and application to plant factory. <em>Proceedings of the Japan Academy, Series B</em>, 89(10), 447–461. <a href="https://doi.org/10.2183/pjab.89.447" target="_blank" rel="noopener">doi:10.2183/pjab.89.447</a></li>
+        <li>Kozai, T., Niu, G., &amp; Takagaki, M. (Eds.) (2020). <em>Plant Factory: An Indoor Vertical Farming System for Efficient Quality Food Production</em> (2nd ed.). Academic Press. <a href="https://doi.org/10.1016/C2018-0-00969-X" target="_blank" rel="noopener">doi:10.1016/C2018-0-00969-X</a></li>
+        <li>Kusuma, P., Pattison, P. M., &amp; Bugbee, B. (2020). From physics to fixtures to food: current and potential LED efficacy. <em>Horticulture Research</em>, 7, 56. <a href="https://doi.org/10.1038/s41438-020-0283-7" target="_blank" rel="noopener">doi:10.1038/s41438-020-0283-7</a></li>
+        <li>Lovat, S. J., Noor, E., &amp; Milo, R. (2025). Vertical farming limitations and potential demonstrated by back-of-the-envelope calculations. <em>Plant Physiology</em>, 198(3), kiaf056. <a href="https://doi.org/10.1093/plphys/kiaf056" target="_blank" rel="noopener">doi:10.1093/plphys/kiaf056</a></li>
+        <li>van Delden, S. H., SharathKumar, M., Butturini, M., Graamans, L. J. A., Heuvelink, E., Kacira, M., … Marcelis, L. F. M. (2021). Current status and future challenges in implementing and upscaling vertical farming systems. <em>Nature Food</em>, 2, 944–956. <a href="https://doi.org/10.1038/s43016-021-00402-w" target="_blank" rel="noopener">doi:10.1038/s43016-021-00402-w</a></li>
+        <li>Zhuang, Y., Lu, N., Shimamura, S., Maruyama, A., Kikuchi, M., &amp; Takagaki, M. (2022). Economies of scale in constructing plant factories with artificial lighting and the economic viability of crop production. <em>Frontiers in Plant Science</em>, 13, 992194. <a href="https://doi.org/10.3389/fpls.2022.992194" target="_blank" rel="noopener">doi:10.3389/fpls.2022.992194</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

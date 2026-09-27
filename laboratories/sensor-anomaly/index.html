@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sensor anomaly detection · Future Food Production</title>
+<meta name="description" content="Stream six greenhouse sensors, inject spikes, drift, stuck values, offsets, dropouts and noise bursts, and tune range, rate, z-score, Hampel, stuck, physical-consistency and isolation-forest detectors against the ground truth.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Dew point (°C) from air temperature and RH, FAO-56 / Tetens form (Eq. A6) */
+FFP_CALC.anTd = function (v) { var es = 0.6108 * Math.exp(17.27 * v.T / (v.T + 237.3)), a = Math.log(v.RH / 100 * es / 0.6108); return 237.3 * a / (17.27 - a); };
+/* Isolation-forest anomaly score for an average path length h in trees grown on psi samples (Eq. A7) */
+FFP_CALC.anIF = function (v) { var c = 2 * (Math.log(v.psi - 1) + 0.5772156649) - 2 * (v.psi - 1) / v.psi; return Math.pow(2, -v.h / c); };
+</script>
+<style>
+.an-tip { position: absolute; z-index: 6; display: none; pointer-events: none; background: rgba(10,16,14,.9); color: #e6eee9; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; padding: 7px 10px; font: 500 .74rem/1.45 var(--font-mono); backdrop-filter: blur(6px); max-width: 300px; }
+.an-faults { margin-top: 10px; }
+.an-fl-head { font: 600 .74rem var(--font-mono); color: var(--muted); margin: 4px 0; text-transform: uppercase; letter-spacing: .08em; }
+.an-fl { display: grid; grid-template-columns: 10px 1fr auto 22px; align-items: center; gap: 7px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: .78rem; }
+.an-fl small { display: block; color: var(--muted); font: 500 .68rem var(--font-mono); }
+.an-dot { width: 9px; height: 9px; border-radius: 50%; }
+.an-fl button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .8rem; padding: 2px; }
+.an-fl button:hover { color: var(--danger); }
+.an-st { font: 600 .68rem var(--font-mono); padding: 2px 6px; border-radius: 6px; white-space: nowrap; }
+.an-st.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.an-st.bad { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.an-st.wait { color: var(--muted); background: var(--bg-sunk); }
+.cm-grid { display: grid; grid-template-columns: 70px 1fr 1fr; gap: 6px; margin-top: 6px; }
+.cm-h, .cm-v { font: 600 .72rem var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; display: flex; align-items: center; justify-content: center; }
+.cm-v { justify-content: flex-start; }
+.cm-cell { border-radius: 10px; padding: 12px 10px; text-align: center; border: 1px solid var(--line); }
+.cm-cell.tp { background: color-mix(in srgb, var(--ok) calc(var(--a) * 38%), transparent); }
+.cm-cell.tn { background: color-mix(in srgb, var(--water) calc(var(--a) * 16%), transparent); }
+.cm-cell.fp { background: color-mix(in srgb, var(--warn) calc(var(--a) * 45%), transparent); }
+.cm-cell.fn { background: color-mix(in srgb, var(--danger) calc(var(--a) * 40%), transparent); }
+.cm-n { font: 650 1.35rem var(--font-mono); color: var(--ink); }
+.cm-l { font-size: .72rem; color: var(--ink-2); }
+.cm-m { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; font-size: .84rem; color: var(--ink-2); }
+.cm-m b { font-family: var(--font-mono); color: var(--ink); }
+.cv-table { width: 100%; border-collapse: collapse; font-size: .74rem; }
+.cv-table th, .cv-table td { padding: 4px 3px; border-bottom: 1px solid var(--line); text-align: center; }
+.cv-table thead th { font: 600 .62rem var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
+.cv-table tbody th { text-align: left; font-weight: 600; white-space: nowrap; }
+.cv-table tbody th i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.cv-table td.cv { background: color-mix(in srgb, var(--ok) calc(var(--f) * 42%), color-mix(in srgb, var(--danger) calc((1 - var(--f)) * 20%), transparent)); }
+.cv-table td b { font-family: var(--font-mono); display: block; }
+.cv-table td small { color: var(--ink-2); font: 500 .66rem var(--font-mono); }
+.cv-table td.cv-na { color: var(--muted); }
+.cv-table td.num { font-family: var(--font-mono); }
+.cv-table tr.off { opacity: .45; }
+.chart-note { font-size: .76rem; color: var(--muted); margin-top: 4px; line-height: 1.45; }
+.full-card { grid-column: 1 / -1; }
+.an-u-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; margin: 8px 0 10px; }
+.an-user textarea { width: 100%; min-height: 190px; font: .76rem/1.45 var(--font-mono); background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; resize: vertical; }
+.an-u-ctl label { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: .8rem; color: var(--ink-2); margin-bottom: 7px; }
+.an-u-ctl input { width: 90px; font: .8rem var(--font-mono); padding: 4px 6px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.an-u-ctl .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.an-user .ud-msg { font-size: .78rem; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+@media (max-width: 760px) { .an-u-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="lab" data-slug="sensor-anomaly">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Sensor anomaly detection</h1>
+    <p class="lead">A greenhouse climate computer trusts its sensors blindly. When a humidity probe drifts, a CO₂ sensor freezes or a pH electrode starts to crackle, the controller keeps acting on wrong numbers — and nobody notices until the crop does. This laboratory streams three days of six coupled greenhouse sensors (air temperature, relative humidity, CO₂, EC, pH and dissolved oxygen) into seven automatic detectors, from a simple range check to a small isolation forest. You know the truth: every fault was injected on purpose. Tune the thresholds, inject your own faults by clicking on the data, and watch precision, recall and detection delay pull against each other.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage" aria-label="Six stacked time series with injected faults and detector alarms"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Live confusion matrix (all enabled detectors)</h3>
+      <div class="chart-sub">Every sensor sample streamed so far is either faulty or normal (ground truth), and either alarmed or not. Counts update as the data stream in.</div>
+      <div id="confusion"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Which detector catches which fault?</h3>
+      <div class="chart-sub">Fault events caught by each detector on its own (caught / occurred so far, with the median delay), and its sample-level precision, recall and F1.</div>
+      <div id="coverage" style="overflow-x:auto"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Precision–recall trade-off</h3>
+      <div class="chart-sub">Sweep the threshold of the selected detector over the whole record. Solid: recall counted per faulty sample; dashed: per fault event (caught at least once). Magenta: current threshold; black: all enabled detectors combined.</div>
+      <div class="chart" id="chart-pr"></div>
+    </div>
+    <div class="chart-card">
+      <h3>What the detector sees</h3>
+      <div class="chart-sub">Score of the selected detector for the focus sensor over the three days, with its alarm threshold.</div>
+      <div class="chart" id="chart-score"></div>
+      <div class="chart-note" id="score-note"></div>
+    </div>
+    <div class="chart-card full-card an-user" id="user-data">
+      <h3>Screen your own sensor data</h3>
+      <div class="chart-sub">Paste two columns — time and value — from one sensor of your project (CSV, TSV or semicolon-separated; a header row is optional), set the plausible limits and the largest physically possible change per sample, and run the univariate detectors of this laboratory on it. Without injected faults there is no ground truth: judge every flag yourself. The example below was generated by this laboratory's model (air temperature with two injected faults); it is not a measurement.</div>
+      <div class="an-u-grid">
+        <textarea spellcheck="false" aria-label="Paste time and value columns"></textarea>
+        <div class="an-u-ctl">
+          <label>Plausible minimum <input type="number" data-k="lo" value="5" step="any"></label>
+          <label>Plausible maximum <input type="number" data-k="hi" value="40" step="any"></label>
+          <label>Largest plausible change per sample <input type="number" data-k="rmax" value="0.75" step="any"></label>
+          <label>Sensor noise σ (0 = estimate from the data) <input type="number" data-k="sd" value="0" step="any"></label>
+          <div class="row"><button type="button" class="btn btn-sm btn-primary" data-act="run">Screen these data</button><button type="button" class="btn btn-sm" data-act="csv">Download flags (CSV)</button></div>
+          <div class="ud-msg" aria-live="polite"></div>
+        </div>
+      </div>
+      <div class="chart" id="chart-user" style="height:280px"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <p>Each dark panel is one sensor stream, drawn up to the green cursor ("now"). Red bands are the faults injected into the data; you know them, the detectors do not. A coloured ring on the data marks a sample that raised an alarm, in the colour of the first detector that fired. The thin strip along the bottom of each panel is the verdict: <span style="color:var(--ok)">green</span> = fault caught (true positive), <span style="color:var(--warn)">amber</span> = false alarm, <span style="color:var(--danger)">red</span> = fault missed.</p>
+      <ol>
+        <li><strong>Let it stream.</strong> Watch the confusion matrix fill. Most samples are true negatives; the interesting numbers are the three small ones. Hover over any point to see its value, the truth and which detectors fired.</li>
+        <li><strong>The frozen CO₂ sensor</strong> (day 2, 08:00). In the morning, CO₂ should climb with enrichment and fall when the vents open — but the line is flat. Only the stuck detector sees it, and only after its window (30 min) has filled with identical values. Shorten the flat-line window and the delay shrinks; make it too short and quiet periods start to look stuck.</li>
+        <li><strong>The drifting humidity probe</strong> (day 2, 18:00). The drift adds about 1.7 %RH per hour — far less than normal changes, so the z-score, Hampel and rate detectors never notice. Hours later, on the humid night, the probe claims more water vapour than the air can hold — its dew point rises above its own temperature (RH above 100 %) — and the physical-consistency and range checks fire.</li>
+        <li><strong>Spikes and the two statistics.</strong> Select <em>Rolling z-score</em> for the score chart and focus on T. The spike on day 2 at 14:20 stands out — but the z-score window also contains the spike for the next hour, which inflates its standard deviation and hides smaller faults. The Hampel filter's median and MAD barely notice a single spike.</li>
+        <li><strong>Trade-offs.</strong> Try the presets <em>Strict</em> and <em>Sensitive</em>. Strict thresholds give high precision but miss events; sensitive ones catch everything and bury the grower in false alarms. Read the result off the precision–recall chart.</li>
+        <li><strong>Inject your own.</strong> Choose a fault type, sensor, magnitude and duration, then click on a panel at the time you want it. Which fault types are easy, and which are nearly invisible?</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>No single detector catches every fault. Range checks catch the impossible, rate and robust statistics catch the sudden, variance tests catch the frozen, and only <em>physical knowledge</em> — or a second, independent sensor — catches the slow drift. Real quality-control systems therefore layer several simple tests and attach a flag to every value instead of deleting anything (Campbell et al., 2013).</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Why sensors lie</h2>
+      <p>Sensor networks in agriculture and environmental monitoring produce far more data than anyone can inspect, and faults are common: in large field deployments, a substantial share of all readings can be affected (Ni et al., 2009; Sharma et al., 2010). The faults fall into a small number of recognisable types, each with a physical cause and a typical signature (Figure 1, Table 1). Automatic detection is the first line of defence; it is required before the data drive a controller, an alarm or a <a href="/laboratories/lettuce-digital-twin/">digital twin</a>.</p>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 740 290" role="img" aria-label="Six fault signatures: spike, drift, stuck, offset, dropout and noise burst">
+          <g class="fill-magenta-soft" opacity=".6"><rect x="119" y="30" width="66" height="100"/><rect x="369" y="30" width="66" height="100"/><rect x="619" y="30" width="66" height="100"/><rect x="119" y="155" width="66" height="100"/><rect x="369" y="155" width="66" height="100"/><rect x="619" y="155" width="66" height="100"/></g>
+          <g class="stroke-muted" stroke-width="1" stroke-dasharray="3 3">
+            <path d="M270 80L272.2 77.7L274.4 75.5L276.6 73.4L278.8 71.4L281 69.5L283.2 67.9L285.4 66.5L287.6 65.4L289.8 64.5L292 63.8L294.2 63.4L296.4 63.3L298.6 63.4L300.8 63.7L303 64.1L305.2 64.7L307.4 65.4L309.6 66.2L311.8 66.9L314 67.7L316.2 68.4L318.4 69.1L320.6 69.6L322.8 70.1L325 70.4L327.2 70.5L329.4 70.6L331.6 70.5L333.8 70.3L336 70L338.2 69.7L340.4 69.4L342.6 69L344.8 68.7L347 68.5L349.2 68.4L351.4 68.5L353.6 68.7L355.8 69.1L358 69.8L360.2 70.7L362.4 71.8L364.6 73.1L366.8 74.6L369 76.3L371.2 78.2L373.4 80.3L375.6 82.4L377.8 84.5L380 86.7L382.2 88.9L384.4 90.9L386.6 92.9L388.8 94.6L391 96.2L393.2 97.6L395.4 98.7L397.6 99.5L399.8 100L402 100.3L404.2 100.2L406.4 99.9L408.6 99.4L410.8 98.7L413 97.7L415.2 96.7L417.4 95.5L419.6 94.3L421.8 93L424 91.8L426.2 90.6L428.4 89.4L430.6 88.4L432.8 87.5L435 86.8"/>
+            <path d="M20 205L22.2 202.7L24.4 200.5L26.6 198.4L28.8 196.4L31 194.5L33.2 192.9L35.4 191.5L37.6 190.4L39.8 189.5L42 188.8L44.2 188.4L46.4 188.3L48.6 188.4L50.8 188.7L53 189.1L55.2 189.7L57.4 190.4L59.6 191.2L61.8 191.9L64 192.7L66.2 193.4L68.4 194.1L70.6 194.6L72.8 195.1L75 195.4L77.2 195.5L79.4 195.6L81.6 195.5L83.8 195.3L86 195L88.2 194.7L90.4 194.4L92.6 194L94.8 193.7L97 193.5L99.2 193.4L101.4 193.5L103.6 193.7L105.8 194.1L108 194.8L110.2 195.7L112.4 196.8L114.6 198.1L116.8 199.6L119 201.3L121.2 203.2L123.4 205.3L125.6 207.4L127.8 209.5L130 211.7L132.2 213.9L134.4 215.9L136.6 217.9L138.8 219.6L141 221.2L143.2 222.6L145.4 223.7L147.6 224.5L149.8 225L152 225.3L154.2 225.2L156.4 224.9L158.6 224.4L160.8 223.7L163 222.7L165.2 221.7L167.4 220.5L169.6 219.3L171.8 218L174 216.8L176.2 215.6L178.4 214.4L180.6 213.4L182.8 212.5L185 211.8"/>
+          </g>
+          <g class="stroke-water" stroke-width="1.7" fill="none">
+            <path d="M20 81.7L22.2 78.2L24.4 80L26.6 72.4L28.8 71.5L31 70.4L33.2 68.6L35.4 66.7L37.6 67.7L39.8 65.7L42 64L44.2 63.5L46.4 63.8L48.6 61.7L50.8 64.3L53 63.8L55.2 65L57.4 66L59.6 66.6L61.8 68.7L64 66.5L66.2 69.6L68.4 69L70.6 69.2L72.8 68.5L75 68.6L77.2 70.2L79.4 67.4L81.6 67L83.8 68.8L86 69.8L88.2 68.2L90.4 71.5L92.6 70.5L94.8 65.9L97 68.8L99.2 69.9L101.4 67.4L103.6 68.2L105.8 69.5L108 68.4L110.2 71.4L112.4 71.3L114.6 73.4L116.8 72.4L119 75.3L121.2 76.6L123.4 78.7L125.6 79.3L127.8 85.8L130 82.5L132.2 87.4L134.4 92.2L136.6 94.2L138.8 94.6L141 57.9L143.2 98.9L145.4 99.8L147.6 97.4L149.8 102.5L152 100.9L154.2 96.2L156.4 99.8L158.6 98.7L160.8 101.7L163 97.4L165.2 96.8L167.4 94.7L169.6 93.6L171.8 92.3L174 91L176.2 92L178.4 89.5L180.6 87.9L182.8 87.1L185 86.4L187.2 87.1L189.4 84.2L191.6 85.1L193.8 88.6L196 83.6L198.2 87.7L200.4 86.6L202.6 85.3L204.8 84.8L207 84.4L209.2 84.8L211.4 87L213.6 84.8L215.8 84.6L218 82.9"/>
+            <path d="M270 77.9L272.2 77.8L274.4 74.4L276.6 73L278.8 72.6L281 69.8L283.2 67.3L285.4 67.3L287.6 66.7L289.8 64.3L292 63.8L294.2 62.9L296.4 62.7L298.6 63.7L300.8 64.1L303 63.9L305.2 61.7L307.4 65.7L309.6 65.5L311.8 70.7L314 68.2L316.2 71.3L318.4 70.6L320.6 70.7L322.8 69.6L325 67.8L327.2 69.8L329.4 71.2L331.6 69.2L333.8 67.7L336 71.2L338.2 70L340.4 69.4L342.6 70.3L344.8 70.1L347 72.6L349.2 69.3L351.4 66.4L353.6 68.3L355.8 67.9L358 72.5L360.2 72L362.4 72.2L364.6 74.4L366.8 72.6L369 74L371.2 75.2L373.4 77.8L375.6 78.5L377.8 78.5L380 83.7L382.2 80.3L384.4 83.7L386.6 81.3L388.8 85.1L391 84.1L393.2 84.1L395.4 83L397.6 81.5L399.8 86.7L402 81.7L404.2 82.7L406.4 79.3L408.6 78.6L410.8 77.3L413 74L415.2 71.4L417.4 70.9L419.6 65.5L421.8 66.3L424 63.7L426.2 62.1L428.4 56.8L430.6 57L432.8 52.5L435 85.8L437.2 86.3L439.4 86.2L441.6 84.5L443.8 87.1L446 84.3L448.2 86L450.4 84.3L452.6 86.6L454.8 82.5L457 84.2L459.2 83.5L461.4 83L463.6 86.6L465.8 83.7L468 80.5"/>
+            <path d="M520 81.9L522.2 77.3L524.4 76L526.6 73.4L528.8 69L531 69L533.2 66.9L535.4 66.7L537.6 66.4L539.8 62.9L542 61L544.2 61.2L546.4 63.2L548.6 63.5L550.8 63.3L553 62L555.2 67.3L557.4 63.5L559.6 64.2L561.8 62.5L564 68.3L566.2 68.6L568.4 69.7L570.6 68.1L572.8 70.2L575 68.4L577.2 70.3L579.4 70.5L581.6 69.1L583.8 70.2L586 69.5L588.2 69.9L590.4 68.5L592.6 68.8L594.8 70.4L597 67.6L599.2 67.4L601.4 68.5L603.6 67.9L605.8 69.7L608 68.4L610.2 70.3L612.4 68.7L614.6 72.8L616.8 71.1L619 74.6L682.8 74.6L685 85.3L687.2 83.8L689.4 87.3L691.6 85.5L693.8 85.9L696 84.5L698.2 86L700.4 84.1L702.6 85L704.8 86.3L707 82L709.2 87.4L711.4 85.2L713.6 81.2L715.8 86.3L718 83"/>
+            <path d="M20 204.6L22.2 200.7L24.4 201.5L26.6 197.9L28.8 199.1L31 196.5L33.2 193L35.4 190.5L37.6 191.3L39.8 189.2L42 188.9L44.2 187.6L46.4 188L48.6 189L50.8 189.3L53 188.3L55.2 190.7L57.4 188.1L59.6 191L61.8 191.2L64 193.5L66.2 194L68.4 194.4L70.6 194.4L72.8 195.5L75 195.7L77.2 196.5L79.4 194.9L81.6 194.3L83.8 196.4L86 194.8L88.2 192.9L90.4 194.2L92.6 192.5L94.8 195.9L97 193.1L99.2 195L101.4 195.8L103.6 193.5L105.8 193.8L108 195.1L110.2 194.7L112.4 191.8L114.6 198.2L116.8 197.8L119 178.3L121.2 182.1L123.4 185.2L125.6 183.2L127.8 188.1L130 188.9L132.2 193.2L134.4 192L136.6 199L138.8 197.9L141 197L143.2 201.8L145.4 204.4L147.6 200.4L149.8 204.9L152 203.8L154.2 205.3L156.4 201.3L158.6 201.2L160.8 202.7L163 201.1L165.2 198.1L167.4 197L169.6 199.3L171.8 197.8L174 194.8L176.2 193.8L178.4 191.9L180.6 188.3L182.8 188L185 211.6L187.2 211.8L189.4 212.4L191.6 211.4L193.8 211.2L196 209.2L198.2 210.6L200.4 212.2L202.6 211.1L204.8 211.9L207 209.7L209.2 212.3L211.4 209.7L213.6 210.5L215.8 208.3L218 210.5"/>
+            <path d="M270 204.3L272.2 203.1L274.4 202.2L276.6 201.1L278.8 197.6L281 195.5L283.2 189.9L285.4 187L287.6 190.1L289.8 188.5L292 189.8L294.2 189.8L296.4 185.6L298.6 188.5L300.8 189.2L303 191.3L305.2 191.6L307.4 191.5L309.6 191.8L311.8 193.3L314 192.9L316.2 195.3L318.4 193.5L320.6 193.3L322.8 195.3L325 194.2L327.2 197.7L329.4 193.9L331.6 194.5L333.8 197.4L336 195.4L338.2 192.3L340.4 194L342.6 190.9L344.8 191L347 193.1L349.2 193.3L351.4 194.8L353.6 194L355.8 195.5L358 194.3L360.2 193.8L362.4 196.2L364.6 199.5L366.8 200.3M435 211L437.2 210.3L439.4 210.9L441.6 210.7L443.8 210.9L446 212.3L448.2 212.1L450.4 211.3L452.6 213.3L454.8 212.6L457 208.6L459.2 212.4L461.4 210.1L463.6 209.2L465.8 212.2L468 208.7"/>
+            <path d="M520 204.8L522.2 200.4L524.4 200.2L526.6 196.7L528.8 195.2L531 191.9L533.2 192.9L535.4 187.7L537.6 191.1L539.8 187.7L542 192.1L544.2 190L546.4 188.2L548.6 189.7L550.8 188.2L553 186.4L555.2 187.1L557.4 188.4L559.6 190.7L561.8 190.7L564 191.7L566.2 193.3L568.4 194.8L570.6 194.4L572.8 195.3L575 197.3L577.2 198.2L579.4 195.4L581.6 192.6L583.8 194.7L586 194.2L588.2 195.6L590.4 194.8L592.6 193L594.8 194.9L597 194.1L599.2 193.3L601.4 196.5L603.6 191.3L605.8 193.5L608 196.3L610.2 197.5L612.4 195.8L614.6 196.3L616.8 198.4L619 204.2L621.2 198.4L623.4 195.7L625.6 214.8L627.8 209.4L630 213.2L632.2 220.6L634.4 228.4L636.6 224.7L638.8 209L641 230.1L643.2 234.5L645.4 231.8L647.6 219.8L649.8 222.8L652 208.1L654.2 210.5L656.4 228L658.6 229.1L660.8 238.7L663 229.4L665.2 234.4L667.4 220.3L669.6 225.7L671.8 226.9L674 226.5L676.2 206L678.4 221.5L680.6 219.6L682.8 203.1L685 212.3L687.2 212L689.4 213.3L691.6 209.3L693.8 208L696 210.8L698.2 212.1L700.4 209.2L702.6 209.9L704.8 211.2L707 208.4L709.2 213.7L711.4 210.3L713.6 210.9L715.8 210L718 206.9"/>
+          </g>
+          <g font-weight="600" class="t-small"><text x="20" y="22">spike</text><text x="270" y="22">drift</text><text x="520" y="22">stuck (flat line)</text><text x="20" y="147">offset jump</text><text x="270" y="147">dropout (missing)</text><text x="520" y="147">noise burst</text></g>
+          <g class="t-small t-muted"><text x="20" y="128">EMI, loose contact</text><text x="270" y="128">fouling, ageing, membrane</text><text x="520" y="128">frozen firmware, ice, saturation</text><text x="20" y="253">re-calibration, moved probe</text><text x="270" y="253">radio loss, power cut</text><text x="520" y="253">pump or cable interference</text></g>
+          <text x="370" y="282" text-anchor="middle" class="t-small t-muted">shaded: fault interval · dashed: the true signal where it differs</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The six fault types simulated in this laboratory, following the taxonomies of Ni et al. (2009) and Sharma et al. (2010). Spikes, offsets and bursts are <em>sudden</em>; drift is <em>slow</em>; stuck values and dropouts change the <em>statistics</em> rather than the level. Each needs a different kind of test.</figcaption>
+      </figure>
+      <table>
+        <caption>Table 1. Fault types, typical causes in a greenhouse or hydroponic system, and the tests best suited to them.</caption>
+        <thead><tr><th>Fault</th><th>Typical cause</th><th>Signature</th><th>Tests that can catch it</th></tr></thead>
+        <tbody>
+          <tr><td>Spike</td><td>electromagnetic interference from pumps and ballasts, loose connector, bit error</td><td>one or a few samples far from their neighbours</td><td>Hampel, rate of change, z-score, range (if large)</td></tr>
+          <tr><td>Drift</td><td>fouled EC cell, ageing pH glass, contaminated RH element, optical DO cap wear</td><td>slow, monotonic departure from the truth</td><td>physical consistency, redundancy, range (late), recalibration schedule</td></tr>
+          <tr><td>Stuck (flat line)</td><td>frozen firmware, logger repeating the last value, iced or saturated sensor</td><td>identical values; variance collapses to zero</td><td>rolling variance (persistence test), isolation forest</td></tr>
+          <tr><td>Offset jump</td><td>new calibration applied wrongly, probe moved to another tank or height</td><td>a sudden step that then persists</td><td>rate of change and z-score (at the step only), consistency, redundancy</td></tr>
+          <tr><td>Dropout</td><td>radio link lost, power cut, full memory</td><td>missing values</td><td>missing-value check, time-stamp checks</td></tr>
+          <tr><td>Noise burst</td><td>variable-frequency drive or pump switched on, cable near power lines, dying battery</td><td>variance rises for a while</td><td>Hampel, z-score, isolation forest</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Four families of detectors</h3>
+      <p><strong>Rules</strong> encode what is possible: a value outside the sensor's plausible range, a missing value, or a change faster than the physics of the room allows. They are transparent and cheap, and they form the core of operational quality-control schemes such as the U.S. IOOS QARTOD manuals (<a href="/lessons/measurement-uncertainty/">Lesson 9.3</a>, Table 3). They catch only gross errors.</p>
+      <p><strong>Local statistics</strong> compare each value with its recent past. The rolling z-score uses the mean and standard deviation, which a single spike can inflate enough to hide itself and its neighbours (<em>masking</em>). The <strong>Hampel filter</strong> (Hampel, 1974; Pearson, 2002) uses the median and the median absolute deviation (MAD) instead: both ignore up to half the window being wild, so the robust z-score of a spike stays large. Leys et al. (2013) recommend thresholds of 2.5–3 robust standard deviations for outliers in general; for streams with a few rare faults among thousands of samples, higher thresholds keep false alarms tolerable. A <strong>persistence test</strong> looks at the variance itself: a working sensor always shows some noise, so a rolling standard deviation far below the sensor's noise level means the value has stopped changing.</p>
+      <p><strong>Physical consistency</strong> uses knowledge that no statistic contains. Air cannot hold more water vapour than saturation, so the dew point computed from a humidity probe must stay below the air temperature measured next to it. Water cannot hold much more dissolved oxygen than its temperature-dependent saturation (unless pure oxygen is injected). These tests catch slow drift, which is invisible to local statistics, because they compare a sensor with something independent — the laws of physics or another sensor.</p>
+      <p><strong>Machine learning</strong> learns what normal looks like. The <strong>isolation forest</strong> (Liu et al., 2008, 2012) builds many random trees, each splitting the training data on random features at random values until every point is alone. Anomalies are "few and different", so they are isolated after few splits; normal points sit in dense regions and need many (Figure 2). The average path length, normalised by that expected for random data, becomes an anomaly score between 0 and 1. Here each sensor has its own forest of 100 trees grown on 256-sample subsets of day 1, using four shape features: the residual from the recent median, the first difference, and the 15- and 60-min standard deviations.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 680 270" role="img" aria-label="Isolation forest: an outlier is isolated by two random splits, a normal point needs many">
+          <rect x="30" y="20" width="290" height="215" rx="6" class="fill-bg" stroke="currentColor" stroke-width="1"/>
+          <g class="fill-water" opacity=".85"><circle cx="190" cy="149" r="4"/><circle cx="127" cy="140" r="4"/><circle cx="128" cy="127" r="4"/><circle cx="151" cy="132" r="4"/><circle cx="174" cy="121" r="4"/><circle cx="154" cy="95" r="4"/><circle cx="145" cy="122" r="4"/><circle cx="161" cy="124" r="4"/><circle cx="141" cy="127" r="4"/><circle cx="139" cy="133" r="4"/><circle cx="167" cy="132" r="4"/><circle cx="118" cy="150" r="4"/><circle cx="162" cy="123" r="4"/><circle cx="174" cy="153" r="4"/><circle cx="142" cy="112" r="4"/><circle cx="106" cy="142" r="4"/><circle cx="137" cy="132" r="4"/><circle cx="122" cy="130" r="4"/><circle cx="142" cy="140" r="4"/><circle cx="132" cy="115" r="4"/><circle cx="165" cy="159" r="4"/><circle cx="93" cy="178" r="4"/><circle cx="150" cy="153" r="4"/><circle cx="119" cy="179" r="4"/><circle cx="161" cy="149" r="4"/><circle cx="146" cy="141" r="4"/><circle cx="218" cy="143" r="4"/><circle cx="127" cy="141" r="4"/><circle cx="151" cy="164" r="4"/><circle cx="88" cy="204" r="4"/><circle cx="175" cy="189" r="4"/><circle cx="204" cy="130" r="4"/><circle cx="158" cy="104" r="4"/><circle cx="159" cy="136" r="4"/></g>
+          <circle cx="272" cy="52" r="6" class="fill-magenta" stroke="currentColor" stroke-width="1"/>
+          <line x1="196" y1="20" x2="196" y2="235" class="stroke-magenta" stroke-width="2"/>
+          <line x1="196" y1="88" x2="320" y2="88" class="stroke-magenta" stroke-width="2"/>
+          <g class="t-small" font-weight="600"><text x="200" y="228" style="fill:var(--magenta)">split 1</text><text x="262" y="104" style="fill:var(--magenta)">split 2</text></g>
+          <g class="stroke-muted" stroke-width="1" stroke-dasharray="3 3"><line x1="136" y1="20" x2="136" y2="235"/><line x1="30" y1="118" x2="196" y2="118"/><line x1="152" y1="118" x2="152" y2="235"/><line x1="136" y1="128" x2="152" y2="128"/><line x1="143" y1="118" x2="143" y2="128"/></g>
+          <circle cx="145" cy="122" r="6.5" fill="none" class="stroke-accent" stroke-width="2"/>
+          <text x="312" y="229" text-anchor="end" class="t-small t-muted">feature 1 →</text><text x="36" y="34" class="t-small t-muted">↑ feature 2</text>
+          <text x="175" y="258" text-anchor="middle" class="t-small">anomaly: isolated after 2 splits · normal point: ≥ 5</text>
+          <g class="t-small">
+            <rect x="430" y="26" width="120" height="30" rx="8" class="fill-sunk" stroke="currentColor"/><text x="490" y="45" text-anchor="middle">split 1</text>
+            <rect x="520" y="96" width="120" height="30" rx="8" class="fill-sunk" stroke="currentColor"/><text x="580" y="115" text-anchor="middle">split 2</text>
+            <circle cx="620" cy="178" r="16" class="fill-magenta-soft" stroke="currentColor"/><text x="620" y="182" text-anchor="middle">h = 2</text>
+            <circle cx="545" cy="178" r="16" class="fill-bg" stroke="currentColor"/><text x="545" y="182" text-anchor="middle">2 pts</text>
+            <path d="M395 96 L360 170 L430 170 Z" class="fill-water-soft" stroke="currentColor"/><text x="395" y="192" text-anchor="middle">32 normal points:</text><text x="395" y="207" text-anchor="middle">h ≈ 5–8 each</text>
+          </g>
+          <g class="stroke" stroke-width="1.3"><line x1="470" y1="56" x2="400" y2="96"/><line x1="510" y1="56" x2="570" y2="96"/><line x1="565" y1="126" x2="548" y2="162"/><line x1="600" y1="126" x2="615" y2="162"/></g>
+          <text x="530" y="248" text-anchor="middle" class="t-small t-muted">one isolation tree; the forest averages h over 100 trees</text>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> Random axis-parallel splits isolate the magenta point after two cuts; the green-circled point inside the cluster needs five or more. Averaged over many random trees, a short path length h means "few and different" — an anomaly (Liu et al., 2008).</figcaption>
+      </figure>
+
+      <h3>Judging a detector: the confusion matrix</h3>
+      <p>Every sample ends up in one of four boxes (the live matrix above the tabs). <strong>Precision</strong> is the share of alarms that were real faults: low precision means alarm fatigue, and operators who start ignoring the system. <strong>Recall</strong> is the share of faulty samples that raised an alarm: low recall means wrong data reach the controller. <strong>F1</strong> is their harmonic mean. For a grower, the <strong>detection delay</strong> of each fault event often matters more than sample-level recall: a drift caught after 30 minutes is harmless, one caught after two days has already cost a crop.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"The detector is 97 % accurate, so it works." Faults are rare: in the default scenario only about one sample in ten is faulty, so a detector that never raises an alarm is already about 90 % accurate. With imbalanced classes, accuracy and even ROC curves flatter a detector; precision and recall do not, which is why this laboratory plots precision against recall (Saito &amp; Rehmsmeier, 2015).</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier — anomaly detection as part of the digital twin</div><p>Commercial greenhouse platforms increasingly run anomaly detection continuously, combining physics-based checks, redundancy and machine-learning models, and flag or replace suspicious values before they reach the climate controller or a <a href="/lessons/digital-twins/">digital twin</a>. The hard problems are the same as in this laboratory: labelled faults are scarce, what is "normal" changes with season and crop stage, and every false alarm costs trust. The QARTOD principle — flag, never delete — keeps the raw data available for re-analysis when the detector improves.</p></div>
+      <p>For the statistics of spikes, filters and flags, see <a href="/lessons/measurement-uncertainty/">Lesson 9.3 (Calibration, uncertainty and data quality)</a>; for the network that delivers the data, the <a href="/laboratories/iot-network/">IoT network designer</a>; for filtering noisy signals, <a href="/laboratories/signal-processing/">Sampling, noise and filtering</a>.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the detectors</h2>
+      <p>The streams are sampled every Δt = 1 min for three days. Sensor j has a normal noise standard deviation σ<sub>j</sub> (0.05 °C, 0.3 %RH, 6 ppm, 0.008 mS cm⁻¹, 0.015 pH, 0.04 mg L⁻¹), a resolution and a typical fault size m<sub>j</sub>. All detectors are causal: they use only the current and earlier samples.</p>
+
+      <div class="eq-box" id="an-eq-faults">
+        <div class="eq-head"><span class="eq-label">Fault models</span><span class="eq-num">(A1)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \tilde x_k = \begin{cases} x_k + v_k + 2a\,[k = k_0] & \text{spike} \\ x_k + v_k + a\,\dfrac{k - k_0 + 1}{D} & \text{drift} \\ \tilde x_{k_0} & \text{stuck} \\ x_k + v_k + a & \text{offset} \\ \text{missing} & \text{dropout} \\ x_k + v_k + 0.35\,|a|\,\varepsilon_k & \text{noise burst} \end{cases} \\[8pt] k_0 \le k < k_0 + D, \qquad a = \mu\,m_j \end{gathered} \]</div>
+        <p class="eq-read">during a fault that starts at sample k₀ and lasts D samples, the measured value is the true value plus normal noise plus a fault term: a single jump of twice the fault size for a spike, a linear ramp to the full fault size for drift, a constant for an offset and extra random noise for a burst; a stuck sensor repeats its reading at k₀ and a dropout delivers nothing. The fault size is the chosen magnitude μ times the sensor's typical fault size.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_k\), \(\tilde x_k\)</td><td>true and measured value at sample k</td><td>sensor unit</td></tr>
+          <tr><td>\(v_k \sim \mathcal{N}(0,\sigma_j^2)\)</td><td>normal measurement noise (then rounded to the resolution)</td><td>sensor unit</td></tr>
+          <tr><td>\(k_0\), \(D\)</td><td>start and duration of the fault</td><td>samples (min)</td></tr>
+          <tr><td>\(\mu\), \(m_j\), \(a\)</td><td>magnitude slider, typical fault size (2 °C, 8 %RH, 150 ppm, 0.3 mS cm⁻¹, 0.4 pH, 1.5 mg L⁻¹), fault size</td><td>–, unit, unit</td></tr>
+          <tr><td>\([k = k_0]\)</td><td>1 at the fault sample, 0 otherwise</td><td>–</td></tr>
+        </table>
+        <details><summary>Where the models come from</summary><p>The taxonomy follows field studies of sensor-network data (Ni et al., 2009; Sharma et al., 2010), which distinguish short faults (spikes), noise faults (increased variance), constant or stuck faults, and calibration faults (offset and drift). A dropout is a data-delivery fault rather than a sensing fault, but it must be flagged in the same way (QARTOD flag 9, "missing"). Every sample inside a fault interval is labelled faulty — including the first minutes of a drift, when the error is still smaller than the noise. That is honest (the sensor is already faulty) and it is why recall for drift is low for every detector.</p></details>
+        <details><summary>Assumptions and validity</summary><p>Faults are additive or replace the value; real faults can also be multiplicative (a gain error that grows with the reading) or intermittent. The true signals come from a deliberately simple coupled greenhouse model (solar forcing for 25 September at Västerås, heating set points, vent opening, vapour pressure, CO₂ enrichment, evapo-concentration and dosing of the nutrient solution, temperature-dependent oxygen saturation); they are illustrative, not measurements.</p></details>
+        <div class="eq-units">every term has the unit of the sensor ✓; \((k - k_0 + 1)/D\) and \(\mu\) are dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="an-eq-rules">
+        <div class="eq-head"><span class="eq-label">Range and rate-of-change tests</span><span class="eq-num">(A2)</span></div>
+        <div class="eq-main">\[ \text{range: } \tilde x_k \notin [x_{\min}, x_{\max}] \ \text{or missing}, \qquad \text{rate: } \frac{|\tilde x_k - \tilde x_{k'}|}{r_{\max}} > \kappa \]</div>
+        <p class="eq-read">raise an alarm if a value is missing or outside the plausible range, or if its change since the last valid value k′ exceeds κ times the fastest physically plausible change per minute.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Value here</th></tr>
+          <tr><td>\([x_{\min}, x_{\max}]\)</td><td>plausible range</td><td>5–40 °C; 20–100 %; 300–1500 ppm; 0.5–4 mS cm⁻¹; pH 4.5–7.5; 2–12 mg L⁻¹</td></tr>
+          <tr><td>\(r_{\max}\)</td><td>fastest plausible change per minute</td><td>0.5 °C; 2 %RH; 40 ppm; 0.05 mS cm⁻¹; 0.08 pH; 0.25 mg L⁻¹</td></tr>
+          <tr><td>\(\kappa\)</td><td>rate threshold (slider)</td><td>1.5</td></tr>
+        </table>
+        <details><summary>Choosing the limits from physics</summary><p>A greenhouse of several hundred cubic metres of air cannot warm by several degrees in a minute; a nutrient tank with a few hundred litres cannot change its EC by 0.1 mS cm⁻¹ in a minute unless a dosing pump runs. Physical limits like these, not statistics, set the rate threshold. The range check additionally catches the "error codes" that many digital sensors output when disconnected (for example −127 °C or 85 °C for the DS18B20).</p></details>
+        <details><summary>Assumptions and validity</summary><p>A rate test fires twice for a spike: on the way up and on the way down, so the sample after a spike is a false alarm. Legitimate fast events (a dosing pulse, a vent opening, a door) must be excluded by setting the threshold above them — or by telling the detector about the actuators.</p></details>
+        <div class="eq-units">\(|\Delta\tilde x|/r_{\max}\): unit/unit = dimensionless ✓ (per sample of 1 min)</div>
+      </div>
+
+      <div class="eq-box" id="an-eq-z">
+        <div class="eq-head"><span class="eq-label">Rolling z-score</span><span class="eq-num">(A3)</span></div>
+        <div class="eq-main">\[ \bar x_{k} = \frac{1}{n}\sum_{i=k-w}^{k-1} \tilde x_i, \qquad s_{k} = \sqrt{\frac{1}{n-1}\sum_{i=k-w}^{k-1}\left(\tilde x_i - \bar x_k\right)^2}, \qquad z_k = \frac{|\tilde x_k - \bar x_k|}{\max(s_k, \sigma_j)} > z^{*} \]</div>
+        <p class="eq-read">compare each value with the mean of the previous w samples, in units of their standard deviation (never smaller than the normal sensor noise); alarm if the distance exceeds z*.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(w\), \(n\)</td><td>window length and number of valid samples in it</td><td>samples</td></tr>
+          <tr><td>\(\bar x_k\), \(s_k\)</td><td>rolling mean and standard deviation (current sample excluded)</td><td>sensor unit</td></tr>
+          <tr><td>\(z^*\)</td><td>threshold</td><td>–</td></tr>
+        </table>
+        <details><summary>Why the z-score is fragile</summary><ol class="steps">
+          <li>For Gaussian noise, \(P(|z| > 3) = 0.27\,\%\): with 6 sensors × 1440 samples a day, even a perfect sensor would produce about 23 alarms per day at \(z^* = 3\) — thresholds must be higher, or alarms must be combined over several samples.</li>
+          <li>A spike of size A inside the window raises \(s_k\) to about \(\sqrt{\sigma^2 + A^2/w}\): with A = 4 °C, w = 60 and σ = 0.05 °C, \(s \approx 0.52\) °C — ten times the noise. For the next hour, only faults larger than \(z^*\times 0.52\) °C can be seen. This is <em>masking</em>.</li>
+          <li>The z-score also reacts to real, fast but normal changes (a vent opening): the rolling mean lags behind, as in any moving average.</li>
+        </ol></details>
+        <div class="eq-units">unit/unit = dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="an-eq-hampel">
+        <div class="eq-head"><span class="eq-label">Hampel identifier (median and MAD)</span><span class="eq-num">(A4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} m_k = \operatorname{median}_{i \in W_k}\tilde x_i, \qquad \text{MAD}_k = \operatorname{median}_{i \in W_k}\left|\tilde x_i - m_k\right| \\[6pt] \text{alarm if}\quad \frac{|\tilde x_k - m_k|}{\max(1.4826\,\text{MAD}_k,\ \sigma_j)} > k^{*} \end{gathered} \]</div>
+        <p class="eq-read">replace the mean by the median and the standard deviation by 1.4826 times the median absolute deviation, both over the previous window W; alarm if the robust distance exceeds k*.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(W_k\)</td><td>the previous w samples</td><td>–</td></tr>
+          <tr><td>\(m_k\), \(\text{MAD}_k\)</td><td>rolling median and median absolute deviation</td><td>sensor unit</td></tr>
+          <tr><td>\(1.4826\)</td><td>\(1/\Phi^{-1}(3/4)\): makes 1.4826·MAD estimate σ for Gaussian data</td><td>–</td></tr>
+          <tr><td>\(k^*\)</td><td>threshold in robust standard deviations</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation of 1.4826</summary><ol class="steps">
+          <li>For Gaussian data with standard deviation σ, \(|X - \mu|\) exceeds \(c\) with probability \(2(1 - \Phi(c/\sigma))\).</li>
+          <li>The MAD is the median of \(|X - \mu|\): the value exceeded with probability ½. So \(2(1 - \Phi(\text{MAD}/\sigma)) = \tfrac12\), i.e. \(\Phi(\text{MAD}/\sigma) = \tfrac34\).</li>
+          <li>Hence \(\text{MAD} = \sigma\,\Phi^{-1}(0.75) = 0.6745\,\sigma\) and \(\sigma = \text{MAD}/0.6745 = 1.4826\,\text{MAD}\).</li>
+          <li>Because the median and the MAD have a 50 % breakdown point, up to half the window can be faulty before they are pulled away — the reason the Hampel identifier does not suffer from masking (Hampel, 1974; Pearson, 2002; Leys et al., 2013).</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>On a signal that is changing steadily (a ramp), the trailing median lags behind the current value, which raises the robust distance; windows must be short compared with the natural time scales. On a quantised, almost constant signal, the MAD can be zero — hence the floor at the sensor noise σ<sub>j</sub>.</p></details>
+        <div class="eq-units">unit/unit = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="1.4826*mad" data-output="Robust standard deviation" data-unit="" data-digits="3" data-plot="mad" data-title="Try it — MAD to robust standard deviation">
+          <div data-var="mad" data-label="Median absolute deviation" data-min="0.01" data-max="2" data-step="0.01" data-value="0.2"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="an-eq-stuck">
+        <div class="eq-head"><span class="eq-label">Persistence (stuck-sensor) test</span><span class="eq-num">(A5)</span></div>
+        <div class="eq-main">\[ s_k^{(w_s)} = \operatorname{SD}\left\{\tilde x_{k-w_s+1}, \dots, \tilde x_k\right\}, \qquad \text{alarm if}\quad s_k^{(w_s)} < \frac{\sigma_j}{4} \]</div>
+        <p class="eq-read">compute the standard deviation of the last w<sub>s</sub> samples, including the current one; alarm if it is less than a quarter of the normal sensor noise.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(w_s\)</td><td>flat-line window</td><td>samples (min)</td></tr>
+          <tr><td>\(\sigma_j\)</td><td>normal noise of the working sensor</td><td>sensor unit</td></tr>
+        </table>
+        <details><summary>Why a working sensor is never perfectly flat</summary><p>Even when the measured quantity is constant, a working sensor shows noise of about σ<sub>j</sub> (and, if σ<sub>j</sub> is small compared with the resolution, occasional changes of one step). The sample standard deviation of w values of independent noise has a relative standard error of about \(1/\sqrt{2(w-1)}\): for w = 30 it is 0.13, so a value below σ<sub>j</sub>/4 is practically impossible for a live sensor. A frozen value has an SD of exactly zero once the window contains only repeated values — the detection delay is therefore about w<sub>s</sub>.</p></details>
+        <div class="eq-units">unit < unit ✓</div>
+      </div>
+
+      <div class="eq-box" id="an-eq-cons">
+        <div class="eq-head"><span class="eq-label">Physical-consistency tests: dew point and oxygen saturation</span><span class="eq-num">(A6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} e_s(T) = 0.6108\exp\!\left(\frac{17.27\,T}{T + 237.3}\right) \\[6pt] \alpha = \ln\frac{(\text{RH}/100)\,e_s(T_p)}{0.6108}, \qquad T_d = \frac{237.3\,\alpha}{17.27 - \alpha} \\[6pt] \text{RH alarm if } T_d - T_p > \delta; \quad \text{otherwise T alarm if } T_d - \tilde T_{\text{air}} > \delta \\[6pt] \text{DO alarm if } \widetilde{\text{DO}} > \left(1.1 + \frac{\delta}{10}\right)\text{DO}_{\text{sat}}(T_w) \end{gathered} \]</div>
+        <p class="eq-read">compute the saturation vapour pressure from temperature, the actual vapour pressure from the humidity reading and the probe's own temperature, and invert the saturation curve to get the dew point; if the dew point exceeds the probe's own temperature by more than the tolerance δ, the humidity reading is impossible (RH above 100 %); if the humidity reading is plausible but its dew point exceeds the separately measured air temperature, the air-temperature sensor is suspect; the oxygen reading is inconsistent if it exceeds 1.1 + δ/10 times the saturation concentration at the water temperature.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(e_s\)</td><td>saturation vapour pressure (FAO-56 Eq. 11)</td><td>kPa</td></tr>
+          <tr><td>\(T_p\)</td><td>temperature measured inside the RH probe</td><td>°C</td></tr>
+          <tr><td>\(T_d\)</td><td>dew point</td><td>°C</td></tr>
+          <tr><td>\(\tilde T_{\text{air}}\)</td><td>reading of the separate air-temperature sensor</td><td>°C</td></tr>
+          <tr><td>\(\delta\)</td><td>tolerance (slider)</td><td>°C</td></tr>
+          <tr><td>\(\text{DO}_{\text{sat}}(T_w)\)</td><td>oxygen saturation at water temperature \(T_w\), fresh water, 1 atm (Benson &amp; Krause, 1984)</td><td>mg L⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the dew point</summary><ol class="steps">
+          <li>Relative humidity is the ratio of the actual to the saturation vapour pressure at the same temperature: \(e = (\text{RH}/100)\,e_s(T_p)\).</li>
+          <li>The dew point is the temperature at which this vapour pressure would saturate the air: \(e_s(T_d) = e\).</li>
+          <li>Take logarithms of the Tetens-type formula: \(\ln(e/0.6108) = 17.27\,T_d/(T_d + 237.3) = \alpha\).</li>
+          <li>Solve for \(T_d\): \(\alpha T_d + 237.3\alpha = 17.27\,T_d\), so \(T_d = 237.3\,\alpha/(17.27 - \alpha)\).</li>
+          <li>Since \(\text{RH} \le 100\,\%\) implies \(T_d \le T\), a dew point clearly above the probe's own temperature \(T_p\) means the humidity element is wrong. If the humidity reading is plausible but its dew point lies above the <em>separate</em> air-temperature reading, the two instruments disagree about physics; the laboratory then blames the air-temperature sensor, because the probe passed its own check. With only two instruments this attribution is a judgement, not a proof — a third, redundant sensor would settle it.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>The humidity probe and the air-temperature sensor must see the same air (same height, same radiation shield); in a well-mixed greenhouse the difference is a few tenths of a degree, hence the tolerance. Near saturation (fog, dew on leaves at night) the test becomes sensitive and the tolerance matters. The DO test assumes no pure-oxygen injection; supersaturation of a few per cent is common in aerated tanks and in the light with algae, hence the factor 1.1.</p></details>
+        <div class="eq-units">\(17.27T/(T+237.3)\): °C/°C = dimensionless ✓; \(\alpha\) dimensionless, \(T_d\): °C ✓</div>
+        <div class="mini-calc" data-fn="anTd" data-output="Dew point T<sub>d</sub>" data-unit="°C" data-digits="2" data-plot="RH" data-title="Try it — when does a humidity reading become impossible?">
+          <div data-var="T" data-label="Air temperature" data-min="5" data-max="35" data-step="0.1" data-value="18" data-unit="°C"></div>
+          <div data-var="RH" data-label="Relative humidity reading" data-min="30" data-max="110" data-step="0.5" data-value="96" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="an-eq-iforest">
+        <div class="eq-head"><span class="eq-label">Isolation-forest anomaly score</span><span class="eq-num">(A7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} s(x, \psi) = 2^{-\,\mathrm{E}[h(x)]/c(\psi)} \\[6pt] c(\psi) = 2H(\psi - 1) - \frac{2(\psi - 1)}{\psi}, \qquad H(i) \approx \ln i + 0.5772 \end{gathered} \]</div>
+        <p class="eq-read">the score is two to the power of minus the average path length of x over all trees, divided by the average path length expected for a random point in a tree grown on ψ samples; c(ψ) uses the harmonic number H.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Here</th></tr>
+          <tr><td>\(h(x)\)</td><td>path length: number of splits from the root to the leaf where x ends, plus \(c(n)\) for a leaf still holding n training points</td><td>–</td></tr>
+          <tr><td>\(\psi\)</td><td>subsample size per tree</td><td>256</td></tr>
+          <tr><td>trees, height limit</td><td>number of trees; maximum depth \(\lceil\log_2\psi\rceil\)</td><td>100; 8</td></tr>
+          <tr><td>features</td><td>(x − median of previous 15)/σ; Δx/σ; log₁₀ of the 15- and 60-min SD over σ</td><td>4 per sensor</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary><ol class="steps">
+          <li>Growing a tree on ψ points with random splits is equivalent to building a random binary search tree; the average depth of an unsuccessful search in such a tree is \(c(\psi)\) (Liu et al., 2008).</li>
+          <li>If \(\mathrm{E}[h] = c(\psi)\), the point is as hard to isolate as a typical point: \(s = 2^{-1} = 0.5\).</li>
+          <li>If \(\mathrm{E}[h] \to 0\), \(s \to 1\): isolated immediately, a clear anomaly. If \(\mathrm{E}[h] \to \psi - 1\), \(s \to 0\): deep inside a dense region.</li>
+          <li>Example: ψ = 256 gives \(c = 2(\ln 255 + 0.5772) - 2\times255/256 = 10.24\); a point isolated after 3 splits on average scores \(2^{-3/10.24} = 0.82\).</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>The forest learns "normal" from the training data (day 1); faults present during training are learned as normal, and conditions never seen in training (a cloudy day after a sunny one) can look anomalous. The score says <em>that</em> a sample is unusual, not <em>why</em>; attributing it to a cause still needs the simpler tests or an expert.</p></details>
+        <div class="eq-units">\(h\) and \(c\) are counts of splits: the exponent is dimensionless and \(0 &lt; s &lt; 1\) ✓</div>
+        <div class="mini-calc" data-fn="anIF" data-output="Anomaly score s" data-unit="" data-digits="3" data-plot="h" data-ymin="0" data-ymax="1" data-title="Try it — path length to anomaly score">
+          <div data-var="h" data-label="Average path length E[h]" data-min="0.5" data-max="20" data-step="0.1" data-value="3"></div>
+          <div data-var="psi" data-label="Subsample size ψ" data-min="16" data-max="1024" data-step="16" data-value="256"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="an-eq-metrics">
+        <div class="eq-head"><span class="eq-label">Precision, recall, F1 and detection delay</span><span class="eq-num">(A8)</span></div>
+        <div class="eq-main">\[ P = \frac{TP}{TP + FP}, \qquad R = \frac{TP}{TP + FN}, \qquad F_1 = \frac{2PR}{P + R}, \qquad \tau_e = t_{\text{first alarm}} - t_{0,e} \]</div>
+        <p class="eq-read">precision is the fraction of alarms that were faults, recall the fraction of faulty samples that raised an alarm, F1 their harmonic mean, and the detection delay of a fault event is the time from its start to the first alarm on that sensor while the fault lasts.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(TP, FP, FN, TN\)</td><td>counts of sensor samples: faulty and alarmed; normal and alarmed; faulty and not alarmed; normal and not alarmed</td><td>–</td></tr>
+          <tr><td>\(P\), \(R\), \(F_1\)</td><td>precision, recall, F1</td><td>–</td></tr>
+          <tr><td>\(\tau_e\)</td><td>detection delay of fault event e</td><td>min</td></tr>
+        </table>
+        <details><summary>Why the harmonic mean?</summary><p>The harmonic mean is dominated by the smaller of the two numbers: a detector with P = 1.0 and R = 0.1 has an arithmetic mean of 0.55 but F1 = 0.18. F1 is high only if both are high. Where one kind of error is more costly (a missed pump failure versus a false alarm at night), a weighted version \(F_\beta = (1+\beta^2)PR/(\beta^2P + R)\) is used.</p></details>
+        <div class="eq-units">counts/counts = dimensionless ✓; \(\tau_e\): min ✓</div>
+        <div class="mini-calc" data-formula="2*P*R/(P+R)" data-output="F1" data-unit="" data-digits="3" data-plot="R" data-ymin="0" data-ymax="1" data-title="Try it — the harmonic mean punishes imbalance">
+          <div data-var="P" data-label="Precision P" data-min="0.01" data-max="1" data-step="0.01" data-value="0.75"></div>
+          <div data-var="R" data-label="Recall R" data-min="0.01" data-max="1" data-step="0.01" data-value="0.6"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use <em>Reveal all</em> for final numbers, or let the data stream. <em>Save investigation</em> stores the settings and metrics in your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Map the coverage</h4><p>With the default scenario and all detectors on, reveal all data and copy the detector × fault-type table into your notebook. For each fault type, name the detector that catches it first and explain <em>why</em> with Eqs. A2–A7. Which fault type is caught by no local statistic at all?</p></li>
+        <li><h4>Tune one detector</h4><p>Select the Hampel filter for the PR curve. Find the threshold that maximises F1 and the one that gives precision ≥ 0.9. How much recall does the second choice cost? Repeat for the rolling z-score and compare the two curves: which statistic is more robust, and in which part of the curve does the difference show?</p></li>
+        <li><h4>Masking</h4><p>Inject a large T spike (magnitude 3) and, 20 minutes later, a small T offset (magnitude 0.5, 60 min). Does the z-score (window 60 min) catch the offset? Does the Hampel filter? Shorten the z-score window to 15 min and explain the difference with the "Why the z-score is fragile" derivation.</p></li>
+        <li><h4>Stuck-detector delay</h4><p>Measure the detection delay of the CO₂ flat line for flat-line windows of 10, 20, 30, 60 and 120 min, and the number of false-alarm episodes for each. Plot both against the window. Which setting would you choose for a CO₂ sensor that controls enrichment, and why?</p></li>
+        <li><h4>Physics beats statistics</h4><p>Turn off the consistency check and reveal all. What happens to the RH drift and the DO drift? Turn it back on and vary the tolerance from −0.5 to 2 °C. Explain the effect on precision (hint: humid nights) and on the detection delay of the drift.</p></li>
+        <li><h4>Design a detector for your project</h4><p>List the sensors in your course project. For each, choose two tests from this laboratory, give their thresholds in physical units and explain which faults they cover and which remain invisible. Paste a day of one of your own sensor logs into <em>Screen your own sensor data</em> and inspect every flag: real fault, or a legitimate event the detector does not understand? Which second sensor or physical relation would close the gap?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-sensor-anomaly">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A detector's confusion matrix shows TP = 300, FP = 100 and FN = 200. What is its F1 score?","answer":0.667,"tol":0.01,"hint":"First P = TP/(TP + FP) and R = TP/(TP + FN).","explain":"<p>\\(P = 300/400 = 0.75\\), \\(R = 300/500 = 0.60\\), \\(F_1 = 2\\times0.75\\times0.60/(0.75 + 0.60) = 0.667\\).</p>"},
+          {"type":"numeric","q":"An RH probe reads 96 % while its own temperature sensor reads 18.0 °C. What dew point (°C) follows from Eq. A6? (Use the calculator.)","answer":17.35,"tol":0.01,"unit":"°C","hint":"eₛ(18) = 2.064 kPa; e = 0.96 × eₛ.","explain":"<p>\\(e = 0.96\\times2.064 = 1.981\\) kPa, \\(\\alpha = \\ln(1.981/0.6108) = 1.177\\), \\(T_d = 237.3\\times1.177/(17.27 - 1.177) = 17.35\\) °C. If the air-temperature sensor next to it read 16.5 °C, the pair would be inconsistent by 0.85 °C — above the default 0.5 °C tolerance.</p>"},
+          {"type":"numeric","q":"In an isolation forest grown on subsamples of ψ = 256, a point is isolated after 3 splits on average. What is its anomaly score?","answer":0.816,"tol":0.01,"hint":"c(256) = 2(ln 255 + 0.5772) − 2 × 255/256.","explain":"<p>\\(c(256) = 2(5.541 + 0.577) - 1.992 = 10.24\\) and \\(s = 2^{-3/10.24} = 0.816\\): a clear anomaly (normal points score about 0.5 or less).</p>"},
+          {"type":"mcq","q":"Reveal all data in the default scenario. Which detector, on its own, catches the humidity-probe drift that starts on day 2 at 18:00?","options":["Rolling z-score","Hampel filter","Physical consistency (dew point)","Rate of change"],"answer":2,"feedback":["The drift adds only about 1.7 %RH per hour, far less than the normal variability inside a 60-min window.","The median follows the slow ramp, so the robust distance stays small.","","The change per minute (≈ 0.03 %RH) is far below the 2 %RH per minute limit."],"explain":"<p>Only when the drifting reading implies a dew point above the independently measured air temperature (humid night, RH above about 100 %) does the physics-based test fire — hours after the drift began. Local statistics compare the sensor with itself, and a slow drift always looks like itself.</p>"},
+          {"type":"tf","q":"In the default scenario, a 'detector' that never raises any alarm would still be about 90 % accurate.","answer":true,"explain":"<p>True. About one sensor sample in ten is faulty (the no-skill line in the precision–recall chart shows the exact share), so 'never alarm' gets roughly 90 % of the samples right. That is why accuracy is useless for rare events and precision and recall are used instead.</p>"},
+          {"type":"multi","q":"Reveal all data, then compare the preset 'Strict: few false alarms' with 'Balanced (default)'. Which statements are true? (Select all that apply.)","options":["Precision rises","Recall falls","The frozen CO₂ sensor is caught later","The number of injected fault events changes"],"answer":[0,1,2],"explain":"<p>Higher thresholds suppress false alarms (precision up, false-alarm episodes down) but also weak or early fault samples (recall down). The longer flat-line window (60 instead of 30 min) delays the stuck-sensor alarm by about half an hour. The injected faults themselves do not depend on the detector settings.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>The six true signals come from a simple, deterministic-plus-random greenhouse model driven by clear-sky irradiance for 25 September at Västerås (59.6° N) with day-specific cloudiness (sunny, overcast, partly cloudy). Heating set points, vent opening, CO₂ enrichment, evapo-concentration, dosing and oxygen saturation are represented by first-order responses and simple rules; the values are plausible but illustrative, not measured.</li>
+        <li>Normal measurement noise is white and Gaussian with the stated σ<sub>j</sub>, then rounded to the sensor resolution; the RH probe carries its own temperature sensor (noise 0.08 °C) used for the dew-point test.</li>
+        <li>Faults follow Eq. A1 and are labelled faulty for their whole duration; overlapping faults on the same sensor are applied in order, with stuck and dropout faults last.</li>
+        <li>All detectors are causal and are evaluated from 60 min after the start. A fault event counts as detected if the ensemble (or, in the coverage table, the single detector) raises an alarm on the faulty sensor while the fault lasts. Alarms in the 10 min after a fault ends (the recovery jump) are counted neither as detections nor as false alarms.</li>
+        <li>The consistency test first checks the humidity probe against its own temperature (RH above 100 % flags RH); only if that passes does it compare the dew point with the separate air-temperature sensor (flags T). The DO test uses fresh-water saturation at 1 atm.</li>
+        <li>The isolation forests (one per sensor, 100 trees, ψ = 256, height limit 8) are trained on day 1 only, which contains one dropout; features with missing values are skipped.</li>
+        <li>Sample-level metrics weight long faults more than short ones; event-level recall and delay complement them.</li>
+      </ul>
+      <h2 data-nonum>Sources</h2>
+      <ol class="references">
+        <li>Campbell, J. L., Rustad, L. E., Porter, J. H., Taylor, J. R., Dereszynski, E. W., Shanley, J. B., Gries, C., Henshaw, D. L., Martin, M. E., Sheldon, W. M., &amp; Boose, E. R. (2013). Quantity is nothing without quality: automated QA/QC for streaming environmental sensor data. <em>BioScience</em>, 63(7), 574–585. <a href="https://doi.org/10.1525/bio.2013.63.7.10" target="_blank" rel="noopener">doi:10.1525/bio.2013.63.7.10</a></li>
+        <li>Ni, K., Ramanathan, N., Chehade, M. N. H., Balzano, L., Nair, S., Zahedi, S., Kohler, E., Pottie, G., Hansen, M., &amp; Srivastava, M. (2009). Sensor network data fault types. <em>ACM Transactions on Sensor Networks</em>, 5(3), 1–29. <a href="https://doi.org/10.1145/1525856.1525863" target="_blank" rel="noopener">doi:10.1145/1525856.1525863</a></li>
+        <li>Sharma, A. B., Golubchik, L., &amp; Govindan, R. (2010). Sensor faults: Detection methods and prevalence in real-world datasets. <em>ACM Transactions on Sensor Networks</em>, 6(3), 1–39. <a href="https://doi.org/10.1145/1754414.1754419" target="_blank" rel="noopener">doi:10.1145/1754414.1754419</a></li>
+        <li>Hampel, F. R. (1974). The influence curve and its role in robust estimation. <em>Journal of the American Statistical Association</em>, 69(346), 383–393. <a href="https://doi.org/10.1080/01621459.1974.10482962" target="_blank" rel="noopener">doi:10.1080/01621459.1974.10482962</a></li>
+        <li>Leys, C., Ley, C., Klein, O., Bernard, P., &amp; Licata, L. (2013). Detecting outliers: Do not use standard deviation around the mean, use absolute deviation around the median. <em>Journal of Experimental Social Psychology</em>, 49(4), 764–766. <a href="https://doi.org/10.1016/j.jesp.2013.03.013" target="_blank" rel="noopener">doi:10.1016/j.jesp.2013.03.013</a></li>
+        <li>Liu, F. T., Ting, K. M., &amp; Zhou, Z.-H. (2008). Isolation forest. In <em>2008 Eighth IEEE International Conference on Data Mining</em> (pp. 413–422). IEEE. <a href="https://doi.org/10.1109/ICDM.2008.17" target="_blank" rel="noopener">doi:10.1109/ICDM.2008.17</a></li>
+        <li>Saito, T., &amp; Rehmsmeier, M. (2015). The precision-recall plot is more informative than the ROC plot when evaluating binary classifiers on imbalanced datasets. <em>PLOS ONE</em>, 10(3), e0118432. <a href="https://doi.org/10.1371/journal.pone.0118432" target="_blank" rel="noopener">doi:10.1371/journal.pone.0118432</a></li>
+        <li>Benson, B. B., &amp; Krause, D. (1984). The concentration and isotopic fractionation of oxygen dissolved in freshwater and seawater in equilibrium with the atmosphere. <em>Limnology and Oceanography</em>, 29(3), 620–632. <a href="https://doi.org/10.4319/lo.1984.29.3.0620" target="_blank" rel="noopener">doi:10.4319/lo.1984.29.3.0620</a></li>
+      </ol>
+      <h2 data-nonum>Background and further reading</h2>
+      <ul>
+        <li>Pearson, R. K. (2002). Outliers in process modeling and identification. <em>IEEE Transactions on Control Systems Technology</em>, 10(1), 55–63. <a href="https://doi.org/10.1109/87.974338" target="_blank" rel="noopener">doi:10.1109/87.974338</a></li>
+        <li>Liu, F. T., Ting, K. M., &amp; Zhou, Z.-H. (2012). Isolation-based anomaly detection. <em>ACM Transactions on Knowledge Discovery from Data</em>, 6(1), 1–39. <a href="https://doi.org/10.1145/2133360.2133363" target="_blank" rel="noopener">doi:10.1145/2133360.2133363</a></li>
+        <li>Chandola, V., Banerjee, A., &amp; Kumar, V. (2009). Anomaly detection: A survey. <em>ACM Computing Surveys</em>, 41(3), 1–58. <a href="https://doi.org/10.1145/1541880.1541882" target="_blank" rel="noopener">doi:10.1145/1541880.1541882</a></li>
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56). Food and Agriculture Organization of the United Nations. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">fao.org</a></li>
+        <li>U.S. Integrated Ocean Observing System (IOOS). (2020). <em>Manual for real-time oceanographic data quality control flags</em> (Version 1.2). NOAA. <a href="https://cdn.ioos.noaa.gov/media/2020/07/QARTOD-Data-Flags-Manual_version1.2final.pdf" target="_blank" rel="noopener">ioos.noaa.gov</a></li>
+      </ul>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

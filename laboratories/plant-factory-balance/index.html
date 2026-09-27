@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plant factory energy and water balance · Future Food Production</title>
+<meta name="description" content="Trace every kilowatt-hour, litre and gram of CO₂ through a plant factory over a full year with animated Sankey diagrams: kWh per kg, COP, latent versus sensible cooling, water recycling and CO₂-use efficiency, compared with Graamans et al. (2018).">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* Live calculators used in the Derive tab (Penman–Monteith as in Lesson 2.2). */
+window.FFP_CALC = window.FFP_CALC || {};
+(function (C) {
+  function es(T) { return 0.6108 * Math.exp(17.27 * T / (T + 237.3)); }
+  C.pfPM = function (v) {
+    var e = es(v.T), D = e * (1 - v.RH / 100), De = 4098 * e / Math.pow(v.T + 237.3, 2), gam = 0.000665 * 101.325;
+    var rho = 101.325 * 1000 / (287.05 * (v.T + 273.15)), ga = v.ga / 1000, gs = v.gs / 1000;
+    return (De * v.Rn + rho * 1005 * D * ga) / (De + gam * (1 + ga / gs));
+  };
+})(window.FFP_CALC);
+</script>
+<style>
+  .pf-sk svg text { paint-order: stroke fill; stroke: var(--bg-elev); stroke-width: 3.5px; stroke-linejoin: round; }
+</style>
+</head>
+<body data-page="lab" data-slug="plant-factory-balance">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Plant factory energy and water balance</h1>
+    <p class="lead">A plant factory turns electricity into lettuce — and into a great deal of heat, water vapour and a little stored chemical energy. In this laboratory you follow every kilowatt-hour, every litre and every gram of CO₂ through a real-sized facility for a whole year, hour by hour, in five climates from Kiruna to Singapore. Change the lamps, the crop, the building and the air-conditioning and watch the animated Sankey diagrams, the kilowatt-hours per kilogram, the coefficient of performance and the water and CO₂ use efficiencies respond — and compare your design with the landmark study of Graamans et al. (2018).</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage" role="img" aria-label="Animated cross-section of a plant factory: LED-lit tiers of lettuce, an air-handling unit with a cooling coil, condensate recovery, an outdoor condenser and a CO₂ tank"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card" style="grid-column:1/-1">
+      <h3>Where the electricity goes — annual energy balance</h3>
+      <div class="chart-sub"><span id="sk-e-sub">MWh per year</span>. Moving dots show the direction of each flow; hover a band for its value. Everything that is not stored in the crop leaves as heat — most of it through the cooling coils, where water vapour from transpiration is condensed.</div>
+      <div class="chart pf-sk" id="chart-energy" style="height:auto"></div>
+    </div>
+    <div class="chart-card" style="grid-column:1/-1">
+      <h3>Water balance</h3>
+      <div class="chart-sub"><span id="sk-w-sub">m³ per year</span>. The crop transpires far more water than it keeps; the coil condenses it and the condensate returns to the nutrient tank.</div>
+      <div class="chart pf-sk" id="chart-water" style="height:auto"></div>
+    </div>
+    <div class="chart-card">
+      <h3>CO₂ balance</h3>
+      <div class="chart-sub"><span id="sk-c-sub">t CO₂ per year</span>. Supply = CO₂ fixed by the crop + CO₂ lost with the air that leaks through the envelope.</div>
+      <div class="chart pf-sk" id="chart-co2" style="height:auto"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Electricity month by month</h3>
+      <div class="chart-sub">Lighting is constant; cooling follows the outdoor temperature through the COP; heating appears only when the room loses more heat than it produces.</div>
+      <div class="chart" id="chart-monthly"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Transpiration shifts the cooling load from sensible to latent</h3>
+      <div class="chart-sub">Annual heat removed by the coils when the daily transpiration is prescribed (all other settings as chosen). The vertical line marks the Penman–Monteith estimate for your room.</div>
+      <div class="chart" id="chart-latent"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Compared with Graamans et al. (2018)</h3>
+      <div class="chart-sub">Purchased energy per kg of lettuce dry weight: your plant factory (model) against the plant factory and greenhouses modelled by Graamans et al. (2018).</div>
+      <div class="chart" id="chart-graamans"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ================================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <p>The model computes 12 months × 24 representative hours (one mean day per month) for the whole facility and adds them up to a year. The schematic replays one day of the month you choose; the Sankey diagrams, the readouts and the charts show the annual totals.</p>
+      <ol>
+        <li><strong>Watch a day in January in Västerås.</strong> At 06:00 the lamps switch on: pink photons rain onto the lettuce, blue water vapour streams from the canopy to the cooling coil, condensate drips into the tank and is pumped back to the nutrient tank, and orange heat travels through the refrigerant line to the outdoor condenser. Look at the head-up display: the cooling load jumps to about 170 kW when the lamps are on and falls to a small latent load at night, when the crop still transpires a little.</li>
+        <li><strong>Follow the electricity in the large Sankey.</strong> About 80 % of the electricity goes to the LEDs. At a photon efficacy of 3.0 µmol J⁻¹ only 61 % of the LED electricity leaves the fixture as light, and about three quarters of that light is absorbed by leaves. The band that ends as <em>chemical energy in the crop</em> is only about 2 % of the electricity: everything else becomes heat that the HVAC system must remove.</li>
+        <li><strong>Notice how big the latent band is.</strong> In the default room the crop transpires about 2.1 L m⁻² d⁻¹ and the latent heat of that water is larger than the light the canopy absorbs — the leaves are cooler than the air and draw sensible heat from it. About 88 % of the heat the coil removes is latent. Now raise the relative humidity from 70 % to 85 %: transpiration falls to about 1.3 L m⁻² d⁻¹ and the latent share to about 57 %, yet the total heat the coils remove hardly changes.</li>
+        <li><strong>Move the factory to Abu Dhabi.</strong> Nothing inside the room changes, but the seasonal cooling COP falls from about 7.4 to 3.4 and the HVAC electricity more than doubles. Then switch the lamps on at 18:00 instead of 06:00: running the lights through the cooler night saves about 12 % of the cooling electricity.</li>
+        <li><strong>Read the water Sankey per kilogram</strong> (Display → <em>Per kg of lettuce</em>). About 15 L of water is transpired for each kilogram of lettuce, but only about 2 L of fresh water is needed, because almost all of the transpired water is recovered as condensate. Roughly half of that fresh water leaves inside the lettuce itself.</li>
+        <li><strong>Break the airtightness.</strong> Raise the air leakage from 0.02 to 0.2 h⁻¹: the CO₂-use efficiency falls from about 96 % to about 72 %. Then pick <em>Leaky container farm</em> and watch heating and reheat appear on winter nights.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A plant factory is, thermodynamically, an electric heater that happens to grow lettuce. In steady state <strong>all electricity supplied ends up as heat</strong> except the 1–3 % stored in the crop. Transpiration does not add heat — it converts sensible heat into latent heat, which decides how the air-conditioning must be designed and how much water can be recycled.</p></div>
+    </section>
+
+    <!-- ================================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Draw the control volume</h2>
+      <p>Energy balances start with a boundary. Draw it around the air of the growing room and count what crosses it (Figure 1). <strong>Electricity</strong> enters through cables to the lamps, pumps, fans and the compressors of the HVAC system. <strong>Heat</strong> crosses the insulated envelope (inwards in summer, outwards in winter) and leaves through the cooling coils. <strong>Water</strong> enters as nutrient solution and leaves as condensate, as vapour in leaking air, and inside the harvested lettuce. <strong>CO₂</strong> enters from the dosing system and leaves with leaking air or fixed in the crop. Because nothing accumulates over a year, what goes in must come out: that is the whole content of this laboratory.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 680 330" role="img" aria-label="Control volume around a plant factory showing electricity, heat, water and CO₂ flows">
+            <defs>
+              <marker id="pf-a-amb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-amber"/></marker>
+              <marker id="pf-a-wat" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-water"/></marker>
+              <marker id="pf-a-mag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-magenta"/></marker>
+              <marker id="pf-a-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-accent"/></marker>
+              <marker id="pf-a-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <rect x="150" y="40" width="360" height="250" rx="8" class="fill-sunk" stroke="currentColor" stroke-width="2"/>
+            <rect x="140" y="30" width="380" height="270" rx="12" fill="none" class="stroke-muted" stroke-width="1.3" stroke-dasharray="7 5"/>
+            <text x="520" y="318" text-anchor="end" class="t-small t-muted">control volume: room air, crop and nutrient solution</text>
+            <!-- tiers -->
+            <g class="fill-accent-soft" stroke="currentColor" stroke-width=".8">
+              <rect x="185" y="100" width="170" height="10"/><rect x="185" y="170" width="170" height="10"/><rect x="185" y="240" width="170" height="10"/>
+            </g>
+            <g class="fill-magenta"><rect x="190" y="62" width="160" height="5"/><rect x="190" y="132" width="160" height="5"/><rect x="190" y="202" width="160" height="5"/></g>
+            <g class="fill-accent"><circle cx="205" cy="96" r="7"/><circle cx="240" cy="96" r="7"/><circle cx="275" cy="96" r="7"/><circle cx="310" cy="96" r="7"/><circle cx="340" cy="96" r="7"/>
+              <circle cx="205" cy="166" r="7"/><circle cx="240" cy="166" r="7"/><circle cx="275" cy="166" r="7"/><circle cx="310" cy="166" r="7"/><circle cx="340" cy="166" r="7"/>
+              <circle cx="205" cy="236" r="7"/><circle cx="240" cy="236" r="7"/><circle cx="275" cy="236" r="7"/><circle cx="310" cy="236" r="7"/><circle cx="340" cy="236" r="7"/></g>
+            <text x="270" y="55" text-anchor="middle" class="t-small">LEDs → PAR → canopy</text>
+            <!-- coil -->
+            <rect x="400" y="80" width="80" height="120" rx="6" class="fill-water-soft" stroke="currentColor"/>
+            <text x="440" y="100" text-anchor="middle" class="t-small">cooling</text><text x="440" y="114" text-anchor="middle" class="t-small">coil</text>
+            <text x="440" y="190" text-anchor="middle" class="t-small t-muted">Q<tspan baseline-shift="sub" font-size="9">s</tspan> + Q<tspan baseline-shift="sub" font-size="9">l</tspan></text>
+            <!-- flows -->
+            <line x1="20" y1="70" x2="185" y2="70" class="stroke-amber" stroke-width="3" marker-end="url(#pf-a-amb)"/>
+            <text x="20" y="60" class="t-small" style="fill:var(--amber)">electricity (lamps, aux)</text>
+            <path d="M355 140 C 375 140, 380 130, 398 130" class="stroke-water" stroke-width="2.5" fill="none" marker-end="url(#pf-a-wat)"/>
+            <text x="352" y="160" class="t-small" style="fill:var(--water)">vapour</text>
+            <line x1="480" y1="120" x2="660" y2="120" class="stroke-magenta" stroke-width="3" marker-end="url(#pf-a-mag)"/>
+            <text x="530" y="110" class="t-small" style="fill:var(--magenta)">heat to condenser</text>
+            <line x1="20" y1="110" x2="150" y2="110" class="stroke-amber" stroke-width="2" marker-end="url(#pf-a-amb)"/>
+            <text x="20" y="100" class="t-small" style="fill:var(--amber)">compressor work</text>
+            <path d="M440 200 L440 262 L360 262" class="stroke-water" stroke-width="2.5" fill="none" marker-end="url(#pf-a-wat)"/>
+            <text x="446" y="240" class="t-small" style="fill:var(--water)">condensate</text>
+            <text x="446" y="254" class="t-small" style="fill:var(--water)">recycled</text>
+            <line x1="20" y1="265" x2="180" y2="265" class="stroke-water" stroke-width="2" marker-end="url(#pf-a-wat)"/>
+            <text x="20" y="255" class="t-small" style="fill:var(--water)">fresh water</text>
+            <line x1="20" y1="215" x2="180" y2="215" class="stroke" stroke-width="2" marker-end="url(#pf-a-ink)"/>
+            <text x="20" y="205" class="t-small">CO₂ supply</text>
+            <line x1="520" y1="250" x2="660" y2="250" class="stroke-accent" stroke-width="2.5" marker-end="url(#pf-a-acc)"/>
+            <text x="528" y="240" class="t-small" style="fill:var(--accent)">lettuce: H₂O, C, energy</text>
+            <line x1="510" y1="285" x2="660" y2="285" class="stroke-muted" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#pf-a-ink)"/>
+            <text x="532" y="276" class="t-small t-muted">leakage: air, vapour, CO₂</text>
+            <line x1="330" y1="22" x2="330" y2="40" class="stroke-muted" stroke-width="1.6" marker-end="url(#pf-a-ink)"/>
+            <line x1="350" y1="40" x2="350" y2="22" class="stroke-muted" stroke-width="1.6" marker-end="url(#pf-a-ink)"/>
+            <text x="360" y="20" class="t-small t-muted">envelope U·A·(T<tspan baseline-shift="sub" font-size="9">o</tspan> − T<tspan baseline-shift="sub" font-size="9">i</tspan>)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The control volume of this laboratory. Solid arrows: flows that are purchased or recovered; dashed: losses through the envelope and by air leakage. The same boundary is used for energy, water and CO₂, so the three Sankey diagrams are three views of one room.</figcaption>
+      </figure>
+
+      <h2 data-nonum>From the socket to sugar: a chain of efficiencies</h2>
+      <p>Electricity becomes chemical energy in lettuce through a chain of conversions, each with its own efficiency. Their product is small, which is why the heat load is large.</p>
+      <table>
+        <caption>Table 1. The efficiency chain of the default room (Västerås, 250 µmol m⁻² s⁻¹, 3.0 µmol J⁻¹).</caption>
+        <thead><tr><th>Step</th><th>Efficiency</th><th class="num">Default</th><th>What sets it</th></tr></thead>
+        <tbody>
+          <tr><td>LED: electricity → PAR radiant energy</td><td>\(\eta_{\text{ph}}/\mu_{\text{PAR}}\)</td><td class="num">61 %</td><td>photon efficacy; best fixtures ≈ 3.5 µmol J⁻¹ (Kusuma et al., 2020)</td></tr>
+          <tr><td>PAR emitted → incident on trays</td><td>utilisation \(f_u\)</td><td class="num">90 %</td><td>fixture optics, tier geometry, reflective surfaces</td></tr>
+          <tr><td>incident → absorbed by leaves</td><td>absorptance \(a_c\)</td><td class="num">85 %</td><td>leaf area index, canopy closure</td></tr>
+          <tr><td>absorbed PAR → chemical energy</td><td>photosynthetic efficiency</td><td class="num">≈ 6 %</td><td>light-use efficiency, CO₂, temperature (Jin et al., 2023)</td></tr>
+          <tr><td>electricity → chemical energy in the crop</td><td>product (incl. HVAC)</td><td class="num">≈ 2 %</td><td>Kozai (2013) reported 0.7 % for fluorescent-lit factories</td></tr>
+        </tbody>
+      </table>
+
+      <h2 data-nonum>Sensible and latent heat: why transpiration matters</h2>
+      <p>Look at a single leaf in the room (Figure 2). It absorbs light, stores a few per cent of it as sugar, and must get rid of the rest. It can do so in two ways: as <strong>sensible heat</strong> — by being warmer than the air, so that convection carries heat away — or as <strong>latent heat</strong>, by evaporating water from its stomata. Evaporating one kilogram of water at 22 °C takes 2.45 MJ.</p>
+      <p>In a plant factory the air is kept at a fixed temperature and humidity and blown over the canopy. The vapour pressure deficit (VPD) of the air pulls water out of the leaves whether or not there is light. With the default settings the canopy transpires about 81 W m⁻² in the light — almost twice the 43 W m⁻² of PAR it absorbs. The difference is supplied by the air: the leaves are <em>cooler</em> than the air and receive sensible heat from it, which leaves the room as latent heat of water vapour. Graamans et al. (2017) found exactly this: the latent heat flux is the largest single energy flow in a plant factory and can even exceed the energy input by illumination.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 640 250" role="img" aria-label="Energy balance of a leaf in a plant factory: absorbed light, stored chemical energy, latent heat of transpiration and sensible heat exchange with the air">
+            <defs>
+              <marker id="pf-b-mag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-magenta"/></marker>
+              <marker id="pf-b-wat" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-water"/></marker>
+              <marker id="pf-b-amb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-amber"/></marker>
+              <marker id="pf-b-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-accent"/></marker>
+            </defs>
+            <path d="M170 150 C 230 95, 380 95, 460 150 C 380 185, 230 185, 170 150 Z" class="fill-accent-soft" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M175 150 L455 150" class="stroke-accent" stroke-width="1.2"/>
+            <text x="315" y="143" text-anchor="middle" class="t-small">leaf: T<tspan baseline-shift="sub" font-size="9">leaf</tspan> &lt; T<tspan baseline-shift="sub" font-size="9">air</tspan></text>
+            <line x1="250" y1="30" x2="270" y2="110" class="stroke-magenta" stroke-width="4" marker-end="url(#pf-b-mag)"/>
+            <text x="240" y="40" text-anchor="end" class="t-small" style="fill:var(--magenta)">absorbed PAR ≈ 43 W m⁻²</text>
+            <line x1="360" y1="112" x2="400" y2="30" class="stroke-water" stroke-width="6" marker-end="url(#pf-b-wat)"/>
+            <text x="410" y="40" class="t-small" style="fill:var(--water)">latent heat λE ≈ 81 W m⁻²</text>
+            <text x="410" y="55" class="t-small t-muted">(≈ 1.9 L m⁻² per 16 h light)</text>
+            <line x1="560" y1="150" x2="468" y2="150" class="stroke-amber" stroke-width="4" marker-end="url(#pf-b-amb)"/>
+            <text x="480" y="175" class="t-small" style="fill:var(--amber)">sensible heat from air</text>
+            <text x="480" y="190" class="t-small" style="fill:var(--amber)">H ≈ −40 W m⁻²</text>
+            <line x1="300" y1="182" x2="300" y2="228" class="stroke-accent" stroke-width="2" marker-end="url(#pf-b-acc)"/>
+            <text x="310" y="222" class="t-small" style="fill:var(--accent)">stored as sugar ≈ 3 W m⁻²</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> Energy balance of the canopy with the default settings (per m² of trays, lamps on). Because transpiration removes more energy than the leaves absorb as light, the canopy is cooler than the air and takes sensible heat from it (\(H &lt; 0\)). Values from Eqs. PF4–PF5.</figcaption>
+      </figure>
+      <p>For the air-conditioning engineer, the consequence is decisive. The <strong>total</strong> heat the coils must remove is fixed by the electricity dissipated in the room (plus envelope and leakage exchange) — transpiration cannot change it, because evaporation creates no energy. What transpiration changes is the <strong>split</strong>: every joule of latent heat is a joule less of sensible heat. The latent share of the cooling load therefore rises almost linearly with transpiration (the chart "Transpiration shifts the cooling load"), until the crop evaporates more than the heat input. Beyond that point the room must be reheated while it is dehumidified — the condenser heat of the dehumidifying heat pump is then the natural source.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"The plants cool the room, so more transpiration means less air-conditioning." Transpiration cools the <em>leaves and the air</em>, but the heat is not destroyed — it is stored in water vapour, and the same amount is released on the cooling coil when the vapour condenses. The coil load stays; what changes is that it must be removed at a colder coil (below the dew point), which lowers the COP.</p></div>
+      <p>Why does the latent share matter if the total does not change? Because removing latent heat requires a coil colder than the dew point of the room air — about 16 °C at 22 °C and 70 % RH — whereas sensible heat could be removed with a warmer, more efficient coil. A single cold coil does both at the lower temperature. Splitting the task between a dry sensible coil and a dedicated dehumidifier raises the average COP; you can test it with the <em>Coil arrangement</em> switch.</p>
+
+      <h2 data-nonum>Removing the heat: COP and the outdoor climate</h2>
+      <p>The HVAC system is a heat pump that moves heat from the cold coil (≈ 11 °C) to an outdoor condenser. The work it needs depends on the temperature lift: in Västerås in January the outdoor air is so cold that the chiller works almost for free (the model caps the COP at 10 to account for fans and pumps), whereas in Abu Dhabi in August the condenser must reject heat into 43 °C air. Kozai (2013) reported an annual cooling COP of 5–6 for a Tokyo plant factory kept at 25 °C — about 4 in summer and 10 in winter — and the Carnot-fraction model of Lesson 7.2 reproduces these values. Two design levers follow directly: <strong>light at night</strong>, when the outdoor air is coolest, and <strong>site the factory where it is cold</strong> — or where the rejected heat has a customer, such as a district-heating network.</p>
+      <div class="callout note"><div class="callout-title">Heat is a product, not only a waste</div><p>The default room rejects roughly 1.1 GWh of low-temperature heat per year (the "Rejected outdoors" band of the Sankey diagram). Coupling plant factories to district heating or to neighbouring greenhouses, usually with a heat pump that lifts the temperature, turns this cooling load into a revenue — a design question you can explore in <a href="/lessons/energy-balance/">Lesson 8.1</a>.</p></div>
+
+      <h2 data-nonum>Closing the water loop</h2>
+      <p>Almost all the water a lettuce plant takes up is transpired: about 15 L per kg of lettuce with the default settings. In a greenhouse this vapour leaves through the vents; in an airtight plant factory it condenses on the cooling coil, is collected and returned to the nutrient tank. The fresh water that must be bought covers only the water inside the harvested lettuce (about 0.95 L per kg at 5 % dry matter), the nutrient solution that is periodically discharged, the vapour that escapes with leaking air and the condensate that is not reused. Kozai (2013) defined the <strong>water-use efficiency</strong> of a closed plant production system as the fraction of the supplied water that is either recycled or ends up in the plants, and reported 0.95–0.98, against 0.02–0.03 for a ventilated greenhouse. Van Delden et al. (2021), summarising Graamans et al. (2018), put the saving at about 90 % compared with greenhouses and about 99 % compared with open fields.</p>
+
+      <h2 data-nonum>CO₂: fixed or leaked</h2>
+      <p>Lettuce dry matter is about 40 % carbon (Anderson et al., 2018), so every gram of dry matter holds 1.47 g of CO₂. Enriching the air to 1000 µmol mol⁻¹ raises the yield by about 30 % compared with outdoor air (Lesson 8.3), but whatever leaks out with the air exchange is lost. With 0.01–0.02 air changes per hour, Kozai (2013) reported CO₂-use efficiencies of 0.87–0.89; in this room, with little air volume per square metre of trays, the model gives about 0.96. The <a href="/laboratories/co2-balance/">CO₂ enrichment balance</a> laboratory explores the same balance in greenhouses, where ventilation is a thousand times larger.</p>
+
+      <h2 data-nonum>How good is this plant factory?</h2>
+      <table>
+        <caption>Table 2. Purchased energy per kg of lettuce dry weight (DW) and per kg fresh weight (FW, 5 % dry matter).</caption>
+        <thead><tr><th>System</th><th class="num">kWh kg⁻¹ DW</th><th class="num">kWh kg⁻¹ FW</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>Plant factory, this model (default)</td><td class="num">≈ 259</td><td class="num">≈ 13</td><td>this laboratory</td></tr>
+          <tr><td>Plant factory</td><td class="num">247</td><td class="num">≈ 12</td><td>Graamans et al. (2018)</td></tr>
+          <tr><td>Greenhouse, Netherlands</td><td class="num">70</td><td class="num">≈ 3.5</td><td>Graamans et al. (2018)</td></tr>
+          <tr><td>Greenhouse, United Arab Emirates</td><td class="num">111</td><td class="num">≈ 5.6</td><td>Graamans et al. (2018)</td></tr>
+          <tr><td>Greenhouse, Sweden, with / without supplementary light</td><td class="num">182 / 211</td><td class="num">≈ 9 / 11</td><td>Graamans et al. (2018)</td></tr>
+          <tr><td>Fluorescent-lit plant factory (lighting only)</td><td class="num">794</td><td class="num">≈ 40</td><td>Kozai (2013)</td></tr>
+        </tbody>
+      </table>
+      <p>Graamans et al. (2018) also showed the other side of the coin: counting the sunlight, the plant factory used <em>less</em> total energy (1411 MJ kg⁻¹ DW) than even the most efficient greenhouse (1699 MJ kg⁻¹ DW), and it was more productive per unit of water, CO₂ and land. Sunlight is free and renewable, electricity is not — which is why the source of the electricity decides the carbon footprint (<a href="/lessons/lca-emerging-systems/">Lesson 15.1</a>).</p>
+      <div class="callout frontier"><div class="callout-title">Research frontier</div><p>As LED efficacy approaches 3.5–4 µmol J⁻¹, less of the electricity becomes sensible heat while the crop's transpiration stays the same. Rooms with very efficient lamps therefore become dehumidification-dominated and may need reheat — try <em>Best-in-class 2026</em>. Research in 2024–2026 focuses on controlling VPD and air speed to limit transpiration without harming calcium transport (tipburn), on desiccant and heat-pump dehumidifiers that recover condenser heat, and on coupling farms to heat networks.</p></div>
+    </section>
+
+    <!-- ================================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>All flows are computed per hour for a mean day in each month (climate normals in the Assumptions tab) and summed over the days of the month and the year. Symbols per m² refer to the cultivation (tray) area \(A\) unless stated otherwise.</p>
+
+      <div class="eq-box" id="eq-pf-lighting">
+        <div class="eq-head"><span class="eq-label">Lamp power needed for a target PPFD</span><span class="eq-num">(PF1)</span></div>
+        <div class="eq-main">\[ p_{\text{LED}} = \frac{I}{\eta_{\text{ph}}\,f_u}, \qquad P_{\text{LED}} = p_{\text{LED}}\,A, \qquad \text{DLI} = \frac{I\,t_p\cdot 3600}{10^{6}} \]</div>
+        <p class="eq-read">the electrical power per square metre of trays equals the photon flux density wanted at the canopy divided by the photon efficacy of the fixtures and by the fraction of the emitted photons that reach the trays.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(I\)</td><td>PPFD incident on the canopy</td><td>µmol m⁻² s⁻¹</td><td>250</td></tr>
+          <tr><td>\(\eta_{\text{ph}}\)</td><td>photon efficacy of the fixtures</td><td>µmol J⁻¹</td><td>3.0</td></tr>
+          <tr><td>\(f_u\)</td><td>utilisation factor: fraction of emitted PAR incident on the trays</td><td>–</td><td>0.90</td></tr>
+          <tr><td>\(p_{\text{LED}}\)</td><td>electrical power density of the lamps</td><td>W m⁻²</td><td>92.6</td></tr>
+          <tr><td>\(t_p\)</td><td>photoperiod</td><td>h d⁻¹</td><td>16</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Each joule of electricity produces \(\eta_{\text{ph}}\) µmol of PAR photons, so a power density \(p_{\text{LED}}\) (J s⁻¹ m⁻²) emits \(\eta_{\text{ph}}p_{\text{LED}}\) µmol m⁻² s⁻¹.</li>
+            <li>A fraction \(f_u\) of these photons lands on the trays: \(I = \eta_{\text{ph}}f_u\,p_{\text{LED}}\). Solving for \(p_{\text{LED}}\) gives Eq. PF1. In "LED power density" mode the laboratory uses the same equation the other way round.</li>
+            <li>DLI integrates the PPFD over the photoperiod (Lesson 4.2): 250 × 16 × 3600 / 10⁶ = 14.4 mol m⁻² d⁻¹.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Uniform light over the trays; the PPFD is the tray-average of the <a href="/laboratories/grow-room-lighting/">Grow-room lighting</a> laboratory. Far-red photons (700–750 nm) are not counted in PAR.</p></details>
+        <div class="eq-units">\(\dfrac{\mu\text{mol m}^{-2}\,\text{s}^{-1}}{\mu\text{mol J}^{-1}} = \text{J s}^{-1}\,\text{m}^{-2} = \text{W m}^{-2}\) ✓</div>
+        <div class="mini-calc" data-formula="ppfd/(eff*util)" data-output="LED power density" data-unit="W m⁻²" data-digits="1" data-plot="eff" data-title="Try it — watts for photons">
+          <div data-var="ppfd" data-label="PPFD I" data-min="50" data-max="600" data-step="5" data-value="250" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="eff" data-label="Photon efficacy η<sub>ph</sub>" data-min="1.5" data-max="4" data-step="0.05" data-value="3" data-unit="µmol J⁻¹"></div>
+          <div data-var="util" data-label="Utilisation f<sub>u</sub>" data-min="0.5" data-max="1" data-step="0.01" data-value="0.9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-radiant">
+        <div class="eq-head"><span class="eq-label">Light and fixture heat</span><span class="eq-num">(PF2)</span></div>
+        <div class="eq-main">\[ \Phi_{\text{PAR}} = \frac{\eta_{\text{ph}}}{\mu_{\text{PAR}}}\,P_{\text{LED}}, \qquad Q_{\text{fix}} = P_{\text{LED}} - \Phi_{\text{PAR}}, \qquad R_{\text{abs}} = a_c\,f_u\,\Phi_{\text{PAR}} \]</div>
+        <p class="eq-read">the radiant power of the light equals the lamp power times the photon efficacy divided by the number of photons per joule of the lamp spectrum; the rest of the lamp power is heat released at the fixture. The canopy absorbs the fraction that reaches the trays times its absorptance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(\mu_{\text{PAR}}\)</td><td>photons per joule of PAR radiation of the LED spectrum</td><td>µmol J⁻¹</td><td>4.9</td></tr>
+          <tr><td>\(\Phi_{\text{PAR}}\)</td><td>radiant PAR power emitted</td><td>W</td><td></td></tr>
+          <tr><td>\(Q_{\text{fix}}\)</td><td>heat released by the fixtures and drivers</td><td>W</td><td></td></tr>
+          <tr><td>\(a_c\)</td><td>canopy absorptance of incident PAR</td><td>–</td><td>0.85</td></tr>
+          <tr><td>\(R_{\text{abs}}\)</td><td>PAR absorbed by the canopy</td><td>W</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A photon of wavelength λ carries \(hc/\lambda\); one joule of monochromatic light therefore contains \(8.36\times10^{-3}\,\lambda\) µmol of photons (λ in nm; <code>umolPerJoule</code> in the course library). For a horticultural spectrum with a mean wavelength near 586 nm this is ≈ 4.9 µmol J⁻¹.</li>
+            <li>The radiant efficiency of the fixture is thus \(\eta_{\text{ph}}/\mu_{\text{PAR}}\): 3.0/4.9 = 61 %. The remaining 39 % is heat in the fixture and driver.</li>
+            <li>Light that misses the trays or is reflected by leaves is absorbed by walls, trays and floor and also becomes heat; only \(R_{\text{abs}}\) is available to the leaves.</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(\dfrac{\mu\text{mol J}^{-1}}{\mu\text{mol J}^{-1}}\cdot\text{W} = \text{W}\) ✓</div>
+        <div class="mini-calc" data-formula="100*eff/mu" data-output="LED electricity leaving as PAR light" data-unit="%" data-digits="0" data-plot="eff">
+          <div data-var="eff" data-label="Photon efficacy η<sub>ph</sub>" data-min="1.5" data-max="4.5" data-step="0.05" data-value="3" data-unit="µmol J⁻¹"></div>
+          <div data-var="mu" data-label="Photons per joule of PAR μ<sub>PAR</sub>" data-min="4.4" data-max="5.4" data-step="0.05" data-value="4.9" data-unit="µmol J⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-yield">
+        <div class="eq-head"><span class="eq-label">Crop production from light and CO₂</span><span class="eq-num">(PF3)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{DW} = \text{LUE}\,\frac{f(C)}{f(C_{\text{ref}})}\sum I\,\Delta t, \qquad f(C) = \frac{C-\Gamma}{C-\Gamma+K} \\[6pt] Y_{\text{FW}} = \frac{\text{DW}\,f_m}{x_{\text{DM}}} \end{gathered} \]</div>
+        <p class="eq-read">the shoot dry weight produced equals the light-use efficiency, corrected for the CO₂ concentration with the saturating response of Lesson 8.3, times the moles of photons that reached the canopy; the marketable fresh yield is the dry weight times the marketable share divided by the dry-matter content.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>LUE</td><td>light-use efficiency: shoot dry weight per mol of incident photons at \(C_{\text{ref}}\)</td><td>g mol⁻¹</td><td>0.55 (Jin et al., 2023)</td></tr>
+          <tr><td>\(C, C_{\text{ref}}\)</td><td>CO₂ set-point and reference concentration of the LUE</td><td>µmol mol⁻¹</td><td>1000, 1000</td></tr>
+          <tr><td>\(\Gamma, K\)</td><td>compensation point and half-saturation constant</td><td>µmol mol⁻¹</td><td>50, 237 (Lesson 8.3)</td></tr>
+          <tr><td>\(f_m\)</td><td>marketable share of the harvested shoots</td><td>–</td><td>0.90</td></tr>
+          <tr><td>\(x_{\text{DM}}\)</td><td>dry-matter content</td><td>–</td><td>0.05</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Over a cropping cycle, lettuce biomass grows in proportion to the photons it receives — the definition of the light-use efficiency (Jin et al., 2023 found 0.55 g DW mol⁻¹ on average in vertical farms).</li>
+            <li>Canopy photosynthesis rises with CO₂ with diminishing returns; if yield is proportional to photosynthesis, the yield at \(C\) is the yield at \(C_{\text{ref}}\) times \(f(C)/f(C_{\text{ref}})\) (Eq. 8.3.2, calibrated on Kimball, 1983).</li>
+            <li>Roots are about 10 % of the total dry matter (Kozai, 2013): total DW = shoot DW / 0.9. This total is used for the CO₂ fixed and the chemical energy stored.</li>
+            <li>Default: 0.55 × 14.4 × 365 = 2 891 g DW m⁻² yr⁻¹ → 57.8 kg FW → 52.0 kg m⁻² yr⁻¹ marketable.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A constant LUE implies that growth is proportional to light — true for lettuce at the light levels of vertical farms (up to about 300–400 µmol m⁻² s⁻¹), but LUE falls at higher intensities. Temperature, VPD and spacing effects on LUE are not modelled.</p></details>
+        <div class="eq-units">\(\text{g mol}^{-1}\cdot\text{mol m}^{-2}\,\text{yr}^{-1} = \text{g m}^{-2}\,\text{yr}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="lue*ppfd*h*3600*365/1e6/1000/(dmc/100)*mkt" data-output="Marketable yield" data-unit="kg m⁻² yr⁻¹" data-digits="1" data-plot="lue">
+          <div data-var="lue" data-label="Light-use efficiency" data-min="0.2" data-max="1" data-step="0.01" data-value="0.55" data-unit="g mol⁻¹"></div>
+          <div data-var="ppfd" data-label="PPFD" data-min="50" data-max="500" data-step="5" data-value="250" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="h" data-label="Photoperiod" data-min="8" data-max="24" data-step="0.5" data-value="16" data-unit="h d⁻¹"></div>
+          <div data-var="dmc" data-label="Dry-matter content" data-min="3" data-max="8" data-step="0.1" data-value="5" data-unit="%"></div>
+          <div data-var="mkt" data-label="Marketable share" data-min="0.5" data-max="1" data-step="0.01" data-value="0.9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-pm">
+        <div class="eq-head"><span class="eq-label">Canopy transpiration (Penman–Monteith)</span><span class="eq-num">(PF4)</span></div>
+        <div class="eq-main">\[ \lambda E = \frac{\Delta\,R_n + \rho_a c_p\,D\,g_a}{\Delta + \gamma\,\left(1 + g_a/g_s\right)} \]</div>
+        <p class="eq-read">the latent heat flux of the canopy equals the slope of the saturation vapour pressure curve times the absorbed radiation, plus the air's heat capacity times the vapour pressure deficit times the aerodynamic conductance, divided by the slope plus the psychrometric constant times one plus the ratio of the aerodynamic to the stomatal conductance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(R_n\)</td><td>net radiation absorbed by the canopy (= \(R_{\text{abs}}/A\) with lamps on, 0 at night)</td><td>W m⁻²</td><td>43.4</td></tr>
+          <tr><td>\(D\)</td><td>vapour pressure deficit of the room air</td><td>kPa</td><td>0.79 (22 °C, 70 %)</td></tr>
+          <tr><td>\(g_a\)</td><td>aerodynamic conductance of the canopy</td><td>m s⁻¹</td><td>0.020</td></tr>
+          <tr><td>\(g_s\)</td><td>bulk stomatal (surface) conductance; 10 % of it at night</td><td>m s⁻¹</td><td>0.015</td></tr>
+          <tr><td>\(\Delta, \gamma\)</td><td>slope of \(e_s(T)\); psychrometric constant</td><td>kPa K⁻¹</td><td>0.162, 0.067</td></tr>
+          <tr><td>\(\lambda\)</td><td>latent heat of vaporisation</td><td>J kg⁻¹</td><td>2.45 × 10⁶</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The derivation is given step by step in <a href="/lessons/water-relations/">Lesson 2.2</a> (Eq. 2.2.9): combine the canopy energy balance with the transport equations for heat and vapour and linearise \(e_s(T)\) around the air temperature.</li>
+            <li>In a plant factory, \(T\), RH and therefore \(D\) are set-points held by the HVAC system, and \(R_n\) is the absorbed lamp light. Default: numerator 0.162 × 43.4 + 1.19 × 1005 × 0.793 × 0.020 = 7.0 + 19.0 = 26.0; denominator 0.162 + 0.067 × 2.33 = 0.319; λE = 81 W m⁻².</li>
+            <li>At night \(R_n = 0\) and stomata are mostly closed (\(g_s\) = 10 % of the day value): λE ≈ 17 W m⁻², i.e. about 9 % of the daily water. Caird et al. (2007) report night-time transpiration of typically 5–15 % of daytime values in C3 plants.</li>
+            <li>Transpiration rate: \(E = \lambda E/\lambda\) (kg m⁻² s⁻¹ = L m⁻² s⁻¹).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>One big leaf per tier; conductances are constant; the feedback of leaf cooling on stomata, of CO₂ on stomatal closure and of air speed differences between tiers are ignored. Use the <em>Prescribed</em> mode to set transpiration directly from measurements (e.g. from the weight loss of your own hydroponic system).</p></details>
+        <div class="eq-units">\(\dfrac{\text{kPa K}^{-1}\,\text{W m}^{-2} + \text{kg m}^{-3}\,\text{J kg}^{-1}\text{K}^{-1}\,\text{kPa}\,\text{m s}^{-1}}{\text{kPa K}^{-1}} = \text{W m}^{-2}\) ✓</div>
+        <div class="mini-calc" data-fn="pfPM" data-output="Latent heat flux λE" data-unit="W m⁻²" data-digits="0" data-plot="RH" data-title="Try it — transpiration in the light">
+          <div data-var="Rn" data-label="Absorbed radiation R<sub>n</sub>" data-min="0" data-max="150" data-step="1" data-value="43" data-unit="W m⁻²"></div>
+          <div data-var="T" data-label="Air temperature" data-min="16" data-max="28" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="RH" data-label="Relative humidity" data-min="45" data-max="95" data-step="1" data-value="70" data-unit="%"></div>
+          <div data-var="gs" data-label="Stomatal conductance g<sub>s</sub>" data-min="1" data-max="40" data-step="0.5" data-value="15" data-unit="mm s⁻¹"></div>
+          <div data-var="ga" data-label="Aerodynamic conductance g<sub>a</sub>" data-min="5" data-max="60" data-step="1" data-value="20" data-unit="mm s⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-canopy">
+        <div class="eq-head"><span class="eq-label">Energy balance of the canopy</span><span class="eq-num">(PF5)</span></div>
+        <div class="eq-main">\[ R_{\text{abs}} = P_{\text{chem}} + \lambda E + H_c \quad\Longrightarrow\quad H_c = R_{\text{abs}} - P_{\text{chem}} - \lambda E \]</div>
+        <p class="eq-read">the light absorbed by the canopy is either stored as chemical energy, used to evaporate water, or given to the air as sensible heat; the sensible term is what is left over, and it is negative when the crop evaporates more than it absorbs.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(P_{\text{chem}}\)</td><td>energy stored in new dry matter: total DW rate × 17.5 kJ g⁻¹</td><td>W</td></tr>
+          <tr><td>\(H_c\)</td><td>sensible heat from canopy to air (negative: from air to canopy)</td><td>W</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>First law for the canopy in steady state (its heat storage over an hour is negligible).</li>
+            <li>Default, per m² with lamps on: \(R_{\text{abs}}\) = 43.4 W, \(P_{\text{chem}}\) ≈ 2.7 W, λE ≈ 81.4 W → \(H_c\) ≈ −41 W: the leaves are cooler than the air.</li>
+            <li>In the Sankey diagram, positive \(H_c\) flows from "Absorbed by canopy" to "Room air"; negative \(H_c\) flows from "Room air" to "Transpiration".</li>
+          </ol>
+        </details>
+        <div class="eq-units">W = W + W + W ✓</div>
+        <div class="mini-calc" data-formula="rabs - chem - le" data-output="Sensible heat H<sub>c</sub> (canopy → air)" data-unit="W m⁻²" data-digits="1" data-plot="le">
+          <div data-var="rabs" data-label="Absorbed PAR R<sub>abs</sub>" data-min="0" data-max="120" data-step="0.5" data-value="43.4" data-unit="W m⁻²"></div>
+          <div data-var="chem" data-label="Stored chemical energy" data-min="0" data-max="6" data-step="0.1" data-value="2.7" data-unit="W m⁻²"></div>
+          <div data-var="le" data-label="Latent heat flux λE" data-min="0" data-max="150" data-step="1" data-value="81" data-unit="W m⁻²"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-sensible">
+        <div class="eq-head"><span class="eq-label">Sensible heat balance of the room air</span><span class="eq-num">(PF6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} S = Q_{\text{fix}} + Q_{\text{miss}} + P_{\text{aux}} + H_c + U\!\left[A_{\text{ex}}(T_o - T_i) + A_f(T_g - T_i)\right] + \dot m_a c_p (T_o - T_i) \\[6pt] Q_s = \max(S, 0), \qquad Q_{\text{heat}} = \max(-S, 0) \end{gathered} \]</div>
+        <p class="eq-read">the sensible heat the coil must remove each hour is the sum of fixture heat, absorbed stray light, auxiliary equipment, the canopy's sensible exchange, conduction through the envelope and the heat carried by leaking air; if that sum is negative the room must be heated instead.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(Q_{\text{miss}}\)</td><td>PAR that misses the canopy or is reflected, absorbed by surfaces</td><td>W</td><td></td></tr>
+          <tr><td>\(P_{\text{aux}}\)</td><td>pumps, fans, controls (continuous)</td><td>W</td><td>10 % of LED energy</td></tr>
+          <tr><td>\(U\)</td><td>overall heat-transfer coefficient of the envelope</td><td>W m⁻² K⁻¹</td><td>0.25</td></tr>
+          <tr><td>\(A_{\text{ex}}, A_f\)</td><td>walls + roof exposed to outdoor air; floor on the ground</td><td>m²</td><td>from floor area and tiers</td></tr>
+          <tr><td>\(T_o, T_i, T_g\)</td><td>outdoor, indoor and ground (annual mean outdoor) temperatures</td><td>°C</td><td>climate, 22</td></tr>
+          <tr><td>\(\dot m_a\)</td><td>air leakage mass flow \(= \rho_a N V/3600\)</td><td>kg s⁻¹</td><td>N = 0.02 h⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>First law for the room air with constant temperature: sensible gains = sensible removal.</li>
+            <li>Conduction: \(UA\Delta T\) (Lesson 8.1, Eq. 8.1.5). Leakage: the same mass of air leaves at \(T_i\) and enters at \(T_o\): \(\dot m_a c_p (T_o - T_i)\).</li>
+            <li>Outdoor temperature follows a cosine through the monthly mean daily maximum (15:00) and minimum.</li>
+            <li>If \(S &lt; 0\) — cold nights, leaky rooms, or when transpiration exceeds the heat input — the room needs heat. With <em>reuse condenser heat</em> switched on, this heat comes first from the condenser of the heat pump that is dehumidifying at the same time; any remainder is bought from an air-source heat pump.</li>
+          </ol>
+        </details>
+        <div class="eq-units">W m⁻² K⁻¹ · m² · K = W ✓ · kg s⁻¹ · J kg⁻¹ K⁻¹ · K = W ✓</div>
+        <div class="mini-calc" data-formula="100*min(1, le/(pd*(1+aux/100)))" data-output="Latent share of the cooling load (lamps on)" data-unit="%" data-digits="0" data-plot="le" data-ymin="0" data-ymax="100" data-title="Try it — the latent share depends on transpiration">
+          <div data-var="le" data-label="Canopy latent heat λE" data-min="0" data-max="160" data-step="1" data-value="81" data-unit="W m⁻²"></div>
+          <div data-var="pd" data-label="Lamp power density" data-min="30" data-max="200" data-step="1" data-value="92.6" data-unit="W m⁻²"></div>
+          <div data-var="aux" data-label="Auxiliaries" data-min="0" data-max="30" data-step="1" data-value="10" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-latent">
+        <div class="eq-head"><span class="eq-label">Vapour balance, condensate and latent load</span><span class="eq-num">(PF7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \dot m_c = E\,A + \dot m_a\,(W_o - W_i), \qquad Q_l = \lambda\,\dot m_c \\[6pt] s_{\text{lat}} = \frac{\sum Q_l}{\sum (Q_s + Q_l)} \end{gathered} \]</div>
+        <p class="eq-read">the water condensed on the coil equals the crop's transpiration plus the vapour brought in by leaking air (negative when the outdoor air is drier); its latent heat is the latent cooling load, and the latent share is the latent load divided by the total coil load over the year.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\dot m_c\)</td><td>condensation rate on the coil</td><td>kg s⁻¹</td></tr>
+          <tr><td>\(W_o, W_i\)</td><td>humidity ratio outdoors and indoors (<code>humidityRatio</code>, Lesson 8.2)</td><td>kg kg⁻¹</td></tr>
+          <tr><td>\(Q_l\)</td><td>latent cooling load</td><td>W</td></tr>
+          <tr><td>\(s_{\text{lat}}\)</td><td>latent share of the annual coil load</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Water-vapour balance of the room air at a constant humidity set-point: vapour in (transpiration + leaking air) = vapour out (condensation + leaking air).</li>
+            <li>Outdoor vapour pressure is estimated from the climate normals: \(e_a = \text{RH}\,[e_s(T_{\max}) + e_s(T_{\min})]/2\) where RH is available, otherwise \(e_a \approx e_s(T_{\min})\) (FAO-56, Allen et al., 1998).</li>
+            <li>Because the total coil load \(Q_s + Q_l\) is fixed by Eq. PF6 + PF7, a larger \(E\) increases \(Q_l\) and decreases \(Q_s\) by the same amount until \(Q_s\) reaches zero.</li>
+          </ol>
+        </details>
+        <div class="eq-units">kg m⁻² s⁻¹ · m² = kg s⁻¹ ✓ · J kg⁻¹ · kg s⁻¹ = W ✓</div>
+        <div class="mini-calc" data-formula="(et*A - 1.2*N*V*24*dW/1000)/1000" data-output="Condensate collected" data-unit="m³ d⁻¹" data-digits="2" data-plot="N" data-title="Try it — how much water can the coil give back?">
+          <div data-var="et" data-label="Transpiration" data-min="0.5" data-max="5" data-step="0.1" data-value="2.1" data-unit="L m⁻² d⁻¹"></div>
+          <div data-var="A" data-label="Tray area A" data-min="100" data-max="10000" data-step="100" data-value="1800" data-unit="m²"></div>
+          <div data-var="N" data-label="Air leakage N" data-min="0.005" data-max="2" data-scale="log" data-value="0.02" data-unit="h⁻¹"></div>
+          <div data-var="V" data-label="Room volume V" data-min="200" data-max="20000" data-step="50" data-value="1850" data-unit="m³"></div>
+          <div data-var="dW" data-label="Humidity ratio inside − outside" data-min="-10" data-max="12" data-step="0.1" data-value="8" data-unit="g kg⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-cop">
+        <div class="eq-head"><span class="eq-label">HVAC electricity and COP</span><span class="eq-num">(PF8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} P_{\text{HVAC}} = \frac{Q_s}{\text{COP}_s} + \frac{Q_l}{\text{COP}_l}, \qquad \text{SCOP} = \frac{\sum (Q_s + Q_l)}{\sum P_{\text{HVAC}}} \\[6pt] \text{COP} = \min\!\left(\eta_C\,\frac{T_{\text{coil}}}{(T_o + \Delta T_{\text{cd}}) - T_{\text{coil}}},\ 10\right) \end{gathered} \]</div>
+        <p class="eq-read">the electricity of the air-conditioning is the sensible load divided by its COP plus the latent load divided by its COP; each COP is a fixed fraction of the Carnot COP between the coil and a condenser 15 K warmer than the outdoor air, capped at 10; the seasonal COP is the heat removed over the year divided by the electricity used.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(\eta_C\)</td><td>fraction of the Carnot COP achieved</td><td>–</td><td>0.40</td></tr>
+          <tr><td>\(T_{\text{coil}}\)</td><td>coil temperature (absolute in the ratio): dew point − 5 K; split design: sensible coil at dew point + 1 K</td><td>K</td><td>284 (11.3 °C)</td></tr>
+          <tr><td>\(\Delta T_{\text{cd}}\)</td><td>condenser approach above outdoor air</td><td>K</td><td>15</td></tr>
+          <tr><td>SCOP</td><td>seasonal (annual) coefficient of performance for cooling</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Carnot refrigerator: \(\text{COP}_{\text{Carnot}} = T_c/(T_h - T_c)\) (Lesson 8.1, Eq. 8.1.9); real machines reach a roughly constant fraction of it (Lesson 7.2, Eq. 7.2.7).</li>
+            <li>The coil must be below the dew point to condense water: at 22 °C and 70 % RH the dew point is 16.3 °C, so the coil runs at about 11 °C.</li>
+            <li>Calibration against Kozai (2013): at 27 °C outdoors the model gives 3.7 (Tokyo summer ≈ 4), at 15.5 °C it gives 5.9 (annual 5–6), at 6 °C it reaches the cap of 10 (winter ≈ 10).</li>
+            <li>Heating, when needed, uses a heat pump with the same Carnot-fraction idea (supply 35 °C, source 5 K below outdoor air, COP between 1 and 5).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Steady state each hour; no part-load penalties, defrosting or free cooling with outdoor air (which would bring in dust, pests and lose CO₂). The cap of 10 represents the fans and pumps that run even when the compressor is idle.</p></details>
+        <div class="eq-units">W / (–) = W ✓; COP: K/K = – ✓</div>
+        <div class="mini-calc" data-formula="min(eta*(tc+273.15)/max(1,(to+dt)-tc),10)" data-output="Cooling COP" data-unit="" data-digits="2" data-plot="to" data-title="Try it — the colder the outside, the cheaper the cooling">
+          <div data-var="to" data-label="Outdoor temperature T<sub>o</sub>" data-min="-20" data-max="45" data-step="0.5" data-value="15" data-unit="°C"></div>
+          <div data-var="tc" data-label="Coil temperature" data-min="4" data-max="18" data-step="0.5" data-value="11.3" data-unit="°C"></div>
+          <div data-var="dt" data-label="Condenser approach ΔT<sub>cd</sub>" data-min="5" data-max="25" data-step="1" data-value="15" data-unit="K"></div>
+          <div data-var="eta" data-label="Carnot fraction η<sub>C</sub>" data-min="0.3" data-max="0.6" data-step="0.01" data-value="0.4"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-kpi">
+        <div class="eq-head"><span class="eq-label">Electricity per kilogram and per mole</span><span class="eq-num">(PF9)</span></div>
+        <div class="eq-main">\[ \begin{gathered} e_{\text{kg}} = \frac{E_{\text{LED}} + E_{\text{aux}} + E_{\text{HVAC}} + E_{\text{heat}}}{Y_{\text{FW}}} \\[6pt] e_{\text{mol}} = \frac{E_{\text{tot}}}{\sum I\,A\,\Delta t} \;\approx\; e_{\text{light}}\,(1+f_{\text{aux}})\left(1+\frac{1}{\text{SCOP}}\right) \end{gathered} \]</div>
+        <p class="eq-read">the specific electricity use is the annual electricity divided by the marketable yield, or by the moles of photons delivered to the canopy; to a good approximation it is the lighting electricity multiplied by one plus the auxiliary fraction and by one plus the inverse of the seasonal COP.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default result</th></tr>
+          <tr><td>\(e_{\text{kg}}\)</td><td>electricity per kg of marketable fresh lettuce</td><td>kWh kg⁻¹</td><td>≈ 13.0</td></tr>
+          <tr><td>\(e_{\text{mol}}\)</td><td>electricity per mol of photons incident on the canopy</td><td>kWh mol⁻¹</td><td>≈ 0.128</td></tr>
+          <tr><td>\(e_{\text{light}}\)</td><td>lighting electricity per mol: \(0.2778/(\eta_{\text{ph}}f_u)\)</td><td>kWh mol⁻¹</td><td>0.103</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Lighting alone: \(10^{6}/(\eta_{\text{ph}}f_u)\) J per mol at the canopy = 0.2778/(3.0 × 0.9) = 0.103 kWh mol⁻¹ (grow-room lighting laboratory, Eq. L4).</li>
+            <li>Auxiliaries multiply by \(1+f_{\text{aux}}\); all this heat must be pumped out, costing another factor \(1 + 1/\text{SCOP}\) (Lesson 7.2, Eq. 7.2.5).</li>
+            <li>Default: 0.103 × 1.1 × (1 + 1/7.4) = 0.129 kWh mol⁻¹ — the full model gives 0.128 because 2 % of the energy is stored in the crop and a little heat is lost through the envelope.</li>
+          </ol>
+        </details>
+        <div class="eq-units">kWh yr⁻¹ / kg yr⁻¹ = kWh kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="0.2778/(eff*util)*(1+aux/100)*(1+1/cop)/(lue/(dmc/100)*mkt/1000)" data-output="Electricity per kg of lettuce" data-unit="kWh kg⁻¹" data-digits="1" data-plot="cop" data-title="Try it — three efficiencies and a COP make one number">
+          <div data-var="eff" data-label="Photon efficacy" data-min="1.5" data-max="4" data-step="0.05" data-value="3" data-unit="µmol J⁻¹"></div>
+          <div data-var="util" data-label="Utilisation" data-min="0.5" data-max="1" data-step="0.01" data-value="0.9"></div>
+          <div data-var="aux" data-label="Auxiliaries" data-min="0" data-max="30" data-step="1" data-value="10" data-unit="%"></div>
+          <div data-var="cop" data-label="Seasonal COP" data-min="1.5" data-max="10" data-step="0.1" data-value="7.4"></div>
+          <div data-var="lue" data-label="Light-use efficiency" data-min="0.2" data-max="1" data-step="0.01" data-value="0.55" data-unit="g mol⁻¹"></div>
+          <div data-var="dmc" data-label="Dry-matter content" data-min="3" data-max="8" data-step="0.1" data-value="5" data-unit="%"></div>
+          <div data-var="mkt" data-label="Marketable share" data-min="0.5" data-max="1" data-step="0.01" data-value="0.9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-water">
+        <div class="eq-head"><span class="eq-label">Water balance and water-use efficiency</span><span class="eq-num">(PF10)</span></div>
+        <div class="eq-main">\[ \begin{gathered} W_S = E + W_P + W_B, \qquad W_{\text{fresh}} = W_S - r\,W_C \\[6pt] \text{WUE} = \frac{r\,W_C + W_P}{W_S} \end{gathered} \]</div>
+        <p class="eq-read">the nutrient solution supplied equals what the crop transpires plus the water held in the harvested plants plus the solution discharged; the fresh water needed is the supply minus the condensate that is returned; Kozai's water-use efficiency is the recycled condensate plus the water in the plants divided by the supply.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(E\)</td><td>water transpired</td><td>kg yr⁻¹</td><td></td></tr>
+          <tr><td>\(W_P\)</td><td>water in harvested shoots \(= Y_{\text{FW,harv}}(1 - x_{\text{DM}})\)</td><td>kg yr⁻¹</td><td></td></tr>
+          <tr><td>\(W_B\)</td><td>discharged (bled) solution, share of uptake</td><td>kg yr⁻¹</td><td>3 %</td></tr>
+          <tr><td>\(W_C\), \(r\)</td><td>condensate collected; fraction returned to the tank</td><td>kg yr⁻¹; –</td><td>; 0.97</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Mass conservation for the nutrient solution: supply = uptake (transpiration + water retained in growing plants) + discharge.</li>
+            <li>Kozai (2013), Eq. 1: \(\text{WUE} = (W_C + W_P)/W_S\), where \(W_C\) is the condensate collected for recycling. We multiply \(W_C\) by \(r\) because only the returned condensate counts.</li>
+            <li>Per kg with defaults: 14.8 L transpired, 1.05 L in the plants (including trimmings), 0.48 L discharged; the fresh water is ≈ 2.0 L kg⁻¹.</li>
+          </ol>
+        </details>
+        <div class="eq-units">all terms kg yr⁻¹; WUE dimensionless ✓</div>
+        <div class="mini-calc" data-formula="wp + b/100*(t+wp) + t*(1-(1-lk/100)*rec/100)" data-output="Fresh water per kg" data-unit="L kg⁻¹" data-digits="2" data-plot="rec">
+          <div data-var="t" data-label="Transpired per kg" data-min="5" data-max="40" data-step="0.5" data-value="14.8" data-unit="L kg⁻¹"></div>
+          <div data-var="wp" data-label="Water in the harvested plants" data-min="0.8" data-max="1.3" data-step="0.01" data-value="1.05" data-unit="L kg⁻¹"></div>
+          <div data-var="b" data-label="Discharge" data-min="0" data-max="30" data-step="0.5" data-value="3" data-unit="% of uptake"></div>
+          <div data-var="lk" data-label="Vapour lost by leakage" data-min="0" data-max="50" data-step="0.5" data-value="1" data-unit="% of transpiration"></div>
+          <div data-var="rec" data-label="Condensate returned r" data-min="0" data-max="100" data-step="1" data-value="97" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-co2">
+        <div class="eq-head"><span class="eq-label">CO₂ balance and CO₂-use efficiency</span><span class="eq-num">(PF11)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \Phi_{\text{fix}} = \text{DW}_{\text{tot}}\,x_C\,\frac{44}{12}, \qquad \Phi_{\text{leak}} = k\,N\,V\,(C - C_{\text{out}})\,t \\[6pt] \text{CUE} = \frac{\Phi_{\text{fix}}}{\Phi_{\text{fix}} + \Phi_{\text{leak}}} \end{gathered} \]</div>
+        <p class="eq-read">the CO₂ fixed equals the dry matter produced times its carbon fraction times the mass ratio of CO₂ to carbon; the CO₂ lost is the mass concentration difference times the leaking air volume; the CO₂-use efficiency is the fixed fraction of the supply.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(x_C\)</td><td>carbon fraction of lettuce dry matter</td><td>–</td><td>0.40 (Anderson et al., 2018)</td></tr>
+          <tr><td>\(k\)</td><td>mass of CO₂ per m³ per ppm (Lesson 8.3, Eq. 8.3.1)</td><td>g m⁻³ ppm⁻¹</td><td>1.82 × 10⁻³ at 22 °C</td></tr>
+          <tr><td>\(N, V\)</td><td>air leakage rate; room volume</td><td>h⁻¹; m³</td><td>0.02; 1850</td></tr>
+          <tr><td>\(C, C_{\text{out}}\)</td><td>set-point; outdoor concentration</td><td>µmol mol⁻¹</td><td>1000; 427</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Steady-state CO₂ balance of the room over a year (Lesson 8.3, Eq. 8.3.4): supply = net uptake + leakage; worker respiration is neglected.</li>
+            <li>The set-point is held for 24 h: with \(N\) = 0.02 h⁻¹ the time constant is 50 h, so the concentration barely falls at night.</li>
+            <li>Kozai (2013) reported CUE = 0.87–0.89 at \(N\) = 0.01–0.02 h⁻¹ and 1000 µmol mol⁻¹.</li>
+          </ol>
+        </details>
+        <div class="eq-units">g m⁻³ ppm⁻¹ · h⁻¹ · m³ · ppm · h = g ✓</div>
+        <div class="mini-calc" data-formula="100*u/(u + 1.82e-3*N*v*(C-427)*24)" data-output="CO₂-use efficiency" data-unit="%" data-digits="1" data-plot="N" data-ymin="0" data-ymax="100">
+          <div data-var="u" data-label="CO₂ fixed per m² of trays" data-min="2" data-max="30" data-step="0.1" data-value="12.9" data-unit="g m⁻² d⁻¹"></div>
+          <div data-var="N" data-label="Air leakage N" data-min="0.005" data-max="2" data-scale="log" data-value="0.02" data-unit="h⁻¹"></div>
+          <div data-var="v" data-label="Room volume per m² of trays" data-min="0.3" data-max="6" data-step="0.05" data-value="1.03" data-unit="m³ m⁻²"></div>
+          <div data-var="C" data-label="Set-point C" data-min="430" data-max="2000" data-step="10" data-value="1000" data-unit="µmol mol⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pf-footprint">
+        <div class="eq-head"><span class="eq-label">Carbon footprint of electricity and dosed CO₂</span><span class="eq-num">(PF12)</span></div>
+        <div class="eq-main">\[ G = e_{\text{kg}}\,\text{EF}_{\text{grid}} + m_{\text{CO}_2}\,\text{EF}_{\text{src}} \]</div>
+        <p class="eq-read">the footprint per kilogram equals the electricity per kilogram times the emission factor of the grid, plus the CO₂ supplied per kilogram times the emission factor of its source.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Values</th></tr>
+          <tr><td>\(\text{EF}_{\text{grid}}\)</td><td>life-cycle emission factor of electricity, 2025</td><td>kg CO₂e kWh⁻¹</td><td>Sweden 0.035; EU-27 0.210; Poland 0.589</td></tr>
+          <tr><td>\(m_{\text{CO}_2}\)</td><td>CO₂ supplied per kg of lettuce</td><td>kg kg⁻¹</td><td>≈ 0.094</td></tr>
+          <tr><td>\(\text{EF}_{\text{src}}\)</td><td>emission factor of the CO₂ source (Lesson 8.3, Eq. 8.3.9)</td><td>kg CO₂e kg⁻¹</td><td>by-product 0; fossil 1.17; DAC 2 kWh × EF</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Only the operational energy and the dosed CO₂ are counted — not the building, the lamps, seeds, substrate, packaging or transport, which a full LCA includes (<a href="/lessons/lca-emerging-systems/">Lesson 15.1</a>). The grid factor is a location-based annual average; marginal factors can be much higher.</p></details>
+        <div class="eq-units">kWh kg⁻¹ · kg CO₂e kWh⁻¹ + kg kg⁻¹ · kg CO₂e kg⁻¹ = kg CO₂e kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="e*ef/1000 + m*efc" data-output="Footprint" data-unit="kg CO₂e kg⁻¹" data-digits="2" data-plot="ef">
+          <div data-var="e" data-label="Electricity per kg" data-min="3" data-max="30" data-step="0.1" data-value="13" data-unit="kWh kg⁻¹"></div>
+          <div data-var="ef" data-label="Grid factor" data-min="0" data-max="800" data-step="5" data-value="35" data-unit="g CO₂e kWh⁻¹"></div>
+          <div data-var="m" data-label="CO₂ supplied per kg" data-min="0" data-max="0.5" data-step="0.005" data-value="0.094" data-unit="kg kg⁻¹"></div>
+          <div data-var="efc" data-label="CO₂ source factor" data-min="0" data-max="1.2" data-step="0.01" data-value="0" data-unit="kg CO₂e kg⁻¹"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Start each task from the preset <em>Swedish plant factory</em>. Use <em>Save investigation</em> to store settings and results in your notebook, and <em>CSV (monthly)</em> to analyse the month-by-month results in a spreadsheet.</p>
+      <ol class="task-list">
+        <li><h4>Close the energy balance yourself</h4><p>Switch the Sankey diagrams to <em>Per kg of lettuce</em>. Write down every flow that leaves the room (heat rejected outdoors, envelope losses, vapour lost by leakage, chemical energy) and every flow that enters (electricity, heat from outdoors). Show that inputs equal outputs to within rounding, and explain in two sentences why the "chemical energy in crop" band is so thin.</p></li>
+        <li><h4>How transpiration shapes the HVAC design</h4><p>Vary the relative humidity from 55 to 90 % and record the transpiration (L m⁻² d⁻¹), the latent share, the total coil load (from the transpiration chart) and the HVAC electricity. Plot latent share against transpiration. Explain why the total coil load hardly changes while the HVAC electricity does, and what happens below about 60 % RH. Which RH would you choose, and what does the crop think about it (tipburn, Lesson 2.2)?</p></li>
+        <li><h4>Climate, COP and the timing of the lights</h4><p>For all five climates, record the seasonal COP and the kWh per kg with the lamps switched on at 06:00 and at 18:00. In which climates does night lighting pay off, and by how much? Estimate the annual saving in euros at €0.10 kWh⁻¹. Why is the effect small in Västerås and Singapore?</p></li>
+        <li><h4>What should the next euro buy?</h4><p>Starting from the default, compare four upgrades one at a time: photon efficacy 3.0 → 3.5 µmol J⁻¹; utilisation 0.90 → 0.95; light-use efficiency 0.55 → 0.65 g mol⁻¹; split sensible/latent coils. Rank them by the reduction in kWh per kg. Relate your ranking to Eq. PF9 — which factors multiply, and which only affect the HVAC term?</p></li>
+        <li><h4>Envelope: insulate or not?</h4><p>In Kiruna and in Abu Dhabi, vary the U-value from 0.1 to 3 W m⁻² K⁻¹ (with and without <em>reuse condenser heat</em>). Where does a poorly insulated envelope help, where does it hurt, and why? Compare with the conclusion of Graamans et al. (2018) that the optimal envelope depends on the climate and the internal heat load.</p></li>
+        <li><h4>Carbon: Sweden versus Poland</h4><p>Compute the carbon footprint per kg for the three grids and for the three CO₂ sources. Compare with imported field lettuce (≈ 0.6 kg CO₂e kg⁻¹, Lesson 15.1). At what grid factor does your plant factory break even with the imported lettuce? (Hint: Eq. PF12 is linear in the grid factor.)</p></li>
+      </ol>
+      <div class="quiz" data-quiz="plant-factory-balance-lab">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Select the preset <em>Swedish plant factory</em>. What is the annual electricity use per kg of marketable fresh lettuce?","answer":12.97,"tol":0.04,"unit":"kWh kg⁻¹","hint":"Read the readout <em>Electricity per kg (fresh weight)</em>.","explain":"<p>About 13.0 kWh kg⁻¹ (≈ 259 kWh kg⁻¹ of dry weight, close to the 247 kWh kg⁻¹ DW of Graamans et al., 2018). Roughly 80 % of it is used by the LEDs.</p>"},
+          {"type":"numeric","q":"A room with 1800 m² of trays transpires 2.0 L m⁻² d⁻¹. Taking λ = 2.45 MJ kg⁻¹, what is the mean latent heat load averaged over 24 hours?","answer":102.1,"tol":0.03,"unit":"kW","hint":"Water per second × latent heat.","explain":"<p>\\(2.0\\times1800 = 3600\\) kg d⁻¹; \\(3600\\times2.45\\times10^{6}/86400 = 1.02\\times10^{5}\\) W ≈ 102 kW (Eq. PF7).</p>"},
+          {"type":"mcq","q":"Move the default factory from Västerås to Abu Dhabi. Which quantity changes the most in relative terms?","options":["The HVAC electricity, which more than doubles","The LED electricity, which rises with the outdoor temperature","The marketable yield, which falls in the heat","The latent share, which falls to about 20 %"],"answer":0,"feedback":["","The lamps and their electricity are identical — the room climate is the same.","The crop sees the same light, CO₂ and room climate; the yield is unchanged.","The latent share changes only slightly (88 → 85 %)."],"explain":"<p>The seasonal COP falls from ≈ 7.4 to ≈ 3.4 because the condenser must reject heat into much hotter air, so the HVAC electricity rises from ≈ 144 to ≈ 332 MWh yr⁻¹.</p>"},
+          {"type":"tf","q":"In the Penman–Monteith mode, lowering the relative humidity set-point from 70 % to 55 % reduces the latent share of the cooling load.","answer":false,"explain":"<p>False. Drier air raises the vapour pressure deficit, so transpiration rises (≈ 2.1 → 2.9 L m⁻² d⁻¹) and the latent share rises to 100 %: the crop evaporates more than the heat input, and the room has to be reheated while it is dehumidified.</p>"},
+          {"type":"multi","q":"In Abu Dhabi, which changes reduce the annual HVAC electricity? (Select all that apply.)","options":["Switching the lamps on at 18:00 instead of 06:00","Using split sensible and latent coils","Raising the photon efficacy from 3.0 to 3.5 µmol J⁻¹ at the same PPFD","Raising the envelope U-value from 0.25 to 3 W m⁻² K⁻¹"],"answer":[0,1,2],"explain":"<p>Night lighting uses cooler condenser air (≈ −12 %); split coils let the sensible coil run warmer (≈ −3 %); more efficient lamps produce less heat for the same light. A poorly insulated envelope lets more heat in from the desert, raising the HVAC electricity (≈ 332 → 389 MWh).</p>"},
+          {"type":"numeric","q":"Starting from the default, raise the air leakage to 0.2 h⁻¹. What is the CO₂-use efficiency now?","answer":71.5,"tol":0.04,"unit":"%","hint":"Readout <em>CO₂ supplied per kg</em>, note line.","explain":"<p>≈ 72 %: ten times more air leaks out, carrying ten times more CO₂ (Eq. PF11), while the crop fixes the same amount. Airtightness is what makes enrichment to 1000 µmol mol⁻¹ affordable in plant factories.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ================================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Time resolution.</strong> One representative day per month, hourly steps; the outdoor temperature follows a cosine between the monthly mean daily minimum and maximum (maximum at 15:00); outdoor humidity is constant during the day. Weather variability, heat waves and solar gains on the envelope are ignored (Graamans et al., 2018 found albedo effects of less than 8 %).</li>
+        <li><strong>Building.</strong> A square room; height 1.0 m + 0.45 m per tier; walls and roof exchange heat with outdoor air, the floor with the ground at the annual mean outdoor temperature, all with the same U-value.</li>
+        <li><strong>Set-points.</strong> Temperature, relative humidity and CO₂ are held constant day and night. In practice many farms lower the temperature at night and stop dosing CO₂.</li>
+        <li><strong>Lighting and crop.</strong> Uniform PPFD; constant light-use efficiency (Jin et al., 2023) scaled with CO₂ by Eq. 8.3.2 of Lesson 8.3; roots are 10 % of the total dry matter (Kozai, 2013); dry matter stores 17.5 kJ g⁻¹ and is 40 % carbon (Anderson et al., 2018). The crop is treated as a continuous, staggered production with a constant canopy.</li>
+        <li><strong>Transpiration.</strong> Penman–Monteith for one big leaf per tier (Lesson 2.2), stomatal conductance at night 10 % of the day value; in the prescribed mode 90 % of the daily water is transpired in the light.</li>
+        <li><strong>HVAC.</strong> Cooling COP from a Carnot-fraction model (η = 0.40, condenser 15 K above outdoor air, cap 10; Lesson 7.2) or fixed values; no free cooling with outdoor air; heating by an air-source heat pump (COP 1–5) after any recovery of condenser heat. Fans inside the air handler are part of the auxiliary electricity.</li>
+        <li><strong>Water.</strong> The nutrient solution is fully recirculated apart from the discharge; the water chemically split in photosynthesis (≈ 0.6 kg per kg DW) and the water in the roots are neglected.</li>
+        <li><strong>CO₂.</strong> Worker respiration and CO₂ dissolved in the nutrient solution are neglected; the set-point is held for 24 h.</li>
+        <li><strong>Grid factors.</strong> Location-based life-cycle averages for 2025 (Ember, via Our World in Data, accessed September 2026): Sweden 35, EU-27 210 and Poland 589 g CO₂e kWh⁻¹.</li>
+      </ul>
+      <h3>Climate data</h3>
+      <table>
+        <caption>Table 3. Monthly climate normals used by the model.</caption>
+        <thead><tr><th>Site</th><th>Station and period</th><th>Humidity</th></tr></thead>
+        <tbody>
+          <tr><td>Västerås, Sweden</td><td>SMHI, Åkesta observatory, 2003–2018</td><td>\(e_a \approx e_s(T_{\min})\) (FAO-56)</td></tr>
+          <tr><td>Kiruna, Sweden</td><td>SMHI, Kiruna Airport, 2002–2021</td><td>\(e_a \approx e_s(T_{\min})\) (FAO-56)</td></tr>
+          <tr><td>De Bilt, Netherlands</td><td>KNMI, De Bilt, 1991–2020</td><td>monthly mean RH</td></tr>
+          <tr><td>Abu Dhabi, UAE</td><td>Abu Dhabi International Airport, 1991–2020 (humidity 1981–2010, NOAA)</td><td>monthly mean RH</td></tr>
+          <tr><td>Singapore</td><td>National Environment Agency, Changi, 1991–2020</td><td>monthly mean RH</td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="font-size:.86rem">Monthly values were taken from the national meteorological services' normals as compiled in the Wikipedia climate tables of each site (accessed September 2026).</p>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration: Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56). FAO. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">fao.org/4/x0490e</a></li>
+        <li>Anderson, M. S., Ewert, M. K., &amp; Keener, J. F. (2018). <em>Life Support Baseline Values and Assumptions Document</em> (NASA/TP-2015-218570/REV1). NASA Johnson Space Center. <a href="https://ntrs.nasa.gov/citations/20180001338" target="_blank" rel="noopener">ntrs.nasa.gov/citations/20180001338</a></li>
+        <li>Caird, M. A., Richards, J. H., &amp; Donovan, L. A. (2007). Nighttime stomatal conductance and transpiration in C3 and C4 plants. <em>Plant Physiology</em>, 143(1), 4–10. <a href="https://doi.org/10.1104/pp.106.092940" target="_blank" rel="noopener">doi:10.1104/pp.106.092940</a></li>
+        <li>Ember (2026). <em>Carbon intensity of electricity generation</em> [dataset], processed by Our World in Data. <a href="https://ourworldindata.org/grapher/carbon-intensity-electricity" target="_blank" rel="noopener">ourworldindata.org/grapher/carbon-intensity-electricity</a></li>
+        <li>Graamans, L., van den Dobbelsteen, A., Meinen, E., &amp; Stanghellini, C. (2017). Plant factories; crop transpiration and energy balance. <em>Agricultural Systems</em>, 153, 138–147. <a href="https://doi.org/10.1016/j.agsy.2017.01.003" target="_blank" rel="noopener">doi:10.1016/j.agsy.2017.01.003</a></li>
+        <li>Graamans, L., Baeza, E., van den Dobbelsteen, A., Tsafaras, I., &amp; Stanghellini, C. (2018). Plant factories versus greenhouses: Comparison of resource use efficiency. <em>Agricultural Systems</em>, 160, 31–43. <a href="https://doi.org/10.1016/j.agsy.2017.11.003" target="_blank" rel="noopener">doi:10.1016/j.agsy.2017.11.003</a></li>
+        <li>Jin, W., Formiga Lopez, D., Heuvelink, E., &amp; Marcelis, L. F. M. (2023). Light use efficiency of lettuce cultivation in vertical farms compared with greenhouse and field. <em>Food and Energy Security</em>, 12(1), e391. <a href="https://doi.org/10.1002/fes3.391" target="_blank" rel="noopener">doi:10.1002/fes3.391</a></li>
+        <li>Kimball, B. A. (1983). Carbon dioxide and agricultural yield: An assemblage and analysis of 430 prior observations. <em>Agronomy Journal</em>, 75(5), 779–788. <a href="https://doi.org/10.2134/agronj1983.00021962007500050014x" target="_blank" rel="noopener">doi:10.2134/agronj1983.00021962007500050014x</a></li>
+        <li>Kozai, T. (2013). Resource use efficiency of closed plant production system with artificial light: Concept, estimation and application to plant factory. <em>Proceedings of the Japan Academy, Series B</em>, 89(10), 447–461. <a href="https://doi.org/10.2183/pjab.89.447" target="_blank" rel="noopener">doi:10.2183/pjab.89.447</a></li>
+        <li>Kozai, T., Niu, G., &amp; Takagaki, M. (Eds.) (2020). <em>Plant factory: An indoor vertical farming system for efficient quality food production</em> (2nd ed.). Academic Press. <a href="https://doi.org/10.1016/C2018-0-00969-X" target="_blank" rel="noopener">doi:10.1016/C2018-0-00969-X</a></li>
+        <li>Kusuma, P., Pattison, P. M., &amp; Bugbee, B. (2020). From physics to fixtures to food: Current and potential LED efficacy. <em>Horticulture Research</em>, 7, 56. <a href="https://doi.org/10.1038/s41438-020-0283-7" target="_blank" rel="noopener">doi:10.1038/s41438-020-0283-7</a></li>
+        <li>van Delden, S. H., SharathKumar, M., Butturini, M., Graamans, L. J. A., Heuvelink, E., Kacira, M., … Marcelis, L. F. M. (2021). Current status and future challenges in implementing and upscaling vertical farming systems. <em>Nature Food</em>, 2, 944–956. <a href="https://doi.org/10.1038/s43016-021-00402-w" target="_blank" rel="noopener">doi:10.1038/s43016-021-00402-w</a></li>
+      </ol>
+      <p>Related course pages: <a href="/lessons/energy-balance/">Lesson 8.1 Energy balances</a>, <a href="/lessons/psychrometrics/">Lesson 8.2 Psychrometrics</a>, <a href="/lessons/co2-enrichment/">Lesson 8.3 CO₂ enrichment</a>, <a href="/lessons/vertical-farming/">Lesson 7.2 Vertical farms</a>, <a href="/laboratories/psychrometric-chart/">Psychrometric chart laboratory</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

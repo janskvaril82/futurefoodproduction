@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stomata and transpiration · Future Food Production</title>
+<meta name="description" content="Guard cells open and close in a 3D leaf epidermis as light, CO₂, humidity and root-zone water change; a leaf energy balance computes transpiration and leaf temperature, shown on a whole leaf in an air stream with a thermal camera.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live calculators for the Derive tab — the same equations and constants as model.js */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  var SIG = 5.670374419e-8, K0 = 273.15, CP = 29.3, EPS = 0.97;
+  function es(T) { return 0.6108 * Math.exp(17.27 * T / (T + 237.3)); }
+  function slope(T) { return 4098 * es(T) / Math.pow(T + 237.3, 2); }
+  function lam(T) { return (2.501e6 - 2361 * T) * 0.018015; }
+  FFP_CALC.stBL = function (v) { var d = 0.72 * v.w / 100; return 0.147 * Math.sqrt(v.u / d) + 0.055 * Math.pow(Math.abs(v.dT) / d, 0.25); };
+  FFP_CALC.stPM = function (v) {           // Penman–Monteith for an amphistomatous leaf in a room; returns E in mmol m-2 s-1
+    var d = 0.72 * v.w / 100, gH = 0.135 * Math.sqrt(v.u / d), gV = 0.147 * Math.sqrt(v.u / d);
+    var Rni = v.rsw, gr = 8 * EPS * SIG * Math.pow(v.T + K0, 3) / CP, gHr = 2 * gH + gr;
+    var gv = 2 / (2 / v.gs + 1 / gV), s = slope(v.T), L = lam(v.T), g = CP * 101.325 / L, Da = es(v.T) * (1 - v.rh / 100);
+    var LE = (s * Rni + CP * gHr * Da) / (s + g * gHr / gv); return LE / L * 1000;
+  };
+  FFP_CALC.stPMdT = function (v) {
+    var d = 0.72 * v.w / 100, gH = 0.135 * Math.sqrt(v.u / d), gV = 0.147 * Math.sqrt(v.u / d);
+    var Rni = v.rsw, gr = 8 * EPS * SIG * Math.pow(v.T + K0, 3) / CP, gHr = 2 * gH + gr;
+    var gv = 2 / (2 / v.gs + 1 / gV), s = slope(v.T), L = lam(v.T), g = CP * 101.325 / L, Da = es(v.T) * (1 - v.rh / 100);
+    var LE = (s * Rni + CP * gHr * Da) / (s + g * gHr / gv); return (Rni - LE) / (CP * gHr);
+  };
+  FFP_CALC.stOmega = function (v) { var s = slope(v.T), g = CP * 101.325 / lam(v.T), e = s / g; return (e + 1) / (e + 1 + v.gb / v.gs); };
+  FFP_CALC.stSky = function (v) { var ea = es(v.T) * v.rh / 100; return 1.72 * Math.pow(ea / (v.T + K0), 1 / 7); };
+  FFP_CALC.stPore = function (v) {           // pore width (µm) for conductance g on one side (same as model.js)
+    var Dv = 2.49e-5, vm = 8.314462618 * 298.15 / 101325, dens = v.dens * 1e6, l = 10e-6, len = 16e-6, K = Dv / vm * dens, c = Math.sqrt(Math.PI) / 2, g = v.g;
+    var x = (g * c + Math.sqrt(g * g * c * c + 4 * K * g * l)) / (2 * K); return 4 * x * x / (Math.PI * len) * 1e6;
+  };
+})();
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .st-totals { font-size: .8rem; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .st-totals b { color: var(--ink); }
+</style>
+</head>
+<body data-page="lab" data-slug="stomata-transpiration">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Stomata and transpiration</h1>
+    <p class="lead">Every molecule of CO₂ a leaf takes in costs it hundreds of molecules of water, and both travel through the same microscopic pores. Zoom into a leaf epidermis where kidney-shaped guard cells open and close as you change light, CO₂, humidity and root-zone water — then step back to a whole leaf in an air stream, seen through a thermal camera. Behind both views runs the physics growers use to manage climate: a leaf energy balance that solves for leaf temperature and transpiration, with stomata and the boundary layer as conductances in series.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Transpiration versus vapour-pressure deficit</h3>
+      <div class="chart-sub">Drier air (larger VPD) pulls more water out of the leaf, but the stomata partly close in response, so E rises less than in proportion (solid). The dashed line holds gₛ at its current value; the dotted line is gₛ itself (right axis). The dot is the current state.</div>
+      <div class="chart" id="chart-evpd"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Leaf-to-air temperature difference versus wind</h3>
+      <div class="chart-sub">Wind thins the boundary layer and couples the leaf to the air. A transpiring leaf in dry air can be cooler than the air; a sunlit leaf with closed stomata can be several degrees warmer, most of all in still air.</div>
+      <div class="chart" id="chart-dtwind"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Stomatal conductance over a simulated day</h3>
+      <div class="chart-sub">Light peaks at the PPFD slider value; the air temperature swings around the slider value while its vapour pressure stays constant, so RH falls as the air warms. Stomata follow their steady-state target (dashed) with the time constant τ. Press <em>Play the day</em>.</div>
+      <div class="chart" id="chart-day"></div>
+      <div class="st-totals" id="day-totals"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Energy balance of the leaf</h3>
+      <div class="chart-sub">Absorbed radiation must leave the leaf again as long-wave radiation, sensible heat H and latent heat λE (Eq. S1). Gains are positive, losses negative, and the bars sum to zero: when transpiration falls, H — and with it leaf temperature — must rise.</div>
+      <div class="chart" id="chart-energy"></div>
+      <div class="st-totals" id="energy-note"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour from pore to leaf</h2>
+      <ol>
+        <li><strong>Read the epidermis.</strong> The patch is 260 × 180 µm of the lower leaf surface — about the size of a grain of fine sand. The interlocking “jigsaw” shapes are <em>pavement cells</em>; they are transparent, so the green you see is the mesophyll below, glowing through. Six <em>stomata</em> (≈ 128 per mm²) are scattered among them, each a pair of kidney-shaped <em>guard cells</em> with green chloroplasts and a nucleus. Click a guard cell to read its current pore width.</li>
+        <li><strong>Watch the pores respond.</strong> Drag the relative humidity from 60 % to 30 %: within the stomatal response time the guard cells move together and the water-vapour plume thins, although drier air pulls harder on each pore. Now set PPFD to 0 (darkness) or raise CO₂ to 1500 ppm — both close the pores, for different reasons. Use <em>Close-up</em> to see one pore.</li>
+        <li><strong>Dry the root zone.</strong> Lower <em>Root-zone water</em> below 40 %. Roots send the hormone abscisic acid (ABA) to the leaves and the stomata close although the leaf itself is still turgid. Look at leaf temperature: with less evaporative cooling it rises.</li>
+        <li><strong>Step back to the whole leaf.</strong> Switch the scale to <em>Whole leaf</em>. A fan blows air across a lettuce leaf; the thermal camera shows its surface temperature. The upwind (leading) edge, where the boundary layer is thinnest, stays closest to air temperature. Turn the wind down to 0.05 m s⁻¹ and watch the translucent boundary layer thicken and the leaf warm up; make the leaf wider and the same happens.</li>
+        <li><strong>Play a day.</strong> Press <em>Play the day</em>. With the <em>LED</em> source the lights switch on at dawn: photosynthesis responds within seconds but the stomata lag behind by several minutes — compare the solid and dashed curves in the day chart. In the sun, stomata close slightly in the afternoon when the air is warmest and driest.</li>
+        <li><strong>Try the presets.</strong> <em>Tipburn risk</em> shows a leaf in humid, still air that transpires very little — the calcium it needs travels in that water. <em>Clear, calm night</em> shows a leaf radiating heat to a cold sky and cooling below the air, until dew forms on it.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Transpiration is driven by the difference in water-vapour pressure between the saturated air inside the leaf and the air outside, and resisted by two conductances in series — the <strong>stomata</strong>, which the plant controls, and the <strong>boundary layer</strong>, which the air flow and leaf size control. Because evaporation consumes energy, transpiration and leaf temperature can only be computed together, from the leaf's <strong>energy balance</strong>.</p></div>
+      <div class="callout note"><div class="callout-title">Scales</div><p>Epidermis view: 1 scene unit = 1 µm; the pore widths are computed from the model's stomatal conductance with the pore-diffusion equation (S11). Whole-leaf view: 1 scene unit = 1 cm; the leaf is as wide as the <em>Leaf width</em> slider. Particle rates are proportional to the computed fluxes; their speeds are chosen for visibility.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Why leaves lose water</h2>
+      <p>Inside a leaf, the walls of the mesophyll cells are wet, so the air in the intercellular spaces is practically saturated with water vapour at leaf temperature. Outside, the air is usually much drier. Whenever the stomata are open to let CO₂ in, water vapour diffuses out down this concentration gradient. The ratio is lopsided: CO₂ makes up about 0.04 % of air, whereas the vapour-pressure difference between leaf and air is typically 1–2 % of atmospheric pressure, and water molecules diffuse 1.6 times faster than CO₂. A well-watered C3 crop therefore loses a few hundred water molecules for every CO₂ molecule it fixes. Transpiration is not a design flaw, though: it cools the leaves, and the transpiration stream carries nutrients such as calcium from the roots to the shoot.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 300" role="img" aria-label="Pathway of water vapour from the leaf interior through the stomatal pore and the boundary layer to the air, drawn as conductances in series">
+          <defs><marker id="stA1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <rect x="20" y="40" width="300" height="140" rx="10" class="fill-accent-soft stroke-accent" stroke-width="1.5"/>
+          <text x="40" y="66" class="t-small">mesophyll: wet cell walls</text>
+          <text x="40" y="84" class="t-small t-muted">intercellular air saturated at T_leaf</text>
+          <text x="40" y="104" class="t-small">e_i = e_s(T_leaf)</text>
+          <rect x="20" y="180" width="300" height="18" class="fill-sunk stroke-muted" stroke-width="1"/>
+          <ellipse cx="170" cy="189" rx="22" ry="8" class="fill-accent stroke-accent"/>
+          <text x="330" y="194" class="t-small">lower epidermis with a stoma</text>
+          <path d="M170 150 L170 235" class="stroke-water" stroke-width="2.5" fill="none" marker-end="url(#stA1)" style="color:var(--water)"/>
+          <rect x="20" y="198" width="300" height="46" class="fill-water-soft" opacity="0.5"/>
+          <text x="330" y="226" class="t-small">boundary layer (thickness δ)</text>
+          <text x="330" y="276" class="t-small">free air: vapour pressure e_a, temperature T_a</text>
+          <g transform="translate(470,50)">
+            <text x="0" y="0" class="t-small">Resistances in series</text>
+            <line x1="40" y1="14" x2="40" y2="40" class="stroke" stroke-width="1.5"/>
+            <text x="54" y="30" class="t-small t-muted">e_s(T_leaf)</text>
+            <rect x="28" y="40" width="24" height="46" rx="4" class="fill-accent-soft stroke-accent" stroke-width="1.5"/>
+            <text x="62" y="68" class="t-small">1/g_s  (stomata)</text>
+            <line x1="40" y1="86" x2="40" y2="104" class="stroke" stroke-width="1.5"/>
+            <rect x="28" y="104" width="24" height="46" rx="4" class="fill-water-soft stroke-water" stroke-width="1.5"/>
+            <text x="62" y="132" class="t-small">1/g_bv  (boundary layer)</text>
+            <line x1="40" y1="150" x2="40" y2="176" class="stroke" stroke-width="1.5"/>
+            <text x="54" y="176" class="t-small t-muted">e_a</text>
+            <text x="0" y="214" class="t-small">E = g_tv (e_s(T_leaf) − e_a) / P</text>
+          </g>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> Water vapour leaves the saturated intercellular air spaces through the stomatal pores and then diffuses across the boundary layer of slow air next to the leaf. The two conductances act in series (Eq. S4), just as two resistors in series carry the same current. The driving force is the vapour-pressure difference between the leaf interior (saturated at <em>leaf</em> temperature) and the free air.</figcaption>
+      </figure>
+      <h3>The energy balance links water and temperature</h3>
+      <p>Evaporating one mole of water takes about 44 kJ. A leaf transpiring 4 mmol m⁻² s⁻¹ therefore removes about 180 W m⁻² — similar to the solar radiation it absorbs at midday in a greenhouse. The absorbed radiation (short-wave from the sun or lamps, long-wave from the surroundings) must leave the leaf again as emitted long-wave radiation, as <em>sensible heat</em> H conducted and convected to the air, and as <em>latent heat</em> λE carried away by water vapour (Figure 2). The leaf settles at the one temperature at which the books balance (Eq. S1). Because the vapour pressure inside the leaf depends steeply on that temperature, transpiration and leaf temperature must be solved together — this laboratory does so numerically, and also with the classical linearised solution, the Penman–Monteith equation for a leaf (Eq. S9), which agrees within about 1 %.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 250" role="img" aria-label="Energy fluxes of a leaf: absorbed short-wave and long-wave radiation in; emitted long-wave, sensible heat and latent heat out">
+          <defs><marker id="stA2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <path d="M140 150 Q350 110 560 150 Q350 175 140 150z" class="fill-accent-soft stroke-accent" stroke-width="2"/>
+          <g class="stroke-amber" stroke-width="2.5" style="color:var(--amber)"><line x1="230" y1="20" x2="260" y2="118" marker-end="url(#stA2)"/><line x1="290" y1="20" x2="310" y2="116" marker-end="url(#stA2)"/></g>
+          <text x="150" y="30" class="t-small">short-wave in (sun, LEDs)</text>
+          <g class="stroke-muted" stroke-width="2" style="color:var(--muted)"><line x1="420" y1="30" x2="400" y2="118" marker-end="url(#stA2)"/><line x1="400" y1="232" x2="385" y2="170" marker-end="url(#stA2)"/></g>
+          <text x="430" y="30" class="t-small">long-wave in (sky or roof, floor)</text>
+          <g class="stroke-magenta" stroke-width="2" style="color:var(--magenta)"><line x1="470" y1="124" x2="520" y2="60" marker-end="url(#stA2)"/><line x1="470" y1="165" x2="520" y2="230" marker-end="url(#stA2)"/></g>
+          <text x="528" y="66" class="t-small">emitted long-wave 2εσT⁴</text>
+          <g class="stroke-danger" stroke-width="2" style="color:var(--danger)"><line x1="170" y1="138" x2="100" y2="90" marker-end="url(#stA2)"/></g>
+          <text x="20" y="80" class="t-small">sensible heat H</text>
+          <g class="stroke-water" stroke-width="2.5" style="color:var(--water)"><line x1="330" y1="168" x2="300" y2="236" marker-end="url(#stA2)"/><line x1="350" y1="128" x2="360" y2="70" marker-end="url(#stA2)"/></g>
+          <text x="210" y="244" class="t-small">latent heat λE (water vapour)</text>
+          <text x="300" y="152" class="t-small">leaf at T_leaf</text>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> The leaf energy balance. Both faces of the leaf absorb and emit long-wave radiation and exchange sensible heat; latent heat leaves through the faces that carry stomata. Photosynthesis stores less than 1 % of the absorbed energy and is neglected.</figcaption>
+      </figure>
+      <h3>The boundary layer: why wind and leaf size matter</h3>
+      <p>Air sticks to surfaces. Close to the leaf the wind slows down to zero, and heat and water vapour have to cross this layer of slow air by molecular diffusion. For a flat plate in laminar flow, the theory of heat transfer gives a conductance that grows with the square root of wind speed and shrinks with the square root of the plate's size in the direction of the flow; Campbell &amp; Norman (1998) turned this into the practical rule of Eq. S5, with a characteristic dimension of 0.72 times the leaf width. The layer starts thin at the leading edge and thickens downstream, which is why the upwind margin of the leaf in the thermal view stays closest to air temperature. In still air, the leaf's own warmth drives buoyant (free) convection, which the model adds to the forced convection. Kitaya et al. (2003) showed experimentally that leaf photosynthesis and transpiration rise steeply as air speed increases from almost still air to a few tenths of a metre per second — one reason why plant factories and vertical farms invest in horizontal air flow over each tier.</p>
+      <h3>How stomata decide</h3>
+      <p>Guard cells swell when they accumulate potassium, chloride and malate and draw in water; the kidney shape and the radial orientation of cellulose in their walls turn this swelling into an opening of the pore. They respond to many signals at once. <strong>Light</strong> (blue light directly, and photosynthesis indirectly) opens them; <strong>high CO₂</strong> closes them; <strong>dry air</strong> closes them; and <strong>abscisic acid (ABA)</strong>, synthesised when roots sense drying soil and transported in the xylem, closes them even before the leaf itself loses turgor (Tardieu &amp; Davies, 1993). The Medlyn et al. (2011) model captures the first three responses with a single idea: stomata behave as if they maximise carbon gain minus the “cost” of the water spent (Eq. S7). Light and CO₂ act through the photosynthesis rate A and the ratio A/Cₐ; dry air acts through the square root of the VPD. The root signal is represented, as in land-surface models (De Kauwe et al., 2015), by a factor β that scales the stomatal slope g₁ and falls once the root zone has lost 60 % of its extractable water (Granier et al., 1999). Stomata are slow: a change of light is followed within seconds by photosynthesis but within minutes to tens of minutes by the stomata (Lawson &amp; Blatt, 2014; McAusland et al., 2016), which the model represents with a single time constant τ (Eq. S8).</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“If the stomata close to half their conductance, transpiration halves.” Only when the leaf is well coupled to the air (large boundary-layer conductance, Ω ≈ 0). Closing stomata warms the leaf, which raises the vapour pressure inside it and partly compensates; and when the boundary layer is thick (still air, large leaves, dense canopies) it limits the flux anyway. The decoupling coefficient Ω (Eq. S10) measures how much the stomata are really in control (Jarvis &amp; McNaughton, 1986).</p></div>
+      <h3>Psychrometrics at the leaf surface</h3>
+      <p>Growers read humidity as relative humidity, but plants respond to the <em>vapour-pressure deficit</em>, and for transpiration the relevant deficit is the one between the leaf interior at leaf temperature and the air: the leaf-to-air VPD. The live figure below places the current air and leaf on a psychrometric diagram (vapour pressure against temperature). The air is a point below the saturation curve; the leaf interior is a point on the curve at leaf temperature. Warming the leaf moves its point up the steep saturation curve and increases the driving force; if the leaf cools below the dew point of the air — as on a clear night — the difference reverses and dew condenses. For a full treatment of air states and processes, use the <a href="/laboratories/psychrometric-chart/">interactive psychrometric chart</a>.</p>
+      <figure class="figure"><div class="fig-body"><div id="fig-psy" style="min-height:330px"></div></div>
+        <figcaption><b>Figure 3 (live).</b> The current air (blue) and leaf (green) on a vapour-pressure–temperature diagram. The magenta arrow is the leaf-to-air vapour-pressure difference that drives transpiration; the dashed line runs from the dew point of the air to the air state. Dashed curves are lines of constant relative humidity.</figcaption>
+      </figure>
+      <h3>Transpiration, calcium and tipburn</h3>
+      <p>Calcium moves from the roots to the shoot almost exclusively in the xylem, with the transpiration stream, and once deposited in a leaf it is hardly redistributed. Young, rapidly expanding leaves need a lot of it for their cell walls and membranes, but the inner leaves of a lettuce head are enclosed by older leaves, sit in humid, still air and transpire very little. When growth is fast — high light, high CO₂, warm temperatures — calcium supply at the margins of these leaves falls behind, cells collapse and the leaf tips turn brown: <strong>tipburn</strong> (Saure, 1998). The humidity and air movement around the leaf, not the calcium concentration of the nutrient solution, are usually decisive. Blowing air into the heads prevented tipburn in classic experiments (Goto &amp; Takakura, 1992), and at Cornell, lettuce could only be grown at a daily light integral of 17 mol m⁻² d⁻¹ with fans blowing air down onto the crop; without them the limit was about 12 mol m⁻² d⁻¹ (Brechner &amp; Both, 2013). Tipburn is one of the main factors that limits lettuce productivity in plant factories (Frantz et al., 2004). Try the <em>Tipburn risk</em> preset and increase the wind speed: transpiration of the exposed leaf roughly doubles.</p>
+      <div class="callout frontier"><div class="callout-title">Research frontier</div><p>Faster stomata could save water: because stomata lag behind fluctuating light, leaves waste water after shade flecks and lose carbon after sun flecks. Breeding and engineering for faster guard-cell responses, and for fewer or smaller stomata, are active routes to better water-use efficiency (Lawson &amp; Blatt, 2014). In controlled environments, the same understanding is used in reverse: VPD, air speed and lighting schedules are managed to keep transpiration high enough for calcium transport without wasting water or energy on dehumidification.</p></div>
+      <h3>What it means for controlled-environment agriculture</h3>
+      <ul>
+        <li><strong>VPD targets.</strong> Recommended VPD windows for greenhouse crops lie between about 0.3 and 1.0 kPa, with commercial guidelines up to about 1.2 kPa (Lesson 2.2, Table 1). Within them stomata stay open and transpiration is moderate; below about 0.3 kPa young leaves are starved of calcium, and above about 1.5 kPa stomata close and the crop is stressed.</li>
+        <li><strong>Air movement</strong> of a few tenths of a metre per second across the leaves raises the boundary-layer conductance, couples leaf temperature to air temperature and prevents humid pockets in the canopy.</li>
+        <li><strong>LEDs versus sun.</strong> At the same PPFD, LED light carries less than half the radiant energy of sunlight, because more than half of the sun's energy is near-infrared. Leaves absorb near-infrared poorly, so the absorbed heat load is only about a quarter lower — but LED-lit leaves are still cooler and transpire less. The electrical energy of the lamps ends up as heat that the HVAC system has to remove.</li>
+        <li><strong>Transpiration is the largest latent heat load</strong> in a closed plant factory: every litre transpired must be condensed again by the dehumidifier (see the plant-factory energy balance laboratory).</li>
+      </ul>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The model solves, for given air temperature, humidity, wind, radiation, CO₂ and root-zone water, the leaf temperature T<sub>L</sub>, the stomatal conductance gₛ, the transpiration rate E and the photosynthesis rate A that satisfy the energy balance (S1–S6) and the stomatal model (S7) at the same time. All fluxes are per square metre of (one-sided) leaf area; conductances in mol m⁻² s⁻¹; vapour pressures in kPa; P = 101.3 kPa.</p>
+
+      <div class="eq-box" id="eq-st-balance">
+        <div class="eq-head"><span class="eq-label">Leaf energy balance</span><span class="eq-num">(S1)</span></div>
+        <div class="eq-main">\[ R_{\text{abs}} - 2\varepsilon\sigma T_L^4 \;=\; R_n \;=\; H + \lambda E \]</div>
+        <p class="eq-read">The radiation a leaf absorbs, minus the long-wave radiation it emits from both faces, is the net radiation; in steady state all of it must leave as sensible heat and as latent heat of evaporation.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(R_{\text{abs}}\)</td><td>absorbed short-wave + long-wave radiation (Eq. S2)</td><td>W m⁻²</td><td>900–1100</td></tr>
+          <tr><td>\(\varepsilon\)</td><td>thermal emissivity of the leaf</td><td>–</td><td>0.97</td></tr>
+          <tr><td>\(\sigma\)</td><td>Stefan–Boltzmann constant</td><td>W m⁻² K⁻⁴</td><td>5.67 × 10⁻⁸</td></tr>
+          <tr><td>\(T_L\)</td><td>leaf temperature</td><td>K</td><td></td></tr>
+          <tr><td>\(R_n\)</td><td>net radiation</td><td>W m⁻²</td><td>0–400</td></tr>
+          <tr><td>\(H,\ \lambda E\)</td><td>sensible and latent heat fluxes (Eqs. S3, S4)</td><td>W m⁻²</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>First law of thermodynamics for a thin leaf: heat storage = gains − losses. A leaf is only about 0.3 mm thick; its heat capacity (≈ 1 kJ m⁻² K⁻¹) lets it adjust within a minute, so over longer times storage ≈ 0.</li>
+          <li>Gains: absorbed radiation. Losses: emitted radiation (a grey body emits εσT⁴ from each of its two faces), sensible heat and latent heat. Metabolic terms (photosynthesis stores ≈ 0.5 % of the energy) are neglected.</li>
+          <li>The equation is non-linear in T<sub>L</sub> (T⁴ and the exponential saturation vapour pressure in λE). The laboratory finds T<sub>L</sub> numerically: the residual \(R_{\text{abs}} - 2\varepsilon\sigma T_L^4 - H - \lambda E\) decreases monotonically with T<sub>L</sub>, so its root is bracketed between T<sub>a</sub> − 25 and T<sub>a</sub> + 30 °C and found by regula falsi to 0.002 °C.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Steady state; a single, flat, isolated leaf of uniform temperature (the thermal image in the whole-leaf view relaxes the uniform-temperature assumption); no heat conduction to the petiole; no dew on the surfaces unless the leaf falls below the dew point.</p></details>
+        <div class="eq-units">every term is an energy flux density, J s⁻¹ m⁻² = W m⁻² ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-st-radiation">
+        <div class="eq-head"><span class="eq-label">Absorbed radiation and a cold sky</span><span class="eq-num">(S2)</span></div>
+        <div class="eq-main">\[ R_{\text{abs}} = a_s S + \varepsilon\left(L_{\text{up}} + L_{\text{down}}\right), \qquad L = \varepsilon_{\text{sur}}\,\sigma T_{\text{sur}}^4, \qquad \varepsilon_{\text{sky}} = 1.72\left(\frac{e_a}{T_a}\right)^{1/7} \]</div>
+        <p class="eq-read">The leaf absorbs a fraction of the short-wave radiation S falling on it and nearly all the long-wave radiation coming from above and below; under an open sky the downward long-wave radiation is that of a grey body with the clear-sky emissivity, which depends on the vapour pressure of the air.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(S\)</td><td>short-wave irradiance: sun S = PPFD/2.02 (≈ 45 % of solar energy is PAR); LED S = PPFD/4.6 (almost all energy is PAR)</td><td>W m⁻²</td><td></td></tr>
+          <tr><td>\(a_s\)</td><td>leaf absorptance: 0.85 for PAR, 0.20 for near-infrared → 0.49 for sunlight, 0.85 for LEDs</td><td>–</td><td></td></tr>
+          <tr><td>\(L_{\text{up}},\ L_{\text{down}}\)</td><td>long-wave radiation from above (roof or sky) and below (floor or soil, at air temperature)</td><td>W m⁻²</td><td>≈ 430 at 24 °C</td></tr>
+          <tr><td>\(\varepsilon_{\text{sky}}\)</td><td>clear-sky emissivity (e<sub>a</sub> in kPa, T<sub>a</sub> in K)</td><td>–</td><td>0.75–0.85</td></tr>
+        </table>
+        <details><summary>Where the numbers come from</summary><ol class="steps">
+          <li>Sunlight: 1 W m⁻² of global radiation carries about 2.0 µmol m⁻² s⁻¹ of PAR photons (45 % PAR × 4.57 µmol J⁻¹). Leaves absorb about 85 % of PAR but only about 20 % of the near-infrared (Campbell &amp; Norman, 1998), so a sunlit leaf absorbs 0.85 × 0.45 + 0.20 × 0.55 ≈ 0.49 of the short-wave energy.</li>
+          <li>Horticultural LEDs emit almost only 400–700 nm light; 4.6 µmol J⁻¹ corresponds to a white/red mixture. The same PPFD therefore delivers only about 45 % of the radiant energy of sunlight — but the leaf absorbs a larger fraction of it.</li>
+          <li>The clear-sky formula is Brutsaert's (1975) derivation expressed in kPa (C&amp;N 1998, eq. 10.10). At 10 °C and 85 % RH it gives ε<sub>sky</sub> ≈ 0.77: the sky radiates like a black body at about −8 °C, which is why leaves and lawns cool below air temperature on clear nights.</li>
+        </ol></details>
+        <div class="eq-units">W m⁻² × (–) = W m⁻²; \(\sigma T^4\): W m⁻² K⁻⁴ × K⁴ = W m⁻² ✓</div>
+        <div class="mini-calc" data-fn="stSky" data-output="Clear-sky emissivity ε<sub>sky</sub>" data-digits="3" data-plot="rh">
+          <div data-var="T" data-label="Air temperature" data-min="-10" data-max="35" data-step="0.5" data-value="10" data-unit="°C"></div>
+          <div data-var="rh" data-label="Relative humidity" data-min="10" data-max="100" data-step="1" data-value="85" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-st-sensible">
+        <div class="eq-head"><span class="eq-label">Sensible heat exchange</span><span class="eq-num">(S3)</span></div>
+        <div class="eq-main">\[ H = 2\,c_p\,g_{Ha}\,\left(T_L - T_a\right) \]</div>
+        <p class="eq-read">Heat flows from the warmer to the cooler of leaf and air, through the boundary layers of both faces, in proportion to the temperature difference.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(c_p\)</td><td>molar heat capacity of air</td><td>J mol⁻¹ K⁻¹</td><td>29.3</td></tr>
+          <tr><td>\(g_{Ha}\)</td><td>boundary-layer conductance for heat of one face (Eq. S5)</td><td>mol m⁻² s⁻¹</td><td>0.2–1.5</td></tr>
+          <tr><td>\(T_L - T_a\)</td><td>leaf-to-air temperature difference</td><td>K</td><td>−3 to +8</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Across a layer of still air, heat is carried by conduction: flux = k ΔT/δ (k thermal conductivity, δ layer thickness). Writing k/δ = c<sub>p</sub> g<sub>Ha</sub> in molar units defines the conductance.</li><li>A leaf loses heat from both faces in parallel, hence the factor 2.</li></ol></details>
+        <div class="eq-units">J mol⁻¹ K⁻¹ × mol m⁻² s⁻¹ × K = W m⁻² ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-st-transpiration">
+        <div class="eq-head"><span class="eq-label">Transpiration through stomata and boundary layer in series</span><span class="eq-num">(S4)</span></div>
+        <div class="eq-main">\[ E = g_{tv}\,\frac{e_s(T_L) - e_a}{P}, \qquad g_{tv} = \begin{cases} \left(\dfrac{1}{g_s} + \dfrac{1}{g_{bv}}\right)^{-1} & \text{stomata on one face} \\[2ex] 2\left(\dfrac{2}{g_s} + \dfrac{1}{g_{bv}}\right)^{-1} & \text{stomata on both faces} \end{cases} \]</div>
+        <p class="eq-read">The transpiration rate is the total conductance for water vapour times the vapour-pressure difference between the leaf interior and the air, expressed as a mole fraction. The total conductance combines the stomata and the boundary layer like resistors in series; with stomata on both faces each face carries half of gₛ in series with its own boundary layer, and the two faces act in parallel.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(E\)</td><td>transpiration rate</td><td>mol m⁻² s⁻¹ (shown in mmol)</td></tr>
+          <tr><td>\(g_s\)</td><td>total stomatal conductance to water vapour</td><td>mol m⁻² s⁻¹</td></tr>
+          <tr><td>\(g_{bv}\)</td><td>boundary-layer conductance for water vapour of one face (Eq. S5)</td><td>mol m⁻² s⁻¹</td></tr>
+          <tr><td>\(e_s(T_L),\ e_a\)</td><td>saturation vapour pressure at leaf temperature (Eq. S6); vapour pressure of the air</td><td>kPa</td></tr>
+          <tr><td>\(P\)</td><td>air pressure</td><td>kPa</td></tr>
+          <tr><td>\(\lambda\)</td><td>molar latent heat of vaporisation, ≈ 44.0 kJ mol⁻¹ at 25 °C</td><td>J mol⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Fick's law in molar units: flux = conductance × difference in mole fraction; the mole fraction of water vapour is e/P.</li><li>In series, the same flux crosses both steps: E = g<sub>s</sub>(e<sub>i</sub> − e<sub>s,surf</sub>)/P = g<sub>bv</sub>(e<sub>s,surf</sub> − e<sub>a</sub>)/P. Eliminating the unknown vapour pressure at the leaf surface gives 1/g<sub>tv</sub> = 1/g<sub>s</sub> + 1/g<sub>bv</sub>.</li><li>Two faces each with g<sub>s</sub>/2 in series with g<sub>bv</sub>, in parallel: g<sub>tv</sub> = 2/(2/g<sub>s</sub> + 1/g<sub>bv</sub>).</li><li>The latent heat flux is λE. If the leaf is colder than the dew point of the air, the difference becomes negative and water condenses on both surfaces, through the boundary layer only.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>The intercellular air is saturated at leaf temperature (true for well-watered leaves to within a few per cent); cuticular transpiration is included only through the small residual conductance g₀.</p></details>
+        <div class="eq-units">mol m⁻² s⁻¹ × kPa/kPa = mol m⁻² s⁻¹; λE: J mol⁻¹ × mol m⁻² s⁻¹ = W m⁻² ✓</div>
+        <div class="mini-calc" data-formula="2/(2/gs+1/gb)*D/101.325*1000" data-output="Transpiration E" data-unit="mmol m⁻² s⁻¹" data-digits="2" data-plot="gs">
+          <div data-var="gs" data-label="Stomatal conductance gₛ" data-min="0.01" data-max="1.2" data-step="0.01" data-value="0.4" data-unit="mol m⁻² s⁻¹"></div>
+          <div data-var="gb" data-label="Boundary-layer conductance g<sub>bv</sub>" data-min="0.05" data-max="2" data-step="0.01" data-value="0.4" data-unit="mol m⁻² s⁻¹"></div>
+          <div data-var="D" data-label="Leaf-to-air VPD" data-min="0.1" data-max="4" data-step="0.05" data-value="1.5" data-unit="kPa"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-st-boundary">
+        <div class="eq-head"><span class="eq-label">Boundary-layer conductance from wind and leaf size</span><span class="eq-num">(S5)</span></div>
+        <div class="eq-main">\[ g_{Ha} = 0.135\sqrt{\frac{u}{d}} + 0.05\left(\frac{\left|T_L - T_a\right|}{d}\right)^{1/4}, \qquad g_{bv} = 0.147\sqrt{\frac{u}{d}} + 0.055\left(\frac{\left|T_L - T_a\right|}{d}\right)^{1/4}, \qquad d = 0.72\,w \]</div>
+        <p class="eq-read">The conductance of one face for heat (and slightly more for water vapour) grows with the square root of wind speed and falls with the square root of leaf size — forced convection — plus a buoyancy term that matters only in nearly still air — free convection.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(u\)</td><td>wind speed near the leaf</td><td>m s⁻¹</td></tr>
+          <tr><td>\(w,\ d\)</td><td>leaf width; characteristic dimension</td><td>m</td></tr>
+          <tr><td>0.135, 0.147</td><td>forced-convection coefficients for heat and vapour</td><td>mol m⁻² s⁻¹ (m s⁻¹ m⁻¹)<sup>−½</sup></td></tr>
+          <tr><td>0.05, 0.055</td><td>free-convection coefficients</td><td>mol m⁻² s⁻¹ (K m⁻¹)<sup>−¼</sup></td></tr>
+        </table>
+        <details><summary>Follow the derivation (from heat-transfer theory)</summary><ol class="steps">
+          <li>For laminar flow along a flat plate of length d, the mean Nusselt number is Nu = 0.66 Re<sup>½</sup> Pr<sup>⅓</sup>, with Re = ud/ν. In molar units the conductance is g = ĉ k<sub>H</sub> Nu/d, where ĉ ≈ 41.6 mol m⁻³ is the molar density of air and k<sub>H</sub> = 21.5 × 10⁻⁶ m² s⁻¹ its thermal diffusivity.</li>
+          <li>Substituting ν = 15.1 × 10⁻⁶ m² s⁻¹ and Pr = 0.71: g<sub>Ha</sub> = 41.6 × 21.5 × 10⁻⁶ × 0.66 × (15.1 × 10⁻⁶)<sup>−½</sup> × 0.71<sup>⅓</sup> √(u/d) = 0.135 √(u/d) mol m⁻² s⁻¹ — Campbell &amp; Norman's (1998) coefficient.</li>
+          <li>For water vapour, replace the thermal diffusivity by the vapour diffusivity (24.2 × 10⁻⁶ m² s⁻¹) and Pr by the Schmidt number: the coefficient becomes 0.147.</li>
+          <li>Local conductance along the plate falls as x<sup>−½</sup> from the leading edge; averaging over a leaf of irregular outline gives the effective dimension d = 0.72 w for flow across the leaf width (C&amp;N 1998).</li>
+          <li>In free convection Nu = 0.5 Gr<sup>¼</sup> (Gr the Grashof number, ∝ ΔT d³), which gives 0.05 (ΔT/d)<sup>¼</sup>. The two mechanisms are added, as is common in leaf models (Leuning et al., 1995).</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Flat, smooth leaf in laminar flow. Leaves in the field, which flutter and sit in turbulent air, often have larger conductances than this; leaves deep inside a canopy see much lower wind speeds than the air above the canopy. The effective thickness of the diffusion boundary layer shown in the whole-leaf view is δ = D<sub>v</sub>ĉ/g<sub>bv</sub>, a few millimetres.</p></details>
+        <div class="eq-units">\(\sqrt{(\text{m s}^{-1})/\text{m}} = \text{s}^{-1/2}\): the coefficient carries mol m⁻² s⁻½ so that g is in mol m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="stBL" data-output="g<sub>bv</sub> of one face" data-unit="mol m⁻² s⁻¹" data-digits="3" data-plot="u">
+          <div data-var="u" data-label="Wind speed u" data-min="0.05" data-max="5" data-value="0.5" data-scale="log" data-unit="m s⁻¹"></div>
+          <div data-var="w" data-label="Leaf width w" data-min="1" data-max="30" data-step="0.5" data-value="10" data-unit="cm"></div>
+          <div data-var="dT" data-label="|T<sub>L</sub> − T<sub>a</sub>| (free convection)" data-min="0" data-max="8" data-step="0.1" data-value="0" data-unit="K"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-st-tetens">
+        <div class="eq-head"><span class="eq-label">Saturation vapour pressure and vapour-pressure deficit</span><span class="eq-num">(S6)</span></div>
+        <div class="eq-main">\[ e_s(T) = 0.6108\,\exp\!\left(\frac{17.27\,T}{T + 237.3}\right), \qquad D_{\text{leaf}} = e_s(T_L) - e_a, \qquad e_a = \frac{\text{RH}}{100}\,e_s(T_a) \]</div>
+        <p class="eq-read">The saturation vapour pressure (kPa) roughly doubles for every 10 °C of warming. The leaf-to-air vapour-pressure deficit is the saturation vapour pressure at leaf temperature minus the actual vapour pressure of the air.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(T\)</td><td>temperature</td><td>°C</td></tr><tr><td>\(e_s,\ e_a\)</td><td>saturation and actual vapour pressure</td><td>kPa</td></tr><tr><td>RH</td><td>relative humidity of the air</td><td>%</td></tr></table>
+        <details><summary>Where does it come from?</summary><p>The Clausius–Clapeyron equation, d ln e<sub>s</sub>/dT = λ/(R<sub>v</sub>T²), integrated with a temperature-dependent λ, is closely approximated by this Tetens form (FAO-56, Allen et al., 1998). Its slope s = de<sub>s</sub>/dT (0.19 kPa K⁻¹ at 25 °C) appears in the Penman–Monteith equation (S9).</p></details>
+        <div class="eq-units">kPa × exp(dimensionless) = kPa ✓</div>
+        <div class="mini-calc" data-formula="0.6108*exp(17.27*T/(T+237.3))" data-output="e<sub>s</sub>(T)" data-unit="kPa" data-digits="3" data-plot="T">
+          <div data-var="T" data-label="Temperature" data-min="-5" data-max="45" data-step="0.5" data-value="25" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-st-medlyn">
+        <div class="eq-head"><span class="eq-label">Stomatal conductance with a drought (ABA) factor</span><span class="eq-num">(S7)</span></div>
+        <div class="eq-main">\[ g_s = g_0 + 1.6\left(1 + \frac{\beta\,g_1}{\sqrt{D}}\right)\frac{A}{C_s}, \qquad \beta = \min\!\left(1,\ \frac{\text{REW}}{0.4}\right) \]</div>
+        <p class="eq-read">Stomatal conductance is a small residual plus a term proportional to photosynthesis per unit CO₂ at the leaf surface, reduced in dry air (large D). Drying roots send ABA to the leaves, which is represented by a factor β that scales the stomatal slope once less than 40 % of the extractable water is left.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(g_0\)</td><td>residual (cuticular and night-time) conductance</td><td>mol m⁻² s⁻¹</td><td>0.01</td></tr>
+          <tr><td>\(g_1\)</td><td>stomatal slope (water-use strategy)</td><td>kPa<sup>½</sup></td><td>5.8 for C3 crops (Lin et al., 2015)</td></tr>
+          <tr><td>\(A\)</td><td>net photosynthesis, from the Farquhar–von Caemmerer–Berry model at leaf temperature</td><td>µmol m⁻² s⁻¹</td><td></td></tr>
+          <tr><td>\(C_s\)</td><td>CO₂ at the leaf surface, \(C_a - 1.37A/g_{bv,\text{tot}}\)</td><td>µmol mol⁻¹</td><td></td></tr>
+          <tr><td>\(D\)</td><td>leaf-to-air VPD</td><td>kPa</td><td></td></tr>
+          <tr><td>REW</td><td>relative extractable water of the root zone (1 = field capacity, 0 = wilting point)</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>How light, CO₂, VPD and drought act</summary><ol class="steps">
+          <li><strong>Light</strong> raises A, and gₛ follows A — so stomata open in light and close in the dark (to g₀).</li>
+          <li><strong>CO₂</strong> enters as A/C<sub>s</sub>: when CO₂ rises, A rises less than in proportion, so A/C<sub>s</sub> and gₛ fall. Stomata close partially at high CO₂, which is why CO₂ enrichment raises water-use efficiency.</li>
+          <li><strong>VPD</strong>: gₛ falls with 1/√D, the optimal response derived by Medlyn et al. (2011).</li>
+          <li><strong>Drought</strong>: β multiplies g₁ as in land-surface models using the Medlyn equation (De Kauwe et al., 2015); the threshold REW = 0.4, below which transpiration becomes water-limited, follows Granier et al. (1999). Physiologically it stands for the ABA signal from drying roots (Tardieu &amp; Davies, 1993).</li>
+          <li>A, gₛ and the intercellular CO₂ are solved together with the diffusion equation A = (C<sub>a</sub> − Cᵢ)/(1.6/gₛ + 1.37/g<sub>bv,tot</sub>), exactly as in the <a href="/laboratories/leaf-photosynthesis/">photosynthesis laboratory</a>, but now at the leaf temperature from the energy balance.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>β acts only on stomata; real drought also reduces photosynthetic capacity (non-stomatal limitation) and involves hydraulic signals. The linear β(REW) is an empirical representation of the chemical signal, not a model of ABA synthesis.</p></details>
+        <div class="eq-units">\(\dfrac{\mu\text{mol m}^{-2}\text{s}^{-1}}{\mu\text{mol mol}^{-1}} = \text{mol m}^{-2}\,\text{s}^{-1}\); β and g₁/√D are dimensionless ✓</div>
+        <div class="mini-calc" data-formula="0.01+1.6*(1+min(1,rew/40)*g1/sqrt(D))*A/cs" data-output="gₛ" data-unit="mol m⁻² s⁻¹" data-digits="3" data-plot="rew">
+          <div data-var="A" data-label="A" data-min="0" data-max="40" data-step="0.5" data-value="18" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="D" data-label="VPD D" data-min="0.2" data-max="4" data-step="0.05" data-value="1.2" data-unit="kPa"></div>
+          <div data-var="cs" data-label="C<sub>s</sub>" data-min="200" data-max="2000" data-step="5" data-value="410" data-unit="ppm"></div>
+          <div data-var="g1" data-label="g₁" data-min="1" data-max="10" data-step="0.1" data-value="5.8" data-unit="kPa^½"></div>
+          <div data-var="rew" data-label="Root-zone water REW" data-min="0" data-max="100" data-step="1" data-value="100" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-st-dynamics">
+        <div class="eq-head"><span class="eq-label">Stomatal dynamics</span><span class="eq-num">(S8)</span></div>
+        <div class="eq-main">\[ \frac{\mathrm{d}g_s}{\mathrm{d}t} = \frac{g_{s,\text{ss}} - g_s}{\tau} \quad\Rightarrow\quad g_s(t) = g_{s,\text{ss}} + \left(g_{s,0} - g_{s,\text{ss}}\right)e^{-t/\tau} \]</div>
+        <p class="eq-read">After a step change, the conductance approaches its new steady-state value exponentially: after one time constant it has covered 63 % of the way, after three about 95 %.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(g_{s,\text{ss}}\)</td><td>steady-state conductance from Eq. S7 for the current environment</td><td>mol m⁻² s⁻¹</td></tr><tr><td>\(\tau\)</td><td>stomatal time constant (minutes to tens of minutes)</td><td>s</td></tr></table>
+        <details><summary>How the day simulation uses it</summary><ol class="steps"><li>The day is advanced in 3-minute steps. At each step the environment is set from the clock, the steady-state target is computed (energy balance + S7), and gₛ relaxes towards it with the exact exponential solution above.</li><li>Leaf temperature, E and A are then computed for the <em>actual</em> gₛ, so the leaf transpires too much or too little while the stomata lag.</li><li>Real stomata often open more slowly than they close, and their speed differs between species (McAusland et al., 2016); one τ is a simplification.</li></ol></details>
+        <div class="eq-units">(mol m⁻² s⁻¹)/s on both sides ✓</div>
+        <div class="mini-calc" data-formula="gss+(g0-gss)*exp(-t/tau)" data-output="gₛ(t)" data-unit="mol m⁻² s⁻¹" data-digits="3" data-plot="t">
+          <div data-var="t" data-label="Time after the change" data-min="0" data-max="60" data-step="1" data-value="10" data-unit="min"></div>
+          <div data-var="tau" data-label="Time constant τ" data-min="2" data-max="30" data-step="1" data-value="10" data-unit="min"></div>
+          <div data-var="g0" data-label="gₛ before" data-min="0.01" data-max="1" data-step="0.01" data-value="0.01" data-unit="mol m⁻² s⁻¹"></div>
+          <div data-var="gss" data-label="New steady state" data-min="0.01" data-max="1" data-step="0.01" data-value="0.45" data-unit="mol m⁻² s⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-st-pm">
+        <div class="eq-head"><span class="eq-label">Penman–Monteith equation for a leaf</span><span class="eq-num">(S9)</span></div>
+        <div class="eq-main">\[ \lambda E = \frac{s\,R_{ni} + c_p\,g_{Hr}\,D_a}{s + \gamma^*}, \qquad \gamma^* = \gamma\,\frac{g_{Hr}}{g_{tv}}, \qquad T_L - T_a = \frac{R_{ni} - \lambda E}{c_p\,g_{Hr}} \]</div>
+        <p class="eq-read">Linearising the saturation vapour pressure around air temperature gives an explicit solution: latent heat is a weighted sum of the radiation term and the air's drying power, divided by the slope of the saturation curve plus an apparent psychrometric constant that grows as the stomata close.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(R_{ni}\)</td><td>isothermal net radiation: R<sub>abs</sub> − 2εσT<sub>a</sub>⁴</td><td>W m⁻²</td></tr>
+          <tr><td>\(g_{Hr}\)</td><td>2 g<sub>Ha</sub> + g<sub>r</sub>, with the radiative conductance g<sub>r</sub> = 8εσT<sub>a</sub>³/c<sub>p</sub> ≈ 0.40 mol m⁻² s⁻¹</td><td>mol m⁻² s⁻¹</td></tr>
+          <tr><td>\(s\)</td><td>slope of e<sub>s</sub>(T) at T<sub>a</sub></td><td>kPa K⁻¹</td></tr>
+          <tr><td>\(\gamma\)</td><td>psychrometric constant c<sub>p</sub>P/λ ≈ 0.067</td><td>kPa K⁻¹</td></tr>
+          <tr><td>\(D_a\)</td><td>vapour-pressure deficit of the air</td><td>kPa</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Linearise: e<sub>s</sub>(T<sub>L</sub>) ≈ e<sub>s</sub>(T<sub>a</sub>) + sΔT, so e<sub>s</sub>(T<sub>L</sub>) − e<sub>a</sub> ≈ D<sub>a</sub> + sΔT; likewise 2εσT<sub>L</sub>⁴ ≈ 2εσT<sub>a</sub>⁴ + c<sub>p</sub>g<sub>r</sub>ΔT.</li>
+          <li>The balance becomes R<sub>ni</sub> = c<sub>p</sub>g<sub>Hr</sub>ΔT + (λg<sub>tv</sub>/P)(D<sub>a</sub> + sΔT).</li>
+          <li>Solve for ΔT, substitute into λE = (λg<sub>tv</sub>/P)(D<sub>a</sub> + sΔT) and use λγ/P = c<sub>p</sub>: the result is S9.</li>
+          <li>Worked example (<em>Sunny greenhouse</em> preset): R<sub>ni</sub> = 219 W m⁻², g<sub>Hr</sub> = 1.146, g<sub>tv</sub> = 0.295 mol m⁻² s⁻¹, s = 0.179 kPa K⁻¹, γ* = 0.262 kPa K⁻¹, D<sub>a</sub> = 1.19 kPa → λE = (39.3 + 40.1)/0.441 = 180 W m⁻² and ΔT = +1.17 K. The full numerical solution gives 180 W m⁻² and +1.16 K.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>The linearisation is excellent for |T<sub>L</sub> − T<sub>a</sub>| of a few kelvin. Applied to a whole canopy with a single “big leaf”, the same equation is the FAO Penman–Monteith equation for crop evapotranspiration (see the water-relations lesson).</p></details>
+        <div class="eq-units">(kPa K⁻¹ · W m⁻² + J mol⁻¹ K⁻¹ · mol m⁻² s⁻¹ · kPa)/(kPa K⁻¹) = W m⁻² ✓</div>
+        <div class="mini-calc" data-fn="stPM" data-output="E (Penman–Monteith)" data-unit="mmol m⁻² s⁻¹" data-digits="2" data-plot="gs">
+          <div data-var="rsw" data-label="Absorbed short-wave R<sub>ni</sub>" data-min="0" data-max="600" data-step="5" data-value="220" data-unit="W m⁻²"></div>
+          <div data-var="T" data-label="Air temperature" data-min="5" data-max="40" data-step="0.5" data-value="24" data-unit="°C"></div>
+          <div data-var="rh" data-label="Relative humidity" data-min="10" data-max="98" data-step="1" data-value="60" data-unit="%"></div>
+          <div data-var="u" data-label="Wind speed" data-min="0.05" data-max="5" data-value="0.3" data-scale="log" data-unit="m s⁻¹"></div>
+          <div data-var="w" data-label="Leaf width" data-min="1" data-max="30" data-step="0.5" data-value="10" data-unit="cm"></div>
+          <div data-var="gs" data-label="gₛ" data-min="0.01" data-max="1" data-step="0.01" data-value="0.46" data-unit="mol m⁻² s⁻¹"></div>
+        </div>
+        <div class="mini-calc" data-fn="stPMdT" data-output="T<sub>L</sub> − T<sub>a</sub>" data-unit="K" data-digits="2" data-plot="u" data-title="Try it — leaf-to-air temperature difference">
+          <div data-var="rsw" data-label="Absorbed short-wave R<sub>ni</sub>" data-min="0" data-max="600" data-step="5" data-value="220" data-unit="W m⁻²"></div>
+          <div data-var="T" data-label="Air temperature" data-min="5" data-max="40" data-step="0.5" data-value="24" data-unit="°C"></div>
+          <div data-var="rh" data-label="Relative humidity" data-min="10" data-max="98" data-step="1" data-value="60" data-unit="%"></div>
+          <div data-var="u" data-label="Wind speed" data-min="0.05" data-max="5" data-value="0.3" data-scale="log" data-unit="m s⁻¹"></div>
+          <div data-var="w" data-label="Leaf width" data-min="1" data-max="30" data-step="0.5" data-value="10" data-unit="cm"></div>
+          <div data-var="gs" data-label="gₛ" data-min="0.01" data-max="1" data-step="0.01" data-value="0.46" data-unit="mol m⁻² s⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-st-omega">
+        <div class="eq-head"><span class="eq-label">Decoupling coefficient</span><span class="eq-num">(S10)</span></div>
+        <div class="eq-main">\[ \Omega = \frac{\epsilon + 1}{\epsilon + 1 + g_{bv,\text{tot}}/g_s}, \qquad \epsilon = \frac{s}{\gamma} \]</div>
+        <p class="eq-read">Ω tells how far transpiration is controlled by the stomata (Ω near 0: a small change in gₛ changes E in proportion) or by the energy supply (Ω near 1: E follows the absorbed radiation and hardly depends on gₛ).</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(\epsilon\)</td><td>ratio of the slope of the saturation curve to the psychrometric constant (2.8 at 25 °C)</td><td>–</td></tr><tr><td>\(g_{bv,\text{tot}}\)</td><td>boundary-layer conductance in series with the stomata (both faces if amphistomatous)</td><td>mol m⁻² s⁻¹</td></tr></table>
+        <details><summary>Where does it come from?</summary><p>From the Penman–Monteith equation, the relative sensitivity of E to gₛ is (dE/E)/(dgₛ/gₛ) = 1 − Ω (Jarvis &amp; McNaughton, 1986). Tall, aerodynamically rough canopies such as forests, and small leaves in wind, are well coupled (Ω ≈ 0.1–0.3); short, smooth grass swards are much less so (Ω ≈ 0.8), and large leaves in still air, and whole greenhouse crops, are poorly coupled (Ω → 1). The single-surface form used here treats both faces with one boundary-layer conductance — a simplification.</p></details>
+        <div class="eq-units">all ratios dimensionless ✓</div>
+        <div class="mini-calc" data-fn="stOmega" data-output="Ω" data-digits="2" data-plot="gb">
+          <div data-var="T" data-label="Air temperature" data-min="0" data-max="40" data-step="0.5" data-value="25" data-unit="°C"></div>
+          <div data-var="gs" data-label="gₛ" data-min="0.02" data-max="1" data-step="0.01" data-value="0.4" data-unit="mol m⁻² s⁻¹"></div>
+          <div data-var="gb" data-label="g<sub>bv,tot</sub>" data-min="0.05" data-max="4" data-step="0.01" data-value="0.8" data-unit="mol m⁻² s⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-st-pore">
+        <div class="eq-head"><span class="eq-label">From conductance to pore width (drives the 3D guard cells)</span><span class="eq-num">(S11)</span></div>
+        <div class="eq-main">\[ g_{\text{side}} = \frac{D_v}{v}\,\frac{n\,a}{\,l + \frac{\pi}{2}\sqrt{a/\pi}\,}, \qquad \text{width} = \frac{4a}{\pi\,\ell_p} \]</div>
+        <p class="eq-read">The conductance of one leaf surface equals the diffusivity of water vapour divided by the molar volume of air, times the pore area per unit leaf area, divided by the diffusion path: the pore depth plus an end correction for the vapour shell that spreads out from each pore.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the 3D patch</th></tr><tr><td>\(D_v/v\)</td><td>vapour diffusivity / molar volume of air</td><td>mol m⁻¹ s⁻¹</td><td>1.02 × 10⁻³</td></tr><tr><td>\(n\)</td><td>stomatal density on this surface</td><td>m⁻²</td><td>1.28 × 10⁸ (128 mm⁻²)</td></tr><tr><td>\(a\)</td><td>pore area (ellipse)</td><td>m²</td><td></td></tr><tr><td>\(l\)</td><td>pore depth</td><td>m</td><td>10 × 10⁻⁶</td></tr><tr><td>\(\ell_p\)</td><td>pore length</td><td>m</td><td>16 × 10⁻⁶</td></tr></table>
+        <details><summary>What the numbers show</summary><p>For an amphistomatous lettuce leaf each surface carries half of gₛ. At gₛ = 0.4 mol m⁻² s⁻¹ (0.2 per face) the pores need to be only 1.7 µm wide — a small fraction of their maximum of about 9 µm. Stomata are extremely effective diffusers: pores covering well under 1 % of the leaf surface let water vapour escape almost as fast as from a wet surface of the same area (Franks &amp; Beerling, 2009). Invert the equation for a (a quadratic in √a) to obtain the widths shown in 3D.</p></details>
+        <div class="eq-units">\(\dfrac{\text{mol m}^{-1}\text{s}^{-1}\cdot\text{m}^{-2}\cdot\text{m}^2}{\text{m}} = \text{mol m}^{-2}\,\text{s}^{-1}\) ✓</div>
+        <div class="mini-calc" data-fn="stPore" data-output="Pore width" data-unit="µm" data-digits="2" data-plot="g">
+          <div data-var="g" data-label="Conductance of one face" data-min="0.01" data-max="0.8" data-step="0.01" data-value="0.2" data-unit="mol m⁻² s⁻¹"></div>
+          <div data-var="dens" data-label="Stomatal density" data-min="40" data-max="400" data-step="2" data-value="128" data-unit="mm⁻²"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator and the charts. Tick each task when you are done; <em>Save investigation</em> copies your settings and results into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Humidity and the self-limiting leaf</h4><p>Start from <em>Sunny greenhouse, noon</em>. Record gₛ, E and leaf temperature at RH 90, 75, 60, 45 and 30 %. Plot E against the air VPD and compare with the dashed line in the first chart. By what factor does E rise from 90 % to 30 % RH, and by what factor would it have risen if the stomata had not responded? Explain the difference in terms of Eq. S7.</p></li>
+        <li><h4>Wind, leaf size and leaf temperature</h4><p>With <em>Drying root zone</em> (stomata partly closed), find the wind speed below which the leaf is more than 3 °C warmer than the air, for leaf widths of 3, 10 and 25 cm. Use Eq. S5 to explain why the effect of width and wind comes as the ratio u/d. What does this imply for large-leaved crops in a still greenhouse?</p></li>
+        <li><h4>Who controls transpiration?</h4><p>Compare Ω for (a) <em>Hot, dry, windy field</em> and (b) <em>Tipburn risk</em>. In each case halve g₁ and record the relative change in E. Show that the relative change is close to (1 − Ω) times the relative change in gₛ, and explain why stomatal closure is a weak tool for saving water in still, humid air.</p></li>
+        <li><h4>A day in the plant factory</h4><p>Apply <em>Plant factory (LED, CO₂)</em>, set τ to 20 min and play the day. How long after lights-on does gₛ reach 90 % of its steady state? Estimate how much CO₂ fixation is lost in that period compared with instantaneous stomata (use the day chart). Repeat with τ = 5 min. Then compute the daily water transpired per m² of leaf (below the day chart) at CO₂ 1000 and 400 ppm and explain the difference.</p></li>
+        <li><h4>Sun versus LED at the same PPFD</h4><p>At 500 µmol m⁻² s⁻¹, 24 °C and 60 % RH, compare leaf temperature, E and the energy-balance bars for the sun and the LED source. What fraction of the absorbed short-wave energy is used for transpiration in each case? Which source demands more dehumidification per mole of photons, and why?</p></li>
+        <li><h4>Tipburn management</h4><p>Take <em>Tipburn risk</em> as a model of an inner leaf of a lettuce head. Find two different changes to the climate (humidity, air speed, light) that each double the transpiration rate, and discuss their side effects (energy use, growth rate, risk of drought stress). Relate your answer to the Cornell experience that vertical air flow allowed a DLI of 17 instead of 12 mol m⁻² d⁻¹.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-stomata-transpiration">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A leaf 10 cm wide is in air moving at 0.5 m s⁻¹. Using Eq. S5 (forced convection only), what is the boundary-layer conductance for water vapour of one face?","answer":0.387,"tol":0.02,"unit":"mol m⁻² s⁻¹","hint":"d = 0.72 × 0.10 m.","explain":"<p>\\(d = 0.072\\) m and \\(g_{bv} = 0.147\\sqrt{0.5/0.072} = 0.147\\times2.635 = 0.387\\) mol m⁻² s⁻¹.</p>"},
+          {"type":"numeric","q":"An amphistomatous leaf has gₛ = 0.4 mol m⁻² s⁻¹ and a boundary-layer conductance of 0.4 mol m⁻² s⁻¹ per face. The leaf-to-air VPD is 1.5 kPa (P = 101.3 kPa). What is the transpiration rate?","answer":3.95,"tol":0.02,"unit":"mmol m⁻² s⁻¹","hint":"g_tv = 2/(2/gₛ + 1/g_bv).","explain":"<p>\\(g_{tv} = 2/(2/0.4 + 1/0.4) = 0.267\\) mol m⁻² s⁻¹ and \\(E = 0.267\\times1.5/101.3 = 3.95\\times10^{-3}\\) mol m⁻² s⁻¹ = 3.95 mmol m⁻² s⁻¹.</p>"},
+          {"type":"numeric","q":"The air is at 25 °C and 60 % relative humidity; the leaf is at 27 °C. What is the leaf-to-air vapour-pressure deficit? (Use Eq. S6.)","answer":1.665,"tol":0.02,"unit":"kPa","hint":"e_a = 0.6 × e_s(25 °C); the leaf interior is saturated at 27 °C.","explain":"<p>\\(e_s(25) = 3.168\\) kPa, so \\(e_a = 1.901\\) kPa; \\(e_s(27) = 3.565\\) kPa; \\(D_{leaf} = 3.565 - 1.901 = 1.66\\) kPa — about a third larger than the VPD of the air (1.27 kPa).</p>"},
+          {"type":"mcq","q":"In the simulator, a sunlit leaf whose stomata have closed (drought) sits in air moving at 0.1 m s⁻¹. You increase the wind to 2 m s⁻¹. What happens to the leaf temperature?","options":["It moves closer to air temperature, because a larger boundary-layer conductance removes more sensible heat per kelvin","It rises, because wind increases transpiration and the leaf needs more energy","It stays the same, because closed stomata cut the leaf off from the air","It drops far below air temperature, because wind always cools"],"answer":0,"feedback":["","With closed stomata transpiration is small; the dominant effect of wind is on sensible heat exchange (Eq. S3).","Heat is exchanged through the boundary layer over the whole surface, not through the stomata.","Wind can only bring the leaf towards air temperature; cooling below it needs evaporation or a cold sky."],"explain":"<p>With little latent heat loss, the leaf must lose its net radiation as sensible heat: \\(\\Delta T \\approx R_n/(2c_p g_{Ha})\\). Raising u raises \\(g_{Ha}\\propto\\sqrt u\\), so \\(\\Delta T\\) shrinks — see the red dashed line in the wind chart.</p>"},
+          {"type":"numeric","q":"At 25 °C, ε = s/γ = 2.8. A leaf has gₛ = 0.4 mol m⁻² s⁻¹ and a total boundary-layer conductance of 0.8 mol m⁻² s⁻¹. What is the decoupling coefficient Ω (Eq. S10)?","answer":0.655,"tol":0.02,"hint":"Ω = (ε + 1)/(ε + 1 + g_b/gₛ).","explain":"<p>\\(\\Omega = 3.8/(3.8 + 2) = 0.66\\): a 10 % reduction in gₛ would reduce E by only about 3.5 %.</p>"},
+          {"type":"tf","q":"At the same PPFD, a leaf under LEDs absorbs more radiant energy than a leaf in sunlight, because it absorbs a larger fraction of the light.","answer":false,"explain":"<p>False. The leaf absorbs about 85 % of LED light but only about 49 % of sunlight; yet sunlight carries roughly twice the energy per mole of PAR photons, because more than half of its energy is near-infrared. At 500 µmol m⁻² s⁻¹ the LED-lit leaf absorbs about 92 W m⁻² of short-wave energy, the sunlit leaf about 122 W m⁻² (Eq. S2).</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>A single flat leaf in steady state (except for the stomatal time lag in the day simulation); no heat storage, no heat conduction through the petiole, photosynthetic energy storage neglected.</li>
+        <li>Radiation: short-wave absorptance 0.85 (PAR) and 0.20 (near-infrared); sunlight PPFD/2.02 W m⁻²; LEDs PPFD/4.6 W m⁻². Surroundings are either at air temperature (room, greenhouse) or a clear sky above and ground at air temperature below. Reflections from neighbouring leaves are ignored.</li>
+        <li>Boundary layer: flat-plate laminar forced convection plus free convection (Campbell &amp; Norman, 1998); turbulence, leaf flutter and canopy sheltering are not modelled. The thermal image uses a local conductance proportional to x<sup>−½</sup> from the upwind edge, scaled so that its mean equals the whole-leaf value; leaf temperature at each point is computed from a local energy balance with the same stomatal conductance everywhere.</li>
+        <li>Stomata: Medlyn et al. (2011) coupled to the Farquhar–von Caemmerer–Berry model with Bernacchi temperature functions — the same leaf (V<sub>cmax,25</sub> = 80, J<sub>max,25</sub> = 135 µmol m⁻² s⁻¹) as in the photosynthesis laboratory; g₀ = 0.01 mol m⁻² s⁻¹. The drought factor β = min(1, REW/0.4) acts on g₁ only (no non-stomatal limitation). Mesophyll conductance infinite; air pressure 101.3 kPa.</li>
+        <li>Stomatal dynamics: one first-order time constant for opening and closing. Day forcing: sinusoidal sunlight (or a rectangular LED photoperiod with 10-minute ramps), sinusoidal air temperature peaking at 15:00 (or warming and cooling with the lights), constant vapour pressure, wind and CO₂.</li>
+        <li>3D: the epidermis anatomy (cell sizes, 128 stomata per mm², guard cells 30 µm long, pore depth 10 µm, maximum pore width 9 µm) is typical of a dicot leaf, not measured on lettuce. Pore widths are computed from gₛ (Eq. S11); particle rates are proportional to E and A, particle speeds and flow tracers are illustrative.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Campbell, G. S., &amp; Norman, J. M. (1998). <em>An Introduction to Environmental Biophysics</em> (2nd ed.). Springer. <a href="https://doi.org/10.1007/978-1-4612-1626-1" target="_blank" rel="noopener">doi:10.1007/978-1-4612-1626-1</a></li>
+        <li>Jones, H. G. (2013). <em>Plants and Microclimate: A Quantitative Approach to Environmental Plant Physiology</em> (3rd ed.). Cambridge University Press. <a href="https://doi.org/10.1017/CBO9780511845727" target="_blank" rel="noopener">doi:10.1017/CBO9780511845727</a></li>
+        <li>Monteith, J. L., &amp; Unsworth, M. H. (2013). <em>Principles of Environmental Physics</em> (4th ed.). Academic Press. <a href="https://doi.org/10.1016/C2010-0-66393-0" target="_blank" rel="noopener">doi:10.1016/C2010-0-66393-0</a></li>
+        <li>Medlyn, B. E., Duursma, R. A., Eamus, D., Ellsworth, D. S., Prentice, I. C., Barton, C. V. M., Crous, K. Y., de Angelis, P., Freeman, M., &amp; Wingate, L. (2011). Reconciling the optimal and empirical approaches to modelling stomatal conductance. <em>Global Change Biology</em>, 17(6), 2134–2144. <a href="https://doi.org/10.1111/j.1365-2486.2010.02375.x" target="_blank" rel="noopener">doi:10.1111/j.1365-2486.2010.02375.x</a></li>
+        <li>Lin, Y.-S., Medlyn, B. E., Duursma, R. A., et al. (2015). Optimal stomatal behaviour around the world. <em>Nature Climate Change</em>, 5, 459–464. <a href="https://doi.org/10.1038/nclimate2550" target="_blank" rel="noopener">doi:10.1038/nclimate2550</a></li>
+        <li>De Kauwe, M. G., Kala, J., Lin, Y.-S., Pitman, A. J., Medlyn, B. E., Duursma, R. A., Abramowitz, G., Wang, Y.-P., &amp; Miralles, D. G. (2015). A test of an optimal stomatal conductance scheme within the CABLE land surface model. <em>Geoscientific Model Development</em>, 8, 431–452. <a href="https://doi.org/10.5194/gmd-8-431-2015" target="_blank" rel="noopener">doi:10.5194/gmd-8-431-2015</a></li>
+        <li>Granier, A., Bréda, N., Biron, P., &amp; Villette, S. (1999). A lumped water balance model to evaluate duration and intensity of drought constraints in forest stands. <em>Ecological Modelling</em>, 116(2–3), 269–283. <a href="https://doi.org/10.1016/S0304-3800(98)00205-1" target="_blank" rel="noopener">doi:10.1016/S0304-3800(98)00205-1</a></li>
+        <li>Tardieu, F., &amp; Davies, W. J. (1993). Integration of hydraulic and chemical signalling in the control of stomatal conductance and water status of droughted plants. <em>Plant, Cell &amp; Environment</em>, 16(4), 341–349. <a href="https://doi.org/10.1111/j.1365-3040.1993.tb00880.x" target="_blank" rel="noopener">doi:10.1111/j.1365-3040.1993.tb00880.x</a></li>
+        <li>Jarvis, P. G., &amp; McNaughton, K. G. (1986). Stomatal control of transpiration: scaling up from leaf to region. <em>Advances in Ecological Research</em>, 15, 1–49. <a href="https://doi.org/10.1016/S0065-2504(08)60119-1" target="_blank" rel="noopener">doi:10.1016/S0065-2504(08)60119-1</a></li>
+        <li>Lawson, T., &amp; Blatt, M. R. (2014). Stomatal size, speed, and responsiveness impact on photosynthesis and water use efficiency. <em>Plant Physiology</em>, 164(4), 1556–1570. <a href="https://doi.org/10.1104/pp.114.237107" target="_blank" rel="noopener">doi:10.1104/pp.114.237107</a></li>
+        <li>McAusland, L., Vialet-Chabrand, S., Davey, P., Baker, N. R., Brendel, O., &amp; Lawson, T. (2016). Effects of kinetics of light-induced stomatal responses on photosynthesis and water-use efficiency. <em>New Phytologist</em>, 211(4), 1209–1220. <a href="https://doi.org/10.1111/nph.14000" target="_blank" rel="noopener">doi:10.1111/nph.14000</a></li>
+        <li>Leuning, R., Kelliher, F. M., De Pury, D. G. G., &amp; Schulze, E.-D. (1995). Leaf nitrogen, photosynthesis, conductance and transpiration: scaling from leaves to canopies. <em>Plant, Cell &amp; Environment</em>, 18(10), 1183–1200. <a href="https://doi.org/10.1111/j.1365-3040.1995.tb00628.x" target="_blank" rel="noopener">doi:10.1111/j.1365-3040.1995.tb00628.x</a></li>
+        <li>Brutsaert, W. (1975). On a derivable formula for long-wave radiation from clear skies. <em>Water Resources Research</em>, 11(5), 742–744. <a href="https://doi.org/10.1029/WR011i005p00742" target="_blank" rel="noopener">doi:10.1029/WR011i005p00742</a></li>
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop Evapotranspiration — Guidelines for Computing Crop Water Requirements</em> (FAO Irrigation and Drainage Paper 56). FAO.</li>
+        <li>Kitaya, Y., Tsuruyama, J., Shibuya, T., Yoshida, M., &amp; Kiyota, M. (2003). Effects of air current speed on gas exchange in plant leaves and plant canopies. <em>Advances in Space Research</em>, 31(1), 177–182. <a href="https://doi.org/10.1016/S0273-1177(02)00747-0" target="_blank" rel="noopener">doi:10.1016/S0273-1177(02)00747-0</a></li>
+        <li>Saure, M. C. (1998). Causes of the tipburn disorder in leaves of vegetables. <em>Scientia Horticulturae</em>, 76(3–4), 131–147. <a href="https://doi.org/10.1016/S0304-4238(98)00153-8" target="_blank" rel="noopener">doi:10.1016/S0304-4238(98)00153-8</a></li>
+        <li>Goto, E., &amp; Takakura, T. (1992). Prevention of lettuce tipburn by supplying air to inner leaves. <em>Transactions of the ASAE</em>, 35(2), 641–645. <a href="https://doi.org/10.13031/2013.28644" target="_blank" rel="noopener">doi:10.13031/2013.28644</a></li>
+        <li>Frantz, J. M., Ritchie, G., Cometti, N. N., Robinson, J., &amp; Bugbee, B. (2004). Exploring the limits of crop productivity: beyond the limits of tipburn in lettuce. <em>Journal of the American Society for Horticultural Science</em>, 129(3), 331–338. <a href="https://doi.org/10.21273/JASHS.129.3.331" target="_blank" rel="noopener">doi:10.21273/JASHS.129.3.331</a></li>
+        <li>Brechner, M., &amp; Both, A. J. (2013). <em>Hydroponic Lettuce Handbook</em>. Cornell University Controlled Environment Agriculture program.</li>
+        <li>Franks, P. J., &amp; Beerling, D. J. (2009). Maximum leaf conductance driven by CO₂ effects on stomatal size and density over geologic time. <em>Proceedings of the National Academy of Sciences</em>, 106(25), 10343–10347. <a href="https://doi.org/10.1073/pnas.0904209106" target="_blank" rel="noopener">doi:10.1073/pnas.0904209106</a></li>
+      </ol>
+      <p>Related: <a href="/lessons/water-relations/">Lesson 2.2 Water relations, transpiration and vapour pressure deficit</a> · <a href="/laboratories/leaf-photosynthesis/">Inside a photosynthesising leaf</a> · <a href="/laboratories/psychrometric-chart/">Interactive psychrometric chart</a> · <a href="/laboratories/greenhouse-climate/">Greenhouse climate simulator</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

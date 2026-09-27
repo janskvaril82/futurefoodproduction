@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pH electrode calibration · Future Food Production</title>
+<meta name="description" content="Calibrate a virtual glass pH electrode with temperature-corrected buffers, watch it stabilise, judge its slope and offset against manufacturer criteria, and measure nutrient solutions with and without temperature compensation.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* time until a first-order electrode meets a stability criterion (change ≤ delta over a window w) */
+FFP_CALC.phStable = function (v) { var a = v.dE * (1 - Math.exp(-v.w / v.tau)) / v.delta; return a <= 1 ? 0 : v.tau * Math.log(a); };
+/* Mettler-Toledo B1 buffer table, linear interpolation */
+FFP_CALC.phBuf10 = function (v) { var T = [5, 10, 15, 20, 25, 30, 35, 40], p = [10.25, 10.18, 10.12, 10.06, 10.01, 9.97, 9.93, 9.89]; var t = Math.min(40, Math.max(5, v.T)), i = Math.min(6, Math.floor((t - 5) / 5)); return p[i] + (p[i + 1] - p[i]) * (t - T[i]) / 5; };
+</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .ph-logcard { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin: 4px 0 16px; }
+  .ph-logcard h3 { font: 650 .92rem var(--font-sans); margin: 0 0 2px; }
+  .ph-logcard .chart-sub { font-size: .78rem; color: var(--muted); margin-bottom: 8px; }
+  .ph-logwrap { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+  #ph-log { width: 100%; border-collapse: collapse; font-size: .78rem; }
+  #ph-log th { position: sticky; top: 0; background: var(--bg-sunk); font: 700 .7rem var(--font-mono); color: var(--muted); padding: 6px 8px; text-align: left; z-index: 1; }
+  #ph-log td { padding: 5px 8px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  #ph-log td.num { text-align: right; font-family: var(--font-mono); }
+  #ph-log td.note { color: var(--muted); font-size: .74rem; }
+  #ph-log td.ok { color: var(--ok); font-weight: 600; } #ph-log td.warn { color: var(--warn); font-weight: 600; } #ph-log td.bad { color: var(--danger); font-weight: 600; }
+  #ph-log tr.calres td { background: color-mix(in srgb, var(--accent) 8%, transparent); font-weight: 600; }
+  #ph-log tr.wait td { color: var(--muted); font-style: italic; }
+  .ph-logtools { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+</style>
+</head>
+<body data-page="lab" data-slug="ph-calibration">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>pH electrode calibration</h1>
+    <p class="lead">A hydroponic nutrient solution is kept between pH 5.5 and 6.5 — a window only ±0.5 units wide — so the pH meter must be right to within a few hundredths. Here you calibrate a virtual glass electrode exactly as a technician does: rinse, dip it into temperature-corrected buffers, wait for the reading to stabilise, record, and let the meter compute slope and offset. Then judge the electrode against the manufacturer's criteria, measure five real-world samples with and without temperature compensation, and discover what an ageing electrode does to your data.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage light-stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+      <div class="ph-logcard">
+        <h3>Session log</h3>
+        <div class="chart-sub">Every calibration point (CAL) and reading (READ), newest first. For readings the meter's result is shown together with what it would display with and without automatic temperature compensation; the error compares the displayed pH with the true pH of the sample at its temperature.</div>
+        <div class="ph-logwrap"><table id="ph-log"><thead><tr><th>#</th><th>min</th><th>Solution</th><th>T °C</th><th>True pH</th><th>E mV</th><th>Shown</th><th>ATC</th><th>no ATC</th><th>Error</th><th>Note</th></tr></thead><tbody></tbody></table></div>
+        <div class="ph-logtools"><button class="btn btn-sm" type="button" id="ph-clear">Clear log</button><button class="btn btn-sm" type="button" id="ph-csv">Download log (CSV)</button></div>
+      </div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Potential versus pH: calibration and the Nernst lines</h3>
+      <div class="chart-sub">Ideal electrodes at 5, 25 and 45 °C pivot about the isopotential point (pH 7, 0 mV). Your calibration points (squares) and fitted line, and your samples plotted at their true pH (magenta).</div>
+      <div class="chart tall" id="chart-mv"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Residuals and buffer re-checks</h3>
+      <div class="chart-sub">Distance of each calibration point from the fitted line (zero by construction for two points) and of later READ checks in a buffer. The shaded band is ±0.01 pH at the calibrated slope; drift pushes the re-checks out of it.</div>
+      <div class="chart" id="chart-res"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Electrode response after immersion</h3>
+      <div class="chart-sub">The displayed potential approaches equilibrium with the electrode's time constant τ. The amber line marks when the meter's stability criterion was first met.</div>
+      <div class="chart" id="chart-resp"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Buffers change with temperature</h3>
+      <div class="chart-sub">pH of the three technical buffers minus the value on their label (valid at 25 °C), from the manufacturer's table. The alkaline carbonate buffer moves most.</div>
+      <div class="chart" id="chart-buf"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ================================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A calibration, step by step</h2>
+      <p>The bench carries a bench-top pH/mV meter with automatic temperature compensation, a combination glass electrode on a stand, a beaker of storage solution (3 mol L⁻¹ KCl), a beaker of deionised rinse water, the three technical buffers pH 4.01, 7.00 and 10.01, and six samples in the front row. Click any beaker to move the electrode there; press the meter's <b>CAL</b> key to record a buffer and <b>READ</b> to record a reading.</p>
+      <ol>
+        <li><strong>Rinse, then pH 7.00.</strong> Click the rinse beaker (the reading wanders: deionised water has almost no ions to carry the current), then the green pH 7.00 buffer. Watch the response chart: the potential approaches its new value exponentially. When <em>✓ stable</em> appears on the display, press <b>CAL</b>.</li>
+        <li><strong>Rinse, then pH 4.01, CAL.</strong> After the second buffer the meter computes the calibration. For the new electrode the slope is about 99 % and the offset a few millivolts: "Electrode in good condition". The meter used the buffer values for the actual temperature — at 20 °C the pH 7.00 buffer is really 7.02.</li>
+        <li><strong>Measure the samples.</strong> Rinse and READ each sample in the front row. Look at the log: the true pH of the cold DWC tank (11 °C) and of the acidified water is recovered only with ATC; without it, the error grows with the distance from pH 7 and from the calibration temperature.</li>
+        <li><strong>The rainwater sample</strong> takes much longer to stabilise and stays noisy: with few ions the liquid junction and the glass membrane respond slowly. This is real, and a reason to measure low-conductivity water with a dedicated electrode.</li>
+        <li><strong>Age the electrode.</strong> Choose <em>Aged</em> and calibrate again with three buffers. The slope drops to about 91 % and the offset rises to about 24 mV: "needs cleaning". Stabilisation now takes minutes. Record one point <em>before</em> the stability mark and see what it does to the residuals.</li>
+        <li><strong>Drift.</strong> After calibrating, press <em>Wait 1 hour</em> twice and READ in the pH 7.00 buffer. The red diamonds in the residual chart show how far the electrode has drifted from its calibration.</li>
+        <li><strong>The 82 % electrode.</strong> Load the preset of that name and calibrate: the meter refuses ("Err 6"). The Investigate tab asks what you should do.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A pH meter measures a <strong>voltage</strong>; calibration with two or more buffers determines the two numbers — slope and offset — that turn it into pH at the electrode's present condition and temperature. The quality of every later reading rests on the buffers' true values at their temperature, on waiting for a stable signal, and on how quickly the electrode drifts away from its calibration.</p></div>
+    </section>
+
+    <!-- ================================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Why a pH electrode must be calibrated</h2>
+      <p>A combination electrode is two half-cells in one body: a thin pH-sensitive glass membrane with an internal buffer and Ag/AgCl element, and a reference Ag/AgCl element in KCl that contacts the sample through a porous junction (Lesson 9.2). The voltage between them follows the Nernst equation: it changes by \(s = \ln(10)RT/F\) — 59.16 mV per pH unit at 25 °C — and is zero at about pH 7, the isopotential point set by the internal buffer (Buck et al., 2002; Galster, 1991).</p>
+      <p>A real electrode deviates in two ways that change with age and use. Its <strong>slope</strong> is a little smaller than Nernstian — the ratio is the slope efficiency η — and its zero point is shifted by an <strong>offset</strong> (asymmetry, reference and junction potentials). Two unknowns need two equations: two buffers of known pH. A third buffer tests whether the response is really a straight line and averages out random errors.</p>
+
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 300" role="img" aria-label="Calibration line in the potential–pH plane: ideal Nernst line and a real electrode line with lower slope and an offset at pH 7">
+          <defs><marker id="pha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+          <line x1="70" y1="150" x2="660" y2="150" class="stroke-muted"/><line x1="365" y1="20" x2="365" y2="280" class="stroke-muted" stroke-dasharray="4 4"/>
+          <line x1="70" y1="280" x2="660" y2="280" class="stroke" stroke-width="1.4" marker-end="url(#pha)"/><line x1="70" y1="280" x2="70" y2="15" class="stroke" stroke-width="1.4" marker-end="url(#pha)"/>
+          <text x="655" y="298" text-anchor="end" class="t-small">pH</text><text x="80" y="22" class="t-small">E (mV)</text>
+          <text x="365" y="298" text-anchor="middle" class="t-small">7</text><text x="190" y="298" text-anchor="middle" class="t-small">4</text><text x="540" y="298" text-anchor="middle" class="t-small">10</text>
+          <text x="60" y="154" text-anchor="end" class="t-small">0</text>
+          <line x1="100" y1="36" x2="630" y2="264" class="stroke-muted" stroke-width="2" stroke-dasharray="6 5"/>
+          <text x="382" y="252" class="t-small t-muted">ideal electrode: 100 %, 0 mV</text>
+          <line x1="100" y1="60" x2="630" y2="228" class="stroke-accent" stroke-width="2.6"/>
+          <circle cx="190" cy="88.5" r="6" class="fill-accent"/><circle cx="365" cy="144" r="6" class="fill-accent"/><circle cx="540" cy="199.5" r="6" class="fill-accent"/>
+          <text x="566" y="190" class="t-small" style="fill:var(--accent)">real electrode</text>
+          <line x1="378" y1="144" x2="378" y2="150" class="stroke-magenta" stroke-width="2"/>
+          <path d="M405 112 L381 141" class="stroke-magenta" marker-end="url(#pha)"/><text x="408" y="106" class="t-small" style="fill:var(--magenta)">offset E₀ (potential at pH 7)</text>
+          <path d="M190 88.5 L277 88.5 L277 116" fill="none" class="stroke-amber" stroke-width="1.6"/>
+          <text x="233" y="82" text-anchor="middle" class="t-small" style="fill:var(--amber)">ΔpH</text><text x="283" y="106" class="t-small" style="fill:var(--amber)">ΔE</text>
+          <text x="104" y="176" class="t-small" style="fill:var(--amber)">slope S = ΔE/ΔpH = −η·s(T)</text>
+          <text x="440" y="38" class="t-small t-muted">buffer points plotted at their</text><text x="440" y="54" class="t-small t-muted">temperature-corrected pH values</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> Calibration determines the line through the buffer points: its slope (as a percentage of the Nernst slope at the calibration temperature) and its offset (the potential at pH 7). A sample's potential is then converted to pH along this line.</figcaption>
+      </figure>
+
+      <h3>Buffers are not constant either</h3>
+      <p>A buffer's pH depends on temperature because its acid–base equilibria do. The technical buffers used here are labelled with their value at 25 °C; the manufacturer's table gives, for example, 7.02 at 20 °C and 7.06 at 10 °C for the neutral phosphate buffer, and 10.06 at 20 °C and 10.18 at 10 °C for the carbonate buffer (Mettler-Toledo, 2015). A meter with a temperature probe looks these values up automatically; a meter without one (or with the table switched off) assumes the label value and builds the error into the calibration.</p>
+      <table>
+        <caption>Table 1. pH of the technical buffers of buffer group "B1" at 5–40 °C (Mettler-Toledo, 2015).</caption>
+        <thead><tr><th>T (°C)</th><th class="num">5</th><th class="num">10</th><th class="num">15</th><th class="num">20</th><th class="num">25</th><th class="num">30</th><th class="num">35</th><th class="num">40</th></tr></thead>
+        <tbody>
+          <tr><td>pH 4.01</td><td class="num">4.00</td><td class="num">4.00</td><td class="num">4.00</td><td class="num">4.00</td><td class="num">4.01</td><td class="num">4.01</td><td class="num">4.02</td><td class="num">4.03</td></tr>
+          <tr><td>pH 7.00</td><td class="num">7.09</td><td class="num">7.06</td><td class="num">7.04</td><td class="num">7.02</td><td class="num">7.00</td><td class="num">6.99</td><td class="num">6.98</td><td class="num">6.97</td></tr>
+          <tr><td>pH 10.01</td><td class="num">10.25</td><td class="num">10.18</td><td class="num">10.12</td><td class="num">10.06</td><td class="num">10.01</td><td class="num">9.97</td><td class="num">9.93</td><td class="num">9.89</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Waiting for a stable reading</h3>
+      <p>After immersion the gel layer of the glass and the liquid junction need time to equilibrate, and the electrode body must reach the solution temperature. The lab treats the potential as a first-order response with time constant τ (a new electrode a few seconds, an aged or fouled one a minute or more) and the temperature sensor with its own lag. The meter declares a reading stable with the manufacturer's criteria: <em>Medium</em>, no change of more than 0.1 mV in 6 s; <em>Strict</em>, 0.03 mV in 8 s or 0.1 mV in 30 s; <em>Fast</em>, 0.6 mV in 4 s (Mettler-Toledo, 2011). A strict criterion gives a more reliable value but waits longer — and a noisy electrode may never pass it.</p>
+
+      <h3>Two temperature effects that are often confused</h3>
+      <p>The <strong>electrode effect</strong>: the Nernst slope is proportional to absolute temperature, 55.2 mV pH⁻¹ at 5 °C and 63.1 mV pH⁻¹ at 45 °C. Automatic temperature compensation (ATC) rescales the calibrated slope to the sample temperature. The error it removes is zero at pH 7 and grows with the distance from pH 7 and from the calibration temperature. The <strong>solution effect</strong>: the true pH of the sample itself changes with temperature. ATC does not — and should not — correct it; report pH together with the measurement temperature.</p>
+
+      <h3>Reading the electrode's health from its calibration</h3>
+      <table>
+        <caption>Table 2. Electrode condition from the calibration result, as programmed in a common bench meter (Mettler-Toledo, 2015). Another meter family uses ±15 mV as the offset limit (see Lesson 9.2).</caption>
+        <thead><tr><th>Slope</th><th>Offset at pH 7</th><th>Condition</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td>95–105 %</td><td>within ±20 mV</td><td>good</td><td>use</td></tr>
+          <tr><td>90–94 %</td><td>±20–35 mV</td><td>needs cleaning</td><td>clean, recondition, recalibrate</td></tr>
+          <tr><td>85–89 %</td><td>beyond ±35 mV</td><td>faulty</td><td>clean; replace if it does not recover</td></tr>
+          <tr><td>&lt; 85 % or &gt; 110 %</td><td>—</td><td>calibration rejected</td><td>check buffers; clean or replace the electrode</td></tr>
+        </tbody>
+      </table>
+      <p>The same manual recommends degreasing an oily membrane, soaking a dried-out membrane overnight in 0.1 mol L⁻¹ HCl, removing protein deposits from the junction with an HCl/pepsin solution and silver sulfide with thiourea, and recalibrating after every treatment. In nutrient solutions, calcium phosphate precipitates and biofilm on the junction are the usual culprits (Lesson 9.2).</p>
+      <div class="callout warn"><div class="callout-title">Good practice checklist</div><p>Use fresh buffers and never pour them back · rinse with deionised water and blot, do not rub · bracket your samples (4.01 and 7.00 for nutrient solutions) · wait for the stability mark · calibrate at, or close to, the sample temperature · record slope and offset in your log · re-check a buffer at the end of the session · store the electrode wet in KCl, never in deionised water.</p></div>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"A calibrated electrode with 91 % slope is as good as a new one — the calibration corrects the slope." Calibration corrects the slope and offset <em>at that moment</em>. An electrode with a low slope usually also responds slowly, drifts faster and is noisier, so its readings are less reliable between calibrations. The slope is a symptom; the cause needs cleaning.</p></div>
+      <a class="lab-link" data-lab="sensor-bench" data-why="Follow the whole signal chain of five other sensors, from physics to firmware, with an error budget."></a>
+      <a class="lab-link" data-lab="ph-availability" data-why="See why hydroponic pH is kept between 5.5 and 6.5: phosphate, carbonate and iron chemistry."></a>
+    </section>
+
+    <!-- ================================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the meter</h2>
+
+      <div class="eq-box" id="eq-ph-response">
+        <div class="eq-head"><span class="eq-label">Electrode potential with slope efficiency, offset and drift</span><span class="eq-num">(PH1)</span></div>
+        <div class="eq-main">\[ E_{\text{eq}} = E_0 + \dot E_0\,t - \eta\,s(T_e)\,(\text{pH} - 7),\qquad s(T) = \frac{\ln(10)\,R\,T}{F} = 0.19841\ \text{mV K}^{-1}\times T \]</div>
+        <p class="eq-read">the equilibrium potential is the offset (which drifts at a constant rate) minus the slope efficiency times the Nernst slope at the electrode temperature times the distance from pH 7.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>New electrode (preset)</th></tr>
+          <tr><td>\(E_0\)</td><td>offset (asymmetry + reference + junction potentials) at pH 7</td><td>mV</td><td>+3.5</td></tr>
+          <tr><td>\(\dot E_0\)</td><td>offset drift rate</td><td>mV h⁻¹</td><td>0.2</td></tr>
+          <tr><td>\(\eta\)</td><td>slope efficiency</td><td>–</td><td>0.993</td></tr>
+          <tr><td>\(s(T)\)</td><td>Nernst slope; \(T_e\) is the electrode temperature in K</td><td>mV pH⁻¹</td><td>58.17 at 20 °C</td></tr>
+          <tr><td>\(R, F\)</td><td>gas constant, Faraday constant</td><td>J mol⁻¹ K⁻¹, C mol⁻¹</td><td>8.3145, 96 485</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Nernst equation for the H⁺-selective glass membrane: \(E = E^0 + (RT/F)\ln a_{\text{H}^+}\).</li>
+            <li>With \(\ln a = \ln(10)\log_{10}a\) and \(\text{pH} = -\log_{10}a_{\text{H}^+}\): \(E = E^0 - s(T)\,\text{pH}\).</li>
+            <li>The internal buffer and reference elements are chosen so that \(E \approx 0\) at pH 7 for every temperature: \(E = -s(T)(\text{pH} - 7)\) — the isopotential point.</li>
+            <li>A real membrane delivers a fraction η of the theoretical slope, and the zero point is shifted by \(E_0\), which creeps with time: PH1. The course library function <code>electrodeMV(pH, T, slopeEff, offset)</code> implements it without the drift term.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The isopotential point is assumed exactly at pH 7 for all temperatures, the offset does not depend on temperature, and the response is linear from pH 2 to 12 (no acid or alkaline error). Electrode presets are illustrative combinations of η, \(E_0\), τ, drift and noise chosen to span the manufacturer's diagnostic categories; they are not measurements of specific electrodes.</p></details>
+        <div class="eq-units">mV + mV h⁻¹ × h − 1 × mV pH⁻¹ × pH = mV ✓; \(\ln(10)RT/F\): J mol⁻¹ ÷ C mol⁻¹ = V ✓</div>
+        <div class="mini-calc" data-formula="E0 - eta/100*0.19841*(T+273.15)*(pH-7)" data-output="Electrode potential" data-unit="mV" data-digits="1" data-plot="pH">
+          <div data-var="pH" data-label="pH" data-min="2" data-max="12" data-step="0.01" data-value="4.00"></div>
+          <div data-var="T" data-label="Temperature" data-min="0" data-max="50" data-step="0.5" data-value="20" data-unit="°C"></div>
+          <div data-var="eta" data-label="Slope efficiency η" data-min="80" data-max="102" data-step="0.1" data-value="99.3" data-unit="%"></div>
+          <div data-var="E0" data-label="Offset E<sub>0</sub>" data-min="-50" data-max="50" data-step="0.5" data-value="3.5" data-unit="mV"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-dynamics">
+        <div class="eq-head"><span class="eq-label">First-order response and the time to a stable reading</span><span class="eq-num">(PH2)</span></div>
+        <div class="eq-main">\[ E(t) = E_{\text{eq}} + (E_{\text{start}} - E_{\text{eq}})\,e^{-t/\tau},\qquad t_{\text{stable}} = \tau\ln\!\left[\frac{|\Delta E|\,(1 - e^{-w/\tau})}{\delta}\right] \]</div>
+        <p class="eq-read">after immersion the potential approaches its equilibrium exponentially; the reading passes a criterion "changes by no more than delta over a window w" once the remaining change in one window has fallen below delta.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\tau\)</td><td>response time constant of the electrode (× 4 in low-ionic-strength water)</td><td>s</td></tr>
+          <tr><td>\(\Delta E\)</td><td>size of the step, \(E_{\text{start}} - E_{\text{eq}}\)</td><td>mV</td></tr>
+          <tr><td>\(w, \delta\)</td><td>stability window and tolerance (Medium: 6 s, 0.1 mV)</td><td>s, mV</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Treat the electrode as a first-order system (Lesson 9.1, Eq. 9.1.2): \(\tau\,\mathrm{d}E/\mathrm{d}t = E_{\text{eq}} - E\); for a step the solution is the exponential above.</li>
+            <li>The change during the window from \(t - w\) to \(t\) is \(|\Delta E|\,e^{-t/\tau}(e^{w/\tau} - 1) = |\Delta E|\,e^{-(t-w)/\tau}(1 - e^{-w/\tau})\).</li>
+            <li>Setting this (evaluated at the start of the window) equal to δ and solving for the time gives \(t_{\text{stable}}\).</li>
+            <li>Example: a new electrode (τ = 4 s) moved from pH 7 to pH 4 at 20 °C (|ΔE| ≈ 174 mV) meets the Medium criterion after \(4\ln(174\times0.777/0.1) = 29\) s; an aged one (τ = 28 s, |ΔE| ≈ 161 mV) after about 160 s; a failing one (τ = 75 s) after about 6 min.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Real glass electrodes often show a fast initial response followed by a slow creep, so the stable time is longer than a single exponential predicts. Noise adds to the change within the window; if the noise band exceeds δ the criterion is never met. The meter's own input filter (0.7 s in the lab) is assumed.</p></details>
+        <div class="eq-units">\(\tau\ln(\text{mV}\cdot 1/\text{mV})\): s × dimensionless = s ✓</div>
+        <div class="mini-calc" data-fn="phStable" data-output="Time until stable" data-unit="s" data-digits="0" data-plot="tau">
+          <div data-var="tau" data-label="Time constant τ" data-min="1" data-max="120" data-step="1" data-value="28" data-unit="s"></div>
+          <div data-var="dE" data-label="Step |ΔE|" data-min="5" data-max="400" data-step="1" data-value="174" data-unit="mV"></div>
+          <div data-var="w" data-label="Window w" data-min="2" data-max="30" data-step="1" data-value="6" data-unit="s"></div>
+          <div data-var="delta" data-label="Tolerance δ" data-min="0.01" data-max="1" data-step="0.01" data-value="0.1" data-unit="mV"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-buffers">
+        <div class="eq-head"><span class="eq-label">Temperature-corrected buffer value</span><span class="eq-num">(PH3)</span></div>
+        <div class="eq-main">\[ \text{pH}_b(T) = \text{pH}_i + \left(\text{pH}_{i+1} - \text{pH}_i\right)\frac{T - T_i}{T_{i+1} - T_i},\qquad T_i \le T \le T_{i+1} \]</div>
+        <p class="eq-read">the buffer's pH at the measured temperature is interpolated linearly between the two neighbouring entries of the manufacturer's table.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(T_i, \text{pH}_i\)</td><td>table entries every 5 °C from 5 to 40 °C (Table 1 in Explain)</td><td>°C, –</td></tr>
+          <tr><td>\(\text{pH}_b(T)\)</td><td>value used for the calibration point</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Between table entries the pH changes smoothly and almost linearly with temperature, so linear interpolation is accurate to about 0.005.</li>
+            <li>Without temperature measurement the meter must use the 25 °C value. The calibration then contains an error \(\text{pH}_b(T) - \text{pH}_b(25)\) in each buffer: at 10 °C, +0.06 in the pH 7.00 buffer and +0.17 in the pH 10.01 buffer (≈ 10 mV).</li>
+            <li>An error δ in one buffer of a two-point calibration tilts the line: the slope changes by \(\delta/(\text{pH}_2 - \text{pH}_1)\) relative to one pH unit, and every sample far from that buffer inherits a proportional error.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Values are for fresh, uncontaminated technical buffers of this manufacturer's group (Mettler-Toledo, 2015); other brands' buffers (e.g., 7.01 or 10.00 labels) have their own tables. Alkaline carbonate buffers absorb CO₂ from the air once opened, which lowers their pH — use them fresh.</p></details>
+        <div class="eq-units">pH + pH × °C/°C = pH ✓</div>
+        <div class="mini-calc" data-fn="phBuf10" data-output="pH of the “10.01” buffer" data-unit="" data-digits="3" data-plot="T">
+          <div data-var="T" data-label="Buffer temperature" data-min="5" data-max="40" data-step="0.5" data-value="10" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-calibration">
+        <div class="eq-head"><span class="eq-label">Two- and three-point calibration by least squares</span><span class="eq-num">(PH4)</span></div>
+        <div class="eq-main">\[ S = \frac{\sum_i(\text{pH}_i - \overline{\text{pH}})(E_i - \bar E)}{\sum_i(\text{pH}_i - \overline{\text{pH}})^2},\qquad a = \bar E - S\,\overline{\text{pH}},\qquad \eta = \frac{-S}{s(\bar T_{\text{cal}})},\qquad E_0 = a + 7S \]</div>
+        <p class="eq-read">the slope is the covariance of pH and potential divided by the variance of the buffer pH values; the intercept makes the line pass through the mean point; the slope efficiency is the magnitude of the slope divided by the Nernst slope at the mean calibration temperature; the offset is the line's potential at pH 7.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\text{pH}_i, E_i\)</td><td>buffer values (PH3) and stable potentials</td><td>–, mV</td></tr>
+          <tr><td>\(S, a\)</td><td>slope and intercept of \(E = a + S\,\text{pH}\)</td><td>mV pH⁻¹, mV</td></tr>
+          <tr><td>\(\eta, E_0\)</td><td>slope efficiency (displayed in %) and offset</td><td>–, mV</td></tr>
+          <tr><td>\(e_i = E_i - (a + S\,\text{pH}_i)\)</td><td>residuals</td><td>mV</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Minimise \(\sum_i (E_i - a - S\,\text{pH}_i)^2\): setting the derivatives with respect to \(a\) and \(S\) to zero gives the normal equations and the formulas above (Lesson 9.3, Eq. 9.3.5). The meter uses the same least-squares fit for three points.</li>
+            <li>With two points the line passes exactly through both, \(S = (E_2 - E_1)/(\text{pH}_2 - \text{pH}_1)\), and the residuals are zero — so two points cannot reveal a bad buffer or an unstable reading. A third point can.</li>
+            <li>Example (new electrode, 20 °C, ATC on): pH 7.02 → +2.3 mV and pH 4.00 → +176.8 mV give \(S = (176.8 - 2.3)/(4.00 - 7.02) = -57.78\) mV pH⁻¹, \(\eta = 57.78/58.16 = 99.3\,\%\) and \(E_0 = 2.3 + (7 - 7.02)(-57.78) = +3.5\) mV — the preset values are recovered.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The response is assumed linear; residuals of a few tenths of a millivolt come from noise, drift during the calibration, incomplete stabilisation and buffer errors. The criteria for slope and offset are those programmed into the manufacturer's meter (Mettler-Toledo, 2015).</p></details>
+        <div class="eq-units">\(S\): mV·pH/pH² = mV pH⁻¹ ✓; η: (mV pH⁻¹)/(mV pH⁻¹) = 1 ✓</div>
+        <div class="mini-calc" data-formula="-(E4-E7)/(pH4-pH7)/(0.19841*(T+273.15))*100" data-output="Slope efficiency η" data-unit="%" data-digits="1" data-plot="E4" data-title="Try it — two-point calibration">
+          <div data-var="E7" data-label="Potential in pH 7 buffer" data-min="-40" data-max="40" data-step="0.1" data-value="2.3" data-unit="mV"></div>
+          <div data-var="E4" data-label="Potential in pH 4 buffer" data-min="120" data-max="200" data-step="0.1" data-value="176.8" data-unit="mV"></div>
+          <div data-var="pH7" data-label="True value of the 7.00 buffer" data-min="6.95" data-max="7.1" data-step="0.01" data-value="7.02"></div>
+          <div data-var="pH4" data-label="True value of the 4.01 buffer" data-min="3.99" data-max="4.04" data-step="0.01" data-value="4.00"></div>
+          <div data-var="T" data-label="Calibration temperature" data-min="5" data-max="40" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-atc">
+        <div class="eq-head"><span class="eq-label">Sample pH with and without temperature compensation</span><span class="eq-num">(PH5)</span></div>
+        <div class="eq-main">\[ \text{pH}_x = 7 - \frac{E_x - E_0}{\eta\,s(T_u)},\qquad T_u = \begin{cases} T_x & \text{(ATC)}\\ \bar T_{\text{cal}} & \text{(no ATC)}\end{cases},\qquad \Delta\text{pH}_{\text{noATC}} = (\text{pH}_x - 7)\left(\frac{T_x}{\bar T_{\text{cal}}} - 1\right) \]</div>
+        <p class="eq-read">the sample pH is 7 minus the sample potential's distance from the offset divided by the calibrated slope, evaluated at the sample temperature with ATC or at the calibration temperature without; the error of omitting ATC is the distance from pH 7 times the relative difference of the absolute temperatures.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(E_x, T_x\)</td><td>stable potential and (absolute) temperature of the sample</td><td>mV, K</td></tr>
+          <tr><td>\(\bar T_{\text{cal}}\)</td><td>mean calibration temperature (25 °C if the meter had no probe)</td><td>K</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Invert PH1 at the time of calibration: \(\text{pH} = 7 - (E - E_0)/(\eta s)\).</li>
+            <li>With ATC, only \(s\) is re-evaluated at \(T_x\) (η and \(E_0\) are assumed independent of temperature).</li>
+            <li>Without ATC the meter uses \(s(\bar T_{\text{cal}})\) while the electrode produced \(\eta s(T_x)(\text{pH}_x - 7)\): the ratio of the two slopes, \(T_x/\bar T_{\text{cal}}\), multiplies the distance from pH 7.</li>
+            <li>Example: calibrated at 20 °C, the cold DWC tank (pH 6.10 at 11 °C) reads \(6.10 + (-0.90)(284.15/293.15 - 1) = 6.13\); the acidified water (pH 4.40 at 15 °C) reads 4.44; the aquaponic sump (pH 7.25 at 27 °C) 7.26.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>ATC corrects the electrode (Nernst) effect only; the solution's own temperature dependence is chemistry and remains in the result. The temperature sensor in the electrode body lags the solution (τ ≈ 12 s in the lab), so wait for both readings to settle.</p></details>
+        <div class="eq-units">mV ÷ (1 × mV pH⁻¹) = pH ✓; (pH)(K/K − 1) = pH ✓</div>
+        <div class="mini-calc" data-formula="(pH-7)*((Tx+273.15)/(Tc+273.15)-1)" data-output="Error without ATC" data-unit="pH" data-digits="3" data-plot="Tx">
+          <div data-var="pH" data-label="True sample pH" data-min="2" data-max="12" data-step="0.05" data-value="4.4"></div>
+          <div data-var="Tx" data-label="Sample temperature" data-min="0" data-max="45" data-step="0.5" data-value="15" data-unit="°C"></div>
+          <div data-var="Tc" data-label="Calibration temperature" data-min="5" data-max="40" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-drift">
+        <div class="eq-head"><span class="eq-label">Drift and the recalibration interval</span><span class="eq-num">(PH6)</span></div>
+        <div class="eq-main">\[ \Delta\text{pH}(t) = -\frac{\dot E_0\,t}{\eta\,s(T)},\qquad t_{\max} = \frac{\Delta\text{pH}_{\max}\,\eta\,s(T)}{|\dot E_0|} \]</div>
+        <p class="eq-read">an offset that drifts at a constant rate shifts every reading by the accumulated millivolts divided by the calibrated slope; the longest acceptable time between calibrations is the tolerated pH error times the slope divided by the drift rate.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\dot E_0\)</td><td>offset drift rate</td><td>mV h⁻¹</td></tr>
+          <tr><td>\(\Delta\text{pH}_{\max}\)</td><td>tolerated error (e.g., 0.05 for nutrient solutions)</td><td>pH</td></tr>
+          <tr><td>\(t_{\max}\)</td><td>maximum recalibration interval</td><td>h</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>After calibration at \(t = 0\), the true offset is \(E_0 + \dot E_0 t\) but the meter still uses \(E_0\).</li>
+            <li>Insert into PH5: the reading is shifted by \(-\dot E_0 t/(\eta s)\).</li>
+            <li>Solve \(|\Delta\text{pH}| = \Delta\text{pH}_{\max}\) for \(t\). Example: aged electrode, 1.5 mV h⁻¹, η = 0.915, 20 °C: \(t_{\max} = 0.05 \times 0.915 \times 58.17/1.5 = 1.8\) h. This is Eq. 9.3.7 of Lesson 9.3 in pH form.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Constant drift rates are an idealisation: real drift is often fastest just after cleaning or refilling and depends on the samples (clogging junctions). Re-check a buffer at the end of every session and let the record set your interval.</p></details>
+        <div class="eq-units">(pH × mV pH⁻¹)/(mV h⁻¹) = h ✓</div>
+        <div class="mini-calc" data-formula="dpH*eta/100*0.19841*(T+273.15)/drift" data-output="Maximum recalibration interval" data-unit="h" data-digits="1" data-plot="drift">
+          <div data-var="dpH" data-label="Tolerated error" data-min="0.01" data-max="0.2" data-step="0.01" data-value="0.05" data-unit="pH"></div>
+          <div data-var="eta" data-label="Slope efficiency" data-min="80" data-max="102" data-step="0.5" data-value="91.5" data-unit="%"></div>
+          <div data-var="T" data-label="Temperature" data-min="5" data-max="40" data-step="0.5" data-value="20" data-unit="°C"></div>
+          <div data-var="drift" data-label="Drift rate" data-min="0.1" data-max="6" data-step="0.1" data-value="1.5" data-unit="mV h⁻¹"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Work in the simulator and keep the session log; <em>Download log</em> gives you the data for your report, and <em>Save investigation</em> stores settings and results in your notebook.</p>
+      <ol class="task-list">
+        <li><h4>A complete calibration</h4><p>With the new electrode at 20 °C, perform a correct two-point calibration (4.01 + 7.00), rinsing in between and waiting for the stability mark. Record slope and offset and compare them with the preset values. Then READ all six samples with ATC. Which samples have errors above 0.05 pH, and why?</p></li>
+        <li><h4>How much does ATC matter?</h4><p>Using the log (it shows both variants), plot the error without ATC against \((\text{pH}_x - 7)(T_x/T_{\text{cal}} - 1)\) for the six samples. Do the points fall on the 1 : 1 line predicted by Eq. PH5? For which crop system in your project would you insist on ATC?</p></li>
+        <li><h4>The impatient technician</h4><p>Choose <em>Aged</em> and a 3-point calibration. Calibrate once properly and once pressing CAL about 10 s after each immersion. Compare slope, offset and residuals, and the error on the NFT sample. Estimate from Eq. PH2 how long each buffer really needed.</p></li>
+        <li><h4>A cold calibration without a temperature probe</h4><p>Set the buffers to 10 °C, switch ATC off and calibrate with 7.00 + 10.01. Which buffer values did the meter assume, and which are true (Table 1)? Measure the aquaponic sump and explain the error. Repeat with ATC and the buffer table switched on.</p></li>
+        <li><h4>Drift and the recalibration interval</h4><p>Calibrate the <em>One year</em> electrode, then alternate <em>Wait 1 hour</em> and a READ in the pH 7.00 buffer for five hours. Fit a straight line to the drift (red diamonds) and compare it with the drift slider. With Eq. PH6, how often must a DWC system with this electrode be recalibrated to stay within ±0.05 pH?</p></li>
+        <li><h4>Diagnose the 82 % electrode</h4><p>Load <em>The 82 % electrode</em>. Try a calibration with the <em>Medium</em> and then the <em>Fast</em> stability criterion. Write a one-paragraph service note: what the meter reports, which physical problems could cause a low slope, a large offset, slow response and noise at the same time, which cleaning steps you would try in which order, and when you would replace the electrode.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-ph-calibration">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"At 25 °C an electrode reads +12.0 mV in the pH 7.00 buffer and +183.5 mV in the pH 4.01 buffer. What is its slope efficiency?","answer":96.95,"tol":0.005,"unit":"%","hint":"S = ΔE/ΔpH; divide its magnitude by 59.16 mV per pH.","explain":"<p>\\(S = (183.5 - 12.0)/(4.01 - 7.00) = -57.36\\) mV pH⁻¹ and \\(\\eta = 57.36/59.16 = 97.0\\,\\%\\) — good condition (95–105 %), offset +12 mV (within ±20 mV).</p>"},
+          {"type":"mcq","q":"After a careful two-point calibration with fresh buffers, your electrode shows a slope of 82 % and an offset of +41 mV; the meter reports “slope out of range”. What should you do?","options":["Accept the result: the calibration corrects the slope, so readings will still be accurate","Check that the buffers and temperature are right; clean the electrode (junction and membrane, according to the contamination), recondition it in storage solution and recalibrate — and replace it if the slope stays below about 90 %","Switch to a three-point calibration so that the least-squares fit averages out the low slope","Lower the stability criterion to ‘Fast’ so that the calibration is accepted"],"answer":1,"feedback":["The meter rejects slopes below 85 % for a reason: such an electrode is also slow, drifts and is noisy, so readings between calibrations cannot be trusted.","","A third point tests linearity; it cannot restore a membrane that has lost its response.","A faster criterion accepts less stable readings; it does not change the electrode's slope."],"hint":"Look at the diagnostic table in the Explain tab.","explain":"<p>Slope below 85 % means ‘faulty/rejected’. First exclude buffer and temperature errors, then clean (degrease, 0.1 mol L⁻¹ HCl for a dried membrane, HCl/pepsin for protein on the junction, thiourea for silver sulfide), recondition and recalibrate. If the slope does not return to at least 90–95 %, replace the electrode.</p>"},
+          {"type":"numeric","q":"A meter without ATC was calibrated at 20 °C. It measures acidified irrigation water whose true pH is 4.40 at 15 °C. What does it display?","answer":4.444,"tol":0.004,"unit":"","hint":"Error = (pH − 7)(T_x/T_cal − 1) with absolute temperatures.","explain":"<p>\\((4.40 - 7)(288.15/293.15 - 1) = (-2.60)(-0.01706) = +0.044\\), so the display shows 4.44.</p>"},
+          {"type":"numeric","q":"You calibrate at 10 °C with the pH 10.01 buffer but the meter assumes its 25 °C value. By how many millivolts is that calibration point wrong for an ideal electrode (use the buffer table)?","answer":9.6,"tol":0.04,"unit":"mV","hint":"True value at 10 °C is 10.18; the Nernst slope at 10 °C is 0.19841 × 283.15 mV per pH.","explain":"<p>ΔpH = 10.18 − 10.01 = 0.17; \\(s(10\\,{}^{\\circ}\\text{C}) = 56.18\\) mV pH⁻¹, so the point is 0.17 × 56.18 ≈ 9.6 mV off — enough to tilt a 7.00 + 10.01 calibration by about 6 %.</p>"},
+          {"type":"tf","q":"Automatic temperature compensation (ATC) corrects for the change of a sample's own pH with temperature.","answer":false,"explain":"<p>ATC rescales only the electrode's Nernst slope to the sample temperature. The solution's pH genuinely changes with temperature (dissociation equilibria); that is chemistry, and it is why pH is reported together with the temperature.</p>"},
+          {"type":"multi","q":"Which habits reduce errors in a pH calibration? (Select all that apply.)","options":["Using buffers that bracket the samples","Pressing CAL as soon as the reading enters the right range, to save time","Rinsing with deionised water between solutions and storing the electrode in KCl","Re-checking a buffer at the end of the session","Storing the electrode in deionised water so that it stays clean"],"answer":[0,2,3],"explain":"<p>Bracketing, rinsing, proper storage and end-of-session checks all reduce errors. Recording before the stability criterion is met builds incomplete responses into the calibration (see task 3), and storage in deionised water leaches the gel layer and the reference electrolyte.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ================================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Electrode.</strong> Linear Nernstian response with slope efficiency η and offset \(E_0\) about an isopotential point at pH 7 (Eq. PH1); no acid or alkaline error, no temperature dependence of η or \(E_0\); constant offset drift. The four electrode presets are illustrative combinations chosen to fall into the four diagnostic categories of Table 2 — they are not data from specific electrodes.</li>
+        <li><strong>Dynamics.</strong> First-order potential response with time constant τ, four times slower and four times noisier in deionised water and rainwater (illustrative factors); first-order thermal response of the built-in temperature sensor (τ = 12 s, assumed); in the air the potential wanders (open circuit). The meter smooths its input with a 0.7 s filter (assumed).</li>
+        <li><strong>Noise.</strong> White Gaussian noise on the potential; the slider sets the rms of raw readings taken ten times per second (the meter's 0.7 s input filter reduces it about fourfold). Real electrodes also show low-frequency noise and sensitivity to static charge and stirring.</li>
+        <li><strong>Buffers.</strong> Values from the manufacturer's table (buffer group B1, 5–40 °C) with linear interpolation; buffers are assumed fresh and uncontaminated, and at the set temperature.</li>
+        <li><strong>Meter.</strong> Linear (least-squares) calibration through the chosen buffers; diagnostic limits and the rejection of slopes outside 85–110 % follow Mettler-Toledo (2015); stability criteria follow Mettler-Toledo (2011). Without ATC the meter assumes 25 °C for buffer values and uses the calibration slope unchanged.</li>
+        <li><strong>Samples.</strong> The six samples are illustrative, with a "true" pH defined at their own temperature (as a reference laboratory would report it). Rinse carry-over, CO₂ uptake by alkaline buffers, junction potentials in samples of very different ionic strength and the electrode's alkaline error are not modelled.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Buck, R. P., Rondinini, S., Covington, A. K., Baucke, F. G. K., Brett, C. M. A., Camões, M. F., Milton, M. J. T., Mussini, T., Naumann, R., Pratt, K. W., Spitzer, P., &amp; Wilson, G. S. (2002). Measurement of pH. Definition, standards, and procedures (IUPAC Recommendations 2002). <em>Pure and Applied Chemistry</em>, 74(11), 2169–2200. <a href="https://doi.org/10.1351/pac200274112169" target="_blank" rel="noopener">doi:10.1351/pac200274112169</a></li>
+        <li>Galster, H. (1991). <em>pH Measurement: Fundamentals, Methods, Applications, Instrumentation</em>. VCH.</li>
+        <li>JCGM. (2008). <em>Evaluation of measurement data — Guide to the expression of uncertainty in measurement</em> (JCGM 100:2008). Joint Committee for Guides in Metrology. <a href="https://www.bipm.org/en/committees/jc/jcgm/publications" target="_blank" rel="noopener">bipm.org</a></li>
+        <li>Mettler-Toledo. (2011). <em>SevenCompact™ pH/Ion meter S220: Operating instructions</em> (30019080). Mettler-Toledo AG. (Stability criteria for pH and mV measurement.)</li>
+        <li>Mettler-Toledo. (2015). <em>FiveEasy™ / FiveEasy Plus™ pH meter F20, FP20: Operating instructions</em> (30266869B). Mettler-Toledo AG. (Buffer temperature tables, calibration by least squares, electrode diagnostics and maintenance.)</li>
+        <li>Sonneveld, C., &amp; Voogt, W. (2009). <em>Plant Nutrition of Greenhouse Crops</em>. Springer. <a href="https://doi.org/10.1007/978-90-481-2532-6" target="_blank" rel="noopener">doi:10.1007/978-90-481-2532-6</a></li>
+      </ol>
+      <p>See also Lesson 9.2 (<a href="/lessons/electrochemical-sensors/">electrochemical sensing</a>) for the glass electrode and Lesson 9.3 (<a href="/lessons/measurement-uncertainty/">calibration and uncertainty</a>) for regression and recalibration intervals.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

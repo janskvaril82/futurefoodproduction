@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sensor bench · Future Food Production</title>
+<meta name="description" content="Open up a thermistor, a capacitive humidity sensor, a quantum PAR sensor, an NDIR CO₂ cell and a capacitive substrate-moisture probe on a 3D electronics bench, and follow the signal from physical quantity to calibrated number with its uncertainty.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator helpers (must exist before site.js builds the mini-calcs) */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  var SH = { A: 1.092739e-3, B: 2.409652e-4, C: 5.363408e-8 };
+  function shR(T) { var x = (SH.A - 1 / (T + 273.15)) / SH.C, y = Math.sqrt(Math.pow(SH.B / (3 * SH.C), 3) + x * x / 4); return Math.exp(Math.cbrt(y - x / 2) - Math.cbrt(y + x / 2)); }
+  /* error of the nominal beta model (10 kΩ, 3950 K) against the calibrated probe, in kelvin */
+  FFP_CALC.sbBetaErr = function (v) { var R = shR(v.T); return 1 / (1 / 298.15 + Math.log(R / 10000) / v.beta) - 273.15 - v.T; };
+  /* CRIM apparent permittivity */
+  FFP_CALC.sbCrim = function (v) { var ew = 87.740 - 0.40008 * v.T + 9.398e-4 * v.T * v.T - 1.410e-6 * Math.pow(v.T, 3); var th = Math.min(v.theta, v.phi); var s = th * Math.sqrt(ew) + (1 - v.phi) * Math.sqrt(v.es) + (v.phi - th); return s * s; };
+  /* peak-detector output of the capacitive moisture probe circuit */
+  FFP_CALC.sbPeak = function (v) { var tau = 1e4 * v.C * 1e-12, f = 1.5e6, D = 0.34; var q1 = Math.exp(-D / (f * tau)), q0 = Math.exp(-(1 - D) / (f * tau)); return 3.3 * (1 - q1) / (1 - q0 * q1) - 0.28; };
+})();
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .sb-chain { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 14px 0 4px; }
+  .sbc { position: relative; background: var(--bg-elev); border: 1px solid var(--line); border-radius: 12px; padding: 9px 11px 10px; min-width: 0; }
+  .sbc:not(:last-child)::after { content: ''; position: absolute; right: -9px; top: 50%; width: 8px; height: 8px; border-top: 2px solid var(--accent); border-right: 2px solid var(--accent); transform: translateY(-50%) rotate(45deg); z-index: 2; background: transparent; }
+  .sbc-k { font: 700 .66rem var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .sbc-k span { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 5px; background: var(--accent); color: var(--accent-ink, #fff); font-size: .64rem; }
+  .sbc-v { font: 600 .9rem/1.3 var(--font-mono); color: var(--ink); margin-top: 4px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .sbc-v small { font-size: .72em; color: var(--muted); font-weight: 400; }
+  .sbc-s { font-size: .72rem; color: var(--muted); line-height: 1.35; margin-top: 2px; }
+  .sbc.warn { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); }
+  .sbc.warn .sbc-v { color: var(--danger); }
+  @media (max-width: 1100px) { .sb-chain { grid-template-columns: repeat(3, minmax(0, 1fr)); } .sbc:nth-child(3)::after { display: none; } }
+  @media (max-width: 620px) { .sb-chain { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sbc::after { display: none; } }
+  .sb-notes { margin: 10px 0 0; }
+  .sb-note { font-size: .86rem; color: var(--ink-2); background: var(--bg-sunk); border-radius: 10px; padding: 9px 12px; line-height: 1.5; }
+  .sb-note b { color: var(--ink); }
+  .sb-budget { font-size: .8rem; }
+  .sbb-head { display: grid; grid-template-columns: 1fr 90px; font: 700 .66rem var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 0 2px 6px; border-bottom: 1px solid var(--line); }
+  .sbb-head span:last-child { text-align: right; }
+  .sbb-head .u { text-transform: none; letter-spacing: 0; }
+  .sbb-row { display: grid; grid-template-columns: minmax(0, 1fr) 30% 74px; gap: 8px; align-items: center; padding: 5px 2px; border-bottom: 1px dashed var(--line); }
+  .sbb-lab { color: var(--ink-2); line-height: 1.3; }
+  .sbb-lab i { font: 700 .62rem var(--font-mono); font-style: normal; display: inline-block; min-width: 30px; margin-right: 6px; padding: 1px 4px; border-radius: 4px; text-align: center; background: var(--water-soft, rgba(80,160,220,.15)); color: var(--water); }
+  .sbb-row.b .sbb-lab i { background: var(--amber-soft, rgba(220,160,40,.18)); color: var(--amber); }
+  .sbb-row.tot .sbb-lab i, .sbb-row.btot .sbb-lab i { background: var(--magenta-soft, rgba(200,80,160,.15)); color: var(--magenta); }
+  .sbb-bar { height: 10px; background: var(--bg-sunk); border-radius: 5px; overflow: hidden; }
+  .sbb-bar span { display: block; height: 100%; border-radius: 5px; background: var(--water); }
+  .sbb-row.b .sbb-bar span { background: var(--amber); }
+  .sbb-row.tot .sbb-bar span { background: var(--magenta); }
+  .sbb-row.btot .sbb-bar span { background: var(--danger); }
+  .sbb-row.tot, .sbb-row.btot { font-weight: 600; border-bottom: 0; }
+  .sbb-val { text-align: right; font: 600 .8rem var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .label3d.sb-label { transition: transform .15s, background .15s; }
+  .label3d.sb-label.hover { background: rgba(20, 60, 44, .85); transform: scale(1.06); }
+  .label3d.sb-label.active { border-color: #9be7b6; box-shadow: 0 0 0 2px rgba(155, 231, 182, .35); }
+  .label3d.sb-part { font-size: 11px; padding: 3px 7px; background: rgba(12, 20, 28, .78); border-color: rgba(127, 212, 255, .35); }
+  .label3d.sb-part small { color: #9fd8ff; }
+  .label3d.sb-part.r::before, .label3d.sb-part.l::after { content: ''; position: absolute; top: 50%; width: 12px; height: 1.5px; background: rgba(127, 212, 255, .85); }
+  .label3d.sb-part.r::before { right: 100%; }
+  .label3d.sb-part.l::after { left: 100%; }
+  .sb-tools { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 6px; }
+</style>
+</head>
+<body data-page="lab" data-slug="sensor-bench">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Sensor bench</h1>
+    <p class="lead">Five sensors that every modern growing system depends on lie on an electronics bench next to an ESP32 microcontroller: an NTC thermistor probe, a capacitive humidity sensor, a quantum (PAR) sensor, an NDIR CO₂ module and a capacitive substrate-moisture probe. Click one and it opens up: watch heat flow into a thermistor bead, water molecules soak into a polymer, photons turn into electrons, CO₂ molecules swallow infrared light and an electric field reach into wet coir. Then follow its signal link by link — physical quantity, transducer output, conditioning circuit, ADC codes, firmware — to a number with an honest uncertainty.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="sb-chain" id="chain" aria-label="Signal chain of the selected sensor"></div>
+      <div class="sb-notes">
+        <div class="sb-note" data-sensor-note="ntc"><b>Inside the NTC probe.</b> A glass-bead thermistor sits in epoxy at the tip of a stainless-steel sheath. Heat must flow from the water through steel and epoxy before the bead warms — that is the time constant. Yellow dots show the divider current; orange or blue sparks show heat flowing in or out of the probe.</div>
+        <div class="sb-note" data-sensor-note="rh" hidden><b>Inside the humidity sensor</b> (magnified cross-section above the module). Water molecules from the air diffuse through the porous top electrode into the polymer dielectric until it is in equilibrium with the relative humidity at the sensor's own temperature. Each absorbed molecule raises the permittivity and hence the capacitance between the electrodes.</div>
+        <div class="sb-note" data-sensor-note="par" hidden><b>Inside the quantum sensor.</b> Photons from the LED panel scatter in the white diffuser dome (cosine correction), the filter absorbs ultraviolet and far-red photons (they flash and vanish) and passes 400–700 nm, and each photon absorbed in the silicon photodiode releases at most one electron: the photocurrent counts photons.</div>
+        <div class="sb-note" data-sensor-note="co2" hidden><b>Inside the NDIR cell.</b> The pulsed lamp sends broadband infrared along the gold-coated cavity to two thermopiles. Photons heading for the 4.26 µm (active) window can be absorbed by CO₂ molecules, which light up as they start to vibrate; the 3.91 µm reference window sees the same lamp but no absorption. The fraction absorbed follows the Beer–Lambert law.</div>
+        <div class="sb-note" data-sensor-note="vwc" hidden><b>Inside the moisture probe.</b> The pot is cut in half. The copper electrode under the solder mask and the ground plane form a capacitor whose fringing field (moving dots) reaches about a centimetre into the substrate. Water (blue, filling the finest pores first) has a permittivity of ≈ 80 against ≈ 1 for air and ≈ 4 for fibres, so the capacitance — and the output voltage — tracks the water content.</div>
+      </div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Transfer function of the chain</h3>
+      <div class="chart-sub">Transducer output (green, left axis) and the voltage reaching the ADC (magenta, right axis) across the measurement range. The dashed red line is the ADC full scale: above it every reading is clipped.</div>
+      <div class="chart" id="chart-tf"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Time response</h3>
+      <div class="chart-sub">True measurand (dashed), state of the sensing element (green) and the readings the ESP32 logs (magenta). Run a step test to see the first-order lag; the amber point marks one time constant (63.2 % of the step).</div>
+      <div class="chart" id="chart-time"></div>
+      <div class="sb-tools"><button class="btn btn-sm" type="button" id="csv-log">Download log (CSV)</button></div>
+    </div>
+    <div class="chart-card">
+      <h3>Reading error across the range</h3>
+      <div class="chart-sub">Error of a noise-free reading (magenta: model errors, biases and the quantisation staircase) and the band in which a single noisy reading falls with ≈ 95 % probability.</div>
+      <div class="chart" id="chart-err"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Error budget at the operating point</h3>
+      <div class="chart-sub" id="budget-sub">Standard uncertainties (blue) combine in quadrature; systematic errors (amber) add.</div>
+      <div class="sb-budget" id="chart-budget"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ================================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the bench</h2>
+      <p>The bench is a faithful model of a student logger: an ESP32 development board on a solderless breadboard, a small OLED display that shows the latest reading, a 10 kΩ resistor and a 100 nF capacitor forming the thermistor input, and a multimeter whose red lead sits on the analogue input node, so its display always shows the voltage the ADC is converting. Everything you see is driven by the physical model in the Derive tab.</p>
+      <ol>
+        <li><strong>Start with the NTC probe.</strong> Click the probe in the beaker (or choose <em>NTC</em> in the controls). The camera flies in and the sheath opens. Press <em>Run a step test</em>: the probe is lifted into the 22 °C air and plunged into the water. In the time-response chart the green curve (bead temperature) climbs exponentially; the amber point marks one time constant τ, where 63.2 % of the step is complete.</li>
+        <li><strong>Change the medium.</strong> Switch from <em>Stirred water</em> to <em>Still air</em> and repeat the step test. τ grows from about 5 s to about 5 min — the same probe, the same thermistor. The time constant belongs to the probe <em>in its medium</em>, not to the sensor alone.</li>
+        <li><strong>Compare the firmware equations.</strong> Set the water to 2 °C and switch between <em>β model</em> and <em>Steinhart–Hart</em>. In the error chart the β model is exact at 25 °C and 50 °C (where β was defined) but 0.3 K high at 0 °C; the calibrated Steinhart–Hart equation removes that model error.</li>
+        <li><strong>Starve the ADC.</strong> Reduce the resolution to 8 bits with no noise: the error chart becomes a staircase, and the resolution readout shows each step. Now add 3 mV of noise and average ×64 — the staircase dissolves (dither) and the random error shrinks by √64 = 8.</li>
+        <li><strong>Open the humidity module.</strong> A magnified cross-section appears. Raise the relative humidity and watch water molecules migrate from the air into the polymer; then set <em>Sensor warmer than the air</em> to 2 K and see the molecules leave — a warm sensor reads a lower relative humidity.</li>
+        <li><strong>Open the quantum sensor.</strong> The diffuser and filter lift off. Violet and dark-red photons (ultraviolet and far-red) are stopped by the filter; the others reach the photodiode and release electrons. Lower the transimpedance resistor and the voltage drops; raise it to 1 MΩ and the ADC saturates above ≈ 440 µmol m⁻² s⁻¹.</li>
+        <li><strong>Open the NDIR cell.</strong> Increase CO₂ from 400 to 5000 ppm: more molecules, more absorption flashes, and the active detector bar shrinks while the reference bar stays put. Then reduce the lamp output to 85 % with <em>Divide by the reference channel</em> switched off — the reading jumps by more than 1000 ppm.</li>
+        <li><strong>Open the moisture probe.</strong> The pot is cut in half: water fills the finest pores first. Move θ from 0.1 to 0.7 and watch the output voltage flatten at the wet end. Switch the firmware to <em>Air–water %</em> — the popular two-point method — and read the error chart.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Every reading is the end of a chain: <strong>measurand → sensing element → transducer output → conditioning → ADC → firmware</strong>. Each link adds its own error, lag or noise, and the weakest link decides what the number is worth. Usually that link is not the ADC but the physics of the sensor, its calibration and its dynamics.</p></div>
+    </section>
+
+    <!-- ================================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>One chain, five kinds of physics</h2>
+      <p>Whatever it measures, an electronic sensor turns a physical quantity into a small electrical change, and the rest of the chain converts that change into a trustworthy number. The bench makes each stage visible, with the notation used throughout the Derive tab.</p>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="The measurement chain: measurand, sensing element with time constant, transducer output, conditioning, ADC and firmware, with the NTC probe as example">
+          <defs><marker id="sbar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+          <g font-size="12">
+            <rect x="10" y="60" width="120" height="84" rx="10" class="fill-accent-soft" stroke="currentColor"/>
+            <text x="70" y="84" text-anchor="middle" font-weight="700">1 Measurand</text><text x="70" y="104" text-anchor="middle" class="t-small">x: water 20.00 °C</text><text x="70" y="122" text-anchor="middle" class="t-small t-muted">what we want</text>
+            <rect x="160" y="60" width="130" height="84" rx="10" class="fill-amber-soft" stroke="currentColor"/>
+            <text x="225" y="84" text-anchor="middle" font-weight="700">2 Element</text><text x="225" y="104" text-anchor="middle" class="t-small">y: bead 20.00 °C</text><text x="225" y="122" text-anchor="middle" class="t-small t-muted">τ dy/dt = x − y</text>
+            <rect x="320" y="60" width="130" height="84" rx="10" class="fill-water-soft" stroke="currentColor"/>
+            <text x="385" y="84" text-anchor="middle" font-weight="700">3 Transducer</text><text x="385" y="104" text-anchor="middle" class="t-small">R = 12.52 kΩ</text><text x="385" y="122" text-anchor="middle" class="t-small t-muted">Ω, pF, µA or mV</text>
+            <rect x="480" y="60" width="130" height="84" rx="10" class="fill-water-soft" stroke="currentColor"/>
+            <text x="545" y="84" text-anchor="middle" font-weight="700">4 Conditioning</text><text x="545" y="104" text-anchor="middle" class="t-small">V = 1.818 V</text><text x="545" y="122" text-anchor="middle" class="t-small t-muted">divider, amplifier</text>
+            <rect x="640" y="60" width="115" height="84" rx="10" class="fill-magenta-soft" stroke="currentColor"/>
+            <text x="697" y="84" text-anchor="middle" font-weight="700">5 ADC</text><text x="697" y="104" text-anchor="middle" class="t-small">code 2276</text><text x="697" y="122" text-anchor="middle" class="t-small t-muted">N bits, V_ref</text>
+            <rect x="785" y="60" width="105" height="84" rx="10" class="fill-accent-soft" stroke="currentColor"/>
+            <text x="837" y="84" text-anchor="middle" font-weight="700">6 Firmware</text><text x="837" y="104" text-anchor="middle" class="t-small">20.04 °C</text><text x="837" y="122" text-anchor="middle" class="t-small t-muted">reading x̂</text>
+            <g class="stroke" stroke-width="1.6"><line x1="130" y1="102" x2="158" y2="102" marker-end="url(#sbar)"/><line x1="290" y1="102" x2="318" y2="102" marker-end="url(#sbar)"/><line x1="450" y1="102" x2="478" y2="102" marker-end="url(#sbar)"/><line x1="610" y1="102" x2="638" y2="102" marker-end="url(#sbar)"/><line x1="755" y1="102" x2="783" y2="102" marker-end="url(#sbar)"/></g>
+            <text x="225" y="36" text-anchor="middle" class="t-small" style="fill:var(--amber)">lag · self-heating</text>
+            <text x="385" y="36" text-anchor="middle" class="t-small" style="fill:var(--water)">tolerance · model error</text>
+            <text x="545" y="36" text-anchor="middle" class="t-small" style="fill:var(--water)">supply · gain · saturation</text>
+            <text x="697" y="36" text-anchor="middle" class="t-small" style="fill:var(--magenta)">quantisation · noise · INL</text>
+            <text x="837" y="36" text-anchor="middle" class="t-small" style="fill:var(--accent)">wrong equation</text>
+            <line x1="10" y1="190" x2="890" y2="190" class="stroke-muted" stroke-dasharray="4 4"/>
+            <text x="450" y="214" text-anchor="middle" class="t-small">error of the reading: x̂ − x = (dynamic error) + (systematic errors) + (random errors)</text>
+            <text x="450" y="236" text-anchor="middle" class="t-small t-muted">the budget chart separates the last two; the time chart shows the first</text>
+          </g>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The six links of a measurement chain, with the values of the NTC probe in water at 20 °C (β-model firmware, 12-bit ratiometric ADC). Every sensor on the bench follows the same pattern; only the physics of links 2–4 changes.</figcaption>
+      </figure>
+
+      <table>
+        <caption>Table 1. The five sensors on the bench. Values are those used in the model (sources in the last tab).</caption>
+        <thead><tr><th>Sensor</th><th>Physical principle</th><th>Transducer output</th><th>Conditioning</th><th>Time constant</th><th>Typical dominant error</th></tr></thead>
+        <tbody>
+          <tr><td>NTC thermistor probe</td><td>carrier density of a semiconductor rises with T</td><td>resistance, 33 kΩ (0 °C) → 3.6 kΩ (50 °C)</td><td>voltage divider, ratiometric ADC</td><td>≈ 5 s (stirred water) to ≈ 5 min (still air)</td><td>interchangeability and β-model error; lag in air</td></tr>
+          <tr><td>Capacitive RH element</td><td>water sorption raises the permittivity of a polymer</td><td>capacitance, 162 → 193 pF</td><td>charge amplifier (C → V)</td><td>3 s (still air)</td><td>calibration (±2 %RH), sensor warmer than the air</td></tr>
+          <tr><td>Quantum (PAR) sensor</td><td>internal photoeffect in silicon: one photon, at most one electron</td><td>photocurrent, 7.5 µA per 1000 µmol m⁻² s⁻¹</td><td>transimpedance amplifier (I → V)</td><td>&lt; 1 µs</td><td>calibration (±5 %), spectral and cosine errors</td></tr>
+          <tr><td>NDIR CO₂ module</td><td>CO₂ absorbs infrared at 4.26 µm (Beer–Lambert)</td><td>thermopile voltage ≈ 1 mV, a few % lower at high CO₂</td><td>pre-amplifier, two channels, ratio</td><td>20 s (diffusion into the cavity)</td><td>calibration, pressure, lamp ageing (single beam)</td></tr>
+          <tr><td>Capacitive moisture probe</td><td>water raises the bulk permittivity of the substrate</td><td>capacitance, ≈ 5 pF (air) → ≈ 40 pF (water)</td><td>555 oscillator, RC, peak detector</td><td>electronics ≈ 1 s</td><td>non-linear, substrate- and temperature-dependent calibration</td></tr>
+        </tbody>
+      </table>
+
+      <h3>The thermistor: a resistance that falls 4 % per kelvin</h3>
+      <p>An NTC thermistor is a sintered metal-oxide semiconductor whose resistance falls roughly exponentially with temperature. The β equation captures the exponential with one constant; real parts deviate slightly, which the three-constant Steinhart–Hart equation absorbs (Steinhart &amp; Hart, 1968). The probe on the bench is the thermistor calibrated in Lesson 9.1 (Worked example 2): 33.1 kΩ at 0 °C, 10.0 kΩ at 25 °C and 3.59 kΩ at 50 °C. Its β between 25 and 50 °C is exactly 3950 K, but between 0 and 25 °C it is 3899 K — hence the 0.3 K error of the nominal β model near freezing.</p>
+      <p>Two thermal effects matter. First, the probe must itself change temperature: its heat capacity (steel sheath plus epoxy, ≈ 1.5 J K⁻¹) is charged through the thermal conductance \(hA\) to the medium, so \(\tau = mc/(hA)\). Second, the divider current heats the bead: the power \(P = V^2/R_T\) raises it by \(P/\delta\) above the medium. In this single-node model the dissipation constant \(\delta\) is the same conductance \(hA\) that sets τ, so a probe that responds slowly also self-heats more.</p>
+
+      <h3>The humidity sensor: counting water molecules with a capacitor</h3>
+      <p>A thin hygroscopic polymer between two electrodes absorbs water until its water content is in equilibrium with the relative humidity at its own temperature. Water (\(\varepsilon_r \approx 80\)) raises the permittivity of the dry polymer (\(\varepsilon_r \approx 3\text{--}4\)), so the capacitance \(C = \varepsilon_0\varepsilon_r A/d\) rises with RH (Farahani et al., 2014). The element modelled here follows the published polynomial of the HS1101LF: 161.6 pF at 0 %RH, 180 pF at 55 %RH and 193.1 pF at 100 %RH, about 0.31 pF per %RH (Measurement Specialties, 2012). A charge amplifier turns the capacitance difference from a reference capacitor into a voltage.</p>
+      <p>Because the polymer responds to <em>relative</em> humidity at its <em>own</em> temperature, a sensor that is 2 K warmer than the air sees the same water vapour pressure but a 13 % higher saturation vapour pressure, and at 80 %RH reads about 71 %RH — a 9 %RH error that no amount of ADC resolution can fix.</p>
+
+      <h3>The quantum sensor: a photon counter</h3>
+      <p>In a silicon photodiode each absorbed photon with enough energy can create one electron–hole pair; the short-circuit current therefore counts photons, not joules — exactly what a <em>photon</em> flux density needs. A diffuser makes the response follow the cosine law, and a filter flattens the spectral response over 400–700 nm (Barnes et al., 1993; Ross &amp; Sulev, 2000). The model uses a sensitivity of 7.5 µA per 1000 µmol m⁻² s⁻¹, in the 5–10 µA range specified for the LI-190R (LI-COR, n.d.). A transimpedance amplifier holds the photodiode at zero volts and converts the current to \(V = I R_f\).</p>
+
+      <h3>The NDIR cell: CO₂ casts an infrared shadow</h3>
+      <p>CO₂ absorbs strongly at 4.26 µm (asymmetric stretch). A pulsed lamp shines through a reflective cavity onto two thermopiles behind narrow filters: one at 4.26 µm, one at 3.91 µm where nothing absorbs (Hodgkinson &amp; Tatam, 2013). The active signal falls as \(e^{-kcL}\); dividing by the reference cancels lamp ageing, dirt and detector drift. Because absorption depends on the number of molecules per volume, not on the mole fraction, a sensor calibrated at sea level reads low at altitude or on a low-pressure day unless it is compensated. The model uses the SCD30 class of performance: dual channel, τ₆₃ = 20 s, accuracy ±(30 ppm + 3 %) (Sensirion, 2020). Its absorption coefficient and path length are illustrative effective values that give about 5 % absorption at 1000 ppm.</p>
+
+      <h3>The capacitive moisture probe: a fringing field in the root zone</h3>
+      <p>The popular v1.2 probe is a printed-circuit board: a copper electrode next to a ground plane, both under solder mask. Their electric field fringes about a centimetre into the medium, so the probe capacitance depends on the bulk permittivity \(\varepsilon_a\) of the substrate, which the complex refractive index model (CRIM) builds from the volume fractions of water, solids and air (Birchak et al., 1974; Roth et al., 1990). On the board a TLC555 timer oscillates at about 1.5 MHz with a 34 % duty cycle (Mallon, 2020); the square wave charges the probe through 10 kΩ, and a diode peak detector outputs a DC voltage that <em>falls</em> as the capacitance rises — about 3.0 V in air and 1.5 V in water at 3.3 V supply. Two features make the calibration strongly non-linear: the solder mask acts as a capacitor in series with the medium, and the RC charging saturates when the probe capacitance is large.</p>
+
+      <h3>The ADC and the firmware</h3>
+      <p>A successive-approximation ADC divides its reference into \(2^N\) steps. Rounding to a step adds an error spread uniformly over one LSB (standard deviation LSB/√12). The ESP32's converter is nominally 12-bit but has a data-sheet integral nonlinearity of up to ±12 LSB (Espressif Systems, 2025), which the <em>ESP32-like nonlinearity</em> switch represents as a smooth bow. Noise larger than about half an LSB <em>dithers</em> the converter: averaging many conversions then recovers resolution finer than one LSB. Finally the firmware inverts the chain; if it uses the wrong equation or the wrong constants, the error is systematic — it will be the same tomorrow and cannot be averaged away.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“A 16-bit ADC makes my sensor accurate.” Resolution is the smallest change the chain can register, not the closeness of the reading to the truth. On the bench, the PAR sensor's ±5 % calibration dwarfs the quantisation error of even an 8-bit converter, and a warm humidity sensor is 9 %RH wrong whatever the ADC.</p></div>
+      <div class="callout note"><div class="callout-title">Systematic versus random</div><p>The budget chart follows the <em>Guide to the Expression of Uncertainty in Measurement</em> (JCGM, 2008): random effects and effects known only as limits (tolerances, calibration uncertainty) are expressed as standard uncertainties and added in quadrature; known systematic errors should be <em>corrected</em>. The lab shows them separately so that you can see what calibration or a better equation would remove.</p></div>
+      <a class="lab-link" data-lab="ph-calibration" data-why="Calibrate a pH electrode with buffers and diagnose an ageing probe — the same chain with an electrochemical sensor."></a>
+      <a class="lab-link" data-lab="signal-processing" data-why="Sample a noisy greenhouse signal and compare moving-average, exponential and Kalman filters."></a>
+    </section>
+
+    <!-- ================================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the bench</h2>
+      <p>Each sensor is modelled as element state \(y\) → transducer output \(q\) → ADC input voltage \(V\) → code → reading \(\hat x\). Temperatures in the equations are absolute (K) unless the symbol table says °C.</p>
+
+      <div class="eq-box" id="eq-sb-thermistor">
+        <div class="eq-head"><span class="eq-label">Thermistor: Steinhart–Hart truth, β-model firmware and the exact inverse</span><span class="eq-num">(SB1)</span></div>
+        <div class="eq-main">\[ \frac{1}{T} = A + B\ln R + C(\ln R)^3,\qquad \frac{1}{T_\beta} = \frac{1}{T_{25}} + \frac{1}{\beta}\ln\frac{R}{R_{25}},\qquad \ln R = \sqrt[3]{y - \tfrac{x}{2}} - \sqrt[3]{y + \tfrac{x}{2}} \]</div>
+        <p class="eq-read">the calibrated probe obeys the Steinhart–Hart equation; the data-sheet firmware uses the β model instead; to find the resistance at a given temperature, the cubic in the logarithm of R is solved exactly with Cardano's formula, where x equals (A minus 1/T) divided by C and y equals the square root of (B/3C) cubed plus x squared over four.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the lab</th></tr>
+          <tr><td>\(A, B, C\)</td><td>Steinhart–Hart coefficients of this probe (Lesson 9.1, Worked example 2)</td><td>K⁻¹</td><td>1.092739 × 10⁻³, 2.409652 × 10⁻⁴, 5.363408 × 10⁻⁸</td></tr>
+          <tr><td>\(R_{25}, \beta\)</td><td>nominal data-sheet constants</td><td>Ω, K</td><td>10 000 Ω, 3950 K</td></tr>
+          <tr><td>\(T_{25}\)</td><td>reference temperature</td><td>K</td><td>298.15</td></tr>
+          <tr><td>\(R\)</td><td>thermistor resistance</td><td>Ω</td><td>3.6–38 kΩ</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the inverse</summary>
+          <ol class="steps">
+            <li>Write \(L = \ln R\). Steinhart–Hart becomes \(C L^3 + B L + (A - 1/T) = 0\), a cubic with no square term.</li>
+            <li>Divide by \(C\): \(L^3 + pL + q = 0\) with \(p = B/C > 0\) and \(q = x = (A - 1/T)/C\).</li>
+            <li>Because \(p > 0\) the cubic has exactly one real root. Cardano's formula gives \(L = \sqrt[3]{-q/2 + \sqrt{q^2/4 + p^3/27}} + \sqrt[3]{-q/2 - \sqrt{q^2/4 + p^3/27}}\).</li>
+            <li>With \(y = \sqrt{(B/3C)^3 + x^2/4} = \sqrt{p^3/27 + q^2/4}\) this is \(L = \sqrt[3]{y - x/2} - \sqrt[3]{y + x/2}\), and \(R = e^L\). Check: \(T = 298.15\) K returns 10 000.0 Ω.</li>
+            <li>The β-model error is then \(T_\beta(R(T)) - T\): zero at 25 °C and 50 °C, +0.30 K at 0 °C and +0.14 K at 10 °C for this probe.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The three calibration points (0, 25, 50 °C) define the "true" curve; between and slightly beyond them Steinhart–Hart is accurate to millikelvins (Steinhart &amp; Hart, 1968). Below 0 °C and above 50 °C the model extrapolates. Interchangeability of a nominal part is taken as ±1 % in \(R_{25}\) and ±1 % in β, a common tolerance class.</p></details>
+        <div class="eq-units">\(\ln R\) is dimensionless, so \(A\), \(B\) and \(C\) all carry K⁻¹ and \(1/T\) is in K⁻¹ ✓; in the β model \(\ln(R/R_{25})/\beta\) is in K⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="sbBetaErr" data-output="β-model error T<sub>β</sub> − T" data-unit="K" data-digits="3" data-plot="T" data-title="Try it — error of the nominal β model for this probe">
+          <div data-var="T" data-label="True temperature" data-min="-5" data-max="60" data-step="0.5" data-value="0" data-unit="°C"></div>
+          <div data-var="beta" data-label="β used by the firmware" data-min="3850" data-max="4050" data-step="5" data-value="3950" data-unit="K"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-divider">
+        <div class="eq-head"><span class="eq-label">Voltage divider and the ratiometric ADC code</span><span class="eq-num">(SB2)</span></div>
+        <div class="eq-main">\[ V = V_s\,\frac{R_T}{R_f + R_T},\qquad \text{code} = \left\lfloor 2^N\,\frac{V}{V_{\text{ref}}}\right\rfloor \overset{V_{\text{ref}} = V_s}{=} \left\lfloor 2^N \frac{R_T}{R_f + R_T}\right\rfloor,\qquad \hat R_T = R_f\,\frac{\hat V}{V_{s,\text{nom}} - \hat V} \]</div>
+        <p class="eq-read">the voltage across the thermistor is the supply times the thermistor's share of the total resistance; if the ADC uses the same supply as its reference, the code depends only on the resistance ratio; the firmware inverts the divider using the nominal supply voltage.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the lab</th></tr>
+          <tr><td>\(V_s\)</td><td>actual supply of the divider</td><td>V</td><td>3.27 (assumed; nominal 3.30)</td></tr>
+          <tr><td>\(R_f\)</td><td>fixed resistor (slider)</td><td>Ω</td><td>1 k–100 k</td></tr>
+          <tr><td>\(N, V_{\text{ref}}\)</td><td>ADC bits and full-scale reference</td><td>–, V</td><td>8–16, 1.1–4.096</td></tr>
+          <tr><td>\(\hat V\)</td><td>voltage rebuilt from the code, \((\text{code} + 0.5)V_{\text{ref,nom}}/2^N\)</td><td>V</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The same current \(I = V_s/(R_f + R_T)\) flows through both resistors (the ADC input draws negligible current), so \(V = IR_T\).</li>
+            <li>If \(V_{\text{ref}} = V_s\) (ratiometric), \(V/V_{\text{ref}} = R_T/(R_f + R_T)\): the supply cancels, so a 1 % supply error causes no reading error.</li>
+            <li>If the ADC has its own reference, the firmware must assume a supply value; an actual 3.27 V instead of 3.30 V makes \(\hat V\) 0.9 % low and the reading about 0.45 K too high near 20 °C. Switch <em>Ratiometric</em> off to see it in the budget.</li>
+            <li>The sensitivity \(\mathrm{d}V/\mathrm{d}R_T = V_s R_f/(R_f + R_T)^2\) is largest for \(R_f = R_T\): choose \(R_f \approx R_T\) at the centre of the range (12.5 kΩ at 20 °C for this probe).</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(\text{V}\cdot\Omega/\Omega = \text{V}\) ✓; the code is a pure number ✓</div>
+        <div class="mini-calc" data-formula="floor(pow(2,N)*RT/(Rf+RT))" data-output="ADC code (ratiometric)" data-unit="" data-digits="0" data-plot="RT">
+          <div data-var="RT" data-label="Thermistor R<sub>T</sub>" data-min="3000" data-max="40000" data-value="12516" data-scale="log" data-unit="Ω"></div>
+          <div data-var="Rf" data-label="Fixed resistor R<sub>f</sub>" data-min="1000" data-max="100000" data-value="10000" data-scale="log" data-unit="Ω"></div>
+          <div data-var="N" data-label="Resolution N" data-min="8" data-max="16" data-step="1" data-value="12" data-unit="bit"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-dynamics">
+        <div class="eq-head"><span class="eq-label">First-order dynamics and self-heating of the probe</span><span class="eq-num">(SB3)</span></div>
+        <div class="eq-main">\[ mc\,\frac{\mathrm{d}y}{\mathrm{d}t} = hA\,(x - y) + P \;\;\Rightarrow\;\; \tau = \frac{mc}{hA},\qquad y_\infty = x + \frac{P}{\delta},\quad \delta = hA,\quad P = \frac{V^2}{R_T} \]</div>
+        <p class="eq-read">the heat stored in the probe changes by the heat convected from the medium plus the electrical power dissipated in the thermistor; hence the time constant is heat capacity over thermal conductance, and in the steady state the bead sits P over delta above the medium, where delta equals hA in this single-node model.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the lab</th></tr>
+          <tr><td>\(mc\)</td><td>heat capacity of the sensing tip (steel sheath 6 mm × 0.3 mm × 30 mm + epoxy)</td><td>J K⁻¹</td><td>1.51</td></tr>
+          <tr><td>\(A\)</td><td>wetted surface of the tip</td><td>m²</td><td>6.22 × 10⁻⁴</td></tr>
+          <tr><td>\(h\)</td><td>convection coefficient: stirred water / still water / moving air / still air</td><td>W m⁻² K⁻¹</td><td>500 / 150 / 30 / 8</td></tr>
+          <tr><td>\(\tau\)</td><td>time constant</td><td>s</td><td>4.8 / 16 / 81 / 303</td></tr>
+          <tr><td>\(P, \delta\)</td><td>dissipated power; dissipation constant</td><td>W; W K⁻¹</td><td>≈ 0.27 mW; 0.31 W K⁻¹ … 5 mW K⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Treat the tip as one node at temperature \(y\) (small Biot number). Heat gained per second: convection \(hA(x - y)\) plus Joule heating \(P\).</li>
+            <li>Divide by \(hA\): \(\tau\,\mathrm{d}y/\mathrm{d}t + y = x + P/(hA)\) with \(\tau = mc/(hA)\) — the first-order equation of Lesson 9.1 (Eq. 9.1.2) with a small offset.</li>
+            <li>For a step from \(x_0\) to \(x_1\) at \(t = 0\): \(y(t) = x_1 + (x_0 - x_1)e^{-t/\tau}\) (plus the constant self-heating offset). At \(t = \tau\), 63.2 % of the step is complete; at \(3\tau\), 95 %.</li>
+            <li>The simulator integrates \(y\) exactly over each time step: \(y \leftarrow y + (x - y)(1 - e^{-\Delta t/\tau})\), which is stable for any step length.</li>
+            <li>Heat capacity: steel \(7900 \times 500 \times 1.61\times10^{-7} = 0.64\) J K⁻¹ plus epoxy \(1150 \times 1100 \times 6.87\times10^{-7} = 0.87\) J K⁻¹ gives 1.51 J K⁻¹.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A real probe has internal thermal resistance between sheath and bead, so its response is S-shaped at first (two or more first-order stages) and its self-heating is larger than \(P/(hA)\). The convection coefficients sit inside the textbook ranges for free and forced convection of gases and liquids (Bergman et al., 2011); the true value depends on flow speed and geometry. The other sensors use data-sheet time constants: 3 s for the humidity element, 20 s for the NDIR cell, &lt; 1 µs for the photodiode, and an assumed 1 s electronic filter for the moisture probe.</p></details>
+        <div class="eq-units">\(mc/(hA)\): \(\dfrac{\text{J K}^{-1}}{\text{W m}^{-2}\text{K}^{-1}\cdot\text{m}^2} = \dfrac{\text{J}}{\text{J s}^{-1}} = \text{s}\) ✓; \(P/\delta\): W ÷ W K⁻¹ = K ✓</div>
+        <div class="mini-calc" data-formula="mc/(h*A*1e-4)" data-output="Time constant τ" data-unit="s" data-digits="1" data-plot="h">
+          <div data-var="h" data-label="Convection coefficient h" data-min="2" data-max="2000" data-value="150" data-scale="log" data-unit="W m⁻² K⁻¹"></div>
+          <div data-var="mc" data-label="Heat capacity mc" data-min="0.2" data-max="5" data-step="0.01" data-value="1.51" data-unit="J K⁻¹"></div>
+          <div data-var="A" data-label="Surface area A" data-min="1" data-max="20" data-step="0.1" data-value="6.2" data-unit="cm²"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-rh">
+        <div class="eq-head"><span class="eq-label">Capacitive humidity element and the warm-sensor error</span><span class="eq-num">(SB4)</span></div>
+        <div class="eq-main">\[ C = C_{55}\left(3.903\times10^{-8}\,\text{RH}_s^3 - 8.294\times10^{-6}\,\text{RH}_s^2 + 2.188\times10^{-3}\,\text{RH}_s + 0.898\right),\qquad \text{RH}_s = \text{RH}\,\frac{e_s(T_a)}{e_s(T_a + \Delta T_s)} \]</div>
+        <p class="eq-read">the capacitance is the element's capacitance at 55 %RH times the manufacturer's cubic polynomial in the relative humidity that the polymer sees; that humidity equals the air's RH times the ratio of the saturation vapour pressures at the air and at the (warmer) sensor temperature.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the lab</th></tr>
+          <tr><td>\(C_{55}\)</td><td>capacitance at 55 %RH: nominal 180 pF (177–183); this unit</td><td>pF</td><td>181.2</td></tr>
+          <tr><td>\(\text{RH}, \text{RH}_s\)</td><td>relative humidity of the air; at the sensor surface</td><td>%</td><td>1–99</td></tr>
+          <tr><td>\(e_s(T)\)</td><td>saturation vapour pressure (FAO-56 form, <code>svp</code> in the course library)</td><td>kPa</td><td>3.17 at 25 °C</td></tr>
+          <tr><td>\(\Delta T_s\)</td><td>sensor temperature minus air temperature</td><td>K</td><td>0–5</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A parallel-plate capacitor has \(C = \varepsilon_0\varepsilon_r A/d\). The absorbed water raises \(\varepsilon_r\) of the polymer roughly in proportion to its water content, which rises with RH — slightly faster at high RH, hence the cubic fit (Measurement Specialties, 2012).</li>
+            <li>The firmware inverts with the manufacturer's reverse polynomial \(\text{RH} = -3465.6X^3 + 10732X^2 - 10457X + 3245.9\), \(X = C/C_{55}\); its fit error is about 0.1–0.2 %RH.</li>
+            <li>A sensor warmer than the air holds the same vapour pressure \(e = \text{RH}\,e_s(T_a)\) but relates it to a higher saturation pressure: \(\text{RH}_s = e/e_s(T_a + \Delta T_s)\).</li>
+            <li>Example: 25 °C, 80 %RH, \(\Delta T_s = 2\) K: \(e_s(25) = 3.168\) kPa, \(e_s(27) = 3.565\) kPa, \(\text{RH}_s = 80 \times 0.8886 = 71.1\) %RH — the reading is 8.9 %RH low.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Hysteresis (±1 %RH), long-term drift (±0.5 %RH per year) and the deviation from the typical curve (±2 %RH between 10 and 90 %RH) are taken from the data sheet and treated as Type B uncertainties. The temperature coefficient of the element (−0.01 pF K⁻¹) is included but negligible.</p></details>
+        <div class="eq-units">\(C\): pF × (dimensionless polynomial) = pF ✓; \(\text{RH}_s\): % × kPa/kPa = % ✓</div>
+        <div class="mini-calc" data-formula="RH*exp(17.27*Ta/(Ta+237.3))/exp(17.27*(Ta+dT)/(Ta+dT+237.3))" data-output="RH seen by the sensor" data-unit="%RH" data-digits="1" data-plot="dT">
+          <div data-var="RH" data-label="Air RH" data-min="10" data-max="99" data-step="1" data-value="80" data-unit="%"></div>
+          <div data-var="Ta" data-label="Air temperature" data-min="0" data-max="40" data-step="0.5" data-value="25" data-unit="°C"></div>
+          <div data-var="dT" data-label="Sensor warmer by ΔT<sub>s</sub>" data-min="0" data-max="5" data-step="0.1" data-value="2" data-unit="K"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-chargeamp">
+        <div class="eq-head"><span class="eq-label">Charge amplifier: capacitance to voltage</span><span class="eq-num">(SB5)</span></div>
+        <div class="eq-main">\[ V = V_{\text{mid}} + V_{\text{ex}}\,\frac{C - C_{\text{ref}}}{C_f} \]</div>
+        <p class="eq-read">the output voltage is the mid-supply voltage plus the excitation voltage times the difference between sensor and reference capacitance divided by the feedback capacitance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the lab</th></tr>
+          <tr><td>\(V_{\text{mid}}, V_{\text{ex}}\)</td><td>output bias and excitation step</td><td>V</td><td>1.65, 3.3</td></tr>
+          <tr><td>\(C_{\text{ref}}\)</td><td>reference capacitor (≈ sensor at 50 %RH)</td><td>pF</td><td>178</td></tr>
+          <tr><td>\(C_f\)</td><td>feedback capacitor (slider)</td><td>pF</td><td>20–100</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>An excitation step \(V_{\text{ex}}\) is applied to the sensor and, inverted, to the reference capacitor; the charges \(V_{\text{ex}}C\) and \(-V_{\text{ex}}C_{\text{ref}}\) flow into the virtual earth of an op-amp.</li>
+            <li>Charge conservation on the feedback capacitor: \(C_f\,\Delta V = V_{\text{ex}}(C - C_{\text{ref}})\).</li>
+            <li>Referencing the output to mid-supply gives SB5; the firmware inverts it to \(\hat C = C_{\text{ref}} + (\hat V - V_{\text{mid}})C_f/V_{\text{ex}}\).</li>
+            <li>With \(C_f = 36\) pF, 0.31 pF per %RH becomes 28 mV per %RH — 35 LSB of a 12-bit, 3.3 V converter.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ideal op-amp and switches; stray capacitance and charge injection are neglected. The output clips at 0 and 3.3 V — small \(C_f\) gives more volts per picofarad until the ends of the range saturate. Integrated humidity sensors contain a comparable switched-capacitor front end followed by their own ADC.</p></details>
+        <div class="eq-units">V × pF/pF = V ✓</div>
+        <div class="mini-calc" data-formula="min(3.3, max(0, 1.65 + 3.3*(C-178)/Cf))" data-output="Amplifier output V" data-unit="V" data-digits="3" data-plot="C">
+          <div data-var="C" data-label="Sensor capacitance C" data-min="160" data-max="195" data-step="0.1" data-value="182.6" data-unit="pF"></div>
+          <div data-var="Cf" data-label="Feedback capacitor C<sub>f</sub>" data-min="20" data-max="100" data-step="1" data-value="36" data-unit="pF"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-par">
+        <div class="eq-head"><span class="eq-label">Photocurrent of a quantum sensor and the transimpedance amplifier</span><span class="eq-num">(SB6)</span></div>
+        <div class="eq-main">\[ I = \eta\,F\,A_{\text{eff}}\,10^{-6}\,E_p = k\,E_p,\qquad V = I\,R_f \]</div>
+        <p class="eq-read">the photocurrent equals the quantum efficiency times the Faraday constant times the effective optical area times the photon flux density converted from micromoles to moles; the manufacturer lumps the constants into one sensitivity k; the amplifier output is current times feedback resistance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the lab</th></tr>
+          <tr><td>\(E_p\)</td><td>photosynthetic photon flux density (PPFD)</td><td>µmol m⁻² s⁻¹</td><td>0–2500</td></tr>
+          <tr><td>\(F\)</td><td>Faraday constant = elementary charge × Avogadro constant</td><td>C mol⁻¹</td><td>96 485</td></tr>
+          <tr><td>\(\eta A_{\text{eff}}\)</td><td>quantum efficiency × area that receives photons behind diffuser and filter</td><td>m²</td><td>7.8 × 10⁻⁸ (derived)</td></tr>
+          <tr><td>\(k\)</td><td>sensitivity</td><td>A per µmol m⁻² s⁻¹</td><td>7.5 × 10⁻⁹</td></tr>
+          <tr><td>\(R_f\)</td><td>feedback resistor (slider)</td><td>Ω</td><td>10 k–1 M</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Photons arriving per second on the effective area: \(E_p \times 10^{-6}\ \text{mol}\,\mu\text{mol}^{-1} \times N_A \times A_{\text{eff}}\).</li>
+            <li>Each produces an electron with probability \(\eta\) (quantum efficiency); each electron carries charge \(e\). Since \(eN_A = F\), \(I = \eta F A_{\text{eff}} 10^{-6} E_p\).</li>
+            <li>Inverting the specified sensitivity: \(\eta A_{\text{eff}} = k/(F\times10^{-6}) = 7.5\times10^{-9}/0.0965 = 7.8\times10^{-8}\) m² = 0.078 mm². Only a small fraction of the photons that hit the 2.4 cm head reach the photodiode — the diffuser and filter trade throughput for a correct angular and spectral response.</li>
+            <li>The op-amp keeps the photodiode at 0 V (short-circuit mode, where the current is most linear), so all of \(I\) flows through \(R_f\): \(V = IR_f\). Saturation occurs at \(E_p = V_{\text{ref}}/(kR_f)\), e.g. 440 µmol m⁻² s⁻¹ for 1 MΩ and 3.3 V.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Linearity (±1 %), calibration (±5 %) and temperature dependence (±0.15 % K⁻¹, maximum) follow the LI-190R specifications (LI-COR, n.d.); spectral and cosine errors are not simulated but are discussed by Barnes et al. (1993) and Ross and Sulev (2000). The photodiode responds in less than a microsecond, so the sampling interval, not the sensor, limits the time resolution.</p></details>
+        <div class="eq-units">\(\eta F A_{\text{eff}}10^{-6}E_p\): C mol⁻¹ × m² × mol µmol⁻¹ × µmol m⁻² s⁻¹ = C s⁻¹ = A ✓; \(IR_f\): A × Ω = V ✓</div>
+        <div class="mini-calc" data-formula="7.5e-9*E*Rf" data-output="TIA output V" data-unit="V" data-digits="3" data-plot="E">
+          <div data-var="E" data-label="PPFD E<sub>p</sub>" data-min="0" data-max="2500" data-step="10" data-value="600" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="Rf" data-label="Feedback resistor R<sub>f</sub>" data-min="10000" data-max="1000000" data-value="150000" data-scale="log" data-unit="Ω"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-ndir">
+        <div class="eq-head"><span class="eq-label">NDIR: absorption, dual-channel ratio and pressure–temperature compensation</span><span class="eq-num">(SB7)</span></div>
+        <div class="eq-main">\[ V_{\text{act}} = V_{0,\text{act}}\,\lambda\,e^{-k c L},\;\; V_{\text{ref}} = V_{0,\text{ref}}\,\lambda,\;\; c = \frac{x P}{R T};\qquad \hat x = \frac{R\,T_u}{P_u}\,\frac{1}{kL}\ln\!\left(\frac{V_{0,\text{act}}/V_{0,\text{ref}}}{V_{\text{act}}/V_{\text{ref}}}\right) \]</div>
+        <p class="eq-read">the active thermopile signal is its zero-CO₂ value times the lamp factor times the Beer–Lambert transmission; the reference signal sees only the lamp factor; the molar concentration is the mole fraction times pressure over RT; the firmware turns the measured ratio into an absorbance and then into a mole fraction using either the actual or the calibration pressure and temperature.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the lab</th></tr>
+          <tr><td>\(k\), \(L\)</td><td>effective band-averaged absorption coefficient; folded optical path (illustrative)</td><td>m² mol⁻¹, m</td><td>20, 0.06</td></tr>
+          <tr><td>\(V_{0,\text{act}}, V_{0,\text{ref}}\)</td><td>thermopile signals at zero CO₂ with a new lamp</td><td>mV</td><td>1.2, 1.0</td></tr>
+          <tr><td>\(\lambda\)</td><td>lamp output relative to new (ageing, dirt)</td><td>–</td><td>0.6–1</td></tr>
+          <tr><td>\(x\)</td><td>CO₂ mole fraction</td><td>µmol mol⁻¹ (ppm)</td><td>0–5000</td></tr>
+          <tr><td>\(P_u, T_u\)</td><td>pressure and temperature used by the firmware: actual (compensated) or 1013.25 hPa and 25 °C</td><td>Pa, K</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Beer–Lambert (Lesson 9.1, Eq. 9.1.8): transmission \(e^{-kcL}\); absorbance \(A = kcL\) is proportional to the number of molecules per volume.</li>
+            <li>The ratio \(r = V_{\text{act}}/V_{\text{ref}} = (V_{0,\text{act}}/V_{0,\text{ref}})e^{-kcL}\) no longer contains \(\lambda\) — lamp ageing and dirt cancel.</li>
+            <li>Take the logarithm: \(kcL = \ln(r_0/r)\) with \(r_0 = V_{0,\text{act}}/V_{0,\text{ref}}\) from the zero calibration; solve for \(c\).</li>
+            <li>Convert to mole fraction with the ideal-gas law, \(x = cRT/P\). A single-beam sensor must assume \(V_{\text{ref}} = V_{0,\text{ref}}\); a 5 % weaker lamp then adds \(\ln(1/0.95)/(kL) = 0.043\) mol m⁻³ ≈ 1000 ppm.</li>
+            <li>Fractional absorbance at 1000 ppm, 25 °C, 1013 hPa: \(c = 0.0409\) mol m⁻³, \(kcL = 0.049\), so 4.8 % of the active-channel photons are absorbed — the electronics must resolve changes of a few hundredths of a percent of the signal.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Real NDIR sensors do not follow a single exponential because the filter band covers many absorption lines; manufacturers use empirical linearisation (Hodgkinson &amp; Tatam, 2013). The effective \(k\) and \(L\) are illustrative values, not those of a specific product; the accuracy, temperature stability and τ₆₃ follow the SCD30 data sheet (Sensirion, 2020).</p></details>
+        <div class="eq-units">\(kcL\): m² mol⁻¹ × mol m⁻³ × m = 1 ✓; \(cRT/P\): mol m⁻³ × J mol⁻¹ K⁻¹ × K ÷ Pa = J m⁻³ Pa⁻¹ = 1 ✓</div>
+        <div class="mini-calc" data-formula="100*(1-exp(-20*0.06*x*1e-6*P*100/(8.314*(T+273.15))))" data-output="Fractional absorbance" data-unit="%" data-digits="2" data-plot="x">
+          <div data-var="x" data-label="CO₂" data-min="0" data-max="5000" data-step="10" data-value="1000" data-unit="ppm"></div>
+          <div data-var="P" data-label="Pressure" data-min="850" data-max="1050" data-step="1" data-value="1013" data-unit="hPa"></div>
+          <div data-var="T" data-label="Gas temperature" data-min="0" data-max="40" data-step="0.5" data-value="25" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-crim">
+        <div class="eq-head"><span class="eq-label">Bulk permittivity of a moist substrate and the probe capacitance</span><span class="eq-num">(SB8)</span></div>
+        <div class="eq-main">\[ \sqrt{\varepsilon_a} = \theta\sqrt{\varepsilon_w(T)} + (1-\phi)\sqrt{\varepsilon_s} + (\phi - \theta),\qquad \varepsilon_w = 87.740 - 0.40008\,t + 9.398\times10^{-4}t^2 - 1.410\times10^{-6}t^3,\qquad C = C_0 + \frac{C_c\,C_g\varepsilon_a}{C_c + C_g\varepsilon_a} \]</div>
+        <p class="eq-read">the square root of the bulk permittivity is the volume-weighted sum of the square roots of the permittivities of water, solid and air; water's permittivity falls with temperature; the probe capacitance is a stray part plus the coating capacitance in series with the medium's capacitance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the lab</th></tr>
+          <tr><td>\(\theta, \phi\)</td><td>volumetric water content; total porosity</td><td>m³ m⁻³</td><td>φ: coir 0.94, stone wool 0.96, peat 0.90, loam 0.48</td></tr>
+          <tr><td>\(\varepsilon_w, \varepsilon_s\)</td><td>relative permittivity of water (80.1 at 20 °C); of the solids (assumed)</td><td>–</td><td>εs = 3–5</td></tr>
+          <tr><td>\(t\)</td><td>temperature</td><td>°C</td><td>0–40</td></tr>
+          <tr><td>\(C_0, C_g, C_c\)</td><td>stray capacitance; fringing capacitance per unit permittivity; solder-mask capacitance</td><td>pF</td><td>2, 3.2, 45</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>For a wave travelling through a layered mixture, travel times add: \(\sqrt{\varepsilon_a}\) (proportional to the refractive index) is the volume-weighted mean of the constituents' \(\sqrt{\varepsilon}\) — the CRIM mixing rule with exponent ½ (Birchak et al., 1974; Roth et al., 1990). Air has \(\varepsilon = 1\).</li>
+            <li>Water's permittivity follows Malmberg and Maryott (1956): 80.1 at 20 °C, 78.3 at 25 °C — so a warmer substrate reads slightly drier.</li>
+            <li>The medium sees the fringing field as a capacitor \(C_g\varepsilon_a\). The thin solder mask over the electrode is a capacitor \(C_c\) in series with it, and series capacitances combine as \(C_cC_m/(C_c + C_m)\), which approaches \(C_c\) in a very wet medium — the first reason the probe saturates.</li>
+            <li>Example: coir at θ = 0.45 and 20 °C: \(\sqrt{\varepsilon_a} = 0.45\times8.95 + 0.06\times2 + 0.49 = 4.64\), \(\varepsilon_a = 21.5\), \(C = 2 + 45\times68.9/113.9 = 29.2\) pF.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>CRIM ignores bound water, dielectric losses and salinity, all of which matter in fertigated organic substrates; capacitance probes are known to over-read at high pore-water EC (Blonquist et al., 2005). \(C_0, C_g, C_c\) are chosen so that the probe gives about 3.0 V in air and 1.5 V in water, as reported for v1.2 probes (Mallon, 2020). Porosities are typical of the substrate classes (Raviv et al., 2019).</p></details>
+        <div class="eq-units">\(\sqrt{\varepsilon}\) terms are dimensionless volume-weighted sums ✓; \(C_cC_m/(C_c + C_m)\): pF²/pF = pF ✓</div>
+        <div class="mini-calc" data-fn="sbCrim" data-output="Bulk permittivity ε<sub>a</sub>" data-unit="" data-digits="1" data-plot="theta">
+          <div data-var="theta" data-label="Water content θ" data-min="0" data-max="0.95" data-step="0.01" data-value="0.45" data-unit="m³ m⁻³"></div>
+          <div data-var="phi" data-label="Porosity φ" data-min="0.4" data-max="0.97" data-step="0.01" data-value="0.94"></div>
+          <div data-var="es" data-label="Solid permittivity ε<sub>s</sub>" data-min="2" data-max="8" data-step="0.1" data-value="4"></div>
+          <div data-var="T" data-label="Temperature" data-min="0" data-max="40" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-peak">
+        <div class="eq-head"><span class="eq-label">Square wave, RC charging and the peak detector of the moisture probe</span><span class="eq-num">(SB9)</span></div>
+        <div class="eq-main">\[ V = V_s\,\frac{1 - q_1}{1 - q_0 q_1} - V_D,\qquad q_1 = \exp\!\left(-\frac{D}{fRC}\right),\quad q_0 = \exp\!\left(-\frac{1-D}{fRC}\right) \]</div>
+        <p class="eq-read">the output is the peak voltage that the probe capacitor reaches in the periodic steady state of a square wave, minus the diode drop; q one and q zero are the exponential decays during the high and the low part of each period.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the lab</th></tr>
+          <tr><td>\(V_s\)</td><td>oscillator amplitude (regulated supply)</td><td>V</td><td>3.3</td></tr>
+          <tr><td>\(f, D\)</td><td>oscillator frequency and duty cycle (TLC555)</td><td>Hz, –</td><td>1.5 × 10⁶, 0.34</td></tr>
+          <tr><td>\(R\)</td><td>series resistor</td><td>Ω</td><td>10 000</td></tr>
+          <tr><td>\(C\)</td><td>probe capacitance (SB8)</td><td>F</td><td>≈ 5–40 pF</td></tr>
+          <tr><td>\(V_D\)</td><td>forward drop of the detector diode (assumed)</td><td>V</td><td>0.28</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>While the oscillator is high (duration \(D/f\)) the capacitor charges towards \(V_s\): \(v_H = V_s + (v_L - V_s)q_1\).</li>
+            <li>While it is low (duration \((1-D)/f\)) it discharges towards 0: \(v_L = v_H q_0\).</li>
+            <li>Substitute: \(v_H = V_s(1 - q_1) + v_H q_0 q_1\), so \(v_H = V_s(1 - q_1)/(1 - q_0q_1)\). The diode and hold capacitor keep the peak, minus \(V_D\).</li>
+            <li>Limits: \(C \to 0\): \(q \to 0\), \(v_H \to V_s\) (air: ≈ 3.0 V). \(C \to \infty\): \(v_H \to DV_s\), the average of the square wave (1.12 V + wiring) — the second reason for the flat wet end.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ideal square wave and diode, no load on the hold capacitor. The frequency and duty cycle follow measurements on v1.2 boards (Mallon, 2020); the diode drop is an assumption. Temperature drift of the oscillator and diode is not modelled; field loggers show a daily "thermal wobble" in exactly these probes (Mallon, 2020).</p></details>
+        <div class="eq-units">\(D/(fRC)\): 1 ÷ (s⁻¹ × Ω × F) = 1 ÷ (s⁻¹ × s) = 1 ✓; V × (1 − q)/(1 − q q) = V ✓</div>
+        <div class="mini-calc" data-fn="sbPeak" data-output="Probe output voltage" data-unit="V" data-digits="3" data-plot="C">
+          <div data-var="C" data-label="Probe capacitance C" data-min="2" data-max="80" data-step="0.5" data-value="29" data-unit="pF"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-adc">
+        <div class="eq-head"><span class="eq-label">Quantisation, noise and averaging</span><span class="eq-num">(SB10)</span></div>
+        <div class="eq-main">\[ \text{LSB} = \frac{V_{\text{ref}}}{2^N},\qquad u_q = \frac{\text{LSB}}{\sqrt{12}},\qquad u_{\bar V} = \frac{\sigma_V}{\sqrt{n}}\ \ (\text{and } \frac{u_q}{\sqrt n}\ \text{if}\ \sigma_V \gtrsim \tfrac12\text{LSB}),\qquad u_x = \frac{u_V}{|S|},\ S = \frac{\mathrm{d}V}{\mathrm{d}x} \]</div>
+        <p class="eq-read">one least-significant bit is the reference divided by two to the power N; rounding adds a uniform error with standard deviation LSB over root twelve; averaging n noisy conversions divides the random part by root n — and also the quantisation part if the noise is large enough to dither; a voltage uncertainty becomes a measurand uncertainty through the sensitivity of the chain.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(N, V_{\text{ref}}\)</td><td>ADC bits and full scale</td><td>–, V</td></tr>
+          <tr><td>\(\sigma_V\)</td><td>rms noise at the ADC input (slider)</td><td>V</td></tr>
+          <tr><td>\(n\)</td><td>conversions averaged per reading</td><td>–</td></tr>
+          <tr><td>\(S\)</td><td>sensitivity of the ADC input to the measurand</td><td>V per unit</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Without noise, a slowly varying input is always rounded the same way: the error is deterministic and bounded by ±½ LSB (the staircase in the error chart).</li>
+            <li>Treated as uniformly distributed over one LSB, its variance is \(\text{LSB}^2/12\) (Lesson 9.1, Eq. 9.1.4).</li>
+            <li>With Gaussian noise \(\sigma_V\), each conversion lands on neighbouring codes with probabilities that depend on where the true voltage lies between them; the <em>mean</em> code of many conversions therefore interpolates between codes (dithering), and both noise and quantisation fall as \(1/\sqrt n\).</li>
+            <li>Divide by the local sensitivity to express everything in measurand units, e.g. 0.806 mV ÷ 37.4 mV K⁻¹ = 0.022 K per LSB for the thermistor at 20 °C.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ideal converter apart from an optional smooth integral-nonlinearity bow of ±12 LSB (at 12 bit, 3.3 V), the data-sheet figure for the ESP32 (Espressif Systems, 2025); real INL curves are irregular and differ between chips, and the ESP32 also has ±7 LSB differential nonlinearity. Averaging assumes independent (white) noise.</p></details>
+        <div class="eq-units">LSB/|S|: V ÷ (V per unit) = unit of the measurand ✓</div>
+        <div class="mini-calc" data-formula="Vref/pow(2,N)/sqrt(12)/(S/1000)" data-output="Quantisation uncertainty u<sub>q</sub> in measurand units" data-unit="" data-digits="4" data-plot="N">
+          <div data-var="N" data-label="Resolution N" data-min="8" data-max="16" data-step="1" data-value="12" data-unit="bit"></div>
+          <div data-var="Vref" data-label="V<sub>ref</sub>" data-min="1" data-max="5" data-step="0.1" data-value="3.3" data-unit="V"></div>
+          <div data-var="S" data-label="Sensitivity S" data-min="0.5" data-max="100" data-step="0.1" data-value="37.4" data-unit="mV per unit"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-budget">
+        <div class="eq-head"><span class="eq-label">Error budget: propagation through the firmware</span><span class="eq-num">(SB11)</span></div>
+        <div class="eq-main">\[ u_c(\hat x) = \sqrt{\sum_i u_{B,i}^2 + \sum_j \left(\frac{\partial \hat x}{\partial V_j}\right)^{2}\!\left(u_{q,j}^2 + u_{\bar V,j}^2\right)},\qquad U = 2\,u_c,\qquad b = \sum_k b_k \]</div>
+        <p class="eq-read">the combined standard uncertainty is the root-sum-square of the Type B components from data sheets and of the ADC-channel uncertainties multiplied by the sensitivity of the firmware result to each channel voltage; the expanded uncertainty uses a coverage factor of two; the known but uncorrected systematic errors are summed separately.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(u_{B,i}\)</td><td>Type B standard uncertainties: tolerance or calibration limit \(a\) as \(a/\sqrt3\) (rectangular)</td><td>measurand unit</td></tr>
+          <tr><td>\(\partial\hat x/\partial V_j\)</td><td>sensitivity coefficient of the firmware to channel \(j\) (numerical derivative)</td><td>unit per V</td></tr>
+          <tr><td>\(b_k\)</td><td>systematic errors: model error, self-heating, warm sensor, uncompensated pressure, lamp ageing, INL…</td><td>measurand unit</td></tr>
+          <tr><td>\(U\)</td><td>expanded uncertainty, ≈ 95 % coverage for a near-normal result</td><td>measurand unit</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The reading is a function of the channel voltages, \(\hat x = f(V_1, V_2, \dots)\). A small error \(\delta V_j\) causes \(\delta\hat x \approx (\partial f/\partial V_j)\delta V_j\) (first-order Taylor expansion).</li>
+            <li>For independent errors the variances add: \(u^2(\hat x) = \sum_j (\partial f/\partial V_j)^2u^2(V_j)\) — the law of propagation of uncertainty (JCGM, 2008; Lesson 9.3, Eq. 9.3.3).</li>
+            <li>A data-sheet limit \(\pm a\) with no further information is a rectangular distribution with standard deviation \(a/\sqrt3\).</li>
+            <li>The NDIR sensor has two channels: noise on each is propagated through the ratio, which is why the noise contribution is \(\sqrt2\) larger than for one channel with the same signal.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Components are treated as uncorrelated; the budget is evaluated in the steady state (the dynamic error of a changing measurand is shown separately in the readouts). Systematic errors are listed with their sign because a well-designed measurement corrects them rather than widening the uncertainty.</p></details>
+        <div class="eq-units">(unit per V × V)² + unit² → unit² under the root ✓</div>
+        <div class="mini-calc" data-formula="2*sqrt(a*a/3+b*b/3+c*c)" data-output="Expanded uncertainty U (k = 2)" data-unit="" data-digits="3" data-plot="a">
+          <div data-var="a" data-label="Calibration limit ±a" data-min="0" data-max="2" data-step="0.01" data-value="0.25"></div>
+          <div data-var="b" data-label="Model/hysteresis limit ±b" data-min="0" data-max="2" data-step="0.01" data-value="0.1"></div>
+          <div data-var="c" data-label="Noise + quantisation (1σ)" data-min="0" data-max="1" data-step="0.005" data-value="0.02"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the bench to answer. Tick each task when you are done; <em>Save investigation</em> copies your settings and results into your notebook, and <em>Download log</em> exports the logged readings.</p>
+      <ol class="task-list">
+        <li><h4>Measure a time constant four ways</h4><p>For the NTC probe, run a step test in each medium. Read τ from the time at which the green curve has covered 63.2 % of the step, and compare with \(\tau = mc/(hA)\) (Eq. SB3). Plot τ against 1/h. Why does a probe need almost 20 minutes in still air before a manual reading is trustworthy to 0.1 K after a 4 K step?</p></li>
+        <li><h4>Design the divider</h4><p>With the water at 20 °C and a noise-free 12-bit ADC, vary R<sub>f</sub> from 1 kΩ to 100 kΩ and record the resolution readout (1 LSB in kelvin) and the self-heating in still air. Which R<sub>f</sub> gives the best resolution, and why is it close to R<sub>T</sub>(20 °C)? What would you choose for a cold store at 2 °C?</p></li>
+        <li><h4>Spend €10 wisely</h4><p>Load <em>Hobby tank thermometer</em>. Rank the components of the error budget at 5 °C, 18 °C and 35 °C. Compare three upgrades — a 16-bit external ADC, averaging ×16, a three-point calibration (Steinhart–Hart) — and say which buys most accuracy. Is the answer the same at every temperature?</p></li>
+        <li><h4>The warm hygrometer</h4><p>At 25 °C and 80 %RH, find the sensor overheating that causes a 5 %RH error; check it with Eq. SB4. Repeat at 60 %RH and at 10 °C. Explain from vapour pressures why the error in %RH grows with RH, and why a ventilated radiation shield is part of the sensor.</p></li>
+        <li><h4>CO₂ enrichment in the mountains</h4><p>Load <em>Greenhouse at 550 m</em>. What does the uncompensated sensor read at a true 1000 ppm, and by how much would a controller with an 1000 ppm set-point over-dose? Now load <em>Aged single-beam CO₂</em>, and compare the size of the lamp error with and without the reference channel. What does "automatic baseline correction" in single-beam sensors assume about the air the sensor sees?</p></li>
+        <li><h4>Calibrate the moisture probe</h4><p>For coir and for loam, record the output voltage at θ = 0.1, 0.2, … up to the porosity, and fit your own calibration curve (e.g. a quadratic in V) with the <a href="/laboratories/statistics-workbench/">statistics workbench</a>. Compare it with the <em>Air–water %</em> scale: at which water contents is the popular two-point method most wrong, and why does the probe lose sensitivity in wet substrate (Eqs. SB8–SB9)?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-sensor-bench">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"The NTC probe lies in still air (τ = 302.6 s in the model). After a 4.0 K step, how long must you wait until the reading is within 0.1 K of the new temperature?","answer":1116,"tol":0.02,"unit":"s","hint":"Solve |x₀ − x₁| e^(−t/τ) = 0.1 K for t.","explain":"<p>\\(t = \\tau\\ln(4.0/0.1) = 302.6 \\times 3.689 = 1116\\) s ≈ 18.6 min. In stirred water (τ = 4.8 s) the same criterion takes only 18 s.</p>"},
+          {"type":"numeric","q":"A humidity sensor in 25 °C air at 80 %RH is 2.0 K warmer than the air. What relative humidity does it report (ignore all other errors)?","answer":71.1,"tol":0.01,"unit":"%RH","hint":"Same vapour pressure, higher saturation vapour pressure: RH_s = RH · e_s(25 °C)/e_s(27 °C).","explain":"<p>\\(e_s(25) = 3.168\\) kPa and \\(e_s(27) = 3.565\\) kPa, so \\(\\text{RH}_s = 80\\times3.168/3.565 = 71.1\\) %RH — about 9 %RH too low.</p>"},
+          {"type":"numeric","q":"The quantum sensor gives 7.5 µA per 1000 µmol m⁻² s⁻¹. With a 1 MΩ transimpedance resistor and a 3.3 V ADC full scale, above which PPFD does the ADC saturate?","answer":440,"tol":0.02,"unit":"µmol m⁻² s⁻¹","hint":"Saturation when I·R_f = V_ref.","explain":"<p>\\(I_{\\max} = 3.3\\ \\text{V}/10^6\\ \\Omega = 3.3\\ \\mu\\text{A}\\), and \\(E_p = 3.3/7.5\\times1000 = 440\\) µmol m⁻² s⁻¹ — far below full sunlight (≈ 2000). Choose R<sub>f</sub> ≤ 150 kΩ for outdoor use.</p>"},
+          {"type":"mcq","q":"The IR lamp of an NDIR sensor loses 15 % of its output. Why does the dual-channel reading hardly change?","options":["Because CO₂ absorbs at 4.26 µm, where the lamp does not age","Because the reading uses the ratio of the active (4.26 µm) and reference (3.91 µm) signals, and both fall by the same factor","Because the thermopiles are calibrated at the factory","Because the Beer–Lambert law is independent of intensity, so any lamp output gives the same absorbance"],"answer":1,"feedback":["A thermal lamp ages across its whole spectrum, including 4.26 µm.","","Factory calibration is done with a new lamp; it cannot know about later ageing.","The transmission is independent of intensity, but a single-beam sensor measures the transmitted intensity itself and must assume what the unattenuated intensity is."],"explain":"<p>\\(V_{\\text{act}}/V_{\\text{ref}} = (V_{0,\\text{act}}/V_{0,\\text{ref}})e^{-kcL}\\): the lamp factor λ cancels (Eq. SB7). Switch the reference channel off in the simulator to see a > 1000 ppm error.</p>"},
+          {"type":"multi","q":"Which changes reduce the <em>random</em> part of the error of a thermistor reading? (Select all that apply.)","options":["Averaging 16 conversions when the noise is larger than about half an LSB","Replacing the β model by a calibrated Steinhart–Hart equation","Using a 16-bit instead of a 12-bit ADC when quantisation dominates","Making the divider ratiometric"],"answer":[0,2],"explain":"<p>Averaging (with dither) and finer quantisation reduce random/quantisation uncertainty. A better equation and a ratiometric divider remove <em>systematic</em> errors (model error, supply error) — valuable, but a different kind of improvement.</p>"},
+          {"type":"tf","q":"A capacitive moisture probe that reads 3.0 V in air and 1.5 V in water can be converted to volumetric water content with a straight line between those two points, as long as the substrate is not saline.","answer":false,"explain":"<p>The response is strongly non-linear: the solder-mask capacitance in series with the medium and the saturation of the RC circuit flatten the wet end (Eqs. SB8–SB9), and the relation depends on porosity and solid permittivity. Each substrate needs its own calibration curve.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ================================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Dynamics.</strong> Every sensing element is a single first-order lag (Eq. SB3), integrated exactly. The NTC time constant follows from the probe's heat capacity and a convection coefficient per medium; the others use data-sheet values (humidity element 3 s, NDIR τ₆₃ 20 s, photodiode &lt; 1 µs). The 1 s time constant of the moisture probe's output filter is an assumption. Real probes show S-shaped (higher-order) responses.</li>
+        <li><strong>NTC probe.</strong> The "true" R(T) is the Steinhart–Hart curve of the probe calibrated in Lesson 9.1; the nominal part is 10 kΩ / β 3950 K with ±1 % tolerances. Self-heating uses δ = hA, which underestimates the self-heating of a potted bead. The supply is assumed to be 3.27 V against a nominal 3.30 V.</li>
+        <li><strong>Humidity element.</strong> HS1101LF polynomial and tolerances; "this unit" has C₅₅ = 181.2 pF (inside the 177–183 pF range). Hysteresis is treated as an uncertainty, not simulated as a history.</li>
+        <li><strong>Quantum sensor.</strong> Ideal linear photodiode with LI-190R-type specifications; spectral mismatch and cosine errors are not simulated; the photon animation shows a sampled stream, not the true photon rate (≈ 10¹⁵ s⁻¹ on the detector).</li>
+        <li><strong>NDIR module.</strong> Pure Beer–Lambert absorption with an illustrative effective absorption coefficient (20 m² mol⁻¹) and path (6 cm) — about 5 % absorption at 1000 ppm; ideal-gas conversion; dual-channel ratio. The absorption flashes in the animation occur with the model's true fractional absorbance.</li>
+        <li><strong>Moisture probe.</strong> CRIM mixing, Malmberg–Maryott permittivity of water, a series coating capacitance and an ideal square-wave RC peak detector with parameters tuned to the reported 3.0 V (air) and 1.5 V (water). Salinity, dielectric losses, bound water and air gaps around the probe are ignored. The "substrate curve" firmware is the exact inverse of the model at 20 °C, i.e. a perfect calibration apart from its assumed ±0.02 m³ m⁻³ uncertainty.</li>
+        <li><strong>ADC.</strong> Ideal N-bit converter with Gaussian input noise, optional smooth INL bow (±12 LSB at 12 bit), averaging of independent conversions, and reconstruction at code centres. Reference voltages other than the ratiometric supply are assumed exact.</li>
+        <li><strong>Uncertainty.</strong> Data-sheet limits are converted to standard uncertainties with a rectangular distribution; components are uncorrelated; systematic errors are reported separately and not included in u<sub>c</sub>.</li>
+        <li>The 3D models are faithful in layout and proportion but simplified; the physics animations are driven by the model (molecule numbers, photon rates, currents, field-line density) and scaled for visibility where stated.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Barnes, C., Tibbitts, T., Sager, J., Deitzer, G., Bubenheim, D., Koerner, G., &amp; Bugbee, B. (1993). Accuracy of quantum sensors measuring yield photon flux and photosynthetic photon flux. <em>HortScience</em>, 28(12), 1197–1200. <a href="https://doi.org/10.21273/HORTSCI.28.12.1197" target="_blank" rel="noopener">doi:10.21273/HORTSCI.28.12.1197</a></li>
+        <li>Bergman, T. L., Lavine, A. S., Incropera, F. P., &amp; DeWitt, D. P. (2011). <em>Fundamentals of Heat and Mass Transfer</em> (7th ed.). Wiley.</li>
+        <li>Birchak, J. R., Gardner, C. G., Hipp, J. E., &amp; Victor, J. M. (1974). High dielectric constant microwave probes for sensing soil moisture. <em>Proceedings of the IEEE</em>, 62(1), 93–98. <a href="https://doi.org/10.1109/PROC.1974.9388" target="_blank" rel="noopener">doi:10.1109/PROC.1974.9388</a></li>
+        <li>Blonquist, J. M., Jones, S. B., &amp; Robinson, D. A. (2005). Standardizing characterization of electromagnetic water content sensors: Part 2. Evaluation of seven sensing systems. <em>Vadose Zone Journal</em>, 4(4), 1059–1069. <a href="https://doi.org/10.2136/vzj2004.0141" target="_blank" rel="noopener">doi:10.2136/vzj2004.0141</a></li>
+        <li>Espressif Systems. (2025). <em>ESP32 series datasheet</em> (Version 5.3). <a href="https://documentation.espressif.com/esp32_datasheet_en.pdf" target="_blank" rel="noopener">documentation.espressif.com/esp32_datasheet_en.pdf</a></li>
+        <li>Farahani, H., Wagiran, R., &amp; Hamidon, M. N. (2014). Humidity sensors principle, mechanism, and fabrication technologies: a comprehensive review. <em>Sensors</em>, 14(5), 7881–7939. <a href="https://doi.org/10.3390/s140507881" target="_blank" rel="noopener">doi:10.3390/s140507881</a></li>
+        <li>Fraden, J. (2016). <em>Handbook of Modern Sensors: Physics, Designs, and Applications</em> (5th ed.). Springer. <a href="https://doi.org/10.1007/978-3-319-19303-8" target="_blank" rel="noopener">doi:10.1007/978-3-319-19303-8</a></li>
+        <li>Hodgkinson, J., &amp; Tatam, R. P. (2013). Optical gas sensing: a review. <em>Measurement Science and Technology</em>, 24(1), 012004. <a href="https://doi.org/10.1088/0957-0233/24/1/012004" target="_blank" rel="noopener">doi:10.1088/0957-0233/24/1/012004</a></li>
+        <li>JCGM. (2008). <em>Evaluation of measurement data — Guide to the expression of uncertainty in measurement</em> (JCGM 100:2008). Joint Committee for Guides in Metrology. <a href="https://www.bipm.org/en/committees/jc/jcgm/publications" target="_blank" rel="noopener">bipm.org</a></li>
+        <li>LI-COR. (n.d.). <em>LI-190R and LI-191R quantum sensor: specifications</em>. <a href="https://www.licor.com/support/LI-190R-and-LI-191R/topics/quantum-specifications.html" target="_blank" rel="noopener">licor.com</a></li>
+        <li>Malmberg, C. G., &amp; Maryott, A. A. (1956). Dielectric constant of water from 0 to 100 °C. <em>Journal of Research of the National Bureau of Standards</em>, 56(1), 1–8. <a href="https://doi.org/10.6028/jres.056.001" target="_blank" rel="noopener">doi:10.6028/jres.056.001</a></li>
+        <li>Mallon, E. (2020, October 27). <em>Hacking a capacitive soil moisture sensor (v1.2) for frequency output</em>. The Cave Pearl Project. <a href="https://thecavepearlproject.org/2020/10/27/hacking-a-capacitive-soil-moisture-sensor-for-frequency-output/" target="_blank" rel="noopener">thecavepearlproject.org</a></li>
+        <li>Measurement Specialties. (2012). <em>HS1101LF relative humidity sensor</em> [Data sheet HPC052_I]. <a href="https://www.te.com/commerce/DocumentDelivery/DDEController?Action=showdoc&amp;DocId=Data+Sheet%7FHPC052_J%7FA%7Fpdf%7FEnglish%7FENG_DS_HPC052_J_A.pdf%7FCAT-HSC0006" target="_blank" rel="noopener">te.com</a></li>
+        <li>Raviv, M., Lieth, J. H., &amp; Bar-Tal, A. (Eds.). (2019). <em>Soilless Culture: Theory and Practice</em> (2nd ed.). Elsevier.</li>
+        <li>Ross, J., &amp; Sulev, M. (2000). Sources of errors in measurements of PAR. <em>Agricultural and Forest Meteorology</em>, 100(2–3), 103–125. <a href="https://doi.org/10.1016/S0168-1923(99)00144-6" target="_blank" rel="noopener">doi:10.1016/S0168-1923(99)00144-6</a></li>
+        <li>Roth, K., Schulin, R., Flühler, H., &amp; Attinger, W. (1990). Calibration of time domain reflectometry for water content measurement using a composite dielectric approach. <em>Water Resources Research</em>, 26(10), 2267–2273. <a href="https://doi.org/10.1029/WR026i010p02267" target="_blank" rel="noopener">doi:10.1029/WR026i010p02267</a></li>
+        <li>Sensirion. (2020). <em>Datasheet Sensirion SCD30 sensor module</em> (Version 1.0). <a href="https://sensirion.com/products/catalog/SCD30" target="_blank" rel="noopener">sensirion.com</a></li>
+        <li>Steinhart, J. S., &amp; Hart, S. R. (1968). Calibration curves for thermistors. <em>Deep Sea Research and Oceanographic Abstracts</em>, 15(4), 497–503. <a href="https://doi.org/10.1016/0011-7471(68)90057-0" target="_blank" rel="noopener">doi:10.1016/0011-7471(68)90057-0</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

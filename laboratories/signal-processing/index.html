@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sampling, noise and filtering · Future Food Production</title>
+<meta name="description" content="A virtual oscilloscope for greenhouse data: sample a noisy air-temperature signal, provoke aliasing of the ventilation cycle, quantise it with an ADC and compare moving-average, exponential, median and Kalman filters against the truth.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Apparent period (min) of a cycle of period P (min) logged every dt (min), Eq. SP4 */
+FFP_CALC.spAlias = function (v) { var f = 1 / v.P, fs = 1 / v.dt, fa = Math.abs(f - fs * Math.round(f / fs)); return fa > 1e-9 ? 1 / fa : Infinity; };
+/* Steady-state Kalman gain for a random walk, Eq. SP7 */
+FFP_CALC.spKal = function (v) { var Q = v.sq * v.sq, R = v.sr * v.sr, P = 0.5 * (Q + Math.sqrt(Q * Q + 4 * Q * R)); return P / (P + R); };
+/* 63 % step lag (samples) of an EMA, Eq. SP5 */
+FFP_CALC.spEmaLag = function (v) { return v.a >= 1 ? 0 : Math.ceil(-1 / Math.log(1 - v.a) - 1e-12) - 1; };
+</script>
+<style>
+.sp-user textarea { width: 100%; min-height: 150px; font: .78rem/1.45 var(--font-mono); background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; resize: vertical; }
+.sp-user .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.sp-user select { font: .82rem var(--font-sans); padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: auto; flex: 0 0 auto; margin: 0; }
+.sp-user .row label { margin: 0; }
+.sp-user .ud-msg { font-size: .8rem; color: var(--muted); margin-top: 8px; }
+.chart-note { font-size: .76rem; color: var(--muted); margin-top: 4px; line-height: 1.45; }
+.full-card { grid-column: 1 / -1; }
+</style>
+</head>
+<body data-page="lab" data-slug="signal-processing">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Sampling, noise and filtering</h1>
+    <p class="lead">Every number on a greenhouse dashboard has travelled a long way: from the moving air, through a sensor that responds slowly, an amplifier that adds noise, a radio that occasionally injects a spike, an analogue-to-digital converter that rounds, and a logger that only looks every so often. This virtual oscilloscope lets you follow that chain. Choose how often to log, watch a ten-minute ventilation cycle turn into a slow wave that never existed, and then fight the noise with four filters — moving average, exponential smoothing, running median and a Kalman filter — scored against the truth that only a simulator can know.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage" aria-label="Oscilloscope showing the true temperature, the logged samples and the filtered signals"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>What frequencies are in the log? (DFT amplitude spectrum)</h3>
+      <div class="chart-sub">Grey: the true temperature, simulated every 5 s. Coloured: the logged samples (or a filter output). Only frequencies below the Nyquist line can be represented; everything above folds back.</div>
+      <div class="chart" id="chart-spectrum"></div>
+      <div class="chart-note" id="spec-note"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Every filter trades noise against lag</h3>
+      <div class="chart-sub">Each curve sweeps one filter's parameter (window N, smoothing α or process noise Q). Dots: your current settings. The best filter sits closest to the bottom-left corner.</div>
+      <div class="chart" id="chart-trade"></div>
+    </div>
+    <div class="chart-card">
+      <h3>The Kalman gain converges</h3>
+      <div class="chart-sub">Starting from an uncertain guess (P₀ = 1 °C²), the filter trusts the first measurements almost completely, then settles to the steady-state gain K∞ set by Q and R alone.</div>
+      <div class="chart" id="chart-kalman"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Frequency response of the linear filters</h3>
+      <div class="chart-sub">How much of a sinusoid of each frequency survives the filter. A filter that removes noise also removes real fast changes — including the climate-control cycle.</div>
+      <div class="chart" id="chart-response"></div>
+    </div>
+    <div class="chart-card full-card sp-user" id="user-data">
+      <h3>Filter your own logger data</h3>
+      <div class="chart-sub">Paste two columns — time and value — from your project's logger (CSV, TSV or semicolon-separated; a header row is optional). The example below was generated by this laboratory's model; it is not a measurement. After <em>Use these data</em>, the oscilloscope, the spectrum and the filters work on your series (without a known truth, RMSE cannot be computed).</div>
+      <textarea spellcheck="false" aria-label="Paste time and value columns"></textarea>
+      <div class="row">
+        <label for="ud-unit" style="font-size:.84rem">Time column unit</label>
+        <select id="ud-unit"><option value="min" selected>minutes</option><option value="s">seconds</option><option value="h">hours</option><option value="iso">date-time (ISO 8601)</option></select>
+        <button type="button" class="btn btn-sm btn-primary" data-act="apply">Use these data</button>
+        <button type="button" class="btn btn-sm" data-act="reset">Back to the synthetic greenhouse</button>
+      </div>
+      <div class="ud-msg" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <p>The dark screen is an oscilloscope. The faint white trace is the <em>true</em> air temperature at the sensor position, simulated every 5 s: a day–night swing, a 12-minute cycle as vents or heating switch around their set point, and small turbulent eddies. Yellow dots are what your logger stores. The coloured lines are four filters working on those dots in real time. Time runs from left to right; the <em>S/H</em> marker (sample-and-hold) shows the newest sample.</p>
+      <ol>
+        <li><strong>Log fast enough.</strong> With the default Δt = 30 s, count the yellow dots on one climate cycle: twenty-four. The joined dots look like the real signal, only noisier. The readout confirms f<sub>N</sub> = 60 h⁻¹, far above the 5 h⁻¹ of the cycle.</li>
+        <li><strong>Spring the aliasing trap.</strong> Choose the preset <em>Aliasing trap</em> (Δt = 10 min). The joined samples now draw a smooth wave with a period of one hour — a wave that does not exist. In the spectrum, the true peak at 5 h⁻¹ lies beyond the Nyquist line (3 h⁻¹) and reappears at 1 h⁻¹. Now slide Δt towards 12 min: the fake wave slows down, and at exactly 12 min the oscillation vanishes from the log altogether.</li>
+        <li><strong>Oversample and average.</strong> Switch to <em>Mean of 5-s readings</em> at Δt = 10 min. The fake wave almost disappears: averaging over the logging interval is an anti-aliasing filter. It cannot recover the 12-minute cycle, but it stops it from masquerading as something else.</li>
+        <li><strong>Break the filters with spikes.</strong> Choose <em>Spiky radio interference</em>. Each red ring marks a reading hit by a spike. The moving average and exponential smoothing smear every spike into a bump; the running median ignores isolated spikes completely. Turn on the Kalman filter's 3σ gate and watch it cross out the spikes instead of following them.</li>
+        <li><strong>Watch the gain settle.</strong> In the Kalman chart, change √Q and √R. The gain always starts near 1 (the first measurements are all the filter knows) and converges within a few samples to K∞. In steady state the Kalman filter is an exponential smoother with α = K∞ — compare the dashed Kalman curve with the EMA curve in the frequency-response chart when you set α = K∞.</li>
+        <li><strong>Find the corner.</strong> In the trade-off chart, drag the moving-average window from 1 to 60. The RMSE first falls (noise is averaged away) and then rises again (the filter can no longer follow the climate cycle and the diurnal ramp). The optimum is a compromise that depends on the signal, the noise and Δt.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Two decisions are irreversible: <strong>how often you sample</strong> and <strong>what you do before sampling</strong>. Aliasing cannot be undone by any filter afterwards, because the samples of a fast cycle and of its slow alias are identical. Everything after the logger — smoothing, spike removal, Kalman filtering — can be redone later from the raw data, which is why the raw log must always be kept.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>A greenhouse signal lives on many time scales</h2>
+      <p>Greenhouse air temperature changes on at least four time scales at once. The <strong>diurnal cycle</strong> (24 h) follows the sun and the heating strategy. The <strong>control cycle</strong> (minutes) appears because vents, screens and heating valves are switched by controllers with dead bands and delays: the temperature swings around the set point like a thermostat-controlled oven. <strong>Turbulence</strong> (seconds) moves warm and cool parcels of air past the sensor. And <strong>events</strong> — a heating boost, a screen opening, a door left open — produce steps. The logger must resolve the time scales that matter for its purpose and suppress the ones that do not.</p>
+      <table>
+        <caption>Table 1. Time scales in the simulated signal and what the logger should do with them.</caption>
+        <thead><tr><th>Component</th><th>Time scale in the model</th><th>Physical cause</th><th>For a climate dashboard</th><th>For a control loop</th></tr></thead>
+        <tbody>
+          <tr><td>Diurnal cycle</td><td>24 h, amplitude A<sub>d</sub></td><td>solar gain, heating and ventilation strategy</td><td>resolve</td><td>resolve</td></tr>
+          <tr><td>Control oscillation</td><td>2–60 min (default 12 min)</td><td>on/off or dead-band control of vents or heating</td><td>average out — but never alias</td><td>resolve (it is the loop itself)</td></tr>
+          <tr><td>Heating boost</td><td>step, 3 h</td><td>scheduled pre-heating before sunrise</td><td>resolve</td><td>resolve quickly</td></tr>
+          <tr><td>Turbulence</td><td>≈ 1 min correlation time</td><td>eddies of warm and cool air at the sensor</td><td>average out</td><td>filter lightly</td></tr>
+          <tr><td>Measurement noise and spikes</td><td>independent from reading to reading</td><td>electronics, interference, communication errors</td><td>remove</td><td>remove</td></tr>
+        </tbody>
+      </table>
+
+      <h3>The measurement chain</h3>
+      <p>Figure 1 shows the path from the air to the dashboard. Each block changes the signal in a characteristic way: the sensor acts as a first-order low-pass filter; the electronics add white noise and occasional spikes; the analogue-to-digital converter (ADC) rounds each reading to one of 2<sup>b</sup> levels; the logger keeps one number every Δt; and a digital filter finally trades noise against lag.</p>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 860 210" role="img" aria-label="Measurement chain from true air temperature to the dashboard">
+          <defs><marker id="sp-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+          <g class="t-small" text-anchor="middle">
+            <rect x="10" y="60" width="110" height="70" rx="10" class="fill-accent-soft" stroke="currentColor"/><text x="65" y="88" font-weight="600">true air T(t)</text><text x="65" y="106" class="t-muted">diurnal + cycle</text><text x="65" y="120" class="t-muted">+ turbulence</text>
+            <rect x="150" y="60" width="110" height="70" rx="10" class="fill-bg" stroke="currentColor"/><text x="205" y="88" font-weight="600">sensor</text><text x="205" y="106" class="t-muted">time constant τₛ</text><text x="205" y="120" class="t-muted">(low-pass)</text>
+            <rect x="290" y="60" width="110" height="70" rx="10" class="fill-amber-soft" stroke="currentColor"/><text x="345" y="88" font-weight="600">electronics</text><text x="345" y="106" class="t-muted">+ white noise σᵥ</text><text x="345" y="120" class="t-muted">+ spikes</text>
+            <rect x="430" y="60" width="110" height="70" rx="10" class="fill-water-soft" stroke="currentColor"/><text x="485" y="88" font-weight="600">ADC</text><text x="485" y="106" class="t-muted">b bits, step q</text><text x="485" y="120" class="t-muted">(rounding)</text>
+            <rect x="570" y="60" width="110" height="70" rx="10" class="fill-magenta-soft" stroke="currentColor"/><text x="625" y="88" font-weight="600">logger</text><text x="625" y="106" class="t-muted">one value per Δt</text><text x="625" y="120" class="t-muted">(or block mean)</text>
+            <rect x="710" y="60" width="140" height="70" rx="10" class="fill-accent-soft" stroke="currentColor"/><text x="780" y="88" font-weight="600">filter → dashboard</text><text x="780" y="106" class="t-muted">MA · EMA · median</text><text x="780" y="120" class="t-muted">· Kalman</text>
+          </g>
+          <g class="stroke" stroke-width="1.5"><line x1="120" y1="95" x2="148" y2="95" marker-end="url(#sp-a1)"/><line x1="260" y1="95" x2="288" y2="95" marker-end="url(#sp-a1)"/><line x1="400" y1="95" x2="428" y2="95" marker-end="url(#sp-a1)"/><line x1="540" y1="95" x2="568" y2="95" marker-end="url(#sp-a1)"/><line x1="680" y1="95" x2="708" y2="95" marker-end="url(#sp-a1)"/></g>
+          <g class="t-small t-muted" text-anchor="middle"><text x="205" y="160">attenuates fast</text><text x="205" y="174">changes: 1/√(1+(2πfτ)²)</text><text x="345" y="160">adds variance σᵥ²</text><text x="485" y="160">adds variance q²/12</text><text x="625" y="160">folds every f &gt; fₛ/2</text><text x="625" y="174">back below fₛ/2</text><text x="780" y="160">removes noise,</text><text x="780" y="174">adds lag</text></g>
+          <text x="430" y="30" text-anchor="middle" class="t-small" font-weight="600">irreversible steps: everything up to and including the logger</text>
+          <line x1="12" y1="42" x2="678" y2="42" class="stroke-danger" stroke-width="1.5" stroke-dasharray="5 4"/>
+          <text x="780" y="30" text-anchor="middle" class="t-small" font-weight="600">can be redone from raw data</text>
+          <line x1="712" y1="42" x2="848" y2="42" class="stroke-accent" stroke-width="1.5" stroke-dasharray="5 4"/>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The measurement chain simulated in this laboratory. Each block is described by an equation in the Derive tab (SP1–SP7). Only the last block can be changed after the data have been stored.</figcaption>
+      </figure>
+
+      <h3>Sampling and aliasing</h3>
+      <p>Sampling replaces a continuous signal by a list of numbers taken every Δt. The <em>sampling theorem</em> (Nyquist, 1928; Shannon, 1949) says that the list determines the signal completely only if the signal contains no frequencies at or above half the sampling frequency, the <strong>Nyquist frequency</strong> f<sub>N</sub> = f<sub>s</sub>/2. A faster component is not lost — it is <em>misrepresented</em>: its samples are exactly those of a slower sinusoid, the <strong>alias</strong> (Figure 2). You know the effect from films in which the wheels of a moving car seem to turn slowly backwards: the camera samples 24 or 25 frames per second, too slowly for the spokes.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 660 250" role="img" aria-label="A 12-minute oscillation sampled every 10 minutes produces samples that lie exactly on a 60-minute alias">
+          <line x1="50" y1="120" x2="612" y2="120" class="stroke-muted" stroke-width="1"/>
+          <path d="M50 120L53.1 109.2L56.2 98.8L59.3 89L62.4 80.1L65.6 72.5L68.7 66.3L71.8 61.7L74.9 58.9L78 58L81.1 58.9L84.2 61.7L87.3 66.3L90.4 72.5L93.6 80.1L96.7 89L99.8 98.8L102.9 109.2L106 120L109.1 130.8L112.2 141.2L115.3 151L118.4 159.9L121.6 167.5L124.7 173.7L127.8 178.3L130.9 181.1L134 182L137.1 181.1L140.2 178.3L143.3 173.7L146.4 167.5L149.6 159.9L152.7 151L155.8 141.2L158.9 130.8L162 120L165.1 109.2L168.2 98.8L171.3 89L174.4 80.1L177.6 72.5L180.7 66.3L183.8 61.7L186.9 58.9L190 58L193.1 58.9L196.2 61.7L199.3 66.3L202.4 72.5L205.6 80.1L208.7 89L211.8 98.8L214.9 109.2L218 120L221.1 130.8L224.2 141.2L227.3 151L230.4 159.9L233.6 167.5L236.7 173.7L239.8 178.3L242.9 181.1L246 182L249.1 181.1L252.2 178.3L255.3 173.7L258.4 167.5L261.6 159.9L264.7 151L267.8 141.2L270.9 130.8L274 120L277.1 109.2L280.2 98.8L283.3 89L286.4 80.1L289.6 72.5L292.7 66.3L295.8 61.7L298.9 58.9L302 58L305.1 58.9L308.2 61.7L311.3 66.3L314.4 72.5L317.6 80.1L320.7 89L323.8 98.8L326.9 109.2L330 120L333.1 130.8L336.2 141.2L339.3 151L342.4 159.9L345.6 167.5L348.7 173.7L351.8 178.3L354.9 181.1L358 182L361.1 181.1L364.2 178.3L367.3 173.7L370.4 167.5L373.6 159.9L376.7 151L379.8 141.2L382.9 130.8L386 120L389.1 109.2L392.2 98.8L395.3 89L398.4 80.1L401.6 72.5L404.7 66.3L407.8 61.7L410.9 58.9L414 58L417.1 58.9L420.2 61.7L423.3 66.3L426.4 72.5L429.6 80.1L432.7 89L435.8 98.8L438.9 109.2L442 120L445.1 130.8L448.2 141.2L451.3 151L454.4 159.9L457.6 167.5L460.7 173.7L463.8 178.3L466.9 181.1L470 182L473.1 181.1L476.2 178.3L479.3 173.7L482.4 167.5L485.6 159.9L488.7 151L491.8 141.2L494.9 130.8L498 120L501.1 109.2L504.2 98.8L507.3 89L510.4 80.1L513.6 72.5L516.7 66.3L519.8 61.7L522.9 58.9L526 58L529.1 58.9L532.2 61.7L535.3 66.3L538.4 72.5L541.6 80.1L544.7 89L547.8 98.8L550.9 109.2L554 120L557.1 130.8L560.2 141.2L563.3 151L566.4 159.9L569.6 167.5L572.7 173.7L575.8 178.3L578.9 181.1L582 182L585.1 181.1L588.2 178.3L591.3 173.7L594.4 167.5L597.6 159.9L600.7 151L603.8 141.2L606.9 130.8L610 120" fill="none" class="stroke-muted" stroke-width="1.6"/>
+          <path d="M50 120L59.3 126.5L68.7 132.9L78 139.2L87.3 145.2L96.7 151L106 156.4L115.3 161.5L124.7 166.1L134 170.2L143.3 173.7L152.7 176.6L162 179L171.3 180.6L180.7 181.7L190 182L199.3 181.7L208.7 180.6L218 179L227.3 176.6L236.7 173.7L246 170.2L255.3 166.1L264.7 161.5L274 156.4L283.3 151L292.7 145.2L302 139.2L311.3 132.9L320.7 126.5L330 120L339.3 113.5L348.7 107.1L358 100.8L367.3 94.8L376.7 89L386 83.6L395.3 78.5L404.7 73.9L414 69.8L423.3 66.3L432.7 63.4L442 61L451.3 59.4L460.7 58.3L470 58L479.3 58.3L488.7 59.4L498 61L507.3 63.4L516.7 66.3L526 69.8L535.3 73.9L544.7 78.5L554 83.6L563.3 89L572.7 94.8L582 100.8L591.3 107.1L600.7 113.5L610 120" fill="none" class="stroke-magenta" stroke-width="2.4" stroke-dasharray="7 5"/>
+          <g class="fill-amber" stroke="currentColor" stroke-width="1"><circle cx="50" cy="120" r="6"/><circle cx="143.3" cy="173.7" r="6"/><circle cx="236.7" cy="173.7" r="6"/><circle cx="330" cy="120" r="6"/><circle cx="423.3" cy="66.3" r="6"/><circle cx="516.7" cy="66.3" r="6"/><circle cx="610" cy="120" r="6"/></g>
+          <g class="t-small t-muted" text-anchor="middle"><text x="50" y="214">0</text><text x="143.3" y="214">10</text><text x="236.7" y="214">20</text><text x="330" y="214">30</text><text x="423.3" y="214">40</text><text x="516.7" y="214">50</text><text x="610" y="214">60 min</text></g>
+          <text x="330" y="236" text-anchor="middle" class="t-small">samples every Δt = 10 min (f<tspan baseline-shift="sub" font-size="9">s</tspan> = 6 h⁻¹, f<tspan baseline-shift="sub" font-size="9">N</tspan> = 3 h⁻¹)</text>
+          <g class="t-small"><line x1="400" y1="18" x2="428" y2="18" class="stroke-muted" stroke-width="1.6"/><text x="434" y="22">true 12-min cycle (5 h⁻¹)</text><line x1="400" y1="36" x2="428" y2="36" class="stroke-magenta" stroke-width="2.4" stroke-dasharray="7 5"/><text x="434" y="40">alias: 60-min wave (1 h⁻¹)</text></g>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> A 12-min climate cycle logged every 10 min. The seven samples (dots) fit the true cycle and a 60-min wave equally well; a dashboard that joins them draws the 60-min wave. With f = 5 h⁻¹ and f<sub>s</sub> = 6 h⁻¹, Eq. SP4 gives f<sub>a</sub> = |5 − 6| = 1 h⁻¹. The alias here is phase-inverted, because f − f<sub>s</sub> is negative.</figcaption>
+      </figure>
+      <p>The practical rule is therefore not "sample at 2 f<sub>max</sub>" but <strong>"remove what you cannot sample, then sample 5–10 times faster than what you want to see"</strong>. Three anti-aliasing filters are available in a greenhouse logger. The <em>sensor itself</em> is a first-order low-pass filter — a slow, unventilated sensor is a poor thermometer but a decent anti-aliasing filter. An <em>analogue RC filter</em> in front of the ADC does the same electronically. And <em>oversampling with block averaging</em> — read every 5 s, store the mean — attenuates a component of frequency f by |sin(πfΔt)/(πfΔt)|, which is small for all components that would otherwise alias strongly.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"If the logged data look smooth, the sampling must have been fine." The opposite is often true: a smooth, slow wave in logged greenhouse data with a period of about an hour is a classic sign of an aliased control cycle. Check the Nyquist condition against every mechanism that can oscillate — vents, heating valves, fogging, CO₂ dosing, lamp cycling, compressors.</p></div>
+
+      <h3>Rounding to 2<sup>b</sup> levels: quantisation</h3>
+      <p>An ADC with b bits spread over a full-scale range divides it into 2<sup>b</sup> steps of size q. Every reading is rounded to the nearest step, an error that is spread evenly between −q/2 and +q/2 and has a standard deviation of q/√12. A 12-bit converter over −10 … 50 °C has q = 0.015 °C, negligible next to typical sensor noise; an 8-bit converter has q = 0.23 °C, and its output looks like a staircase. When the analogue noise is at least comparable to q, averaging many readings gives values <em>between</em> the steps: noise acts as "dither", and oversampling improves the effective resolution. Try the preset <em>Cheap 8-bit ADC</em>, then add 0.1 °C of noise and switch to block averaging.</p>
+
+      <h3>Four filters, one trade-off</h3>
+      <p>All four filters in this laboratory are <strong>causal</strong>: they use only the current and earlier samples, as a logger or controller must. Causality is why every filter lags; offline, with the whole record available, a centred window removes the lag (but not the smoothing of real events).</p>
+      <table>
+        <caption>Table 2. The filters compared (N: window length in samples; α: smoothing factor; Q, R: process and measurement noise variances).</caption>
+        <thead><tr><th>Filter</th><th>Type</th><th>White-noise reduction</th><th>63 % step lag</th><th>Against spikes</th><th>Memory on a microcontroller</th></tr></thead>
+        <tbody>
+          <tr><td>Moving average</td><td>linear, finite window</td><td>σ/√N</td><td>≈ 0.63 N samples</td><td>smears each spike over N samples at 1/N height</td><td>N values</td></tr>
+          <tr><td>Exponential smoothing (EMA)</td><td>linear, recursive</td><td>σ√(α/(2 − α))</td><td>≈ 1/α samples for small α</td><td>smears, with a long tail</td><td>one value</td></tr>
+          <tr><td>Running median</td><td>non-linear (order statistic)</td><td>≈ σ√(π/2N) for large N</td><td>(N − 1)/2 samples</td><td>removes bursts of up to (N − 1)/2 spikes completely</td><td>N values, sorted</td></tr>
+          <tr><td>Kalman (random walk)</td><td>linear, recursive, time-varying gain</td><td>as EMA with α = K∞ in steady state</td><td>≈ 1/K∞ samples</td><td>follows spikes unless innovations are gated</td><td>two values (x̂, P)</td></tr>
+        </tbody>
+      </table>
+      <p>The median's noise reduction for Gaussian noise (≈ 1.25σ/√N for large N, from the asymptotic variance πσ²/(2N) of the sample median) is slightly worse than the moving average's σ/√N. It pays that small price for robustness: its output is always one of the actual readings, and a single wild value cannot move it. That is why data-quality procedures remove spikes with a median or Hampel filter <em>first</em> and smooth <em>afterwards</em> (Tukey, 1977; Pearson, 2002).</p>
+
+      <h3>The Kalman filter as weighted averaging</h3>
+      <p>The Kalman filter (Kalman, 1960) treats filtering as estimation. Before each measurement it <em>predicts</em>: under the random-walk model the best guess is the previous estimate, but its variance has grown by Q, because the true temperature may have moved. It then <em>updates</em>: prediction and measurement are averaged with weights inversely proportional to their variances (Figure 3). The weight of the measurement is the gain K. With a large Q (the truth moves a lot between samples) K approaches 1 and the filter follows the data; with a large R (a noisy sensor) K approaches 0 and the filter trusts its prediction. Unlike the other filters, it also reports how uncertain its estimate is — the green band on the oscilloscope is ±2√P.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 640 250" role="img" aria-label="Kalman update as the product of two Gaussian distributions">
+          <line x1="40" y1="200" x2="600" y2="200" class="stroke-muted" stroke-width="1"/>
+          <path d="M40 195.8L45.8 195.1L51.7 194.4L57.5 193.5L63.3 192.5L69.2 191.3L75 190.1L80.8 188.7L86.7 187.2L92.5 185.5L98.3 183.7L104.2 181.7L110 179.5L115.8 177.2L121.7 174.7L127.5 172L133.3 169.2L139.2 166.3L145 163.2L150.8 160L156.7 156.6L162.5 153.2L168.3 149.7L174.2 146.1L180 142.5L185.8 138.9L191.7 135.4L197.5 131.9L203.3 128.5L209.2 125.2L215 122.1L220.8 119.1L226.7 116.4L232.5 113.9L238.3 111.7L244.2 109.8L250 108.2L255.8 106.9L261.7 106L267.5 105.4L273.3 105.3L279.2 105.4L285 106L290.8 106.9L296.7 108.2L302.5 109.8L308.3 111.7L314.2 113.9L320 116.4L325.8 119.1L331.7 122.1L337.5 125.2L343.3 128.5L349.2 131.9L355 135.4L360.8 138.9L366.7 142.5L372.5 146.1L378.3 149.7L384.2 153.2L390 156.6L395.8 160L401.7 163.2L407.5 166.3L413.3 169.2L419.2 172L425 174.7L430.8 177.2L436.7 179.5L442.5 181.7L448.3 183.7L454.2 185.5L460 187.2L465.8 188.7L471.7 190.1L477.5 191.3L483.3 192.5L489.2 193.5L495 194.4L500.8 195.1L506.7 195.8L512.5 196.4L518.3 197L524.2 197.4L530 197.8L535.8 198.2L541.7 198.5L547.5 198.7L553.3 198.9L559.2 199.1L565 199.3L570.8 199.4L576.7 199.5L582.5 199.6L588.3 199.7L594.2 199.7L600 199.8" fill="none" class="stroke-water" stroke-width="2.2"/>
+          <path d="M40 200L133.3 200L139.2 199.9L150.8 199.9L156.7 199.8L162.5 199.8L168.3 199.7L174.2 199.6L180 199.5L185.8 199.4L191.7 199.2L197.5 198.9L203.3 198.6L209.2 198.2L215 197.7L220.8 197.1L226.7 196.4L232.5 195.5L238.3 194.4L244.2 193.2L250 191.7L255.8 189.9L261.7 187.9L267.5 185.6L273.3 182.9L279.2 179.9L285 176.5L290.8 172.7L296.7 168.5L302.5 163.9L308.3 159L314.2 153.7L320 148.1L325.8 142.2L331.7 136L337.5 129.7L343.3 123.4L349.2 117L355 110.7L360.8 104.6L366.7 98.8L372.5 93.4L378.3 88.5L384.2 84.2L390 80.5L395.8 77.6L401.7 75.4L407.5 74.1L413.3 73.7L419.2 74.1L425 75.4L430.8 77.6L436.7 80.5L442.5 84.2L448.3 88.5L454.2 93.4L460 98.8L465.8 104.6L471.7 110.7L477.5 117L483.3 123.4L489.2 129.7L495 136L500.8 142.2L506.7 148.1L512.5 153.7L518.3 159L524.2 163.9L530 168.5L535.8 172.7L541.7 176.5L547.5 179.9L553.3 182.9L559.2 185.6L565 187.9L570.8 189.9L576.7 191.7L582.5 193.2L588.3 194.4L594.2 195.5L600 196.4" fill="none" class="stroke-amber" stroke-width="2.2"/>
+          <path d="M40 200L133.3 200L139.2 199.9L150.8 199.9L156.7 199.8L162.5 199.7L168.3 199.6L174.2 199.5L180 199.2L185.8 198.9L191.7 198.5L197.5 198L203.3 197.3L209.2 196.4L215 195.2L220.8 193.7L226.7 191.8L232.5 189.5L238.3 186.7L244.2 183.3L250 179.3L255.8 174.6L261.7 169.2L267.5 163L273.3 156.1L279.2 148.4L285 140L290.8 131.1L296.7 121.6L302.5 111.8L308.3 101.8L314.2 91.9L320 82.3L325.8 73.2L331.7 64.9L337.5 57.6L343.3 51.5L349.2 46.8L355 43.7L360.8 42.2L366.7 42.4L372.5 44.4L378.3 47.9L384.2 53L390 59.5L395.8 67.1L401.7 75.7L407.5 84.9L413.3 94.7L419.2 104.6L425 114.6L430.8 124.3L436.7 133.6L442.5 142.4L448.3 150.6L454.2 158.1L460 164.8L465.8 170.8L471.7 176L477.5 180.5L483.3 184.3L489.2 187.6L495 190.2L500.8 192.4L506.7 194.1L512.5 195.5L518.3 196.6L524.2 197.5L530 198.2L535.8 198.7L541.7 199L547.5 199.3L553.3 199.5L559.2 199.7L565 199.8L588.3 200L600 200" class="stroke-accent" stroke-width="2.6"/>
+          <g class="t-small t-muted" text-anchor="middle"><text x="40" y="218">19.0</text><text x="156.7" y="218">19.5</text><text x="273.3" y="218">20.0</text><text x="390" y="218">20.5</text><text x="506.7" y="218">21.0 °C</text></g>
+          <g class="t-small"><text x="190" y="98" text-anchor="end">prediction x̂⁻ = 20.0 °C</text><text x="190" y="113" text-anchor="end" class="t-muted">√P⁻ = 0.4 °C</text>
+            <text x="440" y="66">measurement z = 20.6 °C</text><text x="440" y="81" class="t-muted">√R = 0.3 °C</text>
+            <text x="372" y="30" text-anchor="middle" font-weight="600">update x̂ = 20.38 °C, √P = 0.24 °C</text></g>
+          <text x="320" y="242" text-anchor="middle" class="t-small">K = P⁻/(P⁻ + R) = 0.16/0.25 = 0.64: the estimate moves 64 % of the way to the measurement</text>
+        </svg></div>
+        <figcaption><b>Figure 3.</b> One Kalman update. The prediction (blue) and the measurement (amber) are both uncertain; their inverse-variance-weighted combination (green) is narrower than either. With these numbers, x̂ = 20.0 + 0.64 × (20.6 − 20.0) = 20.38 °C and P = (1 − 0.64) × 0.16 = 0.058 °C².</figcaption>
+      </figure>
+      <p>Because the gain depends only on Q, R and the initial P — not on the data — the gain sequence can be computed in advance, and it converges to the steady-state value K∞ (Eq. SP7). A steady-state Kalman filter is therefore an exponential smoother whose α was <em>derived</em> from two physically meaningful numbers instead of guessed: R from the sensor specification (white noise plus quantisation), Q from how fast the truth can move between two samples. For the default climate cycle, the fastest true change is A<sub>v</sub> · 2π/P<sub>v</sub> ≈ 0.2 °C min⁻¹, about 0.1 °C per 30-s sample, so √Q of order 0.1–0.2 °C is physically reasonable.</p>
+
+      <h3>Reading a spectrum</h3>
+      <p>The discrete Fourier transform (DFT) decomposes the record into sinusoids at the frequencies j/(NΔt), j = 1 … N/2, and the amplitude spectrum shows how much of each is present. Peaks reveal periodic mechanisms: the diurnal cycle at 1/24 h⁻¹, the control cycle at 60/P<sub>v</sub> h⁻¹. Broad, flat regions are noise: white noise is spread evenly up to the Nyquist frequency, turbulence falls off above 1/(2πτ<sub>u</sub>). Before the transform the data are multiplied by a Hann window to stop the abrupt ends of the record from leaking energy into all frequencies (Harris, 1978); try switching the window off to see the leakage. The spectrum is computed with the fast Fourier transform algorithm of Cooley and Tukey (1965).</p>
+      <div class="callout frontier"><div class="callout-title">Frontier — deciding at the edge what to send</div><p>Battery-powered wireless nodes pay for every transmitted sample (<a href="/lessons/iot-architectures/">Lesson 9.4</a>). Modern nodes therefore sample fast, filter and check the data on the microcontroller, and transmit only block means, statistics or significant changes ("send-on-delta"). This is exactly the oversample-and-average strategy of this laboratory, moved into the sensor node: it saves energy and prevents aliasing at the same time. Try the <a href="/laboratories/iot-network/">IoT network designer</a> to see what each message costs.</p></div>
+      <p>For the theory behind the numbers, read <a href="/lessons/measurement-uncertainty/">Lesson 9.3 (Calibration, uncertainty and data quality)</a>, sections on sampling and filtering; for automatic detection of faulty readings, continue with the <a href="/laboratories/sensor-anomaly/">sensor anomaly detection laboratory</a>.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The laboratory simulates the truth every Δ = 5 s over 48 h (34 561 values), passes it through the measurement chain, samples it every Δt and filters the samples. Equation numbers SP1–SP9 are those of this laboratory; the corresponding lesson equations are (9.3.8)–(9.3.10).</p>
+
+      <div class="eq-box" id="sp-eq-truth">
+        <div class="eq-head"><span class="eq-label">The true greenhouse air temperature</span><span class="eq-num">(SP1)</span></div>
+        <div class="eq-main">\[ \begin{gathered} T(t) = \bar T + A_d\cos\!\left(\frac{2\pi\,(t - t_{\text{pk}})}{24\ \text{h}}\right) + A_v\sin\!\left(\frac{2\pi t}{P_v}\right) + u(t) + B(t) \\[6pt] u_{i+1} = u_i\,e^{-\Delta/\tau_u} + \sigma_u\sqrt{1 - e^{-2\Delta/\tau_u}}\;\varepsilon_i, \qquad \varepsilon_i \sim \mathcal{N}(0,1) \end{gathered} \]</div>
+        <p class="eq-read">the true temperature is the daily mean plus a daily cosine peaking at t<sub>pk</sub>, plus a sinusoidal control cycle of period P<sub>v</sub>, plus turbulent fluctuations u, plus an optional heating boost B; the turbulence is updated every step by keeping a fraction e<sup>−Δ/τ</sup> of its previous value and adding fresh random noise scaled so that its long-run standard deviation stays σ<sub>u</sub>.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(\bar T\)</td><td>daily mean temperature</td><td>°C</td><td>20</td></tr>
+          <tr><td>\(A_d\), \(t_{\text{pk}}\)</td><td>diurnal amplitude and time of the maximum</td><td>°C, h</td><td>4, 14:00</td></tr>
+          <tr><td>\(A_v\), \(P_v\)</td><td>amplitude and period of the climate-control cycle</td><td>°C, min</td><td>0.4, 12</td></tr>
+          <tr><td>\(u\), \(\sigma_u\), \(\tau_u\)</td><td>turbulent fluctuation, its standard deviation and correlation time</td><td>°C, °C, s</td><td>–, 0.05, 60</td></tr>
+          <tr><td>\(B(t)\)</td><td>heating boost: +1.5 °C on day 2, 04:00–07:00 (optional)</td><td>°C</td><td></td></tr>
+          <tr><td>\(\Delta\)</td><td>simulation step of the truth</td><td>s</td><td>5</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the turbulence update</summary>
+          <ol class="steps">
+            <li>Model the fluctuation as an Ornstein–Uhlenbeck process: \(\mathrm{d}u = -u\,\mathrm{d}t/\tau_u + \sqrt{2\sigma_u^2/\tau_u}\,\mathrm{d}W\). The first term pulls \(u\) back to zero with time constant \(\tau_u\); the second adds white noise.</li>
+            <li>Over a step \(\Delta\) the deterministic part decays exactly: \(u(t+\Delta) = u(t)e^{-\Delta/\tau_u} + \text{(noise accumulated during the step)}\).</li>
+            <li>The accumulated noise is Gaussian with variance \(\int_0^{\Delta}(2\sigma_u^2/\tau_u)e^{-2s/\tau_u}\,\mathrm{d}s = \sigma_u^2(1 - e^{-2\Delta/\tau_u})\), which gives the square-root factor.</li>
+            <li>Check the stationary variance: \(\mathrm{Var}(u) = \mathrm{Var}(u)e^{-2\Delta/\tau_u} + \sigma_u^2(1 - e^{-2\Delta/\tau_u})\) is satisfied by \(\mathrm{Var}(u) = \sigma_u^2\) ✓. Its autocorrelation after a lag \(s\) is \(e^{-s/\tau_u}\): readings a minute apart are still correlated, readings ten minutes apart are practically independent.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Real control cycles are not sinusoids: on/off control produces triangular or saw-tooth waves whose harmonics (2f, 3f, …) alias too. Real diurnal curves are asymmetric (a fast morning rise, a slower evening fall). The simple forms are used so that each component appears as one clean line in the spectrum. The periods and amplitudes are illustrative defaults to be replaced with values from your own greenhouse log.</p>
+        </details>
+        <div class="eq-units">every term is in °C; the exponents \(\Delta/\tau_u\) and \(2\pi t/P_v\) are dimensionless ratios of times ✓</div>
+      </div>
+
+      <div class="eq-box" id="sp-eq-chain">
+        <div class="eq-head"><span class="eq-label">Sensor lag, noise, spikes and acquisition</span><span class="eq-num">(SP2)</span></div>
+        <div class="eq-main">\[ \begin{gathered} T_{s,i} = T_{s,i-1} + \left(1 - e^{-\Delta/\tau_s}\right)\left(T_i - T_{s,i-1}\right), \qquad r_i = \mathcal{Q}\!\left(T_{s,i} + v_i + s_i\right) \\[6pt] z_k = \begin{cases} r(t_k) & \text{one reading per } \Delta t \\ \dfrac{1}{m}\displaystyle\sum_{j=0}^{m-1} r(t_k - j\Delta) & \text{mean of } m = \Delta t/\Delta \text{ readings} \end{cases} \end{gathered} \]</div>
+        <p class="eq-read">the sensor temperature moves each step a fraction 1 − e<sup>−Δ/τₛ</sup> of the way towards the air temperature; each reading adds white noise v and, occasionally, a spike s, and is rounded by the converter; the logged value is either one reading at the logging time or the mean of all 5-s readings within the logging interval.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(T_s\), \(\tau_s\)</td><td>sensor temperature and sensor time constant</td><td>°C, s</td></tr>
+          <tr><td>\(v_i \sim \mathcal{N}(0, \sigma_v^2)\)</td><td>white measurement noise</td><td>°C</td></tr>
+          <tr><td>\(s_i\)</td><td>spike: with probability \(p\) a value of random sign and size 0.6–1.0 × the set spike size, otherwise 0</td><td>°C</td></tr>
+          <tr><td>\(\mathcal{Q}(\cdot)\)</td><td>ADC quantisation and clipping to −10 … 50 °C (Eq. SP3)</td><td>°C</td></tr>
+          <tr><td>\(z_k\), \(t_k = k\Delta t\)</td><td>logged value number k and its time</td><td>°C, s</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the sensor update</summary>
+          <ol class="steps">
+            <li>A sensor exchanging heat with the air obeys the first-order equation \(\tau_s\,\mathrm{d}T_s/\mathrm{d}t = T - T_s\), with \(\tau_s = mc/(hA)\) (thermal mass over heat-transfer conductance): ventilation raises \(h\) and shortens \(\tau_s\).</li>
+            <li>If \(T\) is constant during a step, the exact solution is \(T_s(t+\Delta) = T + (T_s(t) - T)e^{-\Delta/\tau_s}\).</li>
+            <li>Rearranging gives the update in the box. It is stable for any \(\Delta\), unlike the explicit Euler step \(T_s \mathrel{+}= (\Delta/\tau_s)(T - T_s)\), which overshoots when \(\Delta > \tau_s\).</li>
+            <li>A sinusoid of frequency \(f\) passes with gain \(1/\sqrt{1 + (2\pi f\tau_s)^2}\) and phase lag \(\arctan(2\pi f\tau_s)\) — the sensor is a low-pass filter (Eq. SP4).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Noise is independent from reading to reading (white); real electronics also have 1/f noise and drift, which averaging does not remove. Spikes are independent events; real interference is often clustered (a pump starting, a radio transmitting). Block averaging includes spikes in the mean, as a real logger would.</p></details>
+        <div class="eq-units">\(\Delta/\tau_s\): s/s = dimensionless ✓; all other terms in °C ✓</div>
+        <div class="mini-calc" data-formula="1/sqrt(1+pow(2*PI*tau/(P*60),2))" data-output="Amplitude passed by the sensor" data-unit="" data-digits="3" data-plot="tau" data-ymin="0" data-ymax="1" data-title="Try it — the sensor as a low-pass filter">
+          <div data-var="tau" data-label="Sensor time constant τ<sub>s</sub>" data-min="1" data-max="600" data-step="1" data-value="20" data-unit="s"></div>
+          <div data-var="P" data-label="Period of the fluctuation" data-min="1" data-max="60" data-step="0.5" data-value="12" data-unit="min"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="sp-eq-quant">
+        <div class="eq-head"><span class="eq-label">Quantisation step and quantisation noise</span><span class="eq-num">(SP3)</span></div>
+        <div class="eq-main">\[ q = \frac{x_{\max} - x_{\min}}{2^{b}}, \qquad \sigma_q = \frac{q}{\sqrt{12}}, \qquad \sigma_{\text{tot}} = \sqrt{\sigma_v^2 + \frac{q^2}{12}} \]</div>
+        <p class="eq-read">the step of the converter is its full-scale range divided by two to the power of the number of bits; rounding adds an error whose standard deviation is the step divided by the square root of twelve; independent noise sources add in quadrature.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Here</th></tr>
+          <tr><td>\(x_{\max} - x_{\min}\)</td><td>full-scale range of the ADC, expressed in °C</td><td>°C</td><td>60</td></tr>
+          <tr><td>\(b\)</td><td>resolution</td><td>bit</td><td>6–16</td></tr>
+          <tr><td>\(q\)</td><td>quantisation step (1 LSB)</td><td>°C</td><td>0.0146 at 12 bit</td></tr>
+          <tr><td>\(\sigma_q\)</td><td>standard deviation of the rounding error</td><td>°C</td><td>0.0042 at 12 bit</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Rounding to the nearest level leaves an error \(e\) between \(-q/2\) and \(+q/2\). When the signal moves over many levels, every value in this interval is equally likely: \(e\) is uniformly distributed with density \(1/q\).</li>
+            <li>Its mean is 0 and its variance is \(\int_{-q/2}^{q/2} e^2\,\frac{1}{q}\,\mathrm{d}e = \frac{1}{q}\left[\frac{e^3}{3}\right]_{-q/2}^{q/2} = \frac{q^2}{12}\).</li>
+            <li>Independent errors add their variances (the law of propagation of uncertainty, Lesson 9.3): \(\sigma_{\text{tot}}^2 = \sigma_v^2 + q^2/12\). This is the value the laboratory uses for the Kalman R when "R from the sensor specification" is on.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — when the uniform model fails</summary><p>If the signal is almost constant and the noise is much smaller than q, the error is not random: the output sticks to one level and the error is a slowly varying bias (Widrow &amp; Kollár, 2008). A little analogue noise ("dither") restores the uniform model, and averaging m readings then reduces the rounding error below q/√12 — oversampling buys resolution.</p></details>
+        <div class="eq-units">°C / (dimensionless) = °C ✓; √(°C² + °C²) = °C ✓</div>
+        <div class="mini-calc" data-formula="span/pow(2,b)/sqrt(12)" data-output="Quantisation noise σ<sub>q</sub>" data-unit="°C" data-digits="4" data-plot="b" data-title="Try it — resolution versus noise">
+          <div data-var="span" data-label="Full-scale range" data-min="10" data-max="200" data-step="5" data-value="60" data-unit="°C"></div>
+          <div data-var="b" data-label="Resolution b" data-min="6" data-max="16" data-step="1" data-value="12" data-unit="bit"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="sp-eq-alias">
+        <div class="eq-head"><span class="eq-label">Sampling theorem, alias frequency and anti-aliasing gains</span><span class="eq-num">(SP4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} f_s = \frac{1}{\Delta t}, \qquad f_N = \frac{f_s}{2}, \qquad f_a = \left|\,f - f_s\,\operatorname{round}\!\left(\frac{f}{f_s}\right)\right| \\[6pt] G_{\text{block}}(f) = \left|\frac{\sin(\pi f\Delta t)}{\pi f\Delta t}\right|, \qquad G_{\text{sensor}}(f) = \frac{1}{\sqrt{1 + (2\pi f\tau_s)^2}} \end{gathered} \]</div>
+        <p class="eq-read">the sampling frequency is the reciprocal of the logging interval and the Nyquist frequency is half of it; a sinusoid of frequency f appears at the alias frequency, its distance from the nearest whole multiple of the sampling frequency; block averaging over Δt passes a fraction |sin(πfΔt)/(πfΔt)| of the amplitude, and the sensor passes 1/√(1 + (2πfτₛ)²).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(f_s\), \(\Delta t\)</td><td>sampling frequency and logging interval</td><td>h⁻¹, h</td></tr>
+          <tr><td>\(f_N\)</td><td>Nyquist frequency: the highest frequency the samples can represent</td><td>h⁻¹</td></tr>
+          <tr><td>\(f\), \(f_a\)</td><td>true frequency of a component and the frequency at which it appears after sampling</td><td>h⁻¹</td></tr>
+          <tr><td>\(G_{\text{block}}\), \(G_{\text{sensor}}\)</td><td>amplitude gain of block averaging and of a first-order sensor</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Sampling \(\cos(2\pi f t)\) at \(t_k = k/f_s\) gives \(\cos(2\pi f k/f_s)\). For any integer \(n\), \(\cos(2\pi(f - nf_s)k/f_s) = \cos(2\pi fk/f_s - 2\pi nk)\) is the same number, because \(nk\) is an integer. All frequencies \(|f - nf_s|\) produce identical samples.</li>
+            <li>The smallest of them, with \(n = \operatorname{round}(f/f_s)\), lies between 0 and \(f_s/2\); it is what a dashboard or a spectrum shows. Only when \(f < f_s/2\) is it the true frequency.</li>
+            <li><strong>Block average.</strong> The mean over the interval \([t - \Delta t, t]\) of \(\cos(2\pi f s)\) is \(\frac{1}{\Delta t}\int \cos(2\pi fs)\,\mathrm{d}s\), a cosine of amplitude \(|\sin(\pi f\Delta t)/(\pi f\Delta t)|\) — the "sinc" function. It is 1 at \(f = 0\) and falls to zero at \(f = 1/\Delta t = f_s\), exactly the frequency that would alias to zero.</li>
+            <li><strong>Sensor.</strong> Inserting \(T = e^{i\omega t}\) into \(\tau_s\,\mathrm{d}T_s/\mathrm{d}t + T_s = T\) gives \(T_s = T/(1 + i\omega\tau_s)\), whose magnitude is the expression in the box, with \(\omega = 2\pi f\).</li>
+            <li><strong>Example.</strong> \(P_v = 12\) min (\(f = 5\) h⁻¹), \(\Delta t = 10\) min (\(f_s = 6\) h⁻¹): \(f_a = |5 - 6| = 1\) h⁻¹, a fake 60-min wave. Block averaging passes \(|\sin(5\pi/6)/(5\pi/6)| = 0.5/2.618 = 0.19\) of the amplitude.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The formulas describe single sinusoids; a real signal is a sum of them (its spectrum), and each component is treated separately because sampling and averaging are linear. The rule "f &lt; f<sub>N</sub>" is necessary but not sufficient for a readable record: with only 2–4 samples per cycle the shape of the cycle is lost. Aim for at least 5–10.</p></details>
+        <div class="eq-units">\(f/f_s\): h⁻¹/h⁻¹ = dimensionless ✓; \(\pi f\Delta t\) and \(2\pi f\tau_s\): h⁻¹ × h = dimensionless ✓</div>
+        <div class="mini-calc" data-fn="spAlias" data-output="Apparent period in the log" data-unit="min" data-digits="1" data-plot="dt" data-ymin="0" data-ymax="150" data-title="Try it — a climate cycle logged at different intervals">
+          <div data-var="P" data-label="True period P" data-min="2" data-max="60" data-step="0.5" data-value="12" data-unit="min"></div>
+          <div data-var="dt" data-label="Logging interval Δt" data-min="0.5" data-max="30" data-step="0.5" data-value="10" data-unit="min"></div>
+        </div>
+        <div class="mini-calc" data-formula="abs(sin(PI*dt/P)/(PI*dt/P))" data-output="Amplitude surviving block averaging" data-unit="" data-digits="3" data-plot="dt" data-ymin="0" data-ymax="1" data-title="Try it — how much does averaging over Δt attenuate the cycle?">
+          <div data-var="P" data-label="Period of the cycle P" data-min="2" data-max="60" data-step="0.5" data-value="12" data-unit="min"></div>
+          <div data-var="dt" data-label="Averaging interval Δt" data-min="0.5" data-max="30" data-step="0.5" data-value="10" data-unit="min"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="sp-eq-maema">
+        <div class="eq-head"><span class="eq-label">Moving average and exponential smoothing</span><span class="eq-num">(SP5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} y_k^{\text{MA}} = \frac{1}{N}\sum_{j=0}^{N-1} z_{k-j}, \qquad \left|H_{\text{MA}}(f)\right| = \left|\frac{\sin(\pi f N\Delta t)}{N\sin(\pi f\Delta t)}\right| \\[6pt] y_k^{\text{EMA}} = \alpha z_k + (1-\alpha)\,y_{k-1}, \qquad \left|H_{\text{EMA}}(f)\right| = \frac{\alpha}{\left|1 - (1-\alpha)\,e^{-i2\pi f\Delta t}\right|} \end{gathered} \]</div>
+        <p class="eq-read">the moving average is the mean of the last N samples and passes a sinusoid with the gain |sin(πfNΔt)/(N sin(πfΔt))|; exponential smoothing adds a fraction α of each new sample to (1 − α) times the previous output, and passes a sinusoid with the gain α divided by the magnitude of 1 − (1 − α)e<sup>−i2πfΔt</sup>.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(z_k\), \(y_k\)</td><td>logged sample and filter output</td><td>°C</td></tr>
+          <tr><td>\(N\)</td><td>window length (at the start of the record, the mean of the samples available)</td><td>samples</td></tr>
+          <tr><td>\(\alpha\)</td><td>smoothing factor, \(0 &lt; \alpha \le 1\)</td><td>–</td></tr>
+          <tr><td>\(H(f)\)</td><td>frequency response: output amplitude / input amplitude for a sinusoid</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Noise.</strong> The mean of N independent values of variance \(\sigma^2\) has variance \(\sigma^2/N\). For the EMA, unrolling gives \(y_k = \alpha\sum_j (1-\alpha)^j z_{k-j}\), so \(\sigma_y^2 = \alpha^2\sigma^2\sum_j(1-\alpha)^{2j} = \sigma^2\alpha/(2-\alpha)\).</li>
+            <li><strong>Frequency response of the MA.</strong> Feed \(z_k = e^{i\omega k\Delta t}\): \(y_k = z_k\cdot\frac{1}{N}\sum_{j=0}^{N-1}e^{-i\omega j\Delta t}\). The geometric sum has magnitude \(|\sin(N\omega\Delta t/2)/\sin(\omega\Delta t/2)|\). With \(\omega = 2\pi f\) this is the box. It is zero at \(f = 1/(N\Delta t)\): a window exactly one cycle long removes that cycle completely.</li>
+            <li><strong>Frequency response of the EMA.</strong> Try \(y_k = H z_k\) with \(z_k = e^{i\omega k\Delta t}\): \(H = \alpha + (1-\alpha)He^{-i\omega\Delta t}\), so \(H = \alpha/(1 - (1-\alpha)e^{-i\omega\Delta t})\).</li>
+            <li><strong>Lag.</strong> For a unit step, the MA output after k samples is \((k+1)/N\) and reaches \(1 - e^{-1} = 0.632\) after \(\lceil 0.632N\rceil - 1\) samples; the EMA output \(1 - (1-\alpha)^{k+1}\) reaches it after \(\lceil -1/\ln(1-\alpha)\rceil - 1\) samples (≈ 1/α for small α).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The noise formulas assume white noise; correlated noise (turbulence, drift) is reduced less. The frequency responses apply to linear, time-invariant filters only — not to the median, and to the Kalman filter only after its gain has converged.</p></details>
+        <div class="eq-units">weights are dimensionless and sum to 1, so \(y\) has the unit of \(z\) (°C) ✓; \(f\Delta t\): dimensionless ✓</div>
+        <div class="mini-calc" data-formula="N==1 ? 1 : abs(sin(PI*N*dt/P)/(N*sin(PI*dt/P)))" data-output="Amplitude of the cycle after the moving average" data-unit="" data-digits="3" data-plot="N" data-ymin="0" data-ymax="1" data-title="Try it — does the moving average remove the climate cycle?">
+          <div data-var="N" data-label="Window N" data-min="1" data-max="30" data-step="1" data-value="5" data-unit="samples"></div>
+          <div data-var="dt" data-label="Logging interval Δt" data-min="0.25" data-max="5" data-step="0.25" data-value="1" data-unit="min"></div>
+          <div data-var="P" data-label="Cycle period P" data-min="2" data-max="60" data-step="0.5" data-value="12" data-unit="min"></div>
+        </div>
+        <div class="mini-calc" data-fn="spEmaLag" data-output="EMA step lag (63 %)" data-unit="samples" data-digits="0" data-plot="a" data-title="Try it — lag of exponential smoothing">
+          <div data-var="a" data-label="Smoothing factor α" data-min="0.02" data-max="1" data-step="0.01" data-value="0.3"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="sp-eq-median">
+        <div class="eq-head"><span class="eq-label">Running median</span><span class="eq-num">(SP6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} y_k^{\text{med}} = \operatorname{median}\left\{z_{k-N+1}, \dots, z_{k}\right\} \\[6pt] \text{removes up to } \tfrac{N-1}{2} \text{ spikes per window}, \qquad t_{63} = \tfrac{N-1}{2}\,\Delta t \end{gathered} \]</div>
+        <p class="eq-read">the running median replaces each value by the middle value of the last N samples (N odd); up to (N − 1)/2 wild values in the window cannot move it, and a step passes through once more than half the window has the new level, after (N − 1)/2 samples.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(N\)</td><td>window length (odd)</td><td>samples</td></tr>
+          <tr><td>\(t_{63}\)</td><td>63 % step lag</td><td>s</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Sort the N values; the median is the one in position \((N+1)/2\). Replacing any \((N-1)/2\) values by arbitrarily large or small numbers moves them to the ends of the sorted list; the middle value is still one of the unaffected readings. The median's <em>breakdown point</em> is 50 %, the mean's is 0 % (one value can move it anywhere).</li>
+            <li>For a step from 0 to 1, the median jumps from 0 to 1 as soon as \((N+1)/2\) of the N values are 1, i.e. after \((N-1)/2\) further samples. Unlike linear filters it reproduces the step sharply, without a ramp.</li>
+            <li>For Gaussian noise its variance for large N is \(\pi\sigma^2/(2N)\), 57 % larger than the mean's \(\sigma^2/N\): a small price for robustness.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The median is non-linear: it has no frequency response, and it can cut the peaks of narrow real events (a short sunfleck, a one-minute heating pulse). The Hampel filter used in data-quality control (<a href="/laboratories/sensor-anomaly/">sensor anomaly laboratory</a>) replaces a value by the median only when it is further than a few robust standard deviations from it, leaving normal data untouched.</p></details>
+        <div class="eq-units">the output is one of the input values, so its unit is that of \(z\) (°C) ✓</div>
+      </div>
+
+      <div class="eq-box" id="sp-eq-kalman">
+        <div class="eq-head"><span class="eq-label">One-dimensional Kalman filter with a random-walk model</span><span class="eq-num">(SP7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{predict:}\quad \hat x_k^- = \hat x_{k-1}, \qquad P_k^- = P_{k-1} + Q \\[6pt] \text{update:}\quad K_k = \frac{P_k^-}{P_k^- + R}, \qquad \hat x_k = \hat x_k^- + K_k\,(z_k - \hat x_k^-), \qquad P_k = (1 - K_k)\,P_k^- \\[6pt] \text{steady state:}\quad P_\infty^- = \tfrac12\left(Q + \sqrt{Q^2 + 4QR}\right), \qquad K_\infty = \frac{P_\infty^-}{P_\infty^- + R} \\[6pt] \text{gate: skip the update if } |z_k - \hat x_k^-| > 3\sqrt{P_k^- + R} \end{gathered} \]</div>
+        <p class="eq-read">predict that the temperature has not changed but let the variance grow by Q; weight the measurement by the gain, the predicted variance over the total variance; move the estimate by the gain times the innovation and shrink the variance by the factor 1 − K; with constant Q and R the variance and gain converge to the steady-state values; optionally ignore a measurement whose innovation exceeds three standard deviations of its predicted spread.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Here</th></tr>
+          <tr><td>\(\hat x_k\), \(P_k\)</td><td>estimate and its variance after sample k</td><td>°C, °C²</td><td>start: 20 °C, 1 °C²</td></tr>
+          <tr><td>\(Q\)</td><td>process-noise variance: expected squared change of the truth per sample</td><td>°C²</td><td>(√Q)²</td></tr>
+          <tr><td>\(R\)</td><td>measurement-noise variance</td><td>°C²</td><td>σ<sub>v</sub>² + q²/12</td></tr>
+          <tr><td>\(K_k\), \(K_\infty\)</td><td>gain and its steady-state value</td><td>–</td><td></td></tr>
+          <tr><td>\(z_k - \hat x_k^-\)</td><td>innovation: measurement minus prediction</td><td>°C</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Model.</strong> Truth: \(x_k = x_{k-1} + w_k\), \(\mathrm{Var}(w) = Q\). Measurement: \(z_k = x_k + v_k\), \(\mathrm{Var}(v) = R\).</li>
+            <li><strong>Predict.</strong> Without new information the best guess is unchanged; the error now includes \(w_k\), so \(P^- = P + Q\).</li>
+            <li><strong>Combine.</strong> \(\hat x = (1-K)\hat x^- + Kz\) has error variance \((1-K)^2P^- + K^2R\). Setting the derivative with respect to K to zero gives \(K = P^-/(P^- + R)\) and then \(P = (1-K)P^-\).</li>
+            <li><strong>Steady state.</strong> Require \(P_{k+1}^- = P_k^- = P^-\): \(P^- = (1-K)P^- + Q = \frac{P^-R}{P^- + R} + Q\). Multiplying out gives \((P^-)^2 - QP^- - QR = 0\), whose positive root is in the box.</li>
+            <li><strong>Equivalence with the EMA.</strong> With \(K_k = K_\infty\), the update \(\hat x_k = (1-K_\infty)\hat x_{k-1} + K_\infty z_k\) is exactly Eq. SP5 with \(\alpha = K_\infty\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The filter is optimal only if the model is right: the truth really behaves like a random walk and the noises are Gaussian, independent and of the stated variances. A deterministic cycle or ramp violates the random-walk model, which is why the Kalman filter lags on the diurnal ramp just like an EMA. Adding the rate of change as a second state (a "constant-velocity" model) removes that lag. The 3σ gate protects against spikes but can also reject a genuine sudden step; P then grows by Q per rejected sample until the step is accepted.</p></details>
+        <div class="eq-units">\(K\): °C²/°C² = dimensionless ✓; \(K(z - \hat x^-)\): °C ✓; \(P\), \(Q\), \(R\): °C² ✓</div>
+        <div class="mini-calc" data-fn="spKal" data-output="Steady-state gain K∞" data-unit="" data-digits="3" data-plot="sq" data-ymin="0" data-ymax="1" data-title="Try it — the gain from two physical numbers">
+          <div data-var="sq" data-label="√Q (true change per sample)" data-min="0.005" data-max="1" data-step="0.005" data-value="0.15" data-unit="°C"></div>
+          <div data-var="sr" data-label="√R (measurement noise)" data-min="0.01" data-max="1" data-step="0.01" data-value="0.15" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="sp-eq-dft">
+        <div class="eq-head"><span class="eq-label">Discrete Fourier transform and amplitude spectrum</span><span class="eq-num">(SP8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} X_j = \sum_{k=0}^{M-1} w_k\,(z_k - \bar z)\,e^{-i2\pi jk/M}, \qquad w_k = \tfrac12\left(1 - \cos\frac{2\pi k}{n-1}\right) \\[6pt] A_j = \frac{2\,|X_j|}{\sum_k w_k}, \qquad f_j = \frac{j}{M\,\Delta t} \end{gathered} \]</div>
+        <p class="eq-read">the DFT correlates the mean-removed, windowed record with complex sinusoids of j cycles per record; twice the magnitude divided by the sum of the window weights is the amplitude of the component at frequency j/(MΔt); the Hann window tapers the record smoothly to zero at both ends.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(n\), \(M\)</td><td>number of samples; transform length after zero-padding to a power of 2 (M ≥ n)</td><td>–</td></tr>
+          <tr><td>\(w_k\)</td><td>Hann window weight (1 for all k when the window is switched off)</td><td>–</td></tr>
+          <tr><td>\(A_j\), \(f_j\)</td><td>amplitude and frequency of component j</td><td>°C, h⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>A sinusoid \(A\cos(2\pi f_j t)\) that fits a whole number of cycles in the record gives \(|X_j| = A\sum w_k/2\): the factor 2/Σw in the box returns its amplitude A.</li>
+            <li>The frequencies that can be distinguished are spaced by \(1/(n\Delta t)\), the reciprocal of the record length: two days of data resolve 0.021 h⁻¹. Zero-padding interpolates the spectrum but does not improve this resolution.</li>
+            <li>Frequencies run from 0 to \(f_N = 1/(2\Delta t)\); the components \(j &gt; M/2\) are mirror images (the same aliasing as in Eq. SP4).</li>
+            <li>Without a window, a sinusoid that does not fit a whole number of cycles "leaks" into all bins, with side lobes falling only as 1/f; the Hann window lowers the side lobes to −31 dB and makes them fall much faster, at the cost of a slightly wider peak (Harris, 1978).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The DFT assumes the record is one period of an infinitely repeating signal and that the samples are equally spaced and complete. Gaps must be filled (the laboratory interpolates pasted data linearly) or treated with methods for uneven sampling.</p></details>
+        <div class="eq-units">\(j/(M\Delta t)\): 1/h = h⁻¹ ✓; \(A_j\): °C × (dimensionless)/(dimensionless) = °C ✓</div>
+        <div class="mini-calc" data-formula="60/(n*dt)" data-output="Frequency resolution Δf" data-unit="h⁻¹" data-digits="4" data-plot="n" data-title="Try it — how long must a record be?">
+          <div data-var="n" data-label="Number of samples n" data-min="60" data-max="20000" data-value="2880" data-scale="log"></div>
+          <div data-var="dt" data-label="Logging interval Δt" data-min="0.1" data-max="60" data-value="1" data-scale="log" data-unit="min"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="sp-eq-metrics">
+        <div class="eq-head"><span class="eq-label">How the filters are scored</span><span class="eq-num">(SP9)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{RMSE} = \sqrt{\frac{1}{K}\sum_{k=k_0}^{k_0+K-1}\left(y_k - T(t_k)\right)^2} \\[6pt] t_{63} = \Delta t\cdot\min\left\{k \ge 0 : y_k^{\text{step}} \ge 1 - e^{-1}\right\} \end{gathered} \]</div>
+        <p class="eq-read">the root-mean-square error is the square root of the mean squared difference between the filter output and the true temperature at the sampling times, ignoring the first hour; the lag is the time a filter needs, after a unit step in its input, to cover 63.2 % of the step.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(y_k\), \(T(t_k)\)</td><td>filter output and true temperature at sample time</td><td>°C</td></tr>
+          <tr><td>\(k_0\), \(K\)</td><td>first scored sample (after 1 h) and number of scored samples</td><td>–</td></tr>
+          <tr><td>\(y^{\text{step}}\)</td><td>response of the filter (with its current parameters, Kalman gain at \(K_\infty\)) to a unit step at k = 0</td><td>–</td></tr>
+        </table>
+        <details><summary>Why these two numbers?</summary><p>RMSE measures total error — noise that got through plus real signal that was smoothed away or delayed — against the one thing a real logger never knows: the truth. The step lag measures responsiveness in a way that is independent of the signal. Together they draw the trade-off curve of each filter: a filter that is "better" in both at once exists only if another one was badly tuned. The 63 % definition matches the time constant of a first-order sensor, so filter lag and sensor lag can be added directly when you judge the whole chain.</p></details>
+        <div class="eq-units">√(°C²) = °C ✓; \(\Delta t\) × count = s ✓</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Tick each task when you are done; <em>Save investigation</em> copies your settings and results into your notebook, and <em>Download … (CSV)</em> gives you the samples and filter outputs for your own analysis.</p>
+      <ol class="task-list">
+        <li><h4>Map the aliasing trap</h4><p>Keep P<sub>v</sub> = 12 min and point sampling. Record the period the log shows (readout) for Δt = 2, 4, 5, 6, 8, 10, 11, 12, 13, 15 and 20 min. Plot apparent period against Δt and compare with Eq. SP4 (use its calculator). Which interval makes the oscillation disappear, and why is that the most dangerous case of all?</p></li>
+        <li><h4>Three cures for aliasing</h4><p>At Δt = 10 min, compare (a) point sampling, (b) the mean of 5-s readings and (c) point sampling with a slow sensor (τ<sub>s</sub> = 300 s). For each, read the height of the alias peak at 1 h⁻¹ in the spectrum and compare it with A<sub>v</sub> multiplied by G<sub>block</sub> or G<sub>sensor</sub> from Eq. SP4. Which cure would you choose for a climate record, and what does each cost?</p></li>
+        <li><h4>Find the best filter — twice</h4><p>With the defaults (Δt = 30 s), use the trade-off chart to find the RMSE-optimal parameter of each filter and note its RMSE and lag. Then set the spike probability to 3 % and the spike size to 6 °C and repeat. Which filter wins in each case? Explain the ranking with Table 2. Finally, combine the ideas: which filter would you run first, and which second, on a microcontroller?</p></li>
+        <li><h4>Tune the Kalman filter from physics</h4><p>Keep "R from the sensor specification". Estimate √Q from the fastest physical change per sample, A<sub>v</sub> · 2π/P<sub>v</sub> × Δt, and set it. How close is its RMSE to the best value you can find by sweeping √Q? Now double the noise σ<sub>v</sub>: how do K∞, the lag and the RMSE change? Explain with the steady-state equation.</p></li>
+        <li><h4>Resolution, dither and oversampling</h4><p>Choose <em>Cheap 8-bit ADC</em>. What is q, and what does the zoomed signal look like at 1 min/div? Now add 0.10 °C of white noise and switch to block averaging at Δt = 1 min. Compare the RMSE of the raw samples in the three cases (8 bit without noise, with noise, with noise and averaging) and explain why adding noise can make the logged result <em>more</em> accurate.</p></li>
+        <li><h4>Your own data</h4><p>Paste a day of temperature (or EC, pH, PPFD) readings from your project logger into the box below the charts. Identify every peak in the spectrum and attribute it to a mechanism. Choose a logging interval and a filter for your dashboard and justify both in three sentences, citing the numbers you measured.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-signal-processing">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A greenhouse's heating valve cycles with a period of 12 min. The logger records one reading every 10 min. What period (in minutes) does the logged oscillation appear to have? (Check with the aliasing-trap preset.)","answer":60,"tol":0.02,"unit":"min","hint":"Convert to frequencies per hour: f = 5 h⁻¹, fₛ = 6 h⁻¹, then use Eq. SP4.","explain":"<p>\\(f_a = |5 - 6\\,\\operatorname{round}(5/6)| = |5 - 6| = 1\\) h⁻¹, i.e. an apparent period of 60 min. The true cycle lies above the Nyquist frequency of 3 h⁻¹ and folds back.</p>"},
+          {"type":"numeric","q":"The laboratory's ADC spans −10 to +50 °C. What is the standard deviation of the rounding error of a 12-bit converter, in °C? (Eq. SP3.)","answer":0.00423,"tol":0.03,"unit":"°C","hint":"First q = range/2ᵇ, then σ_q = q/√12.","explain":"<p>\\(q = 60/4096 = 0.01465\\) °C and \\(\\sigma_q = 0.01465/\\sqrt{12} = 0.00423\\) °C — negligible next to a typical 0.1 °C sensor noise.</p>"},
+          {"type":"numeric","q":"Set Δt = 1 min and a moving-average window of N = 5. What 63 % step lag does the laboratory report for the moving average, in minutes?","answer":3,"abstol":0.01,"unit":"min","hint":"After k samples the output of the MA to a unit step is (k + 1)/N.","explain":"<p>The output reaches 0.2, 0.4, 0.6, 0.8 in the samples after the step; 0.8 is the first value ≥ 0.632, reached 3 samples = 3 min after the step (\\(\\lceil 0.632\\times5\\rceil - 1 = 3\\)).</p>"},
+          {"type":"numeric","q":"Set the Kalman filter to √Q = 0.10 °C and a manual √R = 0.20 °C. To which steady-state gain K∞ does the gain converge?","answer":0.390,"tol":0.02,"hint":"Q = 0.01 and R = 0.04 °C²; use the steady-state equation in SP7.","explain":"<p>\\(P_\\infty^- = \\tfrac12(0.01 + \\sqrt{0.0001 + 4\\times0.01\\times0.04}) = 0.0256\\) °C² and \\(K_\\infty = 0.0256/(0.0256 + 0.04) = 0.390\\). In steady state the filter is an EMA with α ≈ 0.39.</p>"},
+          {"type":"mcq","q":"The log contains isolated spikes of several degrees, and the dashboard must still show genuine sudden steps sharply. Which single filter is the best choice?","options":["A moving average with a long window","A running median with a short window (e.g. N = 5)","Exponential smoothing with a small α","A Kalman filter without gating"],"answer":1,"feedback":["A moving average smears every spike into a bump of height (spike)/N lasting N samples, and turns steps into ramps.","","A small α suppresses spikes only by delaying everything; each spike still leaves a long exponential tail.","Without gating, the Kalman filter treats a spike as information and moves towards it by the gain K."],"explain":"<p>The median ignores up to (N − 1)/2 outliers in its window and passes a step without turning it into a ramp (Eq. SP6). Robust spike removal first, smoothing afterwards, is the standard order in data-quality control.</p>"},
+          {"type":"tf","q":"Logging a 12-min cycle every 10 min as the mean of 5-s readings (block averaging) makes the logged data show the cycle with its true 12-min period.","answer":false,"explain":"<p>False. No record sampled every 10 min can represent a 12-min period, because it lies above the Nyquist frequency. Block averaging attenuates the component to |sin(5π/6)/(5π/6)| ≈ 0.19 of its amplitude before it is sampled, so the fake 60-min wave becomes small — the cure is to suppress the alias, not to recover the cycle.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>The true temperature is a sum of a diurnal cosine, one sinusoidal control cycle, Ornstein–Uhlenbeck turbulence (σ<sub>u</sub>, τ<sub>u</sub> = 60 s) and an optional 3-h heating boost. Real control cycles are rarely sinusoidal and their period drifts with weather; the defaults are illustrative, not measurements from a specific greenhouse.</li>
+        <li>The truth is simulated every 5 s; the logger's fastest possible reading interval is also 5 s. Components faster than 5 s (for example 50 Hz mains pick-up) are not modelled.</li>
+        <li>The sensor is a first-order system with a single time constant; radiation errors, self-heating and calibration offsets are not modelled (see <a href="/lessons/measurement-uncertainty/">Lesson 9.3</a> for those).</li>
+        <li>Measurement noise is white and Gaussian; spikes occur independently with a fixed probability per reading and have a random sign. The ADC is ideal (no differential non-linearity) and clips at −10 and +50 °C.</li>
+        <li>All filters are causal and start from the first sample (the moving average and median use the available samples while the window fills; the Kalman filter starts at 20 °C with P₀ = 1 °C² and does not gate the first 10 samples). Scores ignore the first hour.</li>
+        <li>The lag is the 63 % step response of the filter alone; the sensor adds its own τ<sub>s</sub> and block averaging adds about Δt/2.</li>
+        <li>Pasted data are placed on a regular time grid by linear interpolation using the median interval; gaps longer than one interval are therefore bridged by straight lines.</li>
+      </ul>
+      <h2 data-nonum>Sources</h2>
+      <ol class="references">
+        <li>Nyquist, H. (1928). Certain topics in telegraph transmission theory. <em>Transactions of the American Institute of Electrical Engineers</em>, 47(2), 617–644. <a href="https://doi.org/10.1109/T-AIEE.1928.5055024" target="_blank" rel="noopener">doi:10.1109/T-AIEE.1928.5055024</a></li>
+        <li>Shannon, C. E. (1949). Communication in the presence of noise. <em>Proceedings of the IRE</em>, 37(1), 10–21. <a href="https://doi.org/10.1109/JRPROC.1949.232969" target="_blank" rel="noopener">doi:10.1109/JRPROC.1949.232969</a></li>
+        <li>Kalman, R. E. (1960). A new approach to linear filtering and prediction problems. <em>Journal of Basic Engineering</em>, 82(1), 35–45. <a href="https://doi.org/10.1115/1.3662552" target="_blank" rel="noopener">doi:10.1115/1.3662552</a></li>
+        <li>Cooley, J. W., &amp; Tukey, J. W. (1965). An algorithm for the machine calculation of complex Fourier series. <em>Mathematics of Computation</em>, 19(90), 297–301. <a href="https://doi.org/10.2307/2003354" target="_blank" rel="noopener">doi:10.2307/2003354</a></li>
+        <li>Harris, F. J. (1978). On the use of windows for harmonic analysis with the discrete Fourier transform. <em>Proceedings of the IEEE</em>, 66(1), 51–83. <a href="https://doi.org/10.1109/PROC.1978.10837" target="_blank" rel="noopener">doi:10.1109/PROC.1978.10837</a></li>
+        <li>Widrow, B., &amp; Kollár, I. (2008). <em>Quantization Noise: Roundoff Error in Digital Computation, Signal Processing, Control, and Communications</em>. Cambridge University Press. <a href="https://doi.org/10.1017/CBO9780511754661" target="_blank" rel="noopener">doi:10.1017/CBO9780511754661</a></li>
+        <li>Tukey, J. W. (1977). <em>Exploratory Data Analysis</em>. Addison-Wesley.</li>
+        <li>Pearson, R. K. (2002). Outliers in process modeling and identification. <em>IEEE Transactions on Control Systems Technology</em>, 10(1), 55–63. <a href="https://doi.org/10.1109/87.974338" target="_blank" rel="noopener">doi:10.1109/87.974338</a></li>
+      </ol>
+      <h2 data-nonum>Background and further reading</h2>
+      <ul>
+        <li>Welch, G., &amp; Bishop, G. (2004). <em>An introduction to the Kalman filter</em> (Technical Report TR 95-041, updated 5 April 2004). University of North Carolina at Chapel Hill. <a href="https://www.cs.unc.edu/techreports/95-041.pdf" target="_blank" rel="noopener">cs.unc.edu/techreports/95-041.pdf</a></li>
+      </ul>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

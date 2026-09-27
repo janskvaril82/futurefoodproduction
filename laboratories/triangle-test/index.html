@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Triangle test and Thurstonian d′ · Future Food Production</title>
+<meta name="description" content="Simulate triangle-test panels from a Thurstonian model, count correct answers, compute the exact binomial p-value, critical numbers, power versus panel size, the proportion of discriminators and d′ with exact confidence intervals, and run the ISO 4120 similarity test on your own results.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* Live calculators for the Derive tab (classic script, runs before the deferred site scripts).
+   Same formulas as /laboratories/sensory-booth/sensory-core.js and /assets/js/stats.js. */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  var LZ = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  function lnG(z) { if (z < 0.5) return Math.log(Math.PI / Math.abs(Math.sin(Math.PI * z))) - lnG(1 - z); z -= 1; var x = LZ[0]; for (var i = 1; i < 9; i++) x += LZ[i] / (z + i); var t = z + 7.5; return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x); }
+  function pmf(k, n, p) { if (k < 0 || k > n) return 0; if (p <= 0) return k === 0 ? 1 : 0; if (p >= 1) return k === n ? 1 : 0; return Math.exp(lnG(n + 1) - lnG(k + 1) - lnG(n - k + 1) + k * Math.log(p) + (n - k) * Math.log(1 - p)); }
+  function upper(k, n, p) { var s = 0; for (var i = Math.max(0, k); i <= n; i++) s += pmf(i, n, p); return Math.min(1, s); }
+  function lower(k, n, p) { var s = 0; for (var i = 0; i <= Math.min(k, n); i++) s += pmf(i, n, p); return Math.min(1, s); }
+  function critical(n, p0, a) { for (var k = 0; k <= n; k++) if (upper(k, n, p0) <= a) return k; return n + 1; }
+  function Phi(x) { var z = Math.abs(x) / Math.SQRT2, t = 1 / (1 + 0.5 * z); var r = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277))))))))); return x >= 0 ? 1 - r / 2 : r / 2; }
+  function phi(z) { return Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI); }
+  function simp(f, a, b, n) { var h = (b - a) / n, s = f(a) + f(b); for (var i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * f(a + i * h); return s * h / 3; }
+  var S3 = Math.sqrt(3), S23 = Math.sqrt(2 / 3);
+  function ftri(d) { if (!(d > 0)) return 1 / 3; var k = d * S23; return 2 * simp(function (z) { return (Phi(-z * S3 + k) + Phi(-z * S3 - k)) * phi(z); }, 0, 8.5, 240); }
+  function inv(pc) { if (!(pc > 1 / 3)) return 0; if (pc >= ftri(12)) return NaN; var a = 0, b = 12; for (var i = 0; i < 55; i++) { var m = (a + b) / 2; if (ftri(m) < pc) a = m; else b = m; } return (a + b) / 2; }
+  /* T1 */ FFP_CALC.ttP = function (v) { var n = Math.round(v.n), x = Math.round(v.x); return x > n ? NaN : upper(x, n, 1 / 3); };
+  /* T2 */ FFP_CALC.ttPc = function (v) { return ftri(v.d); };
+  /* T4 */ FFP_CALC.ttD = function (v) { var n = Math.round(v.n), x = Math.round(v.x); return x > n ? NaN : inv(x / n); };
+  /* T4 */ FFP_CALC.ttSE = function (v) { var n = Math.round(v.n), x = Math.round(v.x), pc = x / n; if (x > n || pc <= 1 / 3) return NaN; var d = inv(pc), h = 1e-3, sl = (ftri(d + h) - ftri(Math.max(0, d - h))) / (d + h - Math.max(0, d - h)); return Math.sqrt(pc * (1 - pc) / n) / sl; };
+  /* T5 */ FFP_CALC.ttPow = function (v) { var n = Math.round(v.n); return upper(critical(n, 1 / 3, 0.05), n, ftri(v.d)); };
+  /* T6 */ FFP_CALC.ttSim = function (v) { var n = Math.round(v.n), x = Math.round(v.x); return x > n ? NaN : lower(x, n, 1 / 3 + 2 / 3 * v.pd0); };
+})();
+</script>
+<style>
+.tt-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.stage.light-stage .stage-hud { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 100px); }
+.stage.light-stage .stage-hud .hud-chip { background: color-mix(in srgb, var(--bg-elev) 90%, transparent); color: var(--ink); border-color: var(--line); }
+.stage.light-stage .stage-hud .hud-chip b { color: var(--accent); }
+.stage.light-stage .stage-toolbar button { background: var(--bg-sunk); color: var(--ink-2); border-color: var(--line); }
+.crit-wrap { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+table.crit { width: 100%; border-collapse: collapse; font-size: .8rem; margin: 0 !important; }
+table.crit th { position: sticky; top: 0; background: var(--bg-elev); font: 600 .7rem var(--font-mono); color: var(--muted); padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+table.crit td { padding: 4px 8px; border-bottom: 1px solid var(--line); font-family: var(--font-mono); text-align: right; }
+table.crit tr.cur td { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+</style>
+</head>
+<body data-page="lab" data-slug="triangle-test">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Triangle test and Thurstonian d′</h1>
+    <p class="lead">Three coded cups, two identical, one different: which one is odd? Here a virtual panel tastes wheat bread against bread with cricket flour. Each assessor's perceptions are drawn from a Thurstonian model, you watch the choice being made, and the correct answers pile up against the binomial distribution of pure guessing. Then turn the numbers around: how large is the difference, how many assessors would you need, and can you ever claim that two products are “the same”? Switch to <em>Analyse my results</em> to do all of this for your own tasting.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage light-stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Power versus panel size</h3>
+      <div class="chart-sub">Exact probability of a significant result for the chosen difference and α. Note the sawtooth: power drops each time the critical number jumps. For the same sensory difference the tetrad and the directional 2-AFC need far fewer assessors.</div>
+      <div class="chart tall" id="chart-power"></div>
+    </div>
+    <div class="chart-card">
+      <h3>From proportion correct to d′</h3>
+      <div class="chart-sub">Psychometric functions p<sub>c</sub> = f(d′) of five methods. The observed proportion correct and its exact 95 % interval (horizontal band) are read across the triangle curve to give d′ and its interval (vertical band).</div>
+      <div class="chart tall" id="chart-psy"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Repeat the experiment</h3>
+      <div class="chart-sub">Distribution of the number correct in 1000 simulated panels of the same size and difference (bars) and the binomial distribution (line). The magenta bars are significant results: their share is the power, estimated by simulation.</div>
+      <div class="chart" id="chart-rep"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Difference or similarity?</h3>
+      <div class="chart-sub">The same data read two ways (ISO 4120:2021). A difference is shown when the two-sided interval for p<sub>d</sub> excludes 0; similarity when the one-sided upper limit lies below the tolerable limit p<sub>d0</sub> chosen before testing.</div>
+      <div class="chart" id="chart-sim"></div>
+    </div>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:16px">
+    <h3>Critical numbers, similarity limits and power</h3>
+    <div class="chart-sub">Minimum number of correct answers for a significant difference (one-sided exact binomial test, p₀ = 1/3), the largest number of correct answers that still supports similarity, and the power for the design difference. Your panel size is highlighted.</div>
+    <div class="crit-wrap" id="crit-table"></div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Watch one assessor decide.</strong> Press <em>New panel</em> with the default moderate difference (d′ = 1.5). In the top-left panel each cup's perception is drawn from its bell curve — two from A, one from B. The assessor cannot see the letters, only the three perceptions: the two closest ones are judged “the same” and the remaining cup is named odd. Often the two A perceptions are <em>not</em> the closest pair, and a real difference still produces a wrong answer.</li>
+        <li><strong>Watch the evidence accumulate.</strong> Every answer lights a seat in the panel. The bottom-left histogram is what the count would look like if everybody guessed: the magenta bars are the critical region. With 24 assessors you need at least 13 correct answers.</li>
+        <li><strong>Remove the difference.</strong> Apply <em>No difference</em>: the two bell curves coincide and about a third of the answers are still correct — by chance. Press <em>Repeat 1000 panels</em>: only a few per cent of the panels are significant, never more than α.</li>
+        <li><strong>Feel the sawtooth.</strong> Back at d′ = 1.5, look at the power chart. A panel of 24 detects this difference less than half of the time; the triangle test needs over 50 assessors for 80 % power, the tetrad about 16–20.</li>
+        <li><strong>Turn to your data.</strong> Choose <em>Analyse my results</em> (or the preset <em>Class: 13 of 24</em>). The readouts give the p-value, the proportion of discriminators and d′ — each with an interval. The psychometric chart shows how the uncertainty in p̂<sub>c</sub> becomes uncertainty in d′.</li>
+        <li><strong>Ask the other question.</strong> Apply <em>Similar? 21 of 60</em>: the difference test is not significant <em>and</em> the upper confidence limit of p<sub>d</sub> is below 0.30, so the products can be called similar. Try the same proportion with 24 assessors — similarity can no longer be shown.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A triangle test answers “is there a perceptible difference?” with a binomial count. Its size — p<sub>d</sub> or d′ — needs an interval, and its absence can only be claimed with a similarity test designed for that purpose. A non-significant triangle test with 24 assessors is almost never evidence that the products taste the same.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>How a triangle test works</h2>
+      <p>Each assessor receives three coded samples, two of one product and one of the other, in one of the six balanced arrangements, and must name the odd sample — even if it is a guess (ISO 4120:2021). Because the answer is forced, a person who perceives nothing is right with probability \(p_0 = 1/3\). The number of correct answers in a panel of \(n\) independent assessors therefore follows a binomial distribution, and a count that would be improbable under pure guessing is evidence of a perceptible difference (Eq. T1). The count is discrete, so the actual risk of a false positive is at most α and usually below it: for \(n = 24\) the critical number is 13, and \(P(X \ge 13) = 0.028\).</p>
+      <h3>Two ways to describe “how different”</h3>
+      <p>The <strong>guessing model</strong> imagines a population of discriminators, who always recognise the odd sample, and non-discriminators, who guess: \(p_c = p_d + (1-p_d)/3\) (Eq. T3). It is simple, it is used in ISO 4120's tables, and it is psychologically unrealistic: perception is graded, not a switch. The <strong>Thurstonian model</strong> assumes that each tasting produces a noisy perception: A samples vary around 0, B samples around \(d'\), with a standard deviation of 1 (Thurstone, 1927). \(d'\) is the distance between the products in units of perceptual noise, and it does not depend on the test method (Ennis, 1993).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 230" role="img" aria-label="Decision rule of the triangle test: three perceptions on a line, the two closest are judged the same, the third is named odd; a correct and an incorrect example">
+            <defs><marker id="tt-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <text x="20" y="24" font-weight="700">Correct answer</text>
+            <line x1="20" y1="80" x2="340" y2="80" stroke="currentColor"/>
+            <circle cx="95" cy="80" r="8" class="fill-water"/><circle cx="130" cy="80" r="8" class="fill-water"/><circle cx="270" cy="80" r="8" class="fill-magenta"/>
+            <circle cx="270" cy="80" r="14" fill="none" class="stroke-accent" stroke-width="2.5"/>
+            <path d="M95 96 L95 110 L130 110 L130 96" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="112" y="126" text-anchor="middle" class="t-small">closest pair: “the same”</text>
+            <text x="270" y="58" text-anchor="middle" class="t-small">named odd ✓</text>
+            <text x="95" y="62" text-anchor="middle" class="t-small" style="fill:var(--water)">A</text><text x="130" y="62" text-anchor="middle" class="t-small" style="fill:var(--water)">A</text><text x="270" y="40" text-anchor="middle" class="t-small" style="fill:var(--magenta)">B</text>
+            <text x="380" y="24" font-weight="700">Incorrect answer despite a real difference</text>
+            <line x1="380" y1="80" x2="700" y2="80" stroke="currentColor"/>
+            <circle cx="420" cy="80" r="8" class="fill-water"/><circle cx="560" cy="80" r="8" class="fill-water"/><circle cx="590" cy="80" r="8" class="fill-magenta"/>
+            <circle cx="420" cy="80" r="14" fill="none" class="stroke-danger" stroke-width="2.5"/>
+            <path d="M560 96 L560 110 L590 110 L590 96" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="575" y="126" text-anchor="middle" class="t-small">closest pair: A and B!</text>
+            <text x="420" y="58" text-anchor="middle" class="t-small">named odd ✗</text>
+            <text x="420" y="40" text-anchor="middle" class="t-small" style="fill:var(--water)">A</text><text x="560" y="62" text-anchor="middle" class="t-small" style="fill:var(--water)">A</text><text x="590" y="62" text-anchor="middle" class="t-small" style="fill:var(--magenta)">B</text>
+            <text x="360" y="170" text-anchor="middle" class="t-small">perceived intensity →</text>
+            <text x="360" y="196" text-anchor="middle" class="t-small t-muted">The assessor sees only three unlabelled perceptions. With d′ = 1 an A perception often falls far from its twin,</text>
+            <text x="360" y="214" text-anchor="middle" class="t-small t-muted">so only 41.8 % of answers are correct, although the products clearly differ (Ennis, 1993).</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The decision rule assumed by the Thurstonian triangle model: the pair of perceptions that are closest together is judged identical, and the remaining sample is named odd (Eq. T2). The simulator applies exactly this rule to random perceptions, so its long-run proportion of correct answers equals the psychometric function \(f_{\text{tri}}(d')\).</figcaption>
+      </figure>
+      <p>The link between the two descriptions is the <strong>psychometric function</strong> \(p_c = f(d')\), which is different for every method (Table 3 in <a href="/lessons/sensory-statistics/#dprime">Lesson 13.4</a>). The triangle test has the flattest one of the common methods: the assessor must compare three noisy perceptions and does not know which attribute to attend to. The same products that give 42 % correct answers in a triangle test give 76 % in a 2-AFC test (“which one is more bitter?”), and the guessing model would translate these into 13 % and 52 % discriminators — the paradox of the discriminatory non-discriminators (Frijters, 1979). The Thurstonian d′ = 1 describes both results with a single number.</p>
+      <h3>Uncertainty: why d′ comes with an interval</h3>
+      <p>With a few dozen assessors, p̂<sub>c</sub> is uncertain by ±0.1 or more. Near p₀ = 1/3 the triangle curve is almost flat, so a small uncertainty in p̂<sub>c</sub> becomes a large uncertainty in d′. The usual standard error from the delta method (Eq. T4) assumes a straight curve and gives a symmetric (Wald) interval, which can be seriously wrong for small panels. A more honest interval takes the exact Clopper–Pearson interval of p<sub>c</sub> and maps its ends through the monotone psychometric function: for 13 correct out of 24 it runs from d′ = 0 to 2.76 — the data are compatible with no difference at all at the lower end, although the test is significant at the one-sided 5 % level. Likelihood-based intervals (Christensen, 2023) behave similarly.</p>
+      <h3>Power and the choice of panel size</h3>
+      <p>Power is the probability that the test detects a difference that really exists (Eq. T5). It depends on the method, the size of the difference, α and n — and only the last is yours to choose once the question is fixed. The chart above shows why triangle tests with 24 assessors so often “find nothing”: at d′ = 1.5 their power is 0.44. The tetrad test (two pairs, “group the four samples into two pairs of identical samples”) has the same p₀ but a steeper psychometric function, which is why Ennis and Jesionka (2011) recommend it when fatigue permits.</p>
+      <h3>Showing similarity</h3>
+      <p>A supplier change, a new process or a hydroponic crop often has to be shown to be “not different”. ISO 4120:2021 provides a similarity test for this purpose: choose the largest proportion of discriminators you could tolerate, p<sub>d0</sub>, and reject the hypothesis that the true p<sub>d</sub> is at least that large when the count of correct answers is small enough (Eq. T6). Similarity needs large panels — ISO suggests about twice as many assessors as a difference test — because a small panel cannot exclude moderate differences.</p>
+      <a class="lab-link" data-lab="sensory-booth" data-why="Plan the triangle test you analyse here: six balanced arrangements, random codes, masking light, printable ballots — and record the answers into the project data."></a>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulator</h2>
+      <div class="eq-box" id="eq-tt-binomial">
+        <div class="eq-head"><span class="eq-label">Exact binomial test and critical number</span><span class="eq-num">(T1)</span></div>
+        <div class="eq-main">\[ P(X \ge x \mid H_0) = \sum_{i=x}^{n}\binom{n}{i}\left(\tfrac13\right)^{i}\left(\tfrac23\right)^{n-i}, \qquad x_c = \min\bigl\{x : P(X \ge x \mid H_0) \le \alpha\bigr\} \]</div>
+        <p class="eq-read">the p-value is the probability of at least the observed number of correct answers if every assessor guessed with a one-in-three chance; the critical number is the smallest count whose tail probability is at most alpha.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(n\)</td><td>number of independent assessors (one triangle each)</td><td>–</td></tr>
+          <tr><td>\(x\)</td><td>observed number of correct answers</td><td>–</td></tr>
+          <tr><td>\(X\)</td><td>random number of correct answers under \(H_0: p_c = 1/3\)</td><td>–</td></tr>
+          <tr><td>\(\alpha\)</td><td>significance level (one-sided)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Under \(H_0\) each answer is a Bernoulli trial with success probability 1/3, independent of the others (every assessor tastes one triangle).</li>
+            <li>The number of ways to have exactly \(i\) successes among \(n\) is \(\binom{n}{i}\); each such way has probability \((1/3)^i(2/3)^{n-i}\).</li>
+            <li>A perceptible difference can only <em>increase</em> \(p_c\), so the test is one-sided: sum the upper tail from the observed \(x\).</li>
+            <li>Example: \(n = 24\), \(x = 13\): \(P = 0.028\) &lt; 0.05. The critical number for \(n = 24\) is 13, for \(n = 30\) it is 15 (ISO 4120:2021, Table A.1).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Independence: replicated triangles from the same assessor are not independent and must not be pooled as if they came from different people. The exact test is valid for any \(n\); normal approximations are not needed.</p></details>
+        <div class="eq-units">Probabilities and counts — dimensionless ✓</div>
+        <div class="mini-calc" data-fn="ttP" data-output="p-value P(X ≥ x)" data-unit="" data-digits="4" data-plot="x" data-ymin="0" data-ymax="1" data-title="Try it — exact p-value of a triangle test">
+          <div data-var="n" data-label="Assessors n" data-min="6" data-max="100" data-step="1" data-value="24"></div>
+          <div data-var="x" data-label="Correct answers x" data-min="0" data-max="100" data-step="1" data-value="13"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-tt-psychometric">
+        <div class="eq-head"><span class="eq-label">Thurstonian decision rule and psychometric function</span><span class="eq-num">(T2)</span></div>
+        <div class="eq-main">\[ a_1, a_2 \sim N(0,1),\;\; b \sim N(d',1): \quad \text{correct} \iff |a_1 - a_2| &lt; \min\bigl(|b-a_1|,\;|b-a_2|\bigr) \] \[ p_c = f_{\text{tri}}(d') = 2\int_{0}^{\infty}\Bigl[\Phi\bigl(-\sqrt3\,z + \sqrt{2/3}\,d'\bigr) + \Phi\bigl(-\sqrt3\,z - \sqrt{2/3}\,d'\bigr)\Bigr]\varphi(z)\,\mathrm{d}z \]</div>
+        <p class="eq-read">the assessor answers correctly when the two perceptions of the identical samples are closer to each other than either is to the perception of the odd sample; averaging this event over all possible perceptions gives the probability of a correct answer as an integral over the standard normal distribution.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(a_1, a_2, b\)</td><td>perceptions of the two identical samples and of the odd sample</td><td>perceptual SD</td></tr>
+          <tr><td>\(d'\)</td><td>distance between the mean perceptions of B and A</td><td>perceptual SD</td></tr>
+          <tr><td>\(\Phi, \varphi\)</td><td>standard normal CDF and density</td><td>–</td></tr>
+          <tr><td>\(z\)</td><td>standardised half-difference of the two A perceptions</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Write \(a_{1,2} = m \pm \delta\) with \(\delta = (a_1-a_2)/2 \sim N(0, 1/2)\) independent of \(m\); let \(w = b - m \sim N(d', 3/2)\).</li>
+            <li>The distances are \(|a_1-a_2| = 2|\delta|\) and \(|b - a_{1,2}| = |w \mp \delta|\). Both exceed \(2|\delta|\) exactly when \(|w| &gt; 3|\delta|\).</li>
+            <li>Put \(\delta = z/\sqrt2\) and \(w = d' + \sqrt{3/2}\,\varepsilon\); then \(P(|w| &gt; 3|z|/\sqrt2 \mid z) = \Phi(-\sqrt3|z| + \sqrt{2/3}\,d') + \Phi(-\sqrt3|z| - \sqrt{2/3}\,d')\).</li>
+            <li>Average over \(z \sim N(0,1)\), using symmetry: \(E[g(|z|)] = 2\int_0^\infty g(z)\varphi(z)\,\mathrm{d}z\).</li>
+            <li>Check: \(d' = 0\) gives \(4\int_0^\infty \Phi(-\sqrt3 z)\varphi(z)\,\mathrm{d}z = 4/12 = 1/3\) ✓. The laboratory evaluates the integral with Simpson's rule (260 intervals on [0, 8.5]); the simulator draws \(a_1, a_2, b\) directly and applies the rule, so the two must agree in the long run — press <em>Repeat 1000 panels</em> to check.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Equal-variance normal perceptions on one dimension, independent tastings and the “closest pair” decision rule (Ennis, 1993; Brockhoff &amp; Christensen, 2010). Real assessors may use other strategies, and carry-over between the three samples is ignored.</p></details>
+        <div class="eq-units">\(d'\) is a ratio of perceptual distances to a perceptual SD; \(\Phi\) and \(\varphi\,\mathrm{d}z\) are dimensionless, so \(p_c\) is a probability ✓</div>
+        <div class="mini-calc" data-fn="ttPc" data-output="p_c (triangle)" data-unit="" data-digits="3" data-plot="d" data-ymin="0.3" data-ymax="1" data-title="Try it — the triangle psychometric function">
+          <div data-var="d" data-label="d′" data-min="0" data-max="5" data-step="0.05" data-value="1" data-unit="SD"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-tt-pd">
+        <div class="eq-head"><span class="eq-label">Guessing model and exact interval for p<sub>d</sub></span><span class="eq-num">(T3)</span></div>
+        <div class="eq-main">\[ p_c = p_d + \frac{1-p_d}{3} \;\Longleftrightarrow\; \hat p_d = \frac{3\hat p_c - 1}{2}, \qquad [\,p_{d,L},\,p_{d,U}\,] = \left[\frac{3p_{c,L}-1}{2},\;\frac{3p_{c,U}-1}{2}\right]_{\ge 0} \]</div>
+        <p class="eq-read">the probability of a correct answer is the share of discriminators plus one third of the non-discriminators; inverting gives the estimated share of discriminators, and its confidence limits follow by transforming the exact limits of the proportion correct, truncated at zero.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(p_d\)</td><td>proportion of discriminators in the population</td><td>–</td></tr>
+          <tr><td>\(\hat p_c = x/n\)</td><td>observed proportion correct</td><td>–</td></tr>
+          <tr><td>\(p_{c,L}, p_{c,U}\)</td><td>exact (Clopper–Pearson) 95 % limits of \(p_c\)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Law of total probability: \(P(\text{correct}) = 1\cdot p_d + \tfrac13(1-p_d)\).</li>
+            <li>Solve: \(p_d = (p_c - \tfrac13)/\tfrac23 = (3p_c - 1)/2\) (Abbott's formula).</li>
+            <li>The Clopper–Pearson limits solve \(P(X \ge x \mid p_{c,L}) = 0.025\) and \(P(X \le x \mid p_{c,U}) = 0.025\) (Clopper &amp; Pearson, 1934). A monotone transformation of an exact interval is an exact interval for the transformed parameter.</li>
+            <li>Example: 13 of 24 → \(\hat p_d = 0.31\); \(p_c \in [0.328, 0.744]\) → \(p_d \in [0, 0.62]\).</li>
+          </ol>
+        </details>
+        <div class="eq-units">Proportions — dimensionless ✓</div>
+        <div class="mini-calc" data-formula="max(0,(3*x/n-1)/2)" data-output="p̂_d" data-unit="" data-digits="3" data-plot="x" data-ymin="0" data-ymax="1" data-title="Try it — proportion of discriminators">
+          <div data-var="n" data-label="Assessors n" data-min="6" data-max="100" data-step="1" data-value="24"></div>
+          <div data-var="x" data-label="Correct answers x" data-min="0" data-max="100" data-step="1" data-value="13"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-tt-dprime">
+        <div class="eq-head"><span class="eq-label">Estimating d′ with a standard error and an exact interval</span><span class="eq-num">(T4)</span></div>
+        <div class="eq-main">\[ \hat d' = f_{\text{tri}}^{-1}(\hat p_c), \qquad \mathrm{SE}(\hat d') \approx \frac{\sqrt{\hat p_c(1-\hat p_c)/n}}{f'_{\text{tri}}(\hat d')}, \qquad \bigl[d'_L,\,d'_U\bigr] = \bigl[f_{\text{tri}}^{-1}(p_{c,L}),\,f_{\text{tri}}^{-1}(p_{c,U})\bigr] \]</div>
+        <p class="eq-read">d-prime is the value whose predicted proportion correct equals the observed one; its Wald standard error is the binomial standard error divided by the slope of the psychometric function, and an exact interval maps the Clopper–Pearson limits of the proportion correct through the inverse function.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(f_{\text{tri}}^{-1}\)</td><td>inverse psychometric function (solved by bisection; 0 if \(\hat p_c \le 1/3\))</td><td>SD</td></tr>
+          <tr><td>\(f'_{\text{tri}}\)</td><td>slope \(\mathrm{d}p_c/\mathrm{d}d'\) (central difference)</td><td>per SD</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>\(f_{\text{tri}}\) increases monotonically from 1/3 to 1, so it has a unique inverse.</li>
+            <li>Delta method: a small error \(\epsilon\) in \(\hat p_c\) gives an error \(\epsilon/f'\) in \(\hat d'\); with \(\mathrm{SE}(\hat p_c) = \sqrt{\hat p_c(1-\hat p_c)/n}\) this gives the formula.</li>
+            <li>13 of 24: \(\hat p_c = 0.542\), \(\hat d' = 1.68\), \(f' = 0.197\) per SD, SE = 0.102/0.197 = 0.52, Wald interval 0.67–2.69; exact interval 0–2.76.</li>
+            <li>The two intervals disagree because the curve is flat near 1/3: the Wald interval pretends that the slope at 1.68 applies everywhere.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Wald intervals are acceptable only when \(\hat p_c\) is well above 1/3 and \(n\) is large. Report the exact (or likelihood) interval and note when its lower end reaches 0 (Christensen, 2023).</p></details>
+        <div class="eq-units">\([p_c]/[\mathrm{d}p_c/\mathrm{d}d'] = 1/(1/\text{SD}) = \text{SD}\) ✓</div>
+        <div class="mini-calc" data-fn="ttD" data-output="d̂′" data-unit="SD" data-digits="2" data-plot="x" data-ymin="0" data-ymax="5" data-title="Try it — d′ from a triangle result">
+          <div data-var="n" data-label="Assessors n" data-min="6" data-max="100" data-step="1" data-value="24"></div>
+          <div data-var="x" data-label="Correct answers x" data-min="0" data-max="100" data-step="1" data-value="13"></div>
+        </div>
+        <div class="mini-calc" data-fn="ttSE" data-output="SE(d̂′), Wald" data-unit="SD" data-digits="2" data-plot="n" data-ymin="0" data-title="Try it — how the standard error shrinks with n (same proportion)">
+          <div data-var="n" data-label="Assessors n" data-min="12" data-max="200" data-step="1" data-value="24"></div>
+          <div data-var="x" data-label="Correct answers x" data-min="5" data-max="200" data-step="1" data-value="13"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-tt-power">
+        <div class="eq-head"><span class="eq-label">Exact power of a triangle test</span><span class="eq-num">(T5)</span></div>
+        <div class="eq-main">\[ 1-\beta = P\bigl(X \ge x_c \mid n,\ p_{c1}\bigr), \qquad p_{c1} = f_{\text{tri}}(d') \ \text{ or } \ p_{c1} = \tfrac13 + \tfrac23\,p_d \]</div>
+        <p class="eq-read">the power is the probability of reaching the critical number when the true probability of a correct answer corresponds to the difference you want to detect.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_c\)</td><td>critical number from Eq. T1</td><td>–</td></tr>
+          <tr><td>\(p_{c1}\)</td><td>probability correct under the alternative</td><td>–</td></tr>
+          <tr><td>\(1-\beta\)</td><td>power</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>\(x_c\) depends only on \(n\) and α. Under the alternative, \(X \sim \text{Bin}(n, p_{c1})\), so the rejection probability is its upper tail from \(x_c\).</li>
+            <li>Because \(x_c\) jumps in steps, power is a sawtooth in \(n\). At d′ = 1.5 (\(p_{c1} = 0.506\)) power first exceeds 0.80 at \(n = 53\) and stays above it from \(n = 57\); at d′ = 2 from \(n = 23\).</li>
+          </ol>
+        </details>
+        <div class="eq-units">Probabilities — dimensionless ✓</div>
+        <div class="mini-calc" data-fn="ttPow" data-output="Power (α = 0.05)" data-unit="" data-digits="3" data-plot="n" data-ymin="0" data-ymax="1" data-title="Try it — exact power (watch the sawtooth)">
+          <div data-var="n" data-label="Assessors n" data-min="6" data-max="120" data-step="1" data-value="24"></div>
+          <div data-var="d" data-label="True d′" data-min="0" data-max="3" data-step="0.05" data-value="1.5" data-unit="SD"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-tt-similarity">
+        <div class="eq-head"><span class="eq-label">Similarity test</span><span class="eq-num">(T6)</span></div>
+        <div class="eq-main">\[ H_0: p_d \ge p_{d0} \;\text{ vs }\; H_1: p_d &lt; p_{d0}, \qquad p_{\text{sim}} = P\bigl(X \le x \mid n,\ p_{c0}\bigr), \quad p_{c0} = \tfrac13 + \tfrac23\,p_{d0} \]</div>
+        <p class="eq-read">to show similarity, reverse the hypotheses: the similarity p-value is the probability of so few or fewer correct answers if the difference were exactly at the tolerable limit; if it is at most beta, the products are declared similar.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(p_{d0}\)</td><td>largest tolerable proportion of discriminators</td><td>–</td></tr>
+          <tr><td>\(\beta\)</td><td>risk of wrongly declaring similarity</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Among all \(p_d \ge p_{d0}\), the case most likely to produce a small count is \(p_d = p_{d0}\); a count that is improbable there is improbable for every larger difference.</li>
+            <li>Equivalently, similarity holds when the one-sided \((1-\beta)\) upper confidence limit of \(p_d\) is below \(p_{d0}\) (the lower curve of the similarity chart).</li>
+            <li>21 of 60 with \(p_{d0} = 0.30\): \(p_{c0} = 0.533\), \(p_{\text{sim}} = 0.003\) — similar. With 24 assessors you would need \(x \le 8\), which even identical products produce only 59 % of the time.</li>
+          </ol>
+        </details>
+        <div class="eq-units">Probabilities — dimensionless ✓</div>
+        <div class="mini-calc" data-fn="ttSim" data-output="p_sim" data-unit="" data-digits="4" data-plot="x" data-ymin="0" data-ymax="1" data-title="Try it — similarity p-value (similar if ≤ β)">
+          <div data-var="n" data-label="Assessors n" data-min="12" data-max="120" data-step="1" data-value="60"></div>
+          <div data-var="x" data-label="Correct answers x" data-min="0" data-max="120" data-step="1" data-value="21"></div>
+          <div data-var="pd0" data-label="Tolerable p<sub>d0</sub>" data-min="0.1" data-max="0.5" data-step="0.01" data-value="0.3"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <ol class="task-list">
+        <li><h4>How often does chance fool us?</h4><p>Set d′ = 0 and n = 24 and press <em>Repeat 1000 panels</em>. What share of panels is significant at α = 0.05? Why is it lower than 5 %? Repeat for n = 30 and explain the difference with the table of critical numbers.</p></li>
+        <li><h4>The sawtooth</h4><p>For d′ = 1.5, find the smallest panel for which the power of the triangle test is at least 0.80 and stays above it for all larger panels. Compare with the tetrad and the 2-AFC test. What would you recommend for a class of 30 students, and what is the catch with the 2-AFC test?</p></li>
+        <li><h4>One difference, two numbers</h4><p>Switch the model to p<sub>d</sub> and set p<sub>d</sub> = 0.3. Which d′ does this correspond to in a triangle test (HUD)? Now suppose the same products were tested with a 2-AFC test: what proportion of discriminators would the guessing model report? Explain Frijters' paradox in your own words.</p></li>
+        <li><h4>How precise is d′?</h4><p>Analyse 13 of 24. Report the Wald and the exact interval for d′. Keeping the proportion correct at 0.54, how many assessors are needed for the exact interval to exclude 0.5? Use the table and the readouts.</p></li>
+        <li><h4>Similarity needs numbers</h4><p>With p<sub>d0</sub> = 0.3 and β = 0.05, simulate panels of 24 and 60 assessors with d′ = 0 (<em>Repeat 1000 panels</em>, then read the table: “similar if x ≤ …”). In what share of panels could similarity be concluded, even though the products are identical? What does this mean for a student project?</p></li>
+        <li><h4>Your own test</h4><p>Load your data from the project (or type them in). Write a results paragraph: n, x, p-value, p̂<sub>d</sub> and d′ with intervals, and — if relevant — the similarity conclusion with p<sub>d0</sub> and β stated.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-triangle-test">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A triangle test with 30 assessors is analysed at α = 0.05. What is the critical number of correct answers?","answer":15,"abstol":0.01,"unit":"correct answers","hint":"Find the smallest x with P(X ≥ x | n = 30, p = 1/3) ≤ 0.05 — the table lists it.","explain":"<p>\\(P(X \\ge 15) = 0.044\\) ≤ 0.05 but \\(P(X \\ge 14) \\gt 0.05\\), so \\(x_c = 15\\) (Eq. T1).</p>"},
+          {"type":"numeric","q":"Thirteen of 24 assessors pick the odd sample. What is the exact one-sided p-value?","answer":0.0284,"tol":0.03,"unit":"","explain":"<p>\\(P(X \\ge 13 \\mid 24, 1/3) = 0.028\\): significant at α = 0.05.</p>"},
+          {"type":"numeric","q":"Half of the assessors in a triangle test answer correctly (p̂c = 0.5). What is the Thurstonian d′?","answer":1.47,"tol":0.03,"unit":"SD","hint":"Read it off the psychometric chart or use the calculator of Eq. T4.","explain":"<p>\\(f_{\\text{tri}}^{-1}(0.5) = 1.47\\) — a moderate difference, although only half of the answers are right.</p>"},
+          {"type":"mcq","q":"A triangle test with 24 assessors is not significant (10 correct, p = 0.25). What may you conclude?","options":["The products taste the same","The difference, if any, is smaller than p_d = 0.3","The test could not show a difference; with 24 assessors it would often miss a moderate one","The assessors were not trained enough, so the result is invalid"],"answer":2,"feedback":["Absence of evidence is not evidence of absence — similarity needs its own test (Eq. T6).","That is a similarity claim. With 24 assessors the similarity test almost always fails.","","Training may matter, but the result is valid; it is simply inconclusive."],"explain":"<p>At d′ = 1.5 a 24-assessor triangle test has power 0.44 — it misses such a difference more often than it finds it.</p>"},
+          {"type":"tf","q":"For the same pair of products, a tetrad test and a triangle test give the same expected proportion of correct answers because both have a guessing probability of 1/3.","answer":false,"explain":"<p>Same \\(p_0\\), different psychometric functions: at d′ = 1.5 the triangle gives \\(p_c = 0.506\\), the tetrad 0.641. That is why the tetrad is more powerful.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>Each simulated assessor evaluates one triangle; arrangements are balanced in random blocks of six; answers of different assessors are independent.</li>
+        <li><strong>Thurstonian mode:</strong> perceptions are independent normal variables with equal variances (A: mean 0, B: mean d′); the assessor applies the “closest pair is identical” rule. <strong>Guessing mode:</strong> discriminators always answer correctly, non-discriminators choose at random.</li>
+        <li>p-values and critical numbers are exact one-sided binomial calculations with p₀ = 1/3; confidence intervals for p<sub>c</sub> are exact Clopper–Pearson intervals, transformed monotonically to p<sub>d</sub> and d′; the Wald standard error of d′ uses the delta method.</li>
+        <li>Psychometric functions of the tetrad, duo–trio, 2-AFC and 3-AFC are the standard Thurstonian models (Ennis, 1993; Ennis et al., 1998; Brockhoff &amp; Christensen, 2010) evaluated by numerical integration; the 2-AFC assumes that the assessors know which attribute differs.</li>
+        <li>Similarity is tested as in ISO 4120:2021 with the tolerable proportion of discriminators p<sub>d0</sub> and risk β; replicated evaluations are not supported.</li>
+        <li>Project data are read from the browser (key <code>ffp-sensory-v1</code>): n = number of triangle responses, x = number marked correct.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>ISO 4120:2021. <em>Sensory analysis — Methodology — Triangle test</em>. International Organization for Standardization. <a href="https://www.iso.org/standard/76666.html" target="_blank" rel="noopener">iso.org/standard/76666.html</a></li>
+        <li>Ennis, D. M. (1993). The power of sensory discrimination methods. <em>Journal of Sensory Studies</em>, 8(4), 353–370. <a href="https://doi.org/10.1111/j.1745-459X.1993.tb00225.x" target="_blank" rel="noopener">doi:10.1111/j.1745-459X.1993.tb00225.x</a></li>
+        <li>Brockhoff, P. B., &amp; Christensen, R. H. B. (2010). Thurstonian models for sensory discrimination tests as generalized linear models. <em>Food Quality and Preference</em>, 21(3), 330–338. <a href="https://doi.org/10.1016/j.foodqual.2009.04.003" target="_blank" rel="noopener">doi:10.1016/j.foodqual.2009.04.003</a></li>
+        <li>Christensen, R. H. B. (2023). <em>Statistical methodology for sensory discrimination tests and its implementation in sensR</em> [Vignette of the R package sensR]. <a href="https://cran.r-project.org/package=sensR" target="_blank" rel="noopener">cran.r-project.org/package=sensR</a></li>
+        <li>Ennis, J. M., &amp; Jesionka, V. (2011). The power of sensory discrimination methods revisited. <em>Journal of Sensory Studies</em>, 26(5), 371–382. <a href="https://doi.org/10.1111/j.1745-459X.2011.00353.x" target="_blank" rel="noopener">doi:10.1111/j.1745-459X.2011.00353.x</a></li>
+        <li>Ennis, J. M., Ennis, D. M., Yip, D., &amp; O'Mahony, M. (1998). Thurstonian models for variants of the method of tetrads. <em>British Journal of Mathematical and Statistical Psychology</em>, 51(2), 205–215. <a href="https://doi.org/10.1111/j.2044-8317.1998.tb00677.x" target="_blank" rel="noopener">doi:10.1111/j.2044-8317.1998.tb00677.x</a></li>
+        <li>Clopper, C. J., &amp; Pearson, E. S. (1934). The use of confidence or fiducial limits illustrated in the case of the binomial. <em>Biometrika</em>, 26(4), 404–413. <a href="https://doi.org/10.1093/biomet/26.4.404" target="_blank" rel="noopener">doi:10.1093/biomet/26.4.404</a></li>
+        <li>Thurstone, L. L. (1927). A law of comparative judgment. <em>Psychological Review</em>, 34(4), 273–286. <a href="https://doi.org/10.1037/h0070288" target="_blank" rel="noopener">doi:10.1037/h0070288</a></li>
+        <li>Frijters, J. E. R. (1979). The paradox of discriminatory nondiscriminators resolved. <em>Chemical Senses</em>, 4(4), 355–358. <a href="https://doi.org/10.1093/chemse/4.4.355" target="_blank" rel="noopener">doi:10.1093/chemse/4.4.355</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

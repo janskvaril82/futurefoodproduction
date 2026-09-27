@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sensory booth · Future Food Production</title>
+<meta name="description" content="Step into an ISO 8589 sensory booth in 3D: coded samples, pass-through hatches, switchable white, red and green light with a spectral colour-masking model, and balanced Williams and triangle serving orders with printable ballots for your own tasting study.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* Live calculators for the Derive tab (classic script; runs before the deferred site scripts build the mini-calcs). */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  /* Eq. B3 — probability that at least two of m codes coincide when M codes are drawn with replacement */
+  FFP_CALC.codeRepeat = function (v) { var m = Math.round(v.m), M = Math.round(v.M), p = 1; for (var i = 0; i < m; i++) p *= Math.max(0, 1 - i / M); return 100 * (1 - p); };
+  /* Eq. B5 — lightness difference of two surfaces under a narrow-band light (only the reflectance at that band matters) */
+  function f(t) { return t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116; }
+  FFP_CALC.dLnarrow = function (v) { return Math.abs((116 * f(v.ra) - 16) - (116 * f(v.rb) - 16)); };
+  /* Eq. B7 — Tukey HSD that a hedonic plan can detect (studentised range by numerical integration) */
+  function Phi(x) { var z = Math.abs(x) / Math.SQRT2, t = 1 / (1 + 0.5 * z); var r = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277))))))))); return x >= 0 ? 1 - r / 2 : r / 2; }
+  function phi(x) { return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI); }
+  function simp(g, a, b, n) { var h = (b - a) / n, s = g(a) + g(b); for (var i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * g(a + i * h); return s * h / 3; }
+  function lnG(z) { var c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5], x = z, y = z, t = x + 5.5; t -= (x + 0.5) * Math.log(t); var s = 1.000000000190015; for (var j = 0; j < 6; j++) s += c[j] / ++y; return -t + Math.log(2.5066282746310005 * s / x); }
+  function pInf(w, k) { if (w <= 0) return 0; return Math.min(1, k * simp(function (z) { return phi(z) * Math.pow(Math.max(0, Phi(z) - Phi(z - w)), k - 1); }, -8, 8, 120)); }
+  function ptk(q, k, df) { var lnC = (df / 2) * Math.log(df) - lnG(df / 2) - (df / 2 - 1) * Math.LN2, sd = 1 / Math.sqrt(2 * df), lo = Math.max(1e-6, 1 - 8 * sd), hi = 1 + 10 * sd; return simp(function (x) { return Math.exp(lnC + (df - 1) * Math.log(x) - df * x * x / 2) * pInf(q * x, k); }, lo, hi, 70); }
+  var cache = {};
+  function qtk(k, df) { var key = k + '|' + df; if (cache[key]) return cache[key]; var lo = 0, hi = 20; for (var i = 0; i < 34; i++) { var m = (lo + hi) / 2; if (ptk(m, k, df) < 0.95) lo = m; else hi = m; } return (cache[key] = (lo + hi) / 2); }
+  FFP_CALC.hsdPlan = function (v) { var t = Math.round(v.t), n = Math.round(v.n); return qtk(t, (t - 1) * (n - 1)) * Math.sqrt(v.s * v.s / n); };
+})();
+</script>
+<style>
+.pnav { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; }
+.pnav .btn { flex: 0 0 auto; padding: .45em .8em; }
+.pnav-id { flex: 1; text-align: center; line-height: 1.15; }
+.pnav-id b { font: 700 1.2rem var(--font-mono); color: var(--ink); display: block; }
+.pnav-id small { color: var(--muted); font-size: .76rem; }
+.pnames { display: grid; grid-template-columns: 1fr; gap: 5px; margin-top: 6px; }
+.pnames .pn { display: flex; align-items: center; gap: 8px; font-size: .82rem; }
+.pnames .pn b { font: 700 .78rem var(--font-mono); width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; background: var(--bg-sunk); color: var(--ink-2); flex: 0 0 auto; }
+.pnames input { flex: 1; min-width: 0; font: .82rem var(--font-sans); padding: 5px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.view-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; align-items: center; }
+.view-row span { font: 600 .72rem var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
+.label3d .ok { color: #9be7b6; } .label3d .bad { color: #ff9b86; }
+.ballot-card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin: 0 0 16px; }
+.bl-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; align-items: flex-start; margin-bottom: 8px; }
+.bl-kick { font: 650 .92rem var(--font-sans); }
+.bl-sub, .bl-note { font-size: .78rem; color: var(--muted); }
+.bl-key { font-size: .76rem; color: var(--muted); max-width: 100%; }
+.bl-q { margin: 6px 0 10px; font-size: .92rem; }
+.bl-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.bl-opt { font: 700 1.3rem var(--font-mono); padding: 14px 26px; border-radius: 12px; border: 2px solid var(--line-strong); background: var(--bg); color: var(--ink); cursor: pointer; min-width: 110px; }
+.bl-opt:hover, .bl-s:hover { border-color: var(--accent); }
+.bl-opt.on, .bl-s.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.bl-hed { display: grid; gap: 6px; }
+.bl-hrow { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+.bl-hrow .code3 { min-width: 54px; text-align: center; margin-right: 6px; }
+.bl-s { font: 600 .82rem var(--font-mono); width: 34px; height: 30px; border-radius: 8px; border: 1.5px solid var(--line-strong); background: var(--bg); color: var(--ink-2); cursor: pointer; }
+.bl-anchors { display: flex; justify-content: space-between; max-width: 420px; font-size: .72rem; color: var(--muted); margin: 6px 0 0 66px; }
+.code3 { display: inline-block; font: 600 .78rem var(--font-mono); padding: 1px 7px; border-radius: 6px; background: var(--bg-sunk); border: 1px solid var(--line); color: var(--ink); }
+.code3.odd { border-color: var(--magenta); color: var(--magenta); }
+.sheet-wrap { max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.sheet-table { width: 100%; border-collapse: collapse; font-size: .8rem; margin: 0 !important; }
+.sheet-table th { position: sticky; top: 0; background: var(--bg-elev); font: 600 .72rem var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); z-index: 1; }
+.sheet-table td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.sheet-table tr { cursor: pointer; }
+.sheet-table tr:hover td { background: var(--bg-sunk); }
+.sheet-table tr.cur td { background: var(--accent-soft); }
+.seqchip { display: inline-flex; gap: 2px; }
+.seqchip b, .lg b { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; font: 700 .72rem var(--font-mono); color: #fff; }
+.p0 { background: #1c78a3; } .p1 { background: #b23f8c; } .p2 { background: #b86e0b; } .p3 { background: #6a4fc2; } .p4 { background: #c2573a; } .p5 { background: #2e7d6b; }
+.sheet-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .8rem; margin: 0 0 8px; color: var(--ink-2); }
+.sheet-legend .lg { display: inline-flex; gap: 6px; align-items: center; }
+.sheet-legend .muted { color: var(--muted); }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: .76rem; color: var(--ink-2); margin: 2px 0 6px; }
+.swatches .sw { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.swatches .sw i { width: 30px; height: 18px; border-radius: 5px; border: 1px solid var(--line-strong); display: inline-block; }
+.swatches .sw-note { color: var(--muted); }
+.saved-note { font-size: .8rem; color: var(--muted); margin: 8px 0 0; }
+.ok-t { color: var(--ok); font-weight: 600; } .warn-t { color: var(--warn); font-weight: 600; }
+#print-root { display: none; }
+@media print {
+  body.printing > *:not(#print-root) { display: none !important; }
+  body.printing #print-root { display: block !important; }
+  body.printing { background: #fff !important; color: #000 !important; }
+  .pb { page-break-after: always; break-after: page; font: 11pt/1.4 Inter, Arial, sans-serif; color: #000; padding: 6mm 4mm; }
+  .pb header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #000; padding-bottom: 4mm; margin-bottom: 5mm; }
+  .pb h2 { font-size: 17pt; margin: 1mm 0 0; }
+  .pb-kick { font-size: 8.5pt; letter-spacing: .08em; text-transform: uppercase; color: #444; }
+  .pb-id { text-align: right; font-size: 9pt; } .pb-id b { font: 700 20pt 'JetBrains Mono', monospace; }
+  .pb-codes { width: 100%; margin: 8mm 0; border-collapse: collapse; } .pb-codes td { text-align: center; width: 33%; }
+  .pb-code { font: 700 26pt 'JetBrains Mono', monospace; border: 2px solid #000; border-radius: 3mm; display: inline-block; padding: 2mm 6mm; }
+  .pb-code.sm { font-size: 14pt; padding: 1mm 3mm; }
+  .pb-box { width: 9mm; height: 9mm; border: 2px solid #000; margin: 4mm auto 0; }
+  .pb-box.sm { width: 6mm; height: 6mm; margin: 0 auto 1mm; }
+  .pb-hed { display: flex; gap: 4mm; align-items: center; margin: 3mm 0 5mm; }
+  .pb-hed table { border-collapse: collapse; } .pb-hed td { width: 17mm; text-align: center; vertical-align: top; }
+  .pb-lab { font-size: 7pt; line-height: 1.15; }
+  .pb-small { font-size: 9pt; } .pb-lines { border-bottom: 1px solid #000; height: 10mm; margin-bottom: 4mm; }
+  .pb footer { margin-top: 10mm; font-size: 8.5pt; color: #444; border-top: 1px solid #999; padding-top: 2mm; }
+  .pb-sheet { width: 100%; border-collapse: collapse; font-size: 8.5pt; } .pb-sheet th, .pb-sheet td { border: 1px solid #888; padding: 1mm 2mm; text-align: left; }
+  .pb-sheet small { color: #555; }
+}
+</style>
+</head>
+<body data-page="lab" data-slug="sensory-booth">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Sensory booth</h1>
+    <p class="lead">Walk into a row of ISO 8589-style tasting booths and prepare a real study. Choose a triangle, 9-point hedonic or paired-preference test; the laboratory builds a balanced serving plan (six triangle arrangements or a Williams Latin square), gives every cup a random three-digit code and serves each panellist's tray through the hatch in the right order. Switch the booth light between white, red and green and a spectral colour model tells you whether the colour of the cricket bread can still give the answer away. Then print the ballots and the serving sheet — or save the design to your project.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="view-row"><span>Camera</span><button type="button" class="btn btn-sm" data-view="overview">Row overview</button><button type="button" class="btn btn-sm" data-view="assessor">Assessor's view</button><button type="button" class="btn btn-sm" data-view="plan">Look down at the tray</button><button type="button" class="btn btn-sm" data-view="prep">Preparation side</button></div>
+      <div class="readouts" id="readouts"></div>
+      <div class="ballot-card" id="ballot" aria-live="polite"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Position balance</h3>
+      <div class="chart-sub">How often each product is served in each position across the whole panel. In a balanced design all bars of one position are equal, so no product is favoured by being tasted first or last.</div>
+      <div class="chart" id="chart-pos"></div>
+    </div>
+    <div class="chart-card">
+      <h3>First-order carry-over</h3>
+      <div class="chart-sub">How often the row product is served immediately before the column product. White cells are at the panel average; red cells occur more often, blue cells less often. A Williams design makes all off-diagonal cells equal (all white), so every product follows every other product equally often.</div>
+      <div class="chart" id="chart-carry"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Why coloured light masks colour</h3>
+      <div class="chart-sub">Reflectance spectra of the products (illustrative bread crumbs, left axis) and the spectrum of the booth light (right axis). Under narrow-band light only the reflectance inside the band can be seen.</div>
+      <div class="swatches" id="swatches"></div>
+      <div class="chart" id="chart-spec"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Colour cue under each light</h3>
+      <div class="chart-sub">CIELAB colour difference ΔE*ab between the control (A) and each test product, computed from the spectra for an observer adapted to each light. Bars below the dashed line are hard to see (about one just-noticeable difference).</div>
+      <div class="chart" id="chart-de"></div>
+    </div>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:16px">
+    <h3>Serving sheet (panel leader only)</h3>
+    <div class="chart-sub">The complete plan: sequence, booth, serving round and the code in every position. Click a row to serve that panellist. Magenta codes mark the odd sample of a triangle test — the answer key. Print it from <em>Outputs</em> in the control panel.</div>
+    <div class="sheet-legend" id="sheet-legend"></div>
+    <div class="sheet-wrap" id="sheet"></div>
+    <p class="saved-note" id="saved-note"></p>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the booth</h2>
+      <ol>
+        <li><strong>Look at the architecture.</strong> Press <em>Row overview</em>, then <em>Preparation side</em>. The assessors sit in a quiet, odour-free testing area; the samples are prepared and coded in a separate room and pass through a hatch with a sliding door. Nobody walks through the preparation area to reach the booths, and nobody in a booth can see what is being prepared. Click a hatch to open or close it.</li>
+        <li><strong>Sit down.</strong> Press <em>Assessor's view</em>. The side partitions reach beyond the counter so that you cannot see your neighbour's face or tray; the booth interior is a matt, neutral grey; the light panel above is uniform and shadow-free; a grille removes odours; a small sink lets you rinse and expectorate; the <em>READY</em> button calls the next sample. On the tray: coded cups, water and unsalted crackers, an expectoration cup. The tablet shows your ballot.</li>
+        <li><strong>Change the light.</strong> With the preset <em>Triangle · 24 · red light</em>, switch between white, red and green. The cups change colour, the spectra chart shows which wavelengths are available, and the colour-cue readout tells you whether the darker cricket crumb is still visible (ΔE*ab above about 2.3). Now raise the <em>colour difference</em> slider: red light hides a small browning difference but not a large one.</li>
+        <li><strong>Serve the panel.</strong> Press ▶ (or the space bar with the stage focused) to step through the panellists. Each booth shows the tray of the panellist sitting there in the current round; at the end of a round the hatches open and the next trays slide in. Every panellist gets a different arrangement and fresh codes — compare the sheet and the cups. Click a cup to see the panel leader's key.</li>
+        <li><strong>Check the balance.</strong> For a triangle test the position chart shows A and B equally often in every position when the panel size is a multiple of six. Choose <em>9-pt hedonic</em> with 3 products and 24 panellists: the Williams design uses 6 sequences, each four times, and the carry-over matrix is uniform. Change to 25 panellists and watch the balance break.</li>
+        <li><strong>Make it real.</strong> Enter your own product names, print the ballots and the serving sheet, and press <em>Save to project</em>. The triangle-test and hedonic laboratories — and the project's sensory study designer — read the same data from this browser. If you run the session on a laptop in the booth, record each panellist's answer in the ballot card below the 3D view.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A sensory booth is a measuring instrument in which the <em>human</em> is the sensor. Everything else in the room exists to remove information that is not the product's taste, smell or texture: other people's reactions, the look of the preparation, the meaning of a code, the colour of the crumb, and the order in which the samples arrive.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>What the booth controls — and why</h2>
+      <p>Sensory analysis uses people as instruments. People are extraordinarily sensitive, but they also use every scrap of information they can find: a colleague's grimace, the smell of the kitchen, a code that reads like a grade, a crumb that looks darker. ISO 8589:2007 describes test rooms designed to conduct evaluations “under known and controlled conditions with a minimum of distractions”, and ISO 4120:2021 lists the conditions under which triangle tests are carried out (see <a href="/lessons/sensory-methods/#setup">Lesson 13.3</a>). This laboratory turns those recommendations into a model you can inspect and adjust.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 740 330" role="img" aria-label="Side section through a sensory booth: preparation area on the left behind a wall with a sliding hatch, testing booth on the right with counter, sink, light panel, ventilation grille, partitions and seated assessor">
+            <defs><marker id="sb-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <rect x="20" y="40" width="250" height="250" class="fill-sunk"/>
+            <text x="145" y="62" text-anchor="middle" class="t-small">PREPARATION AREA</text>
+            <text x="145" y="78" text-anchor="middle" class="t-small t-muted">samples prepared, portioned, coded</text>
+            <rect x="270" y="40" width="22" height="250" class="fill-bg" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="270" y="188" width="22" height="40" class="fill-amber-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="200" y="208" text-anchor="end" class="t-small">hatch with sliding door</text>
+            <line x1="203" y1="204" x2="266" y2="208" class="stroke-muted" marker-end="url(#sb-ar)"/>
+            <rect x="120" y="226" width="150" height="8" class="fill-bg" stroke="currentColor"/>
+            <text x="150" y="252" class="t-small t-muted">pass-through shelf</text>
+            <rect x="292" y="40" width="300" height="30" class="fill-bg" stroke="currentColor"/>
+            <rect x="310" y="70" width="170" height="5" class="fill-amber"/>
+            <polygon points="312,75 478,75 540,226 300,226" class="fill-amber-soft" opacity=".35"/>
+            <text x="395" y="60" text-anchor="middle" class="t-small">soffit with light panel (white / red / green)</text>
+            <rect x="300" y="110" width="44" height="18" class="fill-bg" stroke="currentColor"/>
+            <g class="stroke-muted" stroke-width="1"><line x1="304" y1="114" x2="340" y2="114"/><line x1="304" y1="119" x2="340" y2="119"/><line x1="304" y1="124" x2="340" y2="124"/></g>
+            <text x="352" y="122" class="t-small">ventilation grille (odour-free air)</text>
+            <rect x="296" y="160" width="12" height="18" rx="2" class="fill-accent" stroke="currentColor"/>
+            <text x="314" y="173" class="t-small">READY signal</text>
+            <rect x="292" y="226" width="200" height="10" class="fill-bg" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M440 226 q14 22 28 0" class="fill-water-soft" stroke="currentColor"/>
+            <text x="455" y="260" text-anchor="middle" class="t-small">rinsing sink</text>
+            <g stroke="currentColor"><rect x="360" y="212" width="10" height="14" class="fill-bg"/><rect x="376" y="212" width="10" height="14" class="fill-bg"/><rect x="392" y="212" width="10" height="14" class="fill-bg"/></g>
+            <text x="381" y="206" text-anchor="middle" class="t-small t-mono">583 214 796</text>
+            <line x1="292" y1="236" x2="292" y2="290" stroke="currentColor" stroke-width="2"/>
+            <line x1="292" y1="300" x2="492" y2="300" stroke="currentColor" marker-start="url(#sb-ar)" marker-end="url(#sb-ar)"/>
+            <text x="392" y="316" text-anchor="middle" class="t-small">counter depth ≥ 0.6 m (ISO 8589)</text>
+            <line x1="492" y1="100" x2="592" y2="100" class="stroke-magenta" stroke-width="3"/><line x1="492" y1="93" x2="492" y2="107" class="stroke-magenta" stroke-width="2"/><line x1="592" y1="93" x2="592" y2="107" class="stroke-magenta" stroke-width="2"/>
+            <text x="542" y="88" text-anchor="middle" class="t-small" style="fill:var(--magenta)">partition ≥ 0.3 m beyond</text>
+            <circle cx="600" cy="150" r="16" class="fill-bg" stroke="currentColor"/>
+            <path d="M600 166 L596 226 L560 226" fill="none" stroke="currentColor" stroke-width="2"/>
+            <rect x="585" y="226" width="60" height="10" class="fill-sunk" stroke="currentColor"/>
+            <line x1="615" y1="236" x2="615" y2="290" stroke="currentColor" stroke-width="2"/>
+            <text x="628" y="130" class="t-small">assessor</text>
+            <text x="628" y="146" class="t-small t-muted">enters from the</text>
+            <text x="628" y="162" class="t-small t-muted">testing side</text>
+            <line x1="20" y1="290" x2="700" y2="290" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Section through one booth, following the recommendations of ISO 8589:2007 as summarised in <a href="/lessons/sensory-methods/#setup">Lesson 13.3</a>: separate preparation and testing areas, a pass-through hatch, controllable uniform lighting, odour removal, a signal system, a working area of at least 0.9 m × 0.6 m and partitions reaching at least 0.3 m beyond the counter. The 3D model implements the same layout, and its width and depth can be changed with the sliders.</figcaption>
+      </figure>
+      <h3>Colour: the cue that gives the answer away</h3>
+      <p>Bread with cricket flour is darker and redder than wheat bread. In a triangle test that asks whether people can <em>taste</em> the difference, a darker crumb would let everybody pick the odd sample by eye, and the result would say nothing about flavour. ISO 8589 therefore mentions dimmers, coloured light sources, coloured filters and monochromatic light as ways to mask unwanted colour differences.</p>
+      <p>Why does coloured light work? The colour signal that reaches the eye is the product of three spectra: the light source \(S(\lambda)\), the reflectance of the surface \(R(\lambda)\) and the sensitivities of our three cone types, summarised by the CIE colour-matching functions (Eq. B4). A browned crumb absorbs strongly in the blue and green and less in the red. Under white light both differences — in lightness and in hue — are visible. Under a narrow red LED only the reflectance around 630 nm is available: all surfaces become shades of the same red and the hue difference collapses. What remains is the <em>lightness</em> difference at that wavelength. The spectral chart shows this directly: where the two reflectance curves are close inside the light band, the products look alike.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 250" role="img" aria-label="Two reflectance curves rising from blue to red, one lower than the other; a narrow red band at 630 nanometres where the curves are close and a green band at 525 nanometres where they are far apart">
+            <defs><linearGradient id="sb-rb" x1="0" x2="1"><stop offset="0" stop-color="#7a3cff"/><stop offset=".18" stop-color="#2255ff"/><stop offset=".36" stop-color="#15c8c8"/><stop offset=".5" stop-color="#3ae03a"/><stop offset=".64" stop-color="#e8e020"/><stop offset=".8" stop-color="#ff7a10"/><stop offset="1" stop-color="#c00010"/></linearGradient></defs>
+            <line x1="70" y1="200" x2="660" y2="200" stroke="currentColor"/>
+            <line x1="70" y1="30" x2="70" y2="200" stroke="currentColor"/>
+            <rect x="70" y="204" width="590" height="8" fill="url(#sb-rb)"/>
+            <text x="70" y="230" class="t-small">400 nm</text><text x="620" y="230" class="t-small">700 nm</text>
+            <text x="30" y="36" class="t-small">R(λ)</text>
+            <rect x="460" y="30" width="26" height="170" class="fill-magenta-soft" opacity=".6"/>
+            <rect x="300" y="30" width="44" height="170" class="fill-accent-soft" opacity=".6"/>
+            <path d="M70 150 C 220 140, 300 70, 400 58 S 600 48, 660 46" fill="none" class="stroke-water" stroke-width="3"/>
+            <path d="M70 188 C 250 184, 340 150, 430 110 S 600 70, 660 66" fill="none" class="stroke-amber" stroke-width="3"/>
+            <text x="560" y="40" class="t-small" style="fill:var(--water)">A: wheat crumb</text>
+            <text x="560" y="96" class="t-small" style="fill:var(--amber)">B: cricket crumb</text>
+            <text x="322" y="24" text-anchor="middle" class="t-small">green LED</text>
+            <text x="473" y="24" text-anchor="middle" class="t-small">red LED</text>
+            <line x1="322" y1="66" x2="322" y2="148" class="stroke-danger" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <line x1="473" y1="54" x2="473" y2="96" class="stroke-danger" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <text x="322" y="194" text-anchor="middle" class="t-small">large gap</text>
+            <text x="473" y="194" text-anchor="middle" class="t-small">small gap</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> Masking depends on the spectra, not on the colour name of the light. For browning, the reflectance curves of the two crumbs are closest at long wavelengths, so red light masks best and green light hardly at all. A small browning difference can disappear completely; a large one remains visible as a lightness difference. The laboratory's colour model calculates this for you (Eqs. B4–B5; spectra illustrative).</figcaption>
+      </figure>
+      <div class="callout warn"><div class="callout-title">A self-luminous ballot undoes the mask</div><p>A bright tablet or phone screen in a red-lit booth is a white light source that shines on the samples from a few centimetres away. Dim the screen, tilt it away from the tray, or use paper ballots in discrimination tests with masking light.</p></div>
+      <div class="callout note"><div class="callout-title">Not every test should hide the colour</div><p>In a hedonic test with consumers, the appearance of the product is part of what they like or dislike, and ISO 8589 notes that lighting typical of where the product is eaten may be chosen for consumer tests. Mask colour when the question is about taste or texture; show it when the question is about the product as people will meet it.</p></div>
+      <h3>Codes: blind, meaningless and fresh</h3>
+      <p>Each cup carries a random three-digit code (ISO 4120:2021, clause 5.5). Letters and single digits carry meaning — “A” sounds like a grade, “1” like “first” or “best” — and so do “memorable” numbers such as 123, 555 or 911. The code generator therefore draws from the 865 codes between 100 and 999 without repeated digits (111), without runs (123, 321) and without round hundreds or 666, 911 and 112. It draws <em>without replacement</em>, so that no code is used twice in the study, and fresh codes for every panellist are the default: panellists who talk after the session cannot tell each other “583 was the cricket bread”.</p>
+      <h3>Serving orders: position and carry-over</h3>
+      <p>The first sample of a session is often rated differently from later ones, and a strongly flavoured sample changes the perception of the next one. If everybody tasted the products in the same order, these effects would be confounded with the product differences. For the triangle test, ISO 4120:2021 (clause 7.1) prescribes the six arrangements ABB, AAB, ABA, BAA, BBA and BAB, used equally often and distributed at random in blocks of six. For rating tests the laboratory uses Williams (1949) Latin squares (Eq. B1), which balance both the serving position and the sample served immediately before — the design that MacFie et al. (1989) introduced to consumer testing. A paired preference test alternates AB and BA. Sequences are assigned to panellists in shuffled blocks, so that balance is complete after every full block even if the session stops early.</p>
+      <h3>Running a session</h3>
+      <p>Booths are used in rounds. With four booths and 24 panellists there are six rounds; the time per round is the instruction time plus the tasting time of every sample plus the rinsing pauses between them (Eq. B6). Serve each tray only when the assessor presses <em>READY</em>, keep samples at the temperature at which the product is normally eaten, give identical portions, and give no information about the samples until all panellists are finished. Water and unsalted crackers are the usual palate cleansers. The ethics of tasting studies — informed consent, allergens such as the cross-reactivity of insect proteins with crustaceans and dust mites, anonymity and the GDPR — are covered in <a href="/lessons/sensory-methods/#ethics">Lesson 13.3</a>.</p>
+      <a class="lab-link" data-lab="triangle-test" data-why="Analyse the results of the triangle test you planned here: exact binomial test, power, d′ with a confidence interval and similarity testing."></a>
+      <a class="lab-link" data-lab="hedonic-analysis" data-why="Analyse the ratings of your hedonic test with a block ANOVA, Tukey comparisons and consumer segmentation."></a>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The models behind the booth</h2>
+      <div class="eq-box" id="eq-sb-williams">
+        <div class="eq-head"><span class="eq-label">Williams design for rating tests</span><span class="eq-num">(B1)</span></div>
+        <div class="eq-main">\[ a = (0,\;1,\;t-1,\;2,\;t-2,\;\dots), \qquad s_{i,j} = (a_j + i) \bmod t \] \[ N_{\text{seq}} = \begin{cases} t & \text{if } t \text{ is even} \\ 2t & \text{if } t \text{ is odd} \end{cases} \]</div>
+        <p class="eq-read">write the first serving sequence by alternating between the low and the high end of the product numbers; each further sequence adds one to every entry, wrapping around after t minus one. For an even number of products these t sequences balance carry-over; for an odd number, their mirror images are added, giving 2t sequences.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(t\)</td><td>number of products each panellist rates</td><td>–</td></tr>
+          <tr><td>\(a_j\)</td><td>product number (0 … \(t-1\)) in position \(j\) of the first sequence</td><td>–</td></tr>
+          <tr><td>\(s_{i,j}\)</td><td>product in position \(j\) of sequence \(i\)</td><td>–</td></tr>
+          <tr><td>\(N_{\text{seq}}\)</td><td>number of sequences in a complete design</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Positions.</strong> Adding \(i\) modulo \(t\) to a permutation gives another permutation, and column \(j\) contains \(a_j, a_j+1, \dots, a_j+t-1\) (mod \(t\)): every product once per position — a Latin square.</li>
+            <li><strong>Carry-over.</strong> “Product \(u\) followed by \(v\)” occurs in row \(i\) at positions \(j, j+1\) when \(v-u \equiv a_{j+1}-a_j\). The zig-zag gives the differences \(1, -2, 3, -4, \dots\), which for even \(t\) are \(t-1\) distinct non-zero residues, so every ordered pair occurs exactly once.</li>
+            <li><strong>Odd \(t\).</strong> The differences repeat (for \(t=3\): \(1\) and \(-2\equiv1\)); adding the reversed sequences supplies the missing differences and every ordered pair occurs twice in \(2t\) sequences (Williams, 1949).</li>
+            <li><strong>Randomisation.</strong> The laboratory relabels the products at random (a relabelling keeps both balances) and assigns the sequences to panellists in shuffled blocks of \(N_{\text{seq}}\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Balance holds for first-order carry-over only and is exact only when the number of panellists is a multiple of \(N_{\text{seq}}\). Balance does not remove order effects — it spreads them evenly over the products, so that they end up in the error variance instead of biasing the means (MacFie et al., 1989).</p></details>
+        <div class="eq-units">All quantities are integer labels or counts ✓</div>
+        <div class="mini-calc" data-formula="n/(t%2==0?t:2*t)" data-output="Uses of each sequence" data-unit="" data-digits="2" data-plot="n" data-title="Try it — a whole number means a fully balanced panel">
+          <div data-var="t" data-label="Products t" data-min="2" data-max="8" data-step="1" data-value="3"></div>
+          <div data-var="n" data-label="Panellists n" data-min="6" data-max="72" data-step="1" data-value="24"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-triangle-orders">
+        <div class="eq-head"><span class="eq-label">Balanced triangle arrangements</span><span class="eq-num">(B2)</span></div>
+        <div class="eq-main">\[ \mathcal{S} = \{\text{ABB},\ \text{AAB},\ \text{ABA},\ \text{BAA},\ \text{BBA},\ \text{BAB}\}, \qquad n_{A,j} = n_{B,j} = \frac{n}{2}\ \ \text{for } n = 6m \]</div>
+        <p class="eq-read">the six arrangements of two products in three positions are used equally often; when the panel size is a multiple of six, each product then appears in each position half of the time, and each product is the odd sample for exactly half of the panel.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\mathcal{S}\)</td><td>set of arrangements (A = control, B = test product)</td><td>–</td></tr>
+          <tr><td>\(n\), \(m\)</td><td>number of panellists; number of complete blocks of six</td><td>–</td></tr>
+          <tr><td>\(n_{A,j}\)</td><td>number of times product A is served in position \(j\)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Choosing which of the three positions holds the odd sample (3 ways) and which product is odd (2 ways) gives \(3\times2=6\) arrangements.</li>
+            <li>Position 1 holds A in ABB, AAB and ABA and B in the other three; positions 2 and 3 likewise. Each block of six therefore serves A and B three times in every position.</li>
+            <li>The product that occurs once is the odd one: A is odd in ABB, BBA and BAB, B in AAB, ABA and BAA. Each product is therefore the odd sample in half of the arrangements, which balances any tendency to pick, say, the darker or the saltier sample.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>ISO 4120:2021 (clause 7.1) requires the arrangements to be distributed at random in groups of six. If \(n\) is not a multiple of six, the last block is incomplete; the imbalance is small but should be reported. The test itself is analysed with the exact binomial distribution with \(p_0 = 1/3\) (see the triangle-test laboratory).</p></details>
+        <div class="eq-units">Counts of servings — dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-codes">
+        <div class="eq-head"><span class="eq-label">Why codes are drawn without replacement</span><span class="eq-num">(B3)</span></div>
+        <div class="eq-main">\[ P(\text{some code repeats}) = 1 - \prod_{i=0}^{m-1}\left(1-\frac{i}{M}\right) \approx 1 - \exp\!\left(-\frac{m(m-1)}{2M}\right) \]</div>
+        <p class="eq-read">if m codes are drawn independently and with replacement from M possible codes, the probability that at least two of them coincide is one minus the probability that all are different — the product of the chances that each new code misses all earlier ones.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value here</th></tr>
+          <tr><td>\(m\)</td><td>number of codes needed (panellists × samples)</td><td>–</td><td>24 × 3 = 72</td></tr>
+          <tr><td>\(M\)</td><td>number of admissible three-digit codes</td><td>–</td><td>865</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The first code can be anything; the second must avoid 1 code (probability \(1-1/M\)); the \((i+1)\)-th must avoid \(i\) codes (\(1-i/M\)).</li>
+            <li>Multiplying gives the probability that all \(m\) differ; its complement is the repeat probability (the “birthday problem”).</li>
+            <li>Because \(\ln(1-x)\approx -x\) for small \(x\), \(\sum_i \ln(1-i/M) \approx -\sum_i i/M = -m(m-1)/(2M)\).</li>
+            <li>With \(m = 72\) and \(M = 865\): \(1-\exp(-72\cdot71/1730) = 0.948\) (exact 0.952). A repeated code is almost certain — which is why the generator draws without replacement.</li>
+          </ol>
+        </details>
+        <div class="eq-units">Probabilities are dimensionless ✓</div>
+        <div class="mini-calc" data-fn="codeRepeat" data-output="P(at least one repeated code)" data-unit="%" data-digits="1" data-plot="m" data-ymin="0" data-ymax="100">
+          <div data-var="m" data-label="Codes needed m" data-min="2" data-max="200" data-step="1" data-value="72"></div>
+          <div data-var="M" data-label="Admissible codes M" data-min="100" data-max="900" data-step="1" data-value="865"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-xyz">
+        <div class="eq-head"><span class="eq-label">Colour stimulus of a surface under a light</span><span class="eq-num">(B4)</span></div>
+        <div class="eq-main">\[ X = k\sum_{\lambda} S(\lambda)\,R(\lambda)\,\bar x(\lambda)\,\Delta\lambda,\quad Y = k\sum_{\lambda} S\,R\,\bar y\,\Delta\lambda,\quad Z = k\sum_{\lambda} S\,R\,\bar z\,\Delta\lambda, \qquad k = \frac{100}{\sum_\lambda S(\lambda)\,\bar y(\lambda)\,\Delta\lambda} \]</div>
+        <p class="eq-read">the three tristimulus values of a surface are the light's spectrum times the surface reflectance times each colour-matching function, summed over wavelength; the constant k scales them so that a perfect white surface under the same light has Y equal to 100.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(S(\lambda)\)</td><td>relative spectral power of the booth light (6500 K Planckian, or LED bands at 630 or 525 nm)</td><td>relative</td></tr>
+          <tr><td>\(R(\lambda)\)</td><td>diffuse reflectance of the sample surface</td><td>– (0–1)</td></tr>
+          <tr><td>\(\bar x, \bar y, \bar z\)</td><td>CIE 1931 colour-matching functions (analytic fit of Wyman et al., 2013)</td><td>–</td></tr>
+          <tr><td>\(X, Y, Z\)</td><td>tristimulus values; \(Y\) is the luminance factor in %</td><td>–</td></tr>
+          <tr><td>\(\Delta\lambda\)</td><td>wavelength step (5 nm, 380–780 nm)</td><td>nm</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The light reaching the eye from a matt surface is \(S(\lambda)R(\lambda)\) (per unit wavelength).</li>
+            <li>Human colour vision reduces this spectrum to three numbers. The CIE (2004) standard observer defines them as the overlap of the stimulus with \(\bar x, \bar y, \bar z\); \(\bar y\) equals the photopic luminous efficiency, so \(Y\) is proportional to luminance.</li>
+            <li>For a perfect white, \(R = 1\), so \(k\sum S\bar y\,\Delta\lambda = 100\) fixes \(k\).</li>
+            <li>For a narrow band centred on \(\lambda_0\), \(S\) is almost zero elsewhere: \(X, Y, Z \approx R(\lambda_0)\times(X_w, Y_w, Z_w)\). Every surface then has the chromaticity of the light itself and differs only in \(Y\) — the physics of colour masking.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The reflectance spectra of the breads are illustrative logistic curves (rising from blue to red, darker and redder with browning), not measurements. The model ignores gloss, texture, translucency and the angular geometry of the booth light. The 6500 K Planckian is used as a stand-in for a daylight-type lamp.</p></details>
+        <div class="eq-units">\(S\,R\,\bar x\,\Delta\lambda\) and \(S\,\bar y\,\Delta\lambda\) have the same units, so \(X, Y, Z\) are dimensionless percentages ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-lab">
+        <div class="eq-head"><span class="eq-label">CIELAB colour difference</span><span class="eq-num">(B5)</span></div>
+        <div class="eq-main">\[ L^* = 116\,f\!\left(\tfrac{Y}{Y_w}\right) - 16,\quad a^* = 500\left[f\!\left(\tfrac{X}{X_w}\right) - f\!\left(\tfrac{Y}{Y_w}\right)\right],\quad b^* = 200\left[f\!\left(\tfrac{Y}{Y_w}\right) - f\!\left(\tfrac{Z}{Z_w}\right)\right] \] \[ \Delta E^*_{ab} = \sqrt{(\Delta L^*)^2 + (\Delta a^*)^2 + (\Delta b^*)^2}, \qquad f(q) = \begin{cases} q^{1/3} & q > 216/24389 \\ (24389q/27 + 16)/116 & \text{otherwise} \end{cases} \]</div>
+        <p class="eq-read">lightness is a cube-root function of the luminance relative to white; a-star measures red versus green and b-star yellow versus blue. The colour difference between two samples is the straight-line distance between them in this three-dimensional space.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(L^*, a^*, b^*\)</td><td>CIELAB lightness, red–green and yellow–blue coordinates</td><td>–</td></tr>
+          <tr><td>\(X_w, Y_w, Z_w\)</td><td>tristimulus values of a perfect white under the same light (the adapted white)</td><td>–</td></tr>
+          <tr><td>\(\Delta E^*_{ab}\)</td><td>colour difference; about 2.3 is one just-noticeable difference (Mahy et al., 1994)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Perceived lightness is roughly a cube root of luminance; CIELAB (CIE, 2004) uses this to make equal distances correspond approximately to equal perceived differences.</li>
+            <li>Dividing by the white of the <em>same</em> light models an observer adapted to the booth: after a minute under red light, white paper looks “white-ish”.</li>
+            <li>Under a narrow band, \(X/X_w = Y/Y_w = Z/Z_w = R(\lambda_0)\), so \(a^* = b^* = 0\) and \(\Delta E^*_{ab} = |\Delta L^*|\): only the lightness difference at the band survives.</li>
+            <li><strong>Worked number</strong> (default spectra, browning 0.45): white light — A (85.6, −0.6, 29.0), B (73.6, 6.5, 31.5), \(\Delta E = \sqrt{12.0^2+7.1^2+2.5^2} = 14.2\); red light — A (90.7, 0.1, 0.4), B (82.5, 0.2, 0.9), \(\Delta E = 8.2\). Red light removes the hue part but a lightness difference of 8 remains clearly visible.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>ΔE*ab (CIE76) is used for transparency; the newer CIEDE2000 formula is more uniform. Just-noticeable differences depend on viewing conditions, and very dim light additionally reduces colour discrimination, which the model does not include.</p></details>
+        <div class="eq-units">All CIELAB coordinates are dimensionless, and so is ΔE ✓</div>
+        <div class="mini-calc" data-fn="dLnarrow" data-output="ΔE*ab under a narrow band (= |ΔL*|)" data-unit="" data-digits="1" data-plot="rb" data-ymin="0">
+          <div data-var="ra" data-label="Reflectance of A at the band" data-min="0.05" data-max="1" data-step="0.005" data-value="0.78"></div>
+          <div data-var="rb" data-label="Reflectance of B at the band" data-min="0.05" data-max="1" data-step="0.005" data-value="0.62"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-session">
+        <div class="eq-head"><span class="eq-label">Session length</span><span class="eq-num">(B6)</span></div>
+        <div class="eq-main">\[ T = \left\lceil \frac{n}{B} \right\rceil \bigl(t_0 + L\,t_s + (L-1)\,t_r\bigr) + \left(\left\lceil \frac{n}{B} \right\rceil - 1\right) t_c \]</div>
+        <p class="eq-read">the session takes as many rounds as panellists divided by booths, rounded up; each round lasts the instruction time plus the tasting time of every sample plus the rinsing pauses between samples, and each change of round costs a changeover time.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value in the lab</th></tr>
+          <tr><td>\(n, B\)</td><td>panellists; booths</td><td>–</td><td>slider</td></tr>
+          <tr><td>\(L\)</td><td>samples per panellist (3 triangle, 2 preference, \(t\) hedonic)</td><td>–</td><td></td></tr>
+          <tr><td>\(t_0\)</td><td>instructions and seating</td><td>min</td><td>1.5</td></tr>
+          <tr><td>\(t_s, t_r\)</td><td>tasting + answering per sample; palate-cleansing pause</td><td>min</td><td>sliders</td></tr>
+          <tr><td>\(t_c\)</td><td>changeover between rounds (clean, re-set trays)</td><td>min</td><td>2</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>A deterministic planning estimate: real panellists differ in speed, and the slowest assessor of each round sets its length. Add 20–30 % for a first session. Serving in rounds also means that the first panellists finish long before the last — schedule them in time slots.</p></details>
+        <div class="eq-units">rounds × minutes + minutes = minutes ✓</div>
+        <div class="mini-calc" data-formula="ceil(n/B)*(1.5+L*ts+(L-1)*tr)+(ceil(n/B)-1)*2" data-output="Session length" data-unit="min" data-digits="0" data-plot="B">
+          <div data-var="n" data-label="Panellists n" data-min="6" data-max="72" data-step="1" data-value="24"></div>
+          <div data-var="B" data-label="Booths B" data-min="1" data-max="10" data-step="1" data-value="4"></div>
+          <div data-var="L" data-label="Samples per panellist L" data-min="2" data-max="6" data-step="1" data-value="3"></div>
+          <div data-var="ts" data-label="Time per sample t<sub>s</sub>" data-min="0.5" data-max="5" data-step="0.25" data-value="1.5" data-unit="min"></div>
+          <div data-var="tr" data-label="Rinsing pause t<sub>r</sub>" data-min="0" data-max="3" data-step="0.25" data-value="1" data-unit="min"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sb-hsd-plan">
+        <div class="eq-head"><span class="eq-label">What a hedonic plan can detect</span><span class="eq-num">(B7)</span></div>
+        <div class="eq-main">\[ \text{HSD} = q_{0.95;\,t,\,(t-1)(n-1)}\sqrt{\frac{\sigma_e^2}{n}} \]</div>
+        <p class="eq-read">the smallest difference between two product means that Tukey's test will call significant is the studentised-range quantile for t products and (t − 1)(n − 1) error degrees of freedom, times the standard error of a product mean.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(q\)</td><td>upper 5 % point of the studentised range</td><td>–</td><td>3.43 (t = 3, 46 df)</td></tr>
+          <tr><td>\(\sigma_e\)</td><td>error SD of the ratings after removing panellist effects</td><td>points</td><td>1.0–1.5</td></tr>
+          <tr><td>\(n\)</td><td>panellists (each rates all products)</td><td>–</td><td>24</td></tr>
+        </table>
+        <details><summary>Where it comes from</summary><p>This is Eq. 13.4.9 of <a href="/lessons/sensory-statistics/#eq-tukey">Lesson 13.4</a> used as a planning tool, with an assumed error SD instead of the observed error mean square. With 24 panellists, three products and σ = 1.2 the plan can detect differences of about 0.84 points; halving the detectable difference needs about four times as many panellists.</p></details>
+        <div class="eq-units">\(q\) is dimensionless and \(\sigma_e/\sqrt n\) is in points, so HSD is in points ✓</div>
+        <div class="mini-calc" data-fn="hsdPlan" data-output="Detectable difference (HSD)" data-unit="points" data-digits="2" data-plot="n" data-ymin="0">
+          <div data-var="t" data-label="Products t" data-min="2" data-max="6" data-step="1" data-value="3"></div>
+          <div data-var="n" data-label="Panellists n" data-min="6" data-max="120" data-step="1" data-value="24"></div>
+          <div data-var="s" data-label="Error SD σ<sub>e</sub>" data-min="0.5" data-max="2.5" data-step="0.05" data-value="1.2" data-unit="points"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the booth to answer. Tick each task when you are done; <em>Save investigation</em> copies your settings and readouts to your notebook.</p>
+      <ol class="task-list">
+        <li><h4>How much colour can red light hide?</h4><p>Choose a triangle test and red light. Raise the colour difference from 0 until the colour cue exceeds ΔE*ab ≈ 2.3. Repeat with white and green light. Report the three limits, explain the order using the spectra chart, and decide which light you would use for bread with 5 % and with 15 % cricket flour.</p></li>
+        <li><h4>Balanced or not?</h4><p>For hedonic tests with 3, 4 and 5 products, find the smallest panel of at least 20 panellists that is completely balanced (sequence use, position and carry-over readouts all green). State the rule and explain it with Eq. B1. What would you do if only 26 people come?</p></li>
+        <li><h4>Plan your session</h4><p>Enter the method, products and panel size of your project. How long will the session take with 2, 4 and 5 booths? How many booths do you need to finish within 90 minutes? Which assumption of Eq. B6 is most likely to be wrong on the day?</p></li>
+        <li><h4>A classroom instead of a laboratory</h4><p>Apply the <em>Cramped classroom</em> preset and inspect the booth from the assessor's view with the ISO dimensions switched on. List every recommendation of ISO 8589 that is not met and propose a cheap fix for each (cardboard dividers, a separate preparation room, coloured bulbs, a signalling card).</p></li>
+        <li><h4>Codes that tell stories</h4><p>Using Eq. B3, compute the probability of at least one repeated code if the 72 codes of a 24-panellist triangle test were drawn with replacement. Then explain, with an example, why “fresh codes for every panellist” protects a study whose panellists talk to each other in the corridor.</p></li>
+        <li><h4>Your own study</h4><p>Enter your product names, generate the plan, print the ballots and the serving sheet and save the design to the project. Run a pilot with two classmates, record their answers in the ballot card, and open the triangle-test or hedonic laboratory to see that the data arrive.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-sensory-booth">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the booth and the equations","questions":[
+          {"type":"numeric","q":"How many serving sequences does a complete Williams design have for t = 5 products?","answer":10,"abstol":0.01,"unit":"sequences","hint":"Five is odd.","explain":"<p>For odd \\(t\\) the \\(t\\) cyclic sequences must be complemented by their mirror images: \\(2t = 10\\) sequences (Eq. B1). A fully balanced panel therefore has 10, 20, 30 … panellists.</p>"},
+          {"type":"numeric","q":"A hedonic test of 3 products is run with 24 panellists in 4 booths. Tasting takes 1.5 min per sample, the rinsing pause is 1 min, instructions take 1.5 min and each changeover 2 min. How long does the session take (Eq. B6)?","answer":58,"tol":0.02,"unit":"min","hint":"Six rounds of 1.5 + 3 × 1.5 + 2 × 1 minutes, plus five changeovers.","explain":"<p>Each round lasts \\(1.5 + 3\\times1.5 + 2\\times1 = 8\\) min; \\(\\lceil 24/4\\rceil = 6\\) rounds give 48 min, plus \\(5\\times2 = 10\\) min of changeovers: 58 min.</p>"},
+          {"type":"mcq","q":"The booth is lit with a narrow red LED (630 nm). Which difference between a light wheat crumb and a darker cricket crumb can the assessors still see?","options":["None — red light hides every colour difference","Only the difference in lightness at about 630 nm","Only the difference in hue (red versus yellow)","Only differences in the blue part of the spectrum"],"answer":1,"feedback":["Red light hides hue and chroma, but a surface that reflects less red light still looks darker.","","Hue differences are exactly what a narrow band removes: every surface takes the colour of the light.","Blue light is not present in a red LED, so blue reflectance cannot be seen at all."],"explain":"<p>Under a narrow band, \\(X, Y, Z\\) are all proportional to \\(R(\\lambda_0)\\), so \\(a^* = b^* = 0\\) and only \\(\\Delta L^*\\) remains (Eqs. B4–B5). Try it: at browning 0.45 the cue drops from ΔE ≈ 14 under white light to ≈ 8 under red light — still visible.</p>"},
+          {"type":"numeric","q":"If the 72 codes of a 24-panellist triangle test were drawn with replacement from 865 admissible codes, what is the probability (in %) that at least one code is used twice? Use the exponential approximation of Eq. B3.","answer":94.8,"tol":0.02,"unit":"%","explain":"<p>\\(1 - \\exp(-72\\times71/(2\\times865)) = 1 - e^{-2.955} = 0.948\\). The exact product gives 0.952. Drawing without replacement avoids the problem.</p>"},
+          {"type":"tf","q":"A triangle test with 25 panellists can be perfectly balanced over the six arrangements.","answer":false,"explain":"<p>25 is not a multiple of six: after four complete blocks (24 panellists) the 25th panellist receives one arrangement a fifth time. Set n = 25 in the booth and look at the sequence-use readout.</p>"},
+          {"type":"multi","q":"Which features belong to a booth set up according to ISO 8589 as implemented in this laboratory? (Select all that apply.)","options":["Partitions that reach at least 0.3 m beyond the counter","A pass-through hatch so that assessors cannot see the samples being prepared","Samples labelled 1, 2 and 3 in the order of tasting","A working area of at least 0.9 m × 0.6 m","Assessors reach the booths through the preparation area"],"answer":[0,1,3],"explain":"<p>Dividers, hatches and a minimum working area are recommended; samples carry random three-digit codes (ISO 4120), and assessors must not enter through the preparation area.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Booth geometry.</strong> Counter height 0.76 m, dividers from the floor to a soffit at 2.05 m, extending 0.32 m beyond the counter; hatch 0.38 m high. Width and depth are adjustable; the ISO 8589 minimum values used for the checks are 0.9 m and 0.6 m.</li>
+        <li><strong>Serving orders.</strong> Williams designs for rating tests (randomly relabelled), the six ISO 4120 arrangements for triangle tests and AB/BA for paired preference, assigned in shuffled blocks. With “fresh codes” every cup in the study has a different code; otherwise each product copy has one code for the whole study.</li>
+        <li><strong>Codes.</strong> 865 admissible codes from 100 to 999 (no triple digits, no runs of three consecutive digits, no round hundreds, no 666, 911 or 112). The rule is a convention adopted for this course, not part of any standard.</li>
+        <li><strong>Colour model.</strong> Reflectance spectra of the breads are illustrative logistic curves, not measured data; the light sources are a 6500 K Planckian radiator and Gaussian LED bands (630 nm, FWHM 20 nm; 525 nm, FWHM 35 nm). Colour-matching functions use the analytic fit of Wyman et al. (2013); ΔE*ab is computed for an observer fully adapted to each light. The 3D rendering uses RGB lighting, so the colours of the cups are an approximation of the spectral calculation shown in the charts.</li>
+        <li><strong>Timing and detectability.</strong> Instruction time 1.5 min and changeover 2 min per round are planning assumptions; the detectable difference assumes an error SD of 1.2 scale points.</li>
+        <li><strong>Lighting in 3D.</strong> Area lights do not cast shadows and are not blocked by walls; a spot light in the active booth provides shadows. The 3D scene is illustrative; the design tables and the colour calculation are the computed quantities.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>ISO 8589:2007. <em>Sensory analysis — General guidance for the design of test rooms</em>. International Organization for Standardization. <a href="https://www.iso.org/standard/36385.html" target="_blank" rel="noopener">iso.org/standard/36385.html</a></li>
+        <li>ISO 4120:2021. <em>Sensory analysis — Methodology — Triangle test</em>. International Organization for Standardization. <a href="https://www.iso.org/standard/76666.html" target="_blank" rel="noopener">iso.org/standard/76666.html</a></li>
+        <li>Williams, E. J. (1949). Experimental designs balanced for the estimation of residual effects of treatments. <em>Australian Journal of Scientific Research, Series A: Physical Sciences</em>, 2(2), 149–168. <a href="https://doi.org/10.1071/CH9490149" target="_blank" rel="noopener">doi:10.1071/CH9490149</a></li>
+        <li>MacFie, H. J., Bratchell, N., Greenhoff, K., &amp; Vallis, L. V. (1989). Designs to balance the effect of order of presentation and first-order carry-over effects in hall tests. <em>Journal of Sensory Studies</em>, 4(2), 129–148. <a href="https://doi.org/10.1111/j.1745-459X.1989.tb00463.x" target="_blank" rel="noopener">doi:10.1111/j.1745-459X.1989.tb00463.x</a></li>
+        <li>Peryam, D. R., &amp; Pilgrim, F. J. (1957). Hedonic scale method of measuring food preferences. <em>Food Technology</em>, 11(9), 9–14.</li>
+        <li>Lawless, H. T., &amp; Heymann, H. (2010). <em>Sensory evaluation of food: Principles and practices</em> (2nd ed.). Springer. <a href="https://doi.org/10.1007/978-1-4419-6488-5" target="_blank" rel="noopener">doi:10.1007/978-1-4419-6488-5</a></li>
+        <li>CIE (2004). <em>Colorimetry</em> (3rd ed., CIE 15:2004). Commission Internationale de l'Éclairage.</li>
+        <li>Wyman, C., Sloan, P.-P., &amp; Shirley, P. (2013). Simple analytic approximations to the CIE XYZ color matching functions. <em>Journal of Computer Graphics Techniques</em>, 2(2), 1–11. <a href="https://jcgt.org/published/0002/02/01/" target="_blank" rel="noopener">jcgt.org/published/0002/02/01</a></li>
+        <li>Mahy, M., Van Eycken, L., &amp; Oosterlinck, A. (1994). Evaluation of uniform color spaces developed after the adoption of CIELAB and CIELUV. <em>Color Research &amp; Application</em>, 19(2), 105–121. <a href="https://doi.org/10.1111/j.1520-6378.1994.tb00070.x" target="_blank" rel="noopener">doi:10.1111/j.1520-6378.1994.tb00070.x</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

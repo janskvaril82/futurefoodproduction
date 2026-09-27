@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plant vision lab · Future Food Production</title>
+<meta name="description" content="Segment top-view lettuce images step by step — chromatic coordinates, ExG, Otsu, morphology, connected components — turn pixels into square centimetres and grams, detect lesions and evaluate the classifier with a confusion matrix. Works on your own photos, locally.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+FFP_CALC.pvExg = function (o) { var s = o.R + o.G + o.B; if (s <= 0) return 0; return (2 * o.G - o.R - o.B) / s; };
+FFP_CALC.pvF1 = function (o) { var p = o.tp / Math.max(1e-9, o.tp + o.fp), r = o.tp / Math.max(1e-9, o.tp + o.fn); return p + r > 0 ? 2 * p * r / (p + r) : 0; };
+</script>
+<style>
+.pv-canvas { width: 100%; height: 100%; object-fit: contain; background: #0d1512; cursor: crosshair; }
+.stage .stage-hud { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 60px); }
+.pv-tip { position: absolute; z-index: 6; pointer-events: none; background: rgba(10,16,14,.86); color: #e6eee9; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; padding: 7px 10px; font: 500 .72rem/1.45 var(--font-mono); max-width: 240px; }
+.pv-tip[hidden] { display: none; }
+#pv-strip { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+#pv-strip button { border: 1px solid var(--line); background: var(--bg-elev); border-radius: 10px; padding: 4px 4px 5px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; align-items: stretch; color: var(--ink-2); font: 600 .66rem var(--font-sans); text-align: center; }
+#pv-strip button canvas { width: 100%; height: auto; border-radius: 6px; display: block; background: #0d1512; }
+#pv-strip button[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); color: var(--accent); }
+@media (max-width: 760px) { #pv-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.pv-upload { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; }
+.pv-upload .btn { align-self: flex-start; cursor: pointer; }
+.pv-panel { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; margin: 16px 0; box-shadow: var(--shadow-1); }
+.pv-panel h2 { font-size: 1.15rem; margin: 0 0 8px; }
+.pv-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.pv-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.pv-table caption { caption-side: top; text-align: left; font-size: .8rem; color: var(--muted); padding: 8px 10px; background: var(--bg-sunk); }
+.pv-table th, .pv-table td { padding: 5px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.pv-table th { background: var(--bg-sunk); font-size: .76rem; }
+.pv-table .num { text-align: right; font-family: var(--font-mono); font-size: .78rem; }
+.pv-table tr.pv-cal td { background: color-mix(in srgb, var(--amber-soft) 55%, transparent); }
+.pv-bad { color: var(--danger); font-weight: 650; }
+.pv-h { color: var(--warn); font-family: var(--font-sans); font-weight: 650; }
+.pv-cm { border-collapse: separate; border-spacing: 6px; margin: 4px auto 6px; font-size: .86rem; }
+.pv-cm th { font: 650 .74rem var(--font-sans); color: var(--muted); text-align: center; padding: 0 4px; }
+.pv-cm th.pv-rh { text-align: right; }
+.pv-cm td { width: 92px; height: 58px; text-align: center; border-radius: 10px; font: 700 1.5rem var(--font-mono); line-height: 1; }
+.pv-cm td small { display: block; font: 600 .66rem var(--font-sans); letter-spacing: .08em; margin-top: 4px; opacity: .75; }
+.pv-cm td.tp, .pv-cm td.tn { background: var(--accent-soft); color: var(--ok); }
+.pv-cm td.fp, .pv-cm td.fn { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+.pv-kv { display: grid; grid-template-columns: repeat(5, auto); gap: 2px 12px; justify-content: center; font-size: .8rem; margin: 4px 0 0; }
+.pv-kv dt { color: var(--muted); grid-row: 1; text-align: center; margin: 0; }
+.pv-kv dd { grid-row: 2; font: 650 .95rem var(--font-mono); text-align: center; margin: 0; }
+</style>
+</head>
+<body data-page="lab" data-slug="plant-vision">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Plant vision lab</h1>
+    <p class="lead">A camera above your raft can weigh your lettuces without touching them. Follow a classical phenotyping pipeline one step at a time — colour index, threshold, morphology, connected components — and watch every intermediate image. Turn pixels into square centimetres with a reference card and into grams with a calibration, find brown lesions and tipburn, and grade your detector with a confusion matrix. The synthetic images come with pixel-exact ground truth; your own photos are processed entirely in your browser.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div id="pv-strip" role="group" aria-label="Pipeline steps"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <section class="pv-panel" aria-label="Per-plant results">
+    <h2>Plant by plant</h2>
+    <div class="pv-scroll"><table class="pv-table" id="pv-table"></table></div>
+  </section>
+
+  <div class="charts">
+    <div class="chart-card"><h3>Histogram of the colour index</h3><div class="chart-sub">Pixels coloured green are classified as plant. The magenta curve is Otsu's between-class variance; its maximum is the automatic threshold. Drag in the chart to set your own.</div><div class="chart" id="ch-hist"></div></div>
+    <div class="chart-card"><h3>Calibration: area → fresh mass</h3><div class="chart-sub" id="ch-cal-sub">Weighed plants against their measured projected area.</div><div class="chart" id="ch-cal"></div></div>
+    <div class="chart-card"><h3>Non-destructive estimates</h3><div class="chart-sub" id="ch-est-sub">Estimated versus true fresh mass for the plants that were not harvested.</div><div class="chart" id="ch-est"></div></div>
+    <div class="chart-card"><h3>Symptom detector: confusion matrix</h3><div class="chart-sub">A plant is flagged when brown pixels exceed the threshold τ of its area. Truth = infected (lesions) or tipburn.</div><div id="pv-cm"></div></div>
+    <div class="chart-card"><h3>Choosing the flagging threshold</h3><div class="chart-sub">Precision, recall and F1 of the symptom detector as the threshold τ changes (Eq. PV11).</div><div class="chart" id="ch-pr"></div></div>
+    <div class="chart-card"><h3>Growth from images</h3><div class="chart-sub" id="ch-ts-sub">Press <em>Photograph the crop every 3 days</em> to measure every plant from day 7 to day 35 with your current pipeline.</div><div class="chart" id="ch-ts"></div></div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ================================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour in seven steps</h2>
+      <ol>
+        <li><strong>Walk the pipeline.</strong> Click the eight thumbnails under the image from left to right. The RGB photo becomes chromatic coordinates (brightness removed — notice how the uneven lighting disappears), then a greenness index, a black-and-white mask, a cleaned mask, coloured objects, lesion pixels and finally the measured result. Hover over the image to read the numbers behind any pixel.</li>
+        <li><strong>Look at the histogram.</strong> Plant and background pixels form two humps; Otsu's method puts the threshold where the two classes are best separated (the peak of the magenta curve). Drag the threshold into the plant hump and watch leaf edges and pale inner leaves disappear from the mask; drag it into the background hump and the raft starts to count as lettuce.</li>
+        <li><strong>Break it with light.</strong> Choose the preset <em>Red + blue LEDs</em>. Under “blurple” light the green channel is weak, the lettuce looks purple-black and excess green fails. Then apply <em>… white-balanced</em>: correcting the colours with the white border of the reference card brings the plants back (recall recovers), but the strongly amplified, noisy green channel now adds false plant pixels. Take your project photos under white light.</li>
+        <li><strong>Let the plants grow.</strong> Move <em>Days after transplanting</em> to 33. Neighbouring canopies touch and merge into one connected component: the readout <em>Plants found</em> drops. Switch <em>One plant =</em> to <em>Nearest planting hole</em>, which splits the canopy between the known raft positions.</li>
+        <li><strong>From pixels to grams.</strong> Every image contains a 5 cm blue card, so the lab knows how many millimetres a pixel spans. Half of the plants are “harvested” and weighed; a power law fitted to them estimates the mass of the rest. Compare the estimates with the truth in the table and the <em>Non-destructive estimates</em> chart. Then lower the camera to 50 cm and watch perspective inflate the areas.</li>
+        <li><strong>Find the sick plants.</strong> Step 7 shows brown pixels (lesions and tipburn) in magenta. The confusion matrix compares flagged plants with the truth. Lower the flagging threshold until every symptomatic plant is caught — how many healthy plants are flagged now?</li>
+        <li><strong>Try hard cases, then your own photo.</strong> <em>Red lettuce on coir</em> fools both the greenness index (anthocyanins make leaves red) and the lesion rule (the brown substrate looks like necrosis). Then choose <em>My photo</em>, upload a top-view picture of your own plants with a reference of known size, and measure them.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Classical image analysis is a chain of simple, transparent operations. Each has an assumption — plants are greener than the background, the light is white, plants do not touch, brown means disease — and each assumption can fail. Look at every intermediate image, and check the final numbers against ground truth (weighed plants, a hand count) before you trust them.</p></div>
+      <div class="callout note"><div class="callout-title">Non-destructive growth measurement in your project</div><p>Photograph each plant or tray from straight above at a fixed height, at the same time of day, with a reference card at canopy height and ideally under the room's white light. Measure projected area with this pipeline and store it in the <a href="/project/grow-log/">Grow log</a> (column <code>area_cm2</code>). Weigh a few plants at harvest to calibrate area against fresh mass (Eq. PV9). Your image series then becomes a growth curve in the <a href="/laboratories/model-fitting/">Model-fitting lab</a> — without harvesting a single plant before the end of the experiment.</p></div>
+    </section>
+
+    <!-- ================================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>An image is a table of numbers</h2>
+      <p>A colour photo is three matrices — red, green and blue intensities from 0 to 255 for every pixel. Leaves reflect green more than red and blue because chlorophyll absorbs red and blue light; soil, polystyrene and plastic reflect the three bands more evenly. Everything in this lab exploits that single physical fact (Woebbecke et al., 1995; Hamuda et al., 2016). The pipeline below is the backbone of widely used tools such as ImageJ, Easy Leaf Area and PlantCV (Schneider et al., 2012; Easlon &amp; Bloom, 2014; Gehan et al., 2017).</p>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 720 200" role="img" aria-label="The segmentation pipeline: RGB image, chromatic coordinates, colour index, threshold, opening, connected components, area and mass, lesion detection">
+          <defs><marker id="pv-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <g class="t-small" text-anchor="middle">
+            <rect x="8" y="30" width="78" height="54" rx="9" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="47" y="54" font-weight="650">RGB</text><text x="47" y="72" class="t-muted">R, G, B</text>
+            <rect x="98" y="30" width="78" height="54" rx="9" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="137" y="54" font-weight="650">rgb</text><text x="137" y="72" class="t-muted">PV1 (+PV4)</text>
+            <rect x="188" y="30" width="78" height="54" rx="9" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="227" y="54" font-weight="650">index</text><text x="227" y="72" class="t-muted">ExG · PV2–3</text>
+            <rect x="278" y="30" width="78" height="54" rx="9" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="317" y="54" font-weight="650">threshold</text><text x="317" y="72" class="t-muted">Otsu · PV5</text>
+            <rect x="368" y="30" width="78" height="54" rx="9" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="407" y="54" font-weight="650">opening</text><text x="407" y="72" class="t-muted">PV7</text>
+            <rect x="458" y="30" width="78" height="54" rx="9" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="497" y="54" font-weight="650">objects</text><text x="497" y="72" class="t-muted">PV8</text>
+            <rect x="548" y="30" width="78" height="54" rx="9" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/><text x="587" y="54" font-weight="650">cm²</text><text x="587" y="72" class="t-muted">scale · PV6</text>
+            <rect x="638" y="30" width="74" height="54" rx="9" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="675" y="54" font-weight="650">grams</text><text x="675" y="72" class="t-muted">PV9</text>
+            <rect x="368" y="130" width="168" height="50" rx="9" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/><text x="452" y="152" font-weight="650">brown pixels → lesion share</text><text x="452" y="170" class="t-muted">HSV rule · PV10 → metrics PV11</text>
+          </g>
+          <g class="stroke" stroke-width="1.3" fill="none" marker-end="url(#pv-a1)">
+            <path d="M86 57 L96 57"/><path d="M176 57 L186 57"/><path d="M266 57 L276 57"/><path d="M356 57 L366 57"/><path d="M446 57 L456 57"/><path d="M536 57 L546 57"/><path d="M626 57 L636 57"/>
+            <path d="M137 84 C137 150 250 155 366 155"/><path d="M497 84 L497 128"/>
+          </g>
+          <text x="180" y="190" class="t-small t-muted">hue, saturation and value of non-plant pixels next to plants</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The pipeline of this lab. Numbers refer to the equations in the Derive tab and match the eight thumbnails under the image.</figcaption>
+      </figure>
+
+      <h3>Why normalise and why an index?</h3>
+      <p>Brightness varies across a photo — lamps are closer to some plants, the edge of the image is darker (vignetting), a leaf shades its neighbour. Dividing each channel by the sum of the three (chromatic coordinates) removes most of this variation, because a shadow darkens R, G and B by nearly the same factor (Eq. PV1). A colour index then compresses the three numbers into one “greenness” score: excess green, ExG = 2g − r − b, is positive for leaves and near zero for grey or black backgrounds (Woebbecke et al., 1995); ExG − ExR subtracts an excess-red term and is often more robust on soil (Meyer &amp; Neto, 2008). The same idea in other colour spaces uses hue (HSV; Smith, 1978) or the green–red axis a* of CIELAB, which was designed to be perceptually uniform.</p>
+      <h3>Choosing the threshold</h3>
+      <p>After the index, one number per pixel decides plant or background. Otsu (1979) chooses the threshold that makes the two resulting classes as internally homogeneous — equivalently, as different from each other — as possible (Eq. PV5). It needs no tuning and adapts to exposure changes, but it assumes two reasonably separated humps in the histogram. With very small plants (few plant pixels) or strongly coloured backgrounds it can fail, and a fixed, validated threshold may be better (Hamuda et al., 2016).</p>
+      <h3>Cleaning, counting and measuring</h3>
+      <p>A thresholded mask contains specks (noise, algae, reflections) and ragged edges. Morphological opening — an erosion followed by a dilation with a small structuring element — removes objects thinner than the element while preserving the size of larger ones (Serra, 1982). Connected-component labelling then groups touching pixels into objects (Rosenfeld &amp; Pfaltz, 1966). Each object's pixel count times the area of one pixel is its projected leaf area; the pixel size comes from a reference of known size photographed in the same plane (Eq. PV6). Two practical failures dominate: touching canopies merge into one object (use plant spacing or the known planting grid), and a reference lying lower than the leaves makes them look too large (perspective, Eq. PV6).</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 640 170" role="img" aria-label="Morphological opening: erosion removes the noise speck and thins the leaf; dilation restores the leaf but not the speck">
+          <g class="t-small" text-anchor="middle"><text x="95" y="18" font-weight="650">mask</text><text x="320" y="18" font-weight="650">after erosion</text><text x="545" y="18" font-weight="650">after dilation = opening</text></g>
+          <g class="fill-accent-soft" stroke="currentColor" stroke-width="1">
+            <path d="M40 60 C60 30 120 30 150 60 C170 85 150 130 110 135 C70 138 30 110 40 60 Z"/>
+            <rect x="160" y="130" width="10" height="10"/>
+            <path d="M275 70 C290 50 340 50 360 70 C372 88 360 118 330 122 C300 124 268 102 275 70 Z"/>
+            <path d="M490 60 C510 30 570 30 600 60 C620 85 600 130 560 135 C520 138 480 110 490 60 Z"/>
+          </g>
+          <circle cx="175" cy="120" r="0" />
+          <text x="190" y="145" class="t-small t-muted" text-anchor="start">speck</text>
+          <text x="400" y="150" class="t-small t-muted">speck gone, leaf thinner</text>
+          <text x="545" y="160" class="t-small t-muted" text-anchor="middle">leaf restored, speck stays gone</text>
+          <g class="stroke" stroke-width="1.3" fill="none"><path d="M195 85 L245 85"/><path d="M420 85 L470 85"/></g>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> Opening (Eq. PV7) removes objects smaller than the structuring element and smooths edges, but it cannot separate plants that overlap by more than the element size.</figcaption>
+      </figure>
+      <h3>From projected area to fresh mass</h3>
+      <p>A camera sees the plant's shadow, not its volume. The relation between projected area and fresh mass must therefore be <strong>calibrated</strong> with a set of plants that are photographed and then weighed. Mass usually increases faster than projected area — leaves stack and heads thicken — so a power law \(W = aA^b\) with \(b &gt; 1\) fits better than a straight line (Eq. PV9; Golzarian et al., 2011; Zhang et al., 2020). The calibration only holds for the same cultivar, growing system, camera set-up and size range; the prediction interval tells you how precisely a single plant can be weighed by photo.</p>
+      <h3>Detecting symptoms — and what colour cannot tell you</h3>
+      <p>Necrotic tissue is brown: low hue, moderate saturation, neither black nor white. A simple HSV rule finds brown pixels next to plants; the share of brown pixels per plant decides whether it is flagged (Eq. PV10). Evaluating such a detector needs ground truth and the right metrics: precision (how many flagged plants really have symptoms), recall (how many symptomatic plants are found) and their harmonic mean F1 (Eq. PV11; Fawcett, 2006). Colour cannot tell a fungal lesion from tipburn or from a brown substrate: that is why the “truth” in this lab is “has symptoms” and why a coir background produces false alarms. Deep-learning classifiers learn such distinctions from thousands of labelled images — with their own risks when field conditions differ from the training images (Mohanty et al., 2016; Barbedo, 2018; Mahlein, 2016).</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“My segmentation looks perfect, so my areas are right.” A perfect mask can still give wrong square centimetres: a reference lying on the tray while the canopy is 10 cm closer to a camera at 60 cm overestimates areas by 44 % (Eq. PV6). Check scale and perspective with an object of known size at canopy height.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier</div><p>Research greenhouses now combine depth cameras and deep networks to estimate lettuce fresh mass, leaf area and height non-destructively (Zhang et al., 2020; Petropoulou et al., 2023), and foundation models such as Segment Anything can outline leaves without training (Kirillov et al., 2023). The classical pipeline in this lab remains the transparent baseline against which such systems are judged — see <a href="/lessons/computer-vision/">Lesson 10.3</a>.</p></div>
+    </section>
+
+    <!-- ================================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the pipeline</h2>
+      <div class="eq-box" id="eq-pv-chroma">
+        <div class="eq-head"><span class="eq-label">Chromatic coordinates</span><span class="eq-num">(PV1)</span></div>
+        <div class="eq-main">\[ r = \frac{R}{R+G+B},\qquad g = \frac{G}{R+G+B},\qquad b = \frac{B}{R+G+B},\qquad r+g+b=1 \]</div>
+        <p class="eq-read">each channel is divided by the sum of the three, so only the proportions of red, green and blue remain and the overall brightness is removed.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(R, G, B\)</td><td>pixel intensities in the red, green and blue channel</td><td>0–255 (digital numbers)</td></tr><tr><td>\(r, g, b\)</td><td>chromatic coordinates</td><td>–</td></tr></table>
+        <details><summary>Why shadows almost disappear</summary><p>If a shadow reduces the light on a leaf by a factor \(k\), all channels scale approximately as \(kR, kG, kB\); the ratios \(kR/(kR+kG+kB) = R/(R+G+B)\) are unchanged. This fails for coloured light (a red+blue LED changes the ratios themselves — see PV4) and for saturated pixels (a channel stuck at 255).</p></details>
+        <div class="eq-units">A ratio of intensities is dimensionless ✓ (as in Lesson 10.3, Eq. 10.3.1)</div>
+      </div>
+
+      <div class="eq-box" id="eq-pv-exg">
+        <div class="eq-head"><span class="eq-label">Excess green and excess red</span><span class="eq-num">(PV2)</span></div>
+        <div class="eq-main">\[ \text{ExG} = 2g-r-b,\qquad \text{ExR} = 1.4\,r-g,\qquad \text{ExG}-\text{ExR} = 3g-2.4\,r-b \]</div>
+        <p class="eq-read">excess green measures how much the green proportion exceeds the average of red and blue (times two); excess red does the same for red; their difference separates plants from soil and residue on both sides.</p>
+        <table class="symbols"><tr><th>Index</th><th>Grey or black background</th><th>Healthy leaf</th><th>Reference</th></tr><tr><td>ExG</td><td>≈ 0</td><td>≈ 0.2–0.7</td><td>Woebbecke et al. (1995)</td></tr><tr><td>ExG − ExR</td><td>≈ −0.4 to 0</td><td>&gt; 0</td><td>Meyer &amp; Neto (2008)</td></tr></table>
+        <details><summary>Why “2g − r − b”?</summary><p>With \(r+g+b = 1\), \(\text{ExG} = 2g - (1-g) = 3g - 1\): excess green is simply a rescaled green chromatic coordinate, zero for a neutral grey pixel (\(g = 1/3\)). ExG − ExR has a natural threshold at 0 (Meyer &amp; Neto, 2008).</p></details>
+        <div class="eq-units">Built from dimensionless coordinates → dimensionless ✓</div>
+        <div class="mini-calc" data-fn="pvExg" data-output="ExG" data-unit="" data-digits="3" data-plot="G" data-title="Try it — the greenness of one pixel">
+          <div data-var="R" data-label="R" data-min="0" data-max="255" data-step="1" data-value="60"></div>
+          <div data-var="G" data-label="G" data-min="0" data-max="255" data-step="1" data-value="120"></div>
+          <div data-var="B" data-label="B" data-min="0" data-max="255" data-step="1" data-value="40"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pv-hsv">
+        <div class="eq-head"><span class="eq-label">HSV and CIELAB a*</span><span class="eq-num">(PV3)</span></div>
+        <div class="eq-main">\[ V=\max(R,G,B),\quad S=\frac{V-\min(R,G,B)}{V},\quad H = 60^{\circ}\times\begin{cases}\frac{G-B}{\Delta}\bmod 6 & V=R\\ \frac{B-R}{\Delta}+2 & V=G\\ \frac{R-G}{\Delta}+4 & V=B\end{cases},\qquad a^{*} = 500\bigl[f(X/X_n)-f(Y/Y_n)\bigr] \]</div>
+        <p class="eq-read">value is the brightest channel, saturation the relative spread between brightest and darkest, and hue the angle on the colour wheel (0° red, 60° yellow, 120° green); in CIELAB, a* is negative for green and positive for red, computed from linearised sRGB via the CIE XYZ values.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(\Delta\)</td><td>\(\max - \min\) of R, G, B</td><td>DN</td></tr><tr><td>\(H\)</td><td>hue: lettuce ≈ 70–130°, brown necrosis ≈ 15–45°</td><td>°</td></tr><tr><td>\(f\)</td><td>cube root with a linear segment near zero (CIE 1976)</td><td>–</td></tr></table>
+        <details><summary>Where each space helps</summary><p>Hue separates “what colour” from “how bright”, so a hue window can segment plants under uneven light and a low-hue rule finds brown tissue (Smith, 1978). a* is a perceptual green–red axis; −a* is used as a greenness index in this lab. Both are defined for sRGB images with white illumination; coloured light shifts them too.</p></details>
+        <div class="eq-units">\(S\) and \(a^*\) are dimensionless; \(H\) is an angle ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pv-wb">
+        <div class="eq-head"><span class="eq-label">White balance on a grey reference (von Kries scaling)</span><span class="eq-num">(PV4)</span></div>
+        <div class="eq-main">\[ R' = k_R R,\quad G' = k_G G,\quad B' = k_B B,\qquad k_c = \frac{(\bar R_w+\bar G_w+\bar B_w)/3}{\bar c_w} \]</div>
+        <p class="eq-read">each channel is multiplied by a gain chosen so that a surface known to be white or grey — here the white border of the reference card — comes out neutral, with the same mean brightness as before.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(\bar c_w\)</td><td>mean of channel \(c\) over the white reference pixels</td><td>DN</td></tr><tr><td>\(k_c\)</td><td>gain of channel \(c\)</td><td>–</td></tr></table>
+        <details><summary>Why it cannot fully rescue red+blue light</summary><p>A diagonal gain corrects the colour cast only if each camera channel sees a scaled version of the same spectrum. Under narrow-band red and blue LEDs almost no green light reaches the leaf, so the green channel carries little information and noise is amplified by the large \(k_G\). Take phenotyping photos under white light or with a flash.</p></details>
+        <div class="eq-units">Gains are ratios of intensities → dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pv-otsu">
+        <div class="eq-head"><span class="eq-label">Otsu's threshold</span><span class="eq-num">(PV5)</span></div>
+        <div class="eq-main">\[ \sigma_B^{2}(t) = \omega_0(t)\,\omega_1(t)\,\bigl[\mu_0(t)-\mu_1(t)\bigr]^{2},\qquad t^{*} = \arg\max_t\ \sigma_B^{2}(t) \]</div>
+        <p class="eq-read">for every candidate threshold, split the histogram into a background class below and a plant class above; the between-class variance is the product of the two class weights times the squared difference of their means; the best threshold maximises it.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(\omega_0, \omega_1\)</td><td>fractions of pixels below and above \(t\)</td><td>–</td></tr><tr><td>\(\mu_0, \mu_1\)</td><td>mean index of the two classes</td><td>unit of the index</td></tr></table>
+        <details><summary>Why maximise the between-class variance?</summary><ol class="steps"><li>The total variance of the index is fixed: \(\sigma_T^2 = \sigma_W^2(t) + \sigma_B^2(t)\).</li><li>Maximising \(\sigma_B^2\) is therefore the same as minimising the within-class variance \(\sigma_W^2\): the two classes become as homogeneous as possible (Otsu, 1979).</li><li>The lab evaluates all 127 candidate thresholds of a 128-bin histogram between the 0.2nd and 99.8th percentiles — the magenta curve in the histogram chart.</li></ol></details>
+        <div class="eq-units">\(\sigma_B^2\) has the unit of the index squared; \(t^*\) the unit of the index ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pv-scale">
+        <div class="eq-head"><span class="eq-label">Pixel scale, projected area and perspective</span><span class="eq-num">(PV6)</span></div>
+        <div class="eq-main">\[ s = \frac{L_{\text{ref}}}{\sqrt{N_{\text{ref}}}},\qquad A = N_{\text{px}}\,s^{2}\left(\frac{D-h}{D}\right)^{2} \]</div>
+        <p class="eq-read">the pixel scale is the side of the square reference divided by the square root of its pixel count; a plant's projected area is its pixel count times the area of one pixel, corrected by the squared ratio of distances when the leaves are a height \(h\) closer to the camera than the reference.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(L_{\text{ref}}, N_{\text{ref}}\)</td><td>side of the blue reference square (5 cm) and its pixel count</td><td>cm, px</td></tr><tr><td>\(s\)</td><td>object size per pixel (ground sampling distance)</td><td>cm px⁻¹</td></tr><tr><td>\(D\)</td><td>camera height above the reference plane</td><td>cm</td></tr><tr><td>\(h\)</td><td>canopy height above the reference plane</td><td>cm</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>A square of side \(L\) covering \(N\) pixels: \(N s^2 = L^2\) ⇒ \(s = L/\sqrt N\). Using the area of the card rather than one edge averages over many pixels and is less sensitive to blur.</li><li>Pinhole camera: image size ∝ object size / distance (Lesson 10.3, Eq. 10.3.7). Leaves at distance \(D-h\) are magnified by \(D/(D-h)\) relative to the reference, areas by its square.</li><li>Example: \(D = 60\) cm, \(h = 10\) cm → factor \((50/60)^2 = 0.69\): without correction, areas are 44 % too large.</li></ol></details>
+        <div class="eq-units">\(\text{px}\cdot(\text{cm px}^{-1})^2 = \text{cm}^2\) ✓; the distance ratio is dimensionless ✓</div>
+        <div class="mini-calc" data-formula="N*pow(L/sqrt(Nref), 2)*pow((D-h)/D, 2)" data-output="Projected area" data-unit="cm²" data-digits="1" data-plot="h" data-title="Try it — pixels to square centimetres">
+          <div data-var="N" data-label="Plant pixels" data-min="1000" data-max="120000" data-step="500" data-value="30000" data-unit="px"></div>
+          <div data-var="L" data-label="Card side" data-min="1" data-max="20" data-step="0.5" data-value="5" data-unit="cm"></div>
+          <div data-var="Nref" data-label="Card pixels" data-min="400" data-max="20000" data-step="100" data-value="3600" data-unit="px"></div>
+          <div data-var="D" data-label="Camera height D" data-min="30" data-max="200" data-step="5" data-value="100" data-unit="cm"></div>
+          <div data-var="h" data-label="Canopy height h" data-min="0" data-max="25" data-step="0.5" data-value="0" data-unit="cm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pv-open">
+        <div class="eq-head"><span class="eq-label">Erosion, dilation and opening</span><span class="eq-num">(PV7)</span></div>
+        <div class="eq-main">\[ (A\ominus B)(x) = \min_{b\in B} A(x+b),\qquad (A\oplus B)(x) = \max_{b\in B} A(x+b),\qquad A\circ B = (A\ominus B)\oplus B \]</div>
+        <p class="eq-read">erosion keeps a pixel only if the whole structuring element around it lies inside the mask; dilation switches a pixel on if any part of the element touches the mask; opening erodes and then dilates, removing objects smaller than the element while restoring the size of the rest.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(A\)</td><td>binary mask (1 = plant)</td><td>–</td></tr><tr><td>\(B\)</td><td>structuring element: a square of side \(2r+1\) pixels</td><td>px</td></tr></table>
+        <details><summary>Fast computation</summary><p>For a square element, erosion and dilation are separable: a horizontal pass followed by a vertical pass. With running sums, each pass costs a constant time per pixel regardless of \(r\) — about 20 ms for this 960 × 600 image. Opening is idempotent (opening twice changes nothing) and never adds pixels (Serra, 1982). Closing, \((A\oplus B)\ominus B\), is its dual and fills small holes.</p></details>
+        <details><summary>Hole filling</summary><p>Pale rosette hearts and midribs can fall below the threshold and leave holes inside a plant. The lab optionally fills them: a flood fill from the image border marks all background that can be reached (4-connectivity); every unreached background pixel lies inside an object and is set to plant. Beware: background enclosed by touching plants is filled too.</p></details>
+        <div class="eq-units">Binary images in, binary images out ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pv-cc">
+        <div class="eq-head"><span class="eq-label">Connected components (8-connectivity)</span><span class="eq-num">(PV8)</span></div>
+        <div class="eq-main">\[ p\sim q \iff \exists\ p=p_0,p_1,\ldots,p_k=q:\ A(p_i)=1,\ \ \lVert p_{i+1}-p_i\rVert_\infty = 1 \]</div>
+        <p class="eq-read">two plant pixels belong to the same object if a chain of plant pixels, each touching the next horizontally, vertically or diagonally, connects them.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(\lVert\cdot\rVert_\infty\)</td><td>chessboard distance: 8 neighbours at distance 1</td><td>px</td></tr></table>
+        <details><summary>The two-pass algorithm</summary><ol class="steps"><li>Scan row by row; give each plant pixel the smallest label among its already-visited neighbours (left, upper-left, up, upper-right), or a new label.</li><li>When neighbours carry different labels, record that they are equivalent (union–find).</li><li>Second pass: replace each label by the representative of its equivalence class (Rosenfeld &amp; Pfaltz, 1966). Objects smaller than the minimum area are discarded as noise.</li></ol></details>
+        <div class="eq-units">Labels are integers; areas are pixel counts ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pv-calib">
+        <div class="eq-head"><span class="eq-label">Calibrating fresh mass against projected area</span><span class="eq-num">(PV9)</span></div>
+        <div class="eq-main">\[ W = a\,A^{b}\ \Longleftrightarrow\ \ln W = \ln a + b\ln A,\qquad \hat W_{\text{new}} = \hat a\,A_{\text{new}}^{\hat b},\qquad \text{MAPE} = \frac{100}{n}\sum\frac{|\hat W_i - W_i|}{W_i} \]</div>
+        <p class="eq-read">fresh mass is modelled as a power of projected area; taking logarithms makes it a straight line fitted by least squares to the harvested plants; the fitted curve then estimates the mass of plants that were only photographed, and the mean absolute percentage error measures how well.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(a, b\)</td><td>calibration coefficients (synthetic truth here: 0.122 and 1.18, as in Lesson 10.3, Eq. 10.3.8)</td><td>g cm⁻²ᵇ, –</td></tr><tr><td>\(A\)</td><td>measured projected area</td><td>cm²</td></tr></table>
+        <details><summary>Assumptions and validity</summary><p>Same cultivar, growing system, camera geometry and size range as the calibration plants. Back-transforming a log-scale fit estimates the median mass; the smearing factor \(e^{s^2/2}\) converts to the mean (Lesson 10.3). In this lab the true masses contain 8 % random plant-to-plant variation, so even a perfect area measurement cannot estimate single plants better than about 8 %.</p></details>
+        <div class="eq-units">\([a][A]^b = \text{g}\) by the choice of units for \(a\) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pv-lesion">
+        <div class="eq-head"><span class="eq-label">Lesion pixels and the flagging rule</span><span class="eq-num">(PV10)</span></div>
+        <div class="eq-main">\[ \text{lesion}(x) = \bigl[H(x)\le H_{\max}\bigr]\wedge\bigl[S(x)\ge S_{\min}\bigr]\wedge\bigl[0.1\le V(x)\le 0.85\bigr]\wedge\bigl[\operatorname{dist}(x,\text{plant})\le 0.8\ \text{cm}\bigr],\qquad \phi_k = \frac{n_{\text{lesion},k}}{n_{\text{plant},k}+n_{\text{lesion},k}} \ge \tau \]</div>
+        <p class="eq-read">a pixel counts as necrotic when its hue is brownish, it is saturated enough, neither black nor white, and it lies close to a plant; a plant is flagged when the share of such pixels in its area exceeds the threshold τ.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Default</th></tr><tr><td>\(H_{\max}\)</td><td>largest “brown” hue</td><td>45°</td></tr><tr><td>\(S_{\min}\)</td><td>minimum saturation</td><td>0.30</td></tr><tr><td>\(\phi_k\)</td><td>lesion share of plant \(k\)</td><td>–</td></tr><tr><td>\(\tau\)</td><td>flagging threshold</td><td>1 %</td></tr></table>
+        <details><summary>Assumptions and validity</summary><p>A colour rule cannot distinguish disease from tipburn, senescence, nutrient deficiency or a brown background — hence the “has symptoms” ground truth and the false alarms on coir. Symptoms hidden under younger leaves cannot be seen from above at all (a source of false negatives).</p></details>
+        <div class="eq-units">\(\phi\) is a ratio of pixel counts → dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pv-metrics">
+        <div class="eq-head"><span class="eq-label">Confusion matrix, precision, recall, F1 and IoU</span><span class="eq-num">(PV11)</span></div>
+        <div class="eq-main">\[ \text{precision} = \frac{TP}{TP+FP},\qquad \text{recall} = \frac{TP}{TP+FN},\qquad F_1 = \frac{2\,\text{precision}\cdot\text{recall}}{\text{precision}+\text{recall}},\qquad \text{IoU} = \frac{|M\cap G|}{|M\cup G|} \]</div>
+        <p class="eq-read">precision is the share of flagged plants that truly have symptoms, recall the share of symptomatic plants that were flagged, F1 their harmonic mean; for the segmentation itself, the intersection over union compares the predicted plant mask with the true one.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>TP, FP, FN, TN</td><td>true/false positives and negatives (plants)</td><td>count</td></tr><tr><td>\(M, G\)</td><td>predicted and true plant pixels</td><td>px</td></tr></table>
+        <details><summary>Which metric matters?</summary><p>For a disease scout, missing an infected plant (FN) is usually worse than inspecting a healthy one (FP): prefer high recall and accept lower precision. Accuracy is misleading when symptomatic plants are rare. The lab computes these with <code>classificationMetrics</code> of the course library (Fawcett, 2006; Lesson 10.2, Eq. 10.2.10).</p></details>
+        <div class="eq-units">All are ratios of counts → dimensionless (0–1) ✓</div>
+        <div class="mini-calc" data-fn="pvF1" data-output="F1 score" data-unit="" data-digits="3" data-plot="fp" data-ymin="0" data-ymax="1" data-title="Try it">
+          <div data-var="tp" data-label="True positives" data-min="0" data-max="12" data-step="1" data-value="4"></div>
+          <div data-var="fp" data-label="False positives" data-min="0" data-max="12" data-step="1" data-value="1"></div>
+          <div data-var="fn" data-label="False negatives" data-min="0" data-max="12" data-step="1" data-value="2"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the lab to answer. Tick each task when done; <em>Save investigation</em> stores your settings and readouts in your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Which index, which background?</h4><p>For each background (black raft, grey tray, white raft, coir) record the segmentation IoU with ExG + Otsu, ExG − ExR + Otsu and −a* + Otsu. Which combination fails, and which intermediate image shows why? Recommend an index for each system in your project.</p></li>
+        <li><h4>Light matters</h4><p>Compare white, warm and red + blue light, with and without white balance. Plot the IoU and the mean area error against the light type. Explain, with Eq. PV4, why white balance rescues warm light better than red + blue light.</p></li>
+        <li><h4>How precise is a photo-balance?</h4><p>With the default scene, record the calibration coefficients and the RMSE and MAPE of the fresh-mass estimates. Repeat for 25 % and 75 % of plants harvested and for the straight-line model. How many plants must you harvest for a useful calibration? Why does even a perfect area measurement leave about 8 % error here?</p></li>
+        <li><h4>Perspective</h4><p>Lower the camera from 200 to 50 cm at day 30 and record the area error. Then switch on the perspective correction and find the canopy height that removes the bias. Compare with the plants' height in the table’s magnification (Eq. PV6). How high should you mount your own camera?</p></li>
+        <li><h4>Tune the symptom detector</h4><p>With 50 % infected plants, sweep the flagging threshold τ and the brown-hue limit. Find the settings with the best F1 — and those with recall = 1. How many healthy plants would a scout inspect needlessly? Then switch to coir: which pixels produce the false alarms?</p></li>
+        <li><h4>Your own growth curve from images</h4><p>Press <em>Photograph the crop every 3 days</em>, then open the <a href="/laboratories/model-fitting/?ds=vision">Model-fitting lab</a> (data set “Image series from the Plant vision lab”). Fit growth curves to one plant and to the mean. Where does the image-based area deviate from the true area, and how does that affect the fitted asymptote? Repeat with <em>Nearest planting hole</em>.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-plant-vision">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the lab and the equations","questions":[
+          {"type":"numeric","q":"A pixel has R = 60, G = 120, B = 40. What is its excess green index ExG = 2g − r − b (Eqs. PV1–PV2)?","answer":0.636,"tol":0.01,"hint":"First divide each channel by R + G + B = 220.","explain":"<p>\\(r = 0.273\\), \\(g = 0.545\\), \\(b = 0.182\\); ExG = \\(2(0.545) - 0.273 - 0.182 = 0.636\\) — clearly a plant pixel.</p>"},
+          {"type":"numeric","q":"The 5 cm blue reference square covers 3 600 pixels. A lettuce covers 30 000 pixels. What is its projected area (no perspective correction)?","answer":208.3,"tol":0.01,"unit":"cm²","hint":"s = 5/√3600 cm per pixel; A = N s².","explain":"<p>\\(s = 5/60 = 0.0833\\) cm px⁻¹; \\(A = 30\\,000\\times0.0833^2 = 208.3\\) cm².</p>"},
+          {"type":"numeric","q":"The camera is 100 cm above the tray and the reference card, and the lettuce canopy is 10 cm above the tray. By what factor must the uncorrected area be multiplied (Eq. PV6)?","answer":0.81,"tol":0.01,"explain":"<p>\\(((100-10)/100)^2 = 0.81\\): without correction the area is overestimated by \\(1/0.81 - 1 = 23\\) %.</p>"},
+          {"type":"mcq","q":"Under red + blue LED light the excess-green segmentation fails. Why?","options":["Almost no green light reaches the leaves, so G is small for every pixel and the leaves look purple-black","Otsu's method only works for grey backgrounds","The reference card is not visible","Red lettuce is always used under LEDs"],"answer":0,"feedback":["","Otsu works on any bimodal histogram; here the histogram is no longer bimodal.","The card is still found; its colour just shifts.","The cultivar is independent of the lighting."],"explain":"<p>Colour indices assume white illumination. White-balancing on a white reference helps (Eq. PV4), but a camera cannot recover reflectance information in a band that was never illuminated. Photograph under white light.</p>"},
+          {"type":"numeric","q":"A symptom detector flags 5 plants, of which 4 have symptoms; 2 symptomatic plants were not flagged. What is its F1 score (Eq. PV11)?","answer":0.727,"tol":0.01,"hint":"TP = 4, FP = 1, FN = 2.","explain":"<p>Precision = 4/5 = 0.80; recall = 4/6 = 0.667; F1 = 2(0.80)(0.667)/(0.80 + 0.667) = 0.727.</p>"},
+          {"type":"tf","q":"Morphological opening fills small holes in leaves as well as removing small specks.","answer":false,"explain":"<p>Opening (erosion then dilation) removes objects and protrusions smaller than the structuring element. Filling holes is the job of closing (dilation then erosion) — Eq. PV7.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ================================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Assumptions and simplifications</h2>
+      <ul>
+        <li><strong>Synthetic images.</strong> Rosettes are drawn procedurally (leaf outlines with wavy or lobed margins, colour gradients, veins and soft shadows) on four backgrounds. They are realistic enough to exercise the pipeline, but real photos add specular highlights, motion blur, compression artefacts, algae, labels and cables.</li>
+        <li><strong>Ground truth</strong> is known exactly for every pixel. True fresh masses are <em>synthetic</em>: \(W = 0.122\,A^{1.18}e^{0.08\varepsilon}\), the illustrative calibration of Lesson 10.3, with 8 % random variation. Real calibrations must be measured for your cultivar and system.</li>
+        <li><strong>Symptoms.</strong> Infected plants carry brown necrotic spots with a chlorotic halo; tipburn is drawn as brown margins on the youngest leaves after day 14. “Truth” = infected or tipburn. Symptoms under younger leaves are invisible from above, as in reality.</li>
+        <li><strong>Light and camera colours.</strong> Illumination is represented by three broad bands (red, green and blue light) that multiply the surface colours, followed by a camera cross-talk matrix (each colour channel sees a little of the neighbouring bands) and Gaussian sensor noise. White LED = equal bands; warm/HPS-like = little blue; red + blue LED = about 5 % green. These band intensities are illustrative, not measured spectra.</li>
+        <li><strong>Camera model.</strong> A pinhole camera looking straight down; leaves are enlarged by \(D/(D-h)\) with a canopy height that grows with plant size; lens distortion and oblique views are ignored.</li>
+        <li><strong>Algorithms.</strong> Square structuring element; optional hole filling by flood fill from the border; 8-connectivity; Otsu on a 128-bin histogram between the 0.2nd and 99.8th percentiles; white balance by diagonal (von Kries) gains; brown-pixel rule in HSV. These are standard textbook choices, not the only ones (Hamuda et al., 2016; Szeliski, 2022).</li>
+        <li><strong>Your photos</strong> are read with the browser's FileReader, scaled to at most 1 100 × 760 px and never leave your computer.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Barbedo, J. G. A. (2018). Factors influencing the use of deep learning for plant disease recognition. <em>Biosystems Engineering</em>, 172, 84–91. <a href="https://doi.org/10.1016/j.biosystemseng.2018.05.013" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2018.05.013</a></li>
+        <li>Easlon, H. M., &amp; Bloom, A. J. (2014). Easy Leaf Area: automated digital image analysis for rapid and accurate measurement of leaf area. <em>Applications in Plant Sciences</em>, 2(7), 1400033. <a href="https://doi.org/10.3732/apps.1400033" target="_blank" rel="noopener">doi:10.3732/apps.1400033</a></li>
+        <li>Fawcett, T. (2006). An introduction to ROC analysis. <em>Pattern Recognition Letters</em>, 27(8), 861–874. <a href="https://doi.org/10.1016/j.patrec.2005.10.010" target="_blank" rel="noopener">doi:10.1016/j.patrec.2005.10.010</a></li>
+        <li>Gehan, M. A., Fahlgren, N., Abbasi, A., Berry, J. C., Callen, S. T., Chavez, L., Doust, A. N., Feldman, M. J., Gilbert, K. B., Hodge, J. G., Hoyer, J. S., Lin, A., Liu, S., Lizárraga, C., Lorence, A., Miller, M., Platon, E., Tessman, M., &amp; Sax, T. (2017). PlantCV v2: image analysis software for high-throughput plant phenotyping. <em>PeerJ</em>, 5, e4088. <a href="https://doi.org/10.7717/peerj.4088" target="_blank" rel="noopener">doi:10.7717/peerj.4088</a></li>
+        <li>Golzarian, M. R., Frick, R. A., Rajendran, K., Berger, B., Roy, S., Tester, M., &amp; Lun, D. S. (2011). Accurate inference of shoot biomass from high-throughput images of cereal plants. <em>Plant Methods</em>, 7, 2. <a href="https://doi.org/10.1186/1746-4811-7-2" target="_blank" rel="noopener">doi:10.1186/1746-4811-7-2</a></li>
+        <li>Hamuda, E., Glavin, M., &amp; Jones, E. (2016). A survey of image processing techniques for plant extraction and segmentation in the field. <em>Computers and Electronics in Agriculture</em>, 125, 184–199. <a href="https://doi.org/10.1016/j.compag.2016.04.024" target="_blank" rel="noopener">doi:10.1016/j.compag.2016.04.024</a></li>
+        <li>Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao, T., Whitehead, S., Berg, A. C., Lo, W.-Y., Dollár, P., &amp; Girshick, R. (2023). Segment anything. In <em>Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)</em> (pp. 3992–4003). <a href="https://doi.org/10.1109/ICCV51070.2023.00371" target="_blank" rel="noopener">doi:10.1109/ICCV51070.2023.00371</a></li>
+        <li>Mahlein, A.-K. (2016). Plant disease detection by imaging sensors — parallels and specific demands for precision agriculture and plant phenotyping. <em>Plant Disease</em>, 100(2), 241–251. <a href="https://doi.org/10.1094/PDIS-03-15-0340-FE" target="_blank" rel="noopener">doi:10.1094/PDIS-03-15-0340-FE</a></li>
+        <li>Meyer, G. E., &amp; Neto, J. C. (2008). Verification of color vegetation indices for automated crop imaging applications. <em>Computers and Electronics in Agriculture</em>, 63(2), 282–293. <a href="https://doi.org/10.1016/j.compag.2008.03.009" target="_blank" rel="noopener">doi:10.1016/j.compag.2008.03.009</a></li>
+        <li>Mohanty, S. P., Hughes, D. P., &amp; Salathé, M. (2016). Using deep learning for image-based plant disease detection. <em>Frontiers in Plant Science</em>, 7, 1419. <a href="https://doi.org/10.3389/fpls.2016.01419" target="_blank" rel="noopener">doi:10.3389/fpls.2016.01419</a></li>
+        <li>Otsu, N. (1979). A threshold selection method from gray-level histograms. <em>IEEE Transactions on Systems, Man, and Cybernetics</em>, 9(1), 62–66. <a href="https://doi.org/10.1109/TSMC.1979.4310076" target="_blank" rel="noopener">doi:10.1109/TSMC.1979.4310076</a></li>
+        <li>Petropoulou, A. S., van Marrewijk, B., de Zwart, F., Elings, A., Bijlaard, M., van Daalen, T., Jansen, G., &amp; Hemming, S. (2023). Lettuce production in intelligent greenhouses — 3D imaging and computer vision for plant spacing decisions. <em>Sensors</em>, 23(6), 2929. <a href="https://doi.org/10.3390/s23062929" target="_blank" rel="noopener">doi:10.3390/s23062929</a></li>
+        <li>Rosenfeld, A., &amp; Pfaltz, J. L. (1966). Sequential operations in digital picture processing. <em>Journal of the ACM</em>, 13(4), 471–494. <a href="https://doi.org/10.1145/321356.321357" target="_blank" rel="noopener">doi:10.1145/321356.321357</a></li>
+        <li>Schneider, C. A., Rasband, W. S., &amp; Eliceiri, K. W. (2012). NIH Image to ImageJ: 25 years of image analysis. <em>Nature Methods</em>, 9(7), 671–675. <a href="https://doi.org/10.1038/nmeth.2089" target="_blank" rel="noopener">doi:10.1038/nmeth.2089</a></li>
+        <li>Serra, J. (1982). <em>Image Analysis and Mathematical Morphology</em>. Academic Press.</li>
+        <li>Smith, A. R. (1978). Color gamut transform pairs. <em>ACM SIGGRAPH Computer Graphics</em>, 12(3), 12–19. <a href="https://doi.org/10.1145/965139.807361" target="_blank" rel="noopener">doi:10.1145/965139.807361</a></li>
+        <li>Szeliski, R. (2022). <em>Computer Vision: Algorithms and Applications</em> (2nd ed.). Springer. <a href="https://doi.org/10.1007/978-3-030-34372-9" target="_blank" rel="noopener">doi:10.1007/978-3-030-34372-9</a></li>
+        <li>Woebbecke, D. M., Meyer, G. E., Von Bargen, K., &amp; Mortensen, D. A. (1995). Color indices for weed identification under various soil, residue, and lighting conditions. <em>Transactions of the ASAE</em>, 38(1), 259–269. <a href="https://doi.org/10.13031/2013.27838" target="_blank" rel="noopener">doi:10.13031/2013.27838</a></li>
+        <li>Zhang, L., Xu, Z., Xu, D., Ma, J., Chen, Y., &amp; Fu, Z. (2020). Growth monitoring of greenhouse lettuce based on a convolutional neural network. <em>Horticulture Research</em>, 7, 124. <a href="https://doi.org/10.1038/s41438-020-00345-6" target="_blank" rel="noopener">doi:10.1038/s41438-020-00345-6</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

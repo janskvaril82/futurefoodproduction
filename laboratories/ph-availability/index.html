@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pH, speciation and nutrient availability · Future Food Production</title>
+<meta name="description" content="Drag the pH of a nutrient solution and watch phosphate and carbonate speciation, iron-chelate stability, the classic availability chart, root-driven pH drift and an acid titration of your own water respond.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Fe-EDTA held at equilibrium with fresh Fe(OH)3 (I = 0.1 M constants, Mg 1.5 mmol/L), as in Eq. P5 */
+FFP_CALC.phEdta = function (v) {
+  var h = Math.pow(10, -v.pH), b = [10.24, 16.40, 19.06, 21.06, 22.56, 22.56], aL = 1;
+  for (var i = 0; i < b.length; i++) aL += Math.pow(10, b[i]) * Math.pow(h, i + 1);
+  aL += Math.pow(10, 10.65) * v.ca * 1e-3 + Math.pow(10, 8.79) * 1.5e-3;
+  var R = Math.pow(10, 25.1 + 4.18) * h * h * h / aL;
+  return 100 * R / (1 + R);
+};
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+.stage.light-stage .stage-hud { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 110px); }
+.stage.light-stage .stage-hud .hud-chip { background: color-mix(in srgb, var(--bg-elev) 88%, transparent); color: var(--ink); border-color: var(--line); }
+.stage.light-stage .stage-hud .hud-chip b { color: var(--accent); }
+.stage.light-stage .stage-toolbar button { background: var(--bg-sunk); color: var(--ink-2); border-color: var(--line); }
+</style>
+</head>
+<body data-page="lab" data-slug="ph-availability">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>pH, speciation and nutrient availability</h1>
+    <p class="lead">Why do hydroponic growers obsess over keeping the pH between 5.5 and 6.5? Because a single number — the concentration of hydrogen ions — decides in which chemical form phosphate and carbon exist, whether iron stays held by its chelate or rusts out as a precipitate, and how much acid your tap water needs. Drag the pH across the scale and watch the solution respond, titrate your own water to pH 5.8 with and without CO₂ escaping, and let a crop take up nitrate or ammonium to see why the pH of a hydroponic tank never stays where you set it.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage light-stage" id="stage" aria-label="Animated nutrient solution with speciation particles, iron chelates and a qualitative availability chart; alternative views show a root in solution and an acid titration bench"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Phosphate and carbonate speciation</h3>
+      <div class="chart-sub">Fraction of total phosphate (pink–violet) and total inorganic carbon (grey–blue) in each form versus pH, from the course library (<code>phosphateSpecies</code>, <code>carbonateSpecies</code>; 25 °C). Green band: the hydroponic window.</div>
+      <div class="chart" id="chart-spec"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Iron-chelate stability</h3>
+      <div class="chart-sub">Share of the iron that stays chelated at equilibrium with iron(III) hydroxide, with calcium and magnesium competing for the ligand (conditional-stability calculation, Eq. P5). Change Ca²⁺, Mg²⁺ or the hydroxide type in the controls.</div>
+      <div class="chart" id="chart-chel"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Acid titration of your water</h3>
+      <div class="chart-sub">pH versus acid added (mmol of H⁺ per litre) in a closed tank, where the CO₂ formed stays dissolved, and in an aerated tank, where it escapes to the air. Dots: the dose that reaches the target pH.</div>
+      <div class="chart" id="chart-titr"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Root-driven pH drift</h3>
+      <div class="chart-sub">pH of the tank over the coming days as the crop takes up nitrogen with the chosen NH₄⁺ share (green), compared with pure nitrate, the neutral share and 30 % ammonium (grey).</div>
+      <div class="chart" id="chart-drift"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Drag the pH marker</strong> along the coloured scale at the top of the stage (or use the slider). Watch the particles in the beaker: below pH 7.2 phosphate is almost all H₂PO₄⁻ (pink dots); above it, HPO₄²⁻ (violet diamonds) takes over — the form that precipitates with calcium. Carbon is mostly dissolved CO₂ (grey rings) below pH 6.35 and bicarbonate above.</li>
+        <li><strong>Watch the iron.</strong> The three rings of "claws" are iron chelates. Push the pH above 7: EDTA drops its iron first, rust-coloured Fe(OH)₃ flakes fall and settle, then DTPA follows near pH 8, while EDDHA holds on to about pH 10. The chelate chart below shows the same thing quantitatively.</li>
+        <li><strong>Read the availability chart</strong> on the right of the stage. Iron, manganese, zinc, copper and boron shrink above 6.5; calcium, magnesium and molybdenum shrink below 5.5. The chart is qualitative — a summary of many experiments — but it explains the hydroponic window.</li>
+        <li><strong>Titrate your tap water.</strong> Apply <em>Soft water + nitric acid</em> and press <em>Animate</em>. The pH falls slowly at first — bicarbonate is buffering — then crashes once the bicarbonate is gone. Compare the two doses in the readouts: an aerated tank needs about a quarter more acid, because the CO₂ that is formed escapes.</li>
+        <li><strong>See the pH creep.</strong> The small curve on the titration bench shows what happens if you dose for a closed tank and then aerate: within a few hours the pH rises from 5.8 to above 7. This is the everyday experience of DWC and NFT growers.</li>
+        <li><strong>Feed the roots.</strong> Switch the stage to <em>Root zone</em>, apply <em>Pure nitrate feeding</em> and animate: nitrate goes into the root, bicarbonate comes out, and the pH climbs by about half a unit per day. Try <em>Too much ammonium</em>: now H⁺ comes out and the solution acidifies within a day.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>pH is a logarithm, so each unit is a tenfold change in hydrogen ions — and each acid–base pair switches form within about one pH unit of its pK. The hydroponic window 5.5–6.5 is where phosphate is still H₂PO₄⁻, bicarbonate is mostly gone, the cheap iron chelates still hold their iron, and calcium and magnesium are fully available.</p></div>
+      <a class="lab-link" data-lab="nutrient-mixer" data-why="Use the acid dose you found here in a complete recipe: grams per A and B stock tank, ion balance and EC."></a>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>One number, many chemical switches</h2>
+      <p>pH is minus the decimal logarithm of the hydrogen-ion activity: at pH 5.8 the solution holds 1.6 µmol L⁻¹ of H⁺, at pH 6.8 ten times less. Hydrogen ions are tiny in number compared with nitrate or potassium, yet they control every acid–base pair in the tank. Each pair has a p<i>K</i>: the pH at which acid and base forms are equally abundant. One pH unit below the p<i>K</i> the acid form makes up 91 %; one unit above, the base form does (<a href="/lessons/nutrient-solution-chemistry/#ph">Lesson 5.2</a>).</p>
+      <table>
+        <caption>Table 1. The acid–base pairs that matter in a nutrient solution (25 °C).</caption>
+        <thead><tr><th>Pair</th><th class="num">p<i>K</i></th><th>Why it matters</th></tr></thead>
+        <tbody>
+          <tr><td>CO₂(aq) / HCO₃⁻</td><td class="num">6.35</td><td>alkalinity of the water; the buffer that acid must destroy; CO₂ can escape to air</td></tr>
+          <tr><td>H₂PO₄⁻ / HPO₄²⁻</td><td class="num">7.20</td><td>HPO₄²⁻ precipitates with Ca²⁺; phosphate is the main buffer left after acidification</td></tr>
+          <tr><td>HCO₃⁻ / CO₃²⁻</td><td class="num">10.33</td><td>calcite scale only at high pH</td></tr>
+          <tr><td>NH₄⁺ / NH₃</td><td class="num">9.25</td><td>toxic free ammonia at high pH (see the <a href="/laboratories/ammonia-toxicity/">ammonia laboratory</a>)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>The classic availability chart — and its limits</h3>
+      <p>Horticultural textbooks summarise the pH effects in a chart of bands that widen and narrow with pH. For soilless, peat-based media the familiar version goes back to Peterson (1981): the micronutrient cations Fe, Mn, Zn and Cu, and boron, become less available above about pH 6.5; calcium, magnesium and molybdenum below about 5.5; phosphorus is best near 5.5–6.5. The stage redraws such a chart <strong>schematically</strong>. It is qualitative: the shapes combine solubility, speciation and plant physiology, and they depend on the medium. Huang et al. (2025) measured macronutrient solubility in four peat-based substrates across pH 3–7.5 and concluded that real responses — for example phosphorus falling with calcium hydroxide liming as calcium phosphates form — are more complex than the reference charts. Use the chart to remember the pattern, and the speciation and chelate panels to understand the mechanism.</p>
+
+      <div class="callout frontier"><div class="callout-title">Frontier · low pH against root rot</div><p>The window 5.5–6.5 is a compromise, not a law. Gillespie, Kubota and Miller (2020) grew basil in deep-water culture at pH 4.0 or 5.5, with and without inoculation by <em>Pythium aphanidermatum</em> zoospores, and found that keeping the solution at pH 4.0 effectively suppressed the root rot. The price is chemistry you can explore here: at pH 4 calcium and magnesium uptake suffer and the micronutrient balance has to be adjusted.</p></div>
+
+      <h3>Iron chelates: a tug of war for the ligand</h3>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 250" role="img" aria-label="Competition for iron and for the chelating ligand: hydroxide pulls iron out as Fe(OH)3, calcium and protons compete for the free ligand">
+            <defs><marker id="pa-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+            <rect x="270" y="80" width="180" height="70" rx="12" class="fill-amber-soft" stroke="currentColor"/>
+            <text x="360" y="110" text-anchor="middle" style="font-weight:700">Fe³⁺–L (chelate)</text>
+            <text x="360" y="130" text-anchor="middle" class="t-small">soluble, plant-available</text>
+            <rect x="20" y="30" width="190" height="64" rx="10" class="fill-sunk" stroke="currentColor"/>
+            <text x="115" y="58" text-anchor="middle" style="font-weight:600">Fe(OH)₃ (solid)</text>
+            <text x="115" y="78" text-anchor="middle" class="t-small">favoured by OH⁻: ∝ [H⁺]³</text>
+            <rect x="510" y="30" width="190" height="64" rx="10" class="fill-sunk" stroke="currentColor"/>
+            <text x="605" y="58" text-anchor="middle" style="font-weight:600">Ca–L, Mg–L</text>
+            <text x="605" y="78" text-anchor="middle" class="t-small">calcium grabs the freed ligand</text>
+            <rect x="510" y="150" width="190" height="64" rx="10" class="fill-sunk" stroke="currentColor"/>
+            <text x="605" y="178" text-anchor="middle" style="font-weight:600">H<tspan dy="3" font-size="9">n</tspan><tspan dy="-3">L (protonated)</tspan></text>
+            <text x="605" y="198" text-anchor="middle" class="t-small">wins only at very low pH</text>
+            <line x1="268" y1="100" x2="212" y2="72" stroke="currentColor" stroke-width="1.6" marker-end="url(#pa-a)"/>
+            <line x1="452" y1="100" x2="508" y2="72" stroke="currentColor" stroke-width="1.6" marker-end="url(#pa-a)"/>
+            <line x1="452" y1="130" x2="508" y2="178" stroke="currentColor" stroke-width="1.6" marker-end="url(#pa-a)"/>
+            <text x="20" y="150" class="t-small">high pH: Fe³⁺ + 3 OH⁻ → Fe(OH)₃</text>
+            <text x="20" y="168" class="t-small">the chelate releases Fe when</text>
+            <text x="20" y="186" class="t-small">K<tspan dy="3" font-size="8.5">FeL</tspan><tspan dy="-3"> · K</tspan><tspan dy="3" font-size="8.5">s</tspan><tspan dy="-3"> · [H⁺]³ &lt; α</tspan><tspan dy="3" font-size="8.5">L</tspan></text>
+            <text x="20" y="214" class="t-small t-muted">stronger ligands (larger K<tspan dy="3" font-size="8">FeL</tspan><tspan dy="-3">) hold iron to higher pH:</tspan></text>
+            <text x="20" y="232" class="t-small t-muted">EDTA 25.1 · DTPA 27.8 · o,o-EDDHA 35.1 (log K, I = 0.1 M)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Why chelates lose their iron at high pH. The free Fe³⁺ allowed by iron(III) hydroxide falls a thousand-fold per pH unit, and calcium, present at a hundred times the iron concentration, captures any ligand that lets go. The equilibrium follows Lindsay's treatment of chelates in soils (Lindsay, 1979; Lindsay &amp; Schwab, 1982).</figcaption>
+      </figure>
+      <p>A chelate is an organic ligand that grips Fe³⁺ with several bonds. In a nutrient solution it is pulled on from two sides: hydroxide ions, whose concentration rises tenfold per pH unit, would precipitate the iron as Fe(OH)₃; and calcium, a hundred times more abundant than iron, binds any ligand that lets go. The laboratory computes the resulting equilibrium with stability constants from critically evaluated compilations (Eq. P5). Table 2 compares the model with the stability ranges quoted in practice.</p>
+      <table>
+        <caption>Table 2. pH at which a chelate loses 10 % and 50 % of its iron in this model (4 mmol L⁻¹ Ca²⁺, 1.5 mmol L⁻¹ Mg²⁺, fresh Fe(OH)₃), and published working ranges.</caption>
+        <thead><tr><th>Chelate</th><th class="num">10 % lost</th><th class="num">50 % lost</th><th>van der Lugt (2016)</th><th>Hershkowitz et al. (2025)</th></tr></thead>
+        <tbody>
+          <tr><td>Fe-EDTA</td><td class="num">6.7</td><td class="num">7.0</td><td>stable 1.5–6</td><td>up to ≈ 6.5</td></tr>
+          <tr><td>Fe-DTPA</td><td class="num">7.6</td><td class="num">7.9</td><td>stable 1.5–7</td><td>up to ≈ 7.5</td></tr>
+          <tr><td>Fe-o,o-EDDHA</td><td class="num">10.5</td><td class="num">10.8</td><td>stable 3.5–9</td><td>up to ≈ 9</td></tr>
+        </tbody>
+      </table>
+      <p>The equilibrium limits sit a few tenths of a unit above the practical ones, as they should: in a real tank iron is also lost by photodegradation of the chelate in light (Albano &amp; Miller, 2001), by displacement with copper and zinc from sulfate salts, and by precipitation with phosphate, and aged precipitates are less soluble than fresh ones (select <em>aged "soil-Fe"</em>). Practical guidance therefore keeps a safety margin.</p>
+
+      <h3>Alkalinity, acid and the escaping CO₂</h3>
+      <p>Most tap water is slightly alkaline because it carries bicarbonate. Each proton you add converts one HCO₃⁻ into CO₂, so the acid dose is fixed by how much bicarbonate must go. How much must go depends on what happens to the CO₂. In a closed vessel it stays dissolved and acidifies the solution itself, so stopping at pH 5.8 still leaves about a fifth of the carbon as bicarbonate — the chemical basis of the growers' rule "leave ≈ 0.5 mmol L⁻¹ of bicarbonate as a buffer" (van der Lugt, 2016). In an aerated DWC tank or a splashing NFT return, CO₂ escapes towards equilibrium with air, where it is only about 0.014 mmol L⁻¹ at 425 ppm (Sander, 2023; NOAA, 2025); the remaining bicarbonate then pushes the pH back up. Holding pH 5.8 in an aerated tank requires neutralising almost all the alkalinity. In a greenhouse enriched to 1000 ppm CO₂ the equilibrium CO₂ is 2.4 times higher and the drift smaller — try the CO₂ slider.</p>
+
+      <h3>Roots move the pH too</h3>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 230" role="img" aria-label="Charge balance of nutrient uptake: nitrate uptake is balanced by release of hydroxide or bicarbonate, ammonium uptake by release of protons">
+            <defs><marker id="pa-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+            <path d="M330 20 C 326 110, 342 170, 360 214 C 378 170, 394 110, 390 20 Z" class="fill-amber-soft" stroke="currentColor" stroke-width="1.4"/>
+            <text x="360" y="120" text-anchor="middle" class="t-small" style="font-weight:600">root</text>
+            <line x1="180" y1="60" x2="322" y2="60" stroke="var(--water)" stroke-width="2.4" marker-end="url(#pa-b)"/><text x="176" y="64" text-anchor="end" style="fill:var(--water);font-weight:600">NO₃⁻ in</text>
+            <line x1="322" y1="96" x2="180" y2="96" stroke="var(--water)" stroke-width="2.4" stroke-dasharray="6 4" marker-end="url(#pa-b)"/><text x="176" y="100" text-anchor="end" style="fill:var(--water)">HCO₃⁻ / OH⁻ out → pH rises</text>
+            <line x1="540" y1="60" x2="398" y2="60" stroke="var(--magenta)" stroke-width="2.4" marker-end="url(#pa-b)"/><text x="546" y="64" style="fill:var(--magenta);font-weight:600">NH₄⁺ in</text>
+            <line x1="398" y1="96" x2="540" y2="96" stroke="var(--magenta)" stroke-width="2.4" stroke-dasharray="6 4" marker-end="url(#pa-b)"/><text x="546" y="100" style="fill:var(--magenta)">H⁺ out → pH falls</text>
+            <text x="360" y="160" text-anchor="middle" class="t-small t-muted">plus K⁺, Ca²⁺, Mg²⁺ in (H⁺ out) and H₂PO₄⁻, SO₄²⁻ in (OH⁻ out)</text>
+            <text x="360" y="180" text-anchor="middle" class="t-small">net alkalinity release per mmol N = (1 − f<tspan dy="3" font-size="8.5">NH4</tspan><tspan dy="-3">) − f</tspan><tspan dy="3" font-size="8.5">NH4</tspan><tspan dy="-3"> − ε</tspan></text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> Roots keep their own charge balance: every negative charge taken up in excess is matched by an OH⁻ (or HCO₃⁻) released, every excess positive charge by an H⁺ (Hinsinger et al., 2003). Nitrate is the largest anion flux, so nitrate-fed crops alkalinise their solution; a small share of ammonium, or of the other cations, balances it.</figcaption>
+      </figure>
+      <p>A crop fed only nitrate takes up more negative than positive charge, and its roots release bicarbonate: the tank alkalinises. Ammonium does the opposite. The other ions matter too: potassium, calcium and magnesium bring positive charge, phosphate and sulfate negative. The model lumps these into one number, ε, the excess of other cations over other anions per millimole of nitrogen; the NH₄⁺ share that exactly cancels the drift is then \((1-\varepsilon)/2\). With ε between 0.6 and 0.9 this is 5–20 % — the range in which growers keep ammonium (Lesson 5.2; the Dutch standard solutions have 6–7 %). Because phosphate is almost the only buffer left once bicarbonate has been neutralised, even a slow net release of a few tenths of a millimole per litre per day moves the pH by tenths of a unit.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the laboratory</h2>
+
+      <div class="eq-box" id="eq-ph-spec">
+        <div class="eq-head"><span class="eq-label">Speciation fractions of a polyprotic acid</span><span class="eq-num">(P1)</span></div>
+        <div class="eq-main">\[ \alpha_k = \frac{[\mathrm{H^+}]^{\,n-k}\prod_{i=1}^{k}K_i}{\sum_{j=0}^{n}[\mathrm{H^+}]^{\,n-j}\prod_{i=1}^{j}K_i}, \qquad \alpha_{\mathrm{HPO_4}} = \frac{1}{10^{\,\text{p}K_1+\text{p}K_2-2\text{pH}} + 10^{\,\text{p}K_2-\text{pH}} + 1 + 10^{\,\text{pH}-\text{p}K_3}} \]</div>
+        <p class="eq-read">the fraction of a polyprotic acid present with k protons removed equals its term — the hydrogen-ion concentration to the power of the protons it still carries times the product of the first k dissociation constants — divided by the sum of all such terms. For phosphate the HPO₄²⁻ fraction simplifies to the reciprocal of four powers of ten.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value (25 °C)</th></tr>
+          <tr><td>\(K_i\), p\(K_i\)</td><td>stepwise dissociation constants; p\(K = -\log_{10}K\)</td><td>mol L⁻¹; –</td><td>phosphate 2.15, 7.20, 12.35; carbonate 6.35, 10.33 (Plummer &amp; Busenberg, 1982)</td></tr>
+          <tr><td>\(\alpha_k\)</td><td>fraction of the total in the form that has lost \(k\) protons</td><td>–</td><td>0–1</td></tr>
+          <tr><td>\(n\)</td><td>number of dissociable protons</td><td>–</td><td>3 (H₃PO₄), 2 (H₂CO₃*)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>For H₂A ⇌ HA⁻ + H⁺ ⇌ A²⁻ + 2H⁺: \(K_1 = [\mathrm{H^+}][\mathrm{HA^-}]/[\mathrm{H_2A}]\), \(K_2 = [\mathrm{H^+}][\mathrm{A^{2-}}]/[\mathrm{HA^-}]\).</li>
+            <li>Express every species through \([\mathrm{H_2A}]\): \([\mathrm{HA^-}] = K_1[\mathrm{H_2A}]/[\mathrm{H^+}]\), \([\mathrm{A^{2-}}] = K_1K_2[\mathrm{H_2A}]/[\mathrm{H^+}]^2\).</li>
+            <li>Divide each by the total \(C_T\) and multiply numerator and denominator by \([\mathrm{H^+}]^2\): \(\alpha_0 = [\mathrm{H^+}]^2/D\), \(\alpha_1 = [\mathrm{H^+}]K_1/D\), \(\alpha_2 = K_1K_2/D\) with \(D = [\mathrm{H^+}]^2 + [\mathrm{H^+}]K_1 + K_1K_2\) — the general form above.</li>
+            <li>At pH = p\(K_i\) the two neighbouring forms are equal; each pH unit away shifts their ratio tenfold.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Concentrations stand in for activities, and 25 °C constants are used. At the ionic strength of a nutrient solution (≈ 0.03 mol L⁻¹) activity corrections shift the effective p\(K_2\) of phosphate down by roughly 0.2–0.3 units; the library's carbonate constants can be evaluated at other temperatures (<code>carbonatePK(T)</code>).</p></details>
+        <div class="eq-units">Every term in numerator and denominator has units (mol L⁻¹)ⁿ, so α is dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100/(pow(10,2.15+7.20-2*pH)+pow(10,7.20-pH)+1+pow(10,pH-12.35))" data-output="Phosphate present as HPO₄²⁻" data-unit="%" data-digits="1" data-plot="pH" data-ymin="0" data-ymax="100">
+          <div data-var="pH" data-label="pH" data-min="4" data-max="10" data-step="0.05" data-value="5.8"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-alk">
+        <div class="eq-head"><span class="eq-label">Alkalinity (proton balance)</span><span class="eq-num">(P2)</span></div>
+        <div class="eq-main">\[ A = C_T\,(\alpha_{\mathrm{HCO_3}} + 2\,\alpha_{\mathrm{CO_3}}) + P_T\,(\alpha_{\mathrm{HPO_4}} + 2\,\alpha_{\mathrm{PO_4}} - \alpha_{\mathrm{H_3PO_4}}) + [\mathrm{OH^-}] - [\mathrm{H^+}] \]</div>
+        <p class="eq-read">the alkalinity — the acid a solution can neutralise before reaching its reference state — is the total inorganic carbon times the average number of protons it can still accept, plus the corresponding phosphate term measured from H₂PO₄⁻, plus hydroxide minus hydrogen ions.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(A\)</td><td>alkalinity (acid-neutralising capacity) relative to CO₂ and H₂PO₄⁻</td><td>mmol L⁻¹</td></tr>
+          <tr><td>\(C_T\)</td><td>total inorganic carbon, \([\mathrm{CO_2}] + [\mathrm{HCO_3^-}] + [\mathrm{CO_3^{2-}}]\)</td><td>mmol L⁻¹</td></tr>
+          <tr><td>\(P_T\)</td><td>total phosphate</td><td>mmol L⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Choose reference species that are not changed by the salts we add: CO₂ for carbon, H₂PO₄⁻ for phosphate (KH₂PO₄ adds phosphate at the reference level), H₂O for water.</li>
+            <li>Alkalinity counts protons that the solution can accept relative to that reference: each HCO₃⁻ one, each CO₃²⁻ two, each HPO₄²⁻ one, each PO₄³⁻ two, each OH⁻ one; species with more protons than the reference (H₃PO₄, H⁺) count negatively.</li>
+            <li>Adding a strong acid lowers A one-for-one; adding CO₂ (or letting it escape) does not change A at all — it changes \(C_T\), and therefore the pH at which the balance is satisfied.</li>
+            <li>The laboratory solves Eq. P2 for pH by bisection: closed tank with \(C_T\) fixed, or open tank with \([\mathrm{CO_2}]\) fixed by air (\(C_T = [\mathrm{CO_2}]_{\text{air}}/\alpha_0\)).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Only carbonate, phosphate and water are considered; silicate, borate, ammonia and organic acids are neglected. They matter little between pH 5 and 7.</p></details>
+        <div class="eq-units">mmol L⁻¹ × (–) on every term ✓</div>
+        <div class="mini-calc" data-formula="6.352 + log10(hco3/(0.0334*ppm*1e-6*0.969*1000))" data-output="pH of an aerated tank without phosphate" data-unit="" data-digits="2" data-plot="hco3" data-title="Try it — pH set by bicarbonate and the CO₂ of the air (open system)">
+          <div data-var="hco3" data-label="Bicarbonate left" data-min="0.01" data-max="5" data-step="0.01" data-value="0.5" data-unit="mmol L⁻¹" data-scale="log"></div>
+          <div data-var="ppm" data-label="CO₂ in air" data-min="400" data-max="1500" data-step="5" data-value="425" data-unit="ppm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-henry">
+        <div class="eq-head"><span class="eq-label">Dissolved CO₂ in equilibrium with air</span><span class="eq-num">(P3)</span></div>
+        <div class="eq-main">\[ [\mathrm{CO_2(aq)}]_{\text{air}} = K_H\;x_{\mathrm{CO_2}}\,(P - p_w) \]</div>
+        <p class="eq-read">the equilibrium concentration of dissolved carbon dioxide equals Henry's solubility constant times the mole fraction of CO₂ in dry air times the partial pressure of dry air.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(K_H\)</td><td>Henry constant of CO₂ at 25 °C</td><td>mol L⁻¹ atm⁻¹</td><td>0.0334 (3.3 × 10⁻⁴ mol m⁻³ Pa⁻¹; Sander, 2023)</td></tr>
+          <tr><td>\(x_{\mathrm{CO_2}}\)</td><td>CO₂ mole fraction</td><td>ppm</td><td>≈ 425 (NOAA 2024 global mean 422.8)</td></tr>
+          <tr><td>\(P - p_w\)</td><td>pressure of dry air (water vapour 3.17 kPa at 25 °C)</td><td>atm</td><td>0.969</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Henry's law: the dissolved concentration is proportional to the partial pressure of the gas at the interface (Lesson 5.3, Eq. 5.3.3).</li><li>\(0.0334 \times 425\times10^{-6} \times 0.969 = 1.38\times10^{-5}\) mol L⁻¹ = 0.014 mmol L⁻¹ — far below the 1–6 mmol L⁻¹ of CO₂ formed when bicarbonate-rich water is acidified, which is why an acidified, aerated tank degasses.</li></ol></details>
+        <div class="eq-units">mol L⁻¹ atm⁻¹ × (–) × atm = mol L⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="0.0334*ppm*1e-6*0.969*1000" data-output="CO₂(aq) at equilibrium" data-unit="mmol L⁻¹" data-digits="4" data-plot="ppm" data-ymin="0">
+          <div data-var="ppm" data-label="CO₂ in air" data-min="300" data-max="2000" data-step="5" data-value="425" data-unit="ppm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-dose">
+        <div class="eq-head"><span class="eq-label">Acid dose to a target pH</span><span class="eq-num">(P4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} a = A_{\text{w}} - A(\text{pH}^{*};\,C_T^{*}), \qquad V_{\text{acid}} = \frac{a\,V_{\text{w}}}{h\,C_{\text{acid}}} \\[6pt] C_T^{*} = \begin{cases} C_{T,\text{w}} & \text{closed tank} \\ [\mathrm{CO_2}]_{\text{air}}/\alpha_0(\text{pH}^*) & \text{aerated tank} \end{cases} \end{gathered} \]</div>
+        <p class="eq-read">the acid needed per litre, in millimoles of H⁺, is the alkalinity of the water minus the alkalinity the solution keeps at the target pH, with total carbon either conserved or set by the air. The volume of concentrated acid is that amount times the water volume divided by the protons per acid molecule and by the molarity of the acid.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example</th></tr>
+          <tr><td>\(A_{\text{w}},\ C_{T,\text{w}}\)</td><td>alkalinity and total carbon of the water (from HCO₃⁻ and its pH)</td><td>mmol L⁻¹</td><td>1.15 and 1.15 (Mälaren water, pH 8.2)</td></tr>
+          <tr><td>\(a\)</td><td>acid dose as H⁺ equivalents</td><td>mmol L⁻¹</td><td>0.90 closed, 1.15 aerated (to pH 5.8)</td></tr>
+          <tr><td>\(h,\ C_{\text{acid}}\)</td><td>protons per molecule; molarity \(10\,w\rho/M\)</td><td>–; mol L⁻¹</td><td>HNO₃ 38 %: 1, 7.45</td></tr>
+          <tr><td>\(V_{\text{w}}\)</td><td>water volume</td><td>L</td><td>100</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Each proton from a strong acid lowers the alkalinity by one (Eq. P2); phosphoric acid lowers it by one per molecule and adds \(P_T\) at the reference level.</li>
+            <li>Closed: the carbon of the water is conserved, and at pH 5.8 the solution keeps \(C_T\,\alpha_1(5.8) \approx 0.22\,C_T\) as bicarbonate.</li>
+            <li>Aerated: the solution ends in equilibrium with air, keeping only \([\mathrm{CO_2}]_{\text{air}}\,\alpha_1/\alpha_0\) ≈ 0.003 mmol L⁻¹ of bicarbonate at pH 5.8 — practically all alkalinity must be neutralised.</li>
+            <li>Mälaren water: 0.90 mmol L⁻¹ × 100 L ÷ 7.45 mol L⁻¹ = 12.0 mL of 38 % nitric acid (closed), 15.4 mL (aerated).</li>
+          </ol>
+        </details>
+        <details><summary>Safety</summary><p>Concentrated acids cause severe burns: goggles and gloves, add acid to water, never the reverse. Nitric acid above 3 % is not sold to private persons in the EU (Regulation (EU) 2019/1148); phosphoric acid is.</p></details>
+        <div class="eq-units">mmol L⁻¹ × L ÷ (mol L⁻¹) = mL ✓</div>
+        <div class="mini-calc" data-formula="a*V/(h*10*w*rho/M)" data-output="Volume of concentrated acid" data-unit="mL" data-digits="1" data-plot="a" data-ymin="0">
+          <div data-var="a" data-label="Dose a (H⁺ equivalents)" data-min="0" data-max="6" data-step="0.01" data-value="0.9" data-unit="mmol L⁻¹"></div>
+          <div data-var="V" data-label="Water volume" data-min="10" data-max="2000" data-step="10" data-value="100" data-unit="L"></div>
+          <div data-var="w" data-label="Acid strength w" data-min="10" data-max="90" data-step="1" data-value="38" data-unit="%"></div>
+          <div data-var="rho" data-label="Density ρ" data-min="1.05" data-max="1.8" data-step="0.005" data-value="1.235" data-unit="g mL⁻¹" data-digits="3"></div>
+          <div data-var="M" data-label="Molar mass M" data-min="60" data-max="100" data-step="0.01" data-value="63.01" data-unit="g mol⁻¹"></div>
+          <div data-var="h" data-label="Protons per molecule h" data-min="1" data-max="2" data-step="1" data-value="1"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-chelate">
+        <div class="eq-head"><span class="eq-label">Conditional stability of an iron chelate</span><span class="eq-num">(P5)</span></div>
+        <div class="eq-main">\[ f_{\text{chel}} = \frac{R}{1+R}, \qquad R = \frac{K'_{\mathrm{FeL}}\;{}^{*}K_s\,[\mathrm{H^+}]^{3}}{\alpha_L}, \qquad \alpha_L = 1 + \sum_n \beta_{\mathrm{H}_n\mathrm{L}}[\mathrm{H^+}]^{n} + \sum_{M=\mathrm{Ca,Mg}} K_{ML}'\,[M] \]</div>
+        <p class="eq-read">once iron hydroxide can form, the fraction of iron that stays chelated is R over one plus R, where R is the chelate's stability constant times the solubility constant of the hydroxide times the cube of the hydrogen-ion concentration, divided by the side-reaction coefficient of the ligand — how many other ways the freed ligand has to exist: protonated, or bound to calcium and magnesium.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>log₁₀ value (25 °C, I = 0.1 M)</th></tr>
+          <tr><td>\(K'_{\mathrm{FeL}}\)</td><td>Fe³⁺ + L ⇌ FeL (including FeHL and Fe(OH)L where known)</td><td>L mol⁻¹</td><td>EDTA 25.1; DTPA 27.8 (Anderegg et al., 2005); o,o-EDDHA 35.09 (Yunta et al., 2003, 2012)</td></tr>
+          <tr><td>\({}^{*}K_s\)</td><td>Fe(OH)₃ + 3H⁺ ⇌ Fe³⁺ + 3H₂O</td><td>L² mol⁻²</td><td>fresh amorphous 3.54, aged "soil-Fe" 2.70 at I = 0 (Lindsay, 1979; Lindsay &amp; Schwab, 1982) → 4.18 and 3.34 at 0.1 M</td></tr>
+          <tr><td>\(\beta_{\mathrm{H}_n\mathrm{L}}\)</td><td>cumulative protonation constants of the ligand</td><td>(L mol⁻¹)ⁿ</td><td>EDTA 10.24, 16.40, 19.06, 21.06…; DTPA 10.54, 19.10, 23.40, 26.17, 28.17; EDDHA 11.94, 22.67, 31.33, 37.52</td></tr>
+          <tr><td>\(K'_{\mathrm{CaL}},\ K'_{\mathrm{MgL}}\)</td><td>competing complexes (including protonated forms)</td><td>L mol⁻¹</td><td>EDTA 10.65, 8.79; DTPA 10.7, 9.3; EDDHA 7.29, 9.76</td></tr>
+          <tr><td>\([M]\)</td><td>free Ca²⁺, Mg²⁺</td><td>mol L⁻¹</td><td>sliders (mmol L⁻¹)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>With Fe(OH)₃ present, free Fe³⁺ is fixed: \([\mathrm{Fe^{3+}}] = {}^{*}K_s[\mathrm{H^+}]^3\) — it falls 1000-fold per pH unit.</li>
+            <li>The chelate: \([\mathrm{FeL}] = K_{\mathrm{FeL}}[\mathrm{Fe^{3+}}][\mathrm{L}]\), where \([\mathrm{L}]\) is the fully deprotonated free ligand.</li>
+            <li>Ligand not bound to iron: \(L' = [\mathrm{L}]\,\alpha_L\), summing protonated forms and Ca/Mg complexes.</li>
+            <li>For a 1 : 1 product, ligand and iron totals are equal; the ligand released by iron equals the iron precipitated. Hence \([\mathrm{FeL}]/L' = K_{\mathrm{FeL}}{}^{*}K_s[\mathrm{H^+}]^3/\alpha_L = R\) and \(f = R/(1+R)\).</li>
+            <li>If the computed free Fe³⁺ without a precipitate is below the solubility limit (low pH), no hydroxide forms and a quadratic mass balance gives the fraction instead; the laboratory checks both cases and also includes Fe(III) hydrolysis (Baes &amp; Mesmer, 1976).</li>
+            <li>Constants from different ionic strengths were brought to I = 0.1 M with the Davies equation.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Thermodynamic equilibrium only; the kinetics of iron release can take days. Mixed hydroxo complexes such as Fe(OH)EDTA²⁻ are neglected, which slightly underestimates EDTA's stability above pH 7. Competition by Cu, Zn and Mn, photodegradation and precipitation of iron phosphates are not included — reasons why practical limits are lower than these.</p></details>
+        <div class="eq-units">\(K_{\mathrm{FeL}}\) (L mol⁻¹) × \({}^{*}K_s\) (mol⁻² L²) × \([\mathrm{H^+}]^3\) (mol³ L⁻³) = dimensionless; \(\alpha_L\) dimensionless → R dimensionless ✓</div>
+        <div class="mini-calc" data-fn="phEdta" data-output="Iron held by EDTA" data-unit="%" data-digits="1" data-plot="pH" data-ymin="0" data-ymax="100" data-title="Try it — Fe-EDTA against Fe(OH)₃ and calcium">
+          <div data-var="pH" data-label="pH" data-min="5" data-max="8.5" data-step="0.05" data-value="6.8"></div>
+          <div data-var="ca" data-label="Ca²⁺" data-min="0.5" data-max="10" data-step="0.1" data-value="4" data-unit="mmol L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-drift">
+        <div class="eq-head"><span class="eq-label">Root-driven change of alkalinity</span><span class="eq-num">(P6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \frac{\mathrm{d}A}{\mathrm{d}t} = U_N\,\big[(1-f_{\mathrm{NH_4}}) - f_{\mathrm{NH_4}} - \varepsilon\big], \qquad f^{\,0}_{\mathrm{NH_4}} = \frac{1-\varepsilon}{2} \\[6pt] \varepsilon = \frac{U_{\mathrm{K}} + 2U_{\mathrm{Ca}} + 2U_{\mathrm{Mg}} - U_{\mathrm{P}} - 2U_{\mathrm{S}}}{U_N} \end{gathered} \]</div>
+        <p class="eq-read">the alkalinity of the solution changes at the rate of nitrogen uptake times the nitrate share, minus the ammonium share, minus the excess of other cations over other anions per unit of nitrogen. The drift vanishes when the ammonium share equals one minus ε, halved.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(U_N\)</td><td>nitrogen uptake per litre of solution</td><td>mmol L⁻¹ d⁻¹</td><td>0.3 (see below)</td></tr>
+          <tr><td>\(f_{\mathrm{NH_4}}\)</td><td>ammonium share of N uptake</td><td>–</td><td>0–0.5</td></tr>
+          <tr><td>\(\varepsilon\)</td><td>excess cation uptake apart from N, per mmol N</td><td>meq mmol⁻¹</td><td>0.7 (slider)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Electroneutrality of the root: charge taken up must be balanced by charge released — protons for excess cations, OH⁻ (appearing as HCO₃⁻) for excess anions (Hinsinger et al., 2003).</li>
+            <li>Per mmol N: nitrate brings −(1 − f), ammonium +f; the other ions bring +ε. Net OH⁻ release = (1 − f) − f − ε mmol, which adds directly to the alkalinity of Eq. P2.</li>
+            <li>Uptake estimate: six lettuces near harvest each gain ≈ 0.6 g dry mass per day (Lesson 5.3); at an assumed 4.5 % N in dry mass that is 27 mg N d⁻¹ per plant, 11.6 mmol N d⁻¹ in 40 L ≈ 0.3 mmol L⁻¹ d⁻¹.</li>
+            <li>ε from composition (illustrative): a crop whose tissue contains, per mol N, 0.5 mol K, 0.08 mol Ca, 0.04 mol Mg, 0.05 mol P and 0.03 mol S gives ε = 0.5 + 0.16 + 0.08 − 0.05 − 0.06 = 0.63.</li>
+            <li>The pH follows from the new alkalinity by Eq. P2 (open or closed tank).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Uptake is treated as steady; organic acids exuded by roots, nitrification of ammonium and microbial activity are ignored, as is any pH correction by the grower. The value of ε differs between crops and stages and is the largest uncertainty; measure your own drift and fit it.</p></details>
+        <div class="eq-units">mmol L⁻¹ d⁻¹ × (–) = mmol L⁻¹ d⁻¹, the unit of dA/dt ✓</div>
+        <div class="mini-calc" data-formula="U*((1-f/100)-f/100-e)" data-output="Net alkalinity release" data-unit="mmol L⁻¹ d⁻¹" data-digits="3" data-plot="f">
+          <div data-var="U" data-label="N uptake U<sub>N</sub>" data-min="0.05" data-max="1.5" data-step="0.01" data-value="0.3" data-unit="mmol L⁻¹ d⁻¹"></div>
+          <div data-var="f" data-label="NH₄⁺ share" data-min="0" data-max="50" data-step="1" data-value="7" data-unit="%"></div>
+          <div data-var="e" data-label="ε" data-min="0.3" data-max="1" data-step="0.01" data-value="0.7"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ph-degas">
+        <div class="eq-head"><span class="eq-label">CO₂ degassing after acidification</span><span class="eq-num">(P7)</span></div>
+        <div class="eq-main">\[ \frac{\mathrm{d}C_T}{\mathrm{d}t} = -\,k_La_{\mathrm{CO_2}}\,\big(C_T\,\alpha_0(\text{pH}) - [\mathrm{CO_2}]_{\text{air}}\big), \qquad A = \text{const.}, \qquad k_La_{\mathrm{CO_2}} \approx 0.9\,k_La_{\mathrm{O_2}} \]</div>
+        <p class="eq-read">total inorganic carbon falls at a rate proportional to the excess of dissolved CO₂ over its equilibrium with air, while alkalinity stays constant; as carbon leaves, the pH that satisfies the proton balance rises.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(k_La_{\mathrm{CO_2}}\)</td><td>transfer coefficient for CO₂</td><td>h⁻¹</td><td>2 (slider); ≈ 0.9 × the O₂ value</td></tr>
+          <tr><td>\(C_T\,\alpha_0\)</td><td>dissolved CO₂</td><td>mmol L⁻¹</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>The two-film model of Lesson 5.3 applies to every sparingly soluble gas, in both directions.</li><li>Penetration theory makes \(K_L \propto \sqrt{D}\); with \(D_{\mathrm{CO_2}} \approx 1.9\times10^{-9}\) and \(D_{\mathrm{O_2}} \approx 2.1\times10^{-9}\) m² s⁻¹ the ratio is ≈ 0.95; 0.9 is a common working value.</li><li>Only CO₂ crosses the interface; bicarbonate stays, so alkalinity is conserved and the pH rises until CO₂ reaches equilibrium with the air.</li></ol></details>
+        <div class="eq-units">h⁻¹ × mmol L⁻¹ = mmol L⁻¹ h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="3/(0.9*k)" data-output="Time for 95 % of the CO₂ excess to escape" data-unit="h" data-digits="1" data-plot="k" data-title="Try it — how fast does the pH creep?">
+          <div data-var="k" data-label="Oxygen k<sub>L</sub>a of the tank" data-min="0.05" data-max="10" data-step="0.05" data-value="2" data-unit="h⁻¹" data-scale="log"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <ol class="task-list">
+        <li><h4>Your water's acid demand</h4><p>Enter the alkalinity and pH of your own tap water (Swedish utilities report "alkalinitet" in mg HCO₃⁻ L⁻¹). Find the dose of the acid you can actually buy that brings 100 L to pH 5.8 in a closed tank and in your aerated project tank. Then check it in reality: titrate 1 L of your water with a dilute acid while logging pH, and compare the curve with the simulated one.</p></li>
+        <li><h4>How long does pH 5.8 last?</h4><p>Dose for a closed tank, then read the creep curve on the titration bench. Vary the aeration \(k_La\) from 0.2 to 6 h⁻¹. How long before the pH leaves the window? Would you rather acidify further, lower the aeration or buffer with phosphate? Justify with Eqs. P2 and P7.</p></li>
+        <li><h4>Chelate choice for your system</h4><p>Using the chelate chart, find the highest pH at which each chelate still holds 90 % of its iron for your water's calcium level. Your DWC drifts up to pH 7 between corrections: which chelate do you need, and how much more would it cost if Fe-DTPA costs twice and Fe-EDDHA four times as much as Fe-EDTA (Hershkowitz et al., 2025)?</p></li>
+        <li><h4>The neutral ammonium share</h4><p>With the root-zone view, find the NH₄⁺ share that keeps the pH within ±0.2 units for 7 days at ε = 0.6, 0.7 and 0.8. Compare with the 6–7 % of the Dutch standard recipes. What would you change in a recipe if your tank drifted up by 0.4 units per day?</p></li>
+        <li><h4>Greenhouse CO₂ and pH</h4><p>Raise the CO₂ in the air from 425 to 1000 ppm (a CO₂-enriched greenhouse). How do the aerated acid dose and the root-driven drift change? Explain with Eq. P3.</p></li>
+        <li><h4>Question the chart</h4><p>Read Huang et al. (2025) or Gillespie et al. (2020). Which parts of the qualitative availability chart do their measurements support, and which do they contradict? Write three sentences you would add to the chart's caption.</p></li>
+      </ol>
+
+      <div class="quiz" data-quiz="lab-ph-availability">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"What percentage of the phosphate in a nutrient solution is present as HPO₄²⁻ at pH 5.8 (Eq. P1)?","answer":3.83,"tol":0.03,"unit":"%","hint":"α = 1/(10^(pK₁+pK₂−2pH) + 10^(pK₂−pH) + 1 + 10^(pH−pK₃)).","explain":"<p>10^(7.20−5.8) = 25.1 dominates the denominator: α ≈ 1/26.1 = 3.8 %. At pH 7.2 it would be 50 %.</p>"},
+          {"type":"numeric","q":"Soft Mälaren water (70 mg L⁻¹ HCO₃⁻, pH 8.2): how many millilitres of 38 % nitric acid bring 100 L to pH 5.8 in a closed tank? (Use the simulator.)","answer":12.0,"tol":0.04,"unit":"mL","hint":"Readout 'Acid to reach the target pH' with 100 L.","explain":"<p>0.90 mmol L⁻¹ of H⁺ × 100 L ÷ 7.45 mol L⁻¹ = 12.0 mL. In an aerated tank it takes 15.4 mL, because the CO₂ formed escapes.</p>"},
+          {"type":"mcq","q":"Why does an acidified DWC tank drift back up in pH within hours?","options":["The roots release acid","CO₂ formed from bicarbonate escapes with the air bubbles, and the bicarbonate that remains raises the pH","The air pump adds bicarbonate","Nitric acid evaporates"],"answer":1,"feedback":["Roots on nitrate release base, not acid — and that effect takes days, not hours.","","Air adds CO₂ at most, which lowers pH.","Nitric acid is fully dissociated in solution and does not evaporate."],"explain":"<p>Aeration removes CO₂ but not alkalinity (Eq. P7): the ratio HCO₃⁻/CO₂ rises and so does the pH, until CO₂ is in equilibrium with air.</p>"},
+          {"type":"numeric","q":"With 4 mmol L⁻¹ Ca²⁺ and fresh Fe(OH)₃, what share of Fe-EDTA iron stays chelated at pH 7.0 according to the model?","answer":51.5,"abstol":4,"unit":"%","hint":"Read the chelate chart or the readout at pH 7.0.","explain":"<p>About half: at pH 7 the product K<sub>FeL</sub>·K<sub>s</sub>·[H⁺]³ has fallen to the level of the calcium competition. Fe-DTPA still holds 99.8 % and Fe-EDDHA 100 %.</p>"},
+          {"type":"numeric","q":"If other cations exceed other anions in uptake by ε = 0.7 meq per mmol N, which NH₄⁺ share of N uptake stops the root-driven drift?","answer":15,"abstol":0.6,"unit":"%","explain":"<p>(1 − ε)/2 = 0.15 = 15 % (Eq. P6).</p>"},
+          {"type":"tf","q":"Adding CO₂ to a solution (or letting it escape) changes its alkalinity.","answer":false,"explain":"<p>False. Alkalinity is defined relative to CO₂, so gaining or losing CO₂ changes total carbon and pH, but not alkalinity. Only acids and bases (and uptake of charged ions) change it.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>All equilibria at 25 °C; concentrations are used in place of activities for the acid–base chemistry (pH ≈ −log₁₀[H⁺]). Carbonate constants from Plummer and Busenberg (1982) via the course library; phosphate p<i>K</i>s 2.15, 7.20, 12.35.</li>
+        <li>Iron chelates: 1 : 1 chelate supplied as its iron salt, equilibrium with fresh amorphous or aged Fe(OH)₃, competition by free Ca²⁺ and Mg²⁺ (assumed constant, as they are in large excess) and by protons; Fe(III) hydrolysis species included. Constants at I = 0.1 M: EDTA from Martell and Smith as tabulated by Skoog et al. (2014), DTPA from the IUPAC evaluation (Anderegg et al., 2005), o,o-EDDHA from Yunta et al. (2012, converted from I = 0 with the Davies equation; consistent with log K = 35.09 of Yunta et al., 2003), hydrolysis from Baes and Mesmer (1976), Fe(OH)₃ solubility from Lindsay (1979) and Lindsay and Schwab (1982). Mixed hydroxo-chelates of EDTA, competition by Cu/Zn/Mn, photodegradation and kinetics are not modelled.</li>
+        <li>The availability chart is a qualitative, schematic redrawing of the classic chart for soilless media (Peterson, 1981) and of the chemistry in Sonneveld and Voogt (2009); its band widths are not measured concentrations.</li>
+        <li>Titration: water alkalinity treated as bicarbonate plus carbonate at the given pH; closed tank conserves total carbon; aerated tank in equilibrium with 425 ppm CO₂ (adjustable; Henry constant 0.0334 mol L⁻¹ atm⁻¹, Sander, 2023); phosphoric acid counted as one proton to H₂PO₄⁻, sulfuric acid as two.</li>
+        <li>Root drift: steady nitrogen uptake with a fixed NH₄⁺ share and a lumped excess-cation parameter ε; no nitrification, exudation or grower correction; tank either in equilibrium with air or closed with the initial carbon.</li>
+        <li>Animations show molecules in proportion to computed fractions; they are illustrations.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Albano, J. P., &amp; Miller, W. B. (2001). Photodegradation of FeDTPA in nutrient solutions. I. Effects of irradiance, wavelength, and temperature. <em>HortScience</em>, 36(2), 313–316. <a href="https://doi.org/10.21273/HORTSCI.36.2.313" target="_blank" rel="noopener">doi:10.21273/HORTSCI.36.2.313</a></li>
+        <li>Anderegg, G., Arnaud-Neu, F., Delgado, R., Felcman, J., &amp; Popov, K. (2005). Critical evaluation of stability constants of metal complexes of complexones for biomedical and environmental applications (IUPAC Technical Report). <em>Pure and Applied Chemistry</em>, 77(8), 1445–1495. <a href="https://doi.org/10.1351/pac200577081445" target="_blank" rel="noopener">doi:10.1351/pac200577081445</a></li>
+        <li>Baes, C. F., &amp; Mesmer, R. E. (1976). <em>The Hydrolysis of Cations</em>. Wiley, New York.</li>
+        <li>Gillespie, D. P., Kubota, C., &amp; Miller, S. A. (2020). Effects of low pH of hydroponic nutrient solution on plant growth, nutrient uptake, and root rot disease incidence of basil (<em>Ocimum basilicum</em> L.). <em>HortScience</em>, 55(8), 1251–1258. <a href="https://doi.org/10.21273/HORTSCI14986-20" target="_blank" rel="noopener">doi:10.21273/HORTSCI14986-20</a></li>
+        <li>Hershkowitz, J. A., Dey, M. G., Heins, R., &amp; Bugbee, B. (2025). Fertigation with Fe-EDTA, Fe-DTPA, and Fe-EDDHA chelates to prevent iron chlorosis of sensitive species in high-pH soilless media. <em>HortScience</em>, 60(3), 404–410. <a href="https://doi.org/10.21273/HORTSCI17892-24" target="_blank" rel="noopener">doi:10.21273/HORTSCI17892-24</a></li>
+        <li>Hinsinger, P., Plassard, C., Tang, C., &amp; Jaillard, B. (2003). Origins of root-mediated pH changes in the rhizosphere and their responses to environmental constraints: a review. <em>Plant and Soil</em>, 248(1–2), 43–59. <a href="https://doi.org/10.1023/A:1022371130939" target="_blank" rel="noopener">doi:10.1023/A:1022371130939</a></li>
+        <li>Huang, J., Fisher, P. R., Argo, W. R., Jeong, K. Y., &amp; Altland, J. (2025). Macronutrient solubility in response to the pH of soilless container substrates. <em>Journal of Soil Science and Plant Nutrition</em>, 25(2), 3224–3240. <a href="https://doi.org/10.1007/s42729-025-02331-0" target="_blank" rel="noopener">doi:10.1007/s42729-025-02331-0</a></li>
+        <li>Lindsay, W. L. (1979). <em>Chemical Equilibria in Soils</em>. Wiley-Interscience, New York.</li>
+        <li>Lindsay, W. L., &amp; Schwab, A. P. (1982). The chemistry of iron in soils and its availability to plants. <em>Journal of Plant Nutrition</em>, 5(4–7), 821–840. <a href="https://doi.org/10.1080/01904168209363012" target="_blank" rel="noopener">doi:10.1080/01904168209363012</a></li>
+        <li>NOAA Global Monitoring Laboratory. (2025). <em>Trends in atmospheric carbon dioxide — global monthly means</em>. <a href="https://gml.noaa.gov/ccgg/trends/global.html" target="_blank" rel="noopener">gml.noaa.gov/ccgg/trends/global.html</a></li>
+        <li>Peterson, J. C. (1981). Modify your pH perspective. <em>Florists' Review</em>, 169, 34–36.</li>
+        <li>Plummer, L. N., &amp; Busenberg, E. (1982). The solubilities of calcite, aragonite and vaterite in CO₂–H₂O solutions between 0 and 90 °C, and an evaluation of the aqueous model for the system CaCO₃–CO₂–H₂O. <em>Geochimica et Cosmochimica Acta</em>, 46(6), 1011–1040. <a href="https://doi.org/10.1016/0016-7037(82)90056-4" target="_blank" rel="noopener">doi:10.1016/0016-7037(82)90056-4</a></li>
+        <li>Sander, R. (2023). Compilation of Henry's law constants (version 5.0.0) for water as solvent. <em>Atmospheric Chemistry and Physics</em>, 23(19), 10901–12440. <a href="https://doi.org/10.5194/acp-23-10901-2023" target="_blank" rel="noopener">doi:10.5194/acp-23-10901-2023</a></li>
+        <li>Skoog, D. A., West, D. M., Holler, F. J., &amp; Crouch, S. R. (2014). <em>Fundamentals of Analytical Chemistry</em> (9th ed.). Brooks/Cole, Cengage Learning.</li>
+        <li>Sonneveld, C., &amp; Voogt, W. (2009). <em>Plant Nutrition of Greenhouse Crops</em>. Springer, Dordrecht. <a href="https://doi.org/10.1007/978-90-481-2532-6" target="_blank" rel="noopener">doi:10.1007/978-90-481-2532-6</a></li>
+        <li>van der Lugt, G. (Ed.). (2016). <em>Nutrient Solutions for Greenhouse Crops</em>. Eurofins Agro, AkzoNobel, NMI, SQM and Yara.</li>
+        <li>Yunta, F., García-Marco, S., Lucena, J. J., Gómez-Gallego, M., Alcázar, R., &amp; Sierra, M. A. (2003). Chelating agents related to ethylenediamine bis(2-hydroxyphenyl)acetic acid (EDDHA): synthesis, characterization, and equilibrium studies of the free ligands and their Mg²⁺, Ca²⁺, Cu²⁺, and Fe³⁺ chelates. <em>Inorganic Chemistry</em>, 42(17), 5412–5421. <a href="https://doi.org/10.1021/ic034333j" target="_blank" rel="noopener">doi:10.1021/ic034333j</a></li>
+        <li>Yunta, F., López-Rayo, S., &amp; Lucena, J. J. (2012). Thermodynamic database update to model synthetic chelating agents in soil systems. <em>Journal of Applied Solution Chemistry and Modeling</em>, 1(1), 46–64. <a href="https://doi.org/10.6000/1929-5030.2012.01.01.6" target="_blank" rel="noopener">doi:10.6000/1929-5030.2012.01.01.6</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

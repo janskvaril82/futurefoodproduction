@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Root nutrient uptake · Future Food Production</title>
+<meta name="description" content="Zoom from a lettuce root system to root hairs and membrane transporters; explore Michaelis–Menten uptake, depletion zones in soil versus nutrient solution, and the effect of root hairs.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live calculator for Eq. U5: quasi-steady influx to a root in soil (MM kinetics coupled to diffusion). */
+window.FFP_CALC = window.FFP_CALC || {};
+FFP_CALC.nuQuasiSteady = function (v) {
+  var r0 = 2e-4, phi = 0.5, f = Math.pow(v.theta, 7 / 3) / (phi * phi);
+  var DlTf = v.dl * 1e-9 * v.theta * f, De = DlTf / v.b;
+  var R = r0 + 2 * Math.sqrt(De * v.days * 86400);
+  var k = DlTf / (r0 * Math.log(R / r0));             // m s-1, so flux = k (Cb - Cs) in mol m-3 → mol m-2 s-1
+  var Imax = v.imax * 1e-8, Km = v.km * 1e-3, Cmin = v.cmin * 1e-3, Cb = v.cb * 1e-3;
+  if (Cb <= Cmin) return 0;
+  var lo = Cmin, hi = Cb;
+  for (var i = 0; i < 80; i++) { var m = (lo + hi) / 2; var J = Imax * (m - Cmin) / (Km + m - Cmin); if (J > k * (Cb - m)) hi = m; else lo = m; }
+  var Cs = (lo + hi) / 2; return Imax * (Cs - Cmin) / (Km + Cs - Cmin) / 1e-8;   // pmol cm-2 s-1
+};
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .nu-fader { position: absolute; inset: 0; z-index: 6; pointer-events: none; opacity: 0; transition: opacity .4s ease; display: grid; place-items: center; background: radial-gradient(circle at 50% 50%, rgba(8,14,12,.92), #020403 75%); color: #e6eee9; text-align: center; }
+  .nu-fader.on { opacity: 1; }
+  .nu-fader b { display: block; font: 600 1.35rem var(--font-sans); letter-spacing: .01em; }
+  .nu-fader span { font: 500 .8rem var(--font-mono); color: #9be7b6; letter-spacing: .12em; text-transform: uppercase; }
+  .nu-scalebar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: none; }
+  .nu-scalebar i { display: block; height: 6px; border: 2px solid rgba(230,238,233,.85); border-top: 0; min-width: 8px; }
+  .nu-scalebar span { font: 500 .7rem var(--font-mono); color: rgba(230,238,233,.85); }
+  .stage-legend .nu-key { display: inline-flex; align-items: center; gap: 5px; margin-right: 10px; }
+  .stage-legend .nu-key i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .label3d.nu-ion { font-size: 11px; padding: 2px 6px; }
+  .label3d.nu-prot { background: rgba(10,16,30,.72); }
+</style>
+</head>
+<body data-page="lab" data-slug="nutrient-uptake-root">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Root nutrient uptake</h1>
+    <p class="lead">A lettuce plant takes up nitrate, potassium and phosphate through the membranes of its root cells — but only if the ions can reach the root. Fly from the whole plant into the root-hair zone and down to the plasma membrane, where proton pumps, symporters and channels move ions at rates computed by a mechanistic uptake model. Compare soil with a stirred nutrient solution, switch root hairs on and off, and watch depletion zones grow around the roots day by day.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Uptake kinetics of three ions</h3>
+      <div class="chart-sub">Michaelis–Menten influx per unit membrane area with a threshold C<sub>min</sub> (Eq. U1) at the current root temperature. Filled dots show where each ion operates now — at the concentration actually present at the root surface, not in the bulk.</div>
+      <div class="chart" id="chart-mm"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Concentration profile around a root</h3>
+      <div class="chart-sub">Soil-solution concentration relative to the bulk versus distance from the root surface, from the radial diffusion–mass-flow model (Eq. U4), compared with a stirred nutrient solution (Eq. U9). The shaded band is the root-hair zone.</div>
+      <div class="chart" id="chart-profile"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Uptake over time</h3>
+      <div class="chart-sub">Cumulative uptake per metre of root (left axis) and influx at the root surface (right axis) in soil and in a stirred solution of the same bulk concentration.</div>
+      <div class="chart" id="chart-cum"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour through three scales</h2>
+      <ol>
+        <li><strong>Start at the plant.</strong> With <em>Medium: Hydroponic solution</em> you see a butterhead lettuce in a net pot above an aerated tank; the white roots hang freely in the solution and the fine fuzz near their tips is root hairs. Switch to <em>Soil</em>: the same plant grows in a rhizobox, a soil-filled box with a glass front against which roots grow. The coloured halo painted on the soil behind the roots is the <em>depletion zone</em> computed by the model.</li>
+        <li><strong>Choose phosphate</strong> (preset <em>Phosphate in soil</em>) and press <em>Play depletion</em>. The halo stays hair-thin: phosphate is so strongly held by the soil that it moves less than a millimetre in ten days. Now choose the preset <em>Nitrate in moist soil</em> and play again: the whole box turns colour because nitrate diffuses centimetres and neighbouring roots compete for the same soil volume.</li>
+        <li><strong>Click a root</strong> (or press <em>Guided flight</em>). The camera dives into the root-hair zone at about a hundred times magnification: files of translucent epidermal cells, root hairs growing out of some of them, the root cap at the tip and — in soil — sand grains and dark organic aggregates. The coloured dots are ions of the selected nutrient; their density follows the computed concentration profile, and the disc at the end of the root is a cross-section coloured by C/C<sub>b</sub>. Dots that stream into the root are being absorbed.</li>
+        <li><strong>Click an epidermal cell</strong> to reach the plasma membrane (about a million times magnification). The lipid bilayer carries four kinds of transport protein: the <em>H⁺-ATPase</em> (teal) pumps protons out of the cell using ATP; <em>NRT2.1</em> (blue) brings each nitrate in together with two protons; <em>PHT1</em> (amber) does the same for phosphate; <em>AKT1</em> (violet) is a potassium channel. Click a protein to read what it does. The event rates follow the model: in a cold or depleted root zone the traffic slows down.</li>
+        <li><strong>Watch the numbers</strong> below the scene. The key readout is <em>Uptake relative to stirred solution</em>: in soil it is often far below 100 % for phosphate, even though the transporters are the same — the limitation lies in the soil, not in the membrane.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Nutrient uptake is a chain of two processes in series: <strong>transport to the root surface</strong> (mass flow and diffusion through the medium) and <strong>transport across the membrane</strong> (Michaelis–Menten kinetics of carriers and channels). Whichever is slower controls the rate. In a stirred nutrient solution the membrane step limits; in soil, for immobile ions such as phosphate, the supply step dominates — which is why root hairs, root length and mycorrhizas matter so much in soil and so little in hydroponics.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>How ions reach a root</h2>
+      <p>Roots take up nutrients from the solution that bathes them, never directly from soil particles. Barber (1995) distinguished three ways in which ions come into contact with the root surface (Figure 1). <strong>Root interception</strong>: the growing root displaces soil and meets ions on its way — a small contribution because roots occupy only about one per cent of the topsoil volume. <strong>Mass flow</strong>: transpiration pulls water towards the root and the water carries dissolved ions with it; the supply rate is the water influx times the concentration. <strong>Diffusion</strong>: when the root absorbs ions faster than mass flow delivers them, the concentration at the root surface falls, a concentration gradient forms and ions diffuse down it towards the root.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 640 250" role="img" aria-label="Three mechanisms of nutrient supply to a root: mass flow, diffusion and root interception">
+          <defs><marker id="nu-ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <g>
+            <circle cx="110" cy="115" r="78" class="fill-water-soft"/>
+            <circle cx="110" cy="115" r="24" class="fill-accent-soft stroke-accent" stroke-width="2"/>
+            <g class="stroke-water" stroke-width="2" style="color:var(--water)" marker-end="url(#nu-ar)">
+              <line x1="110" y1="30" x2="110" y2="86"/><line x1="195" y1="115" x2="139" y2="115"/><line x1="110" y1="200" x2="110" y2="144"/><line x1="25" y1="115" x2="81" y2="115"/>
+            </g>
+            <circle cx="110" cy="55" r="4" class="fill-amber"/><circle cx="165" cy="115" r="4" class="fill-amber"/><circle cx="110" cy="175" r="4" class="fill-amber"/><circle cx="55" cy="115" r="4" class="fill-amber"/>
+            <text x="110" y="226" text-anchor="middle" class="t-small">Mass flow</text>
+            <text x="110" y="242" text-anchor="middle" class="t-small t-muted">ions ride with the water</text>
+          </g>
+          <g>
+            <circle cx="320" cy="115" r="78" class="fill-amber-soft" opacity="0.35"/><circle cx="320" cy="115" r="58" class="fill-amber-soft" opacity="0.5"/><circle cx="320" cy="115" r="40" fill="var(--bg-elev)" opacity="0.6"/>
+            <circle cx="320" cy="115" r="24" class="fill-accent-soft stroke-accent" stroke-width="2"/>
+            <g class="stroke-amber" stroke-width="2" style="color:var(--amber)" marker-end="url(#nu-ar)">
+              <line x1="377" y1="58" x2="343" y2="92"/><line x1="263" y1="172" x2="297" y2="138"/><line x1="263" y1="58" x2="297" y2="92"/><line x1="377" y1="172" x2="343" y2="138"/>
+            </g>
+            <text x="320" y="226" text-anchor="middle" class="t-small">Diffusion</text>
+            <text x="320" y="242" text-anchor="middle" class="t-small t-muted">down the gradient of a depletion zone</text>
+          </g>
+          <g>
+            <rect x="440" y="30" width="170" height="170" rx="10" class="fill-sunk"/>
+            <g class="fill-amber-soft"><circle cx="470" cy="60" r="12"/><circle cx="585" cy="70" r="15"/><circle cx="480" cy="170" r="14"/><circle cx="590" cy="165" r="11"/><circle cx="560" cy="120" r="9"/></g>
+            <path d="M505 30 L505 120 Q505 150 525 150 Q545 150 545 120 L545 30" class="fill-accent-soft stroke-accent" stroke-width="2"/>
+            <circle cx="525" cy="138" r="4" class="fill-amber"/><circle cx="512" cy="112" r="4" class="fill-amber"/>
+            <text x="525" y="226" text-anchor="middle" class="t-small">Root interception</text>
+            <text x="525" y="242" text-anchor="middle" class="t-small t-muted">the growing root meets ions</text>
+          </g>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The three routes by which ions reach a root in soil (after Barber, 1995). The root (green circle) is seen in cross-section. In a stirred nutrient solution, flow and mixing do the job of mass flow and diffusion over all but the last few tens of micrometres.</figcaption>
+      </figure>
+      <h3>Mobile and immobile ions</h3>
+      <p>How far an ion can travel in soil depends on its <em>effective diffusion coefficient</em> \(D_e = D_l\theta f/b\) (Eq. U3). Diffusion happens only in the soil water (volume fraction \(\theta\)), along tortuous paths (impedance factor \(f\)), and it is slowed by adsorption: the <em>buffer power</em> \(b\) is the amount of ion held on the solid phase plus in solution per unit change of solution concentration. Nitrate is hardly adsorbed (\(b\approx\theta\)), so it moves almost as fast as in pure water through the water-filled pores; phosphate is held so strongly (\(b\) of the order of hundreds) that its effective diffusion coefficient is thousands of times smaller. A useful rule of thumb is that in a time \(t\) an ion travels about \(2\sqrt{D_e t}\): centimetres for nitrate in a day, a fraction of a millimetre for phosphate in a week. Use the readouts to check this.</p>
+      <h3>From the root surface into the cell</h3>
+      <p>At the root surface ions cross the plasma membrane of epidermal and root-hair cells (Figure 3). The membrane is energised by the <strong>plasma-membrane H⁺-ATPase</strong>, a P-type pump that uses the energy of ATP to move protons out of the cell (Palmgren, 2001). This creates an acidic apoplast (pH about 5.5) and an inside-negative membrane potential. <strong>Anions</strong> must enter against this potential, so they are co-transported with protons: nitrate by NRT2 symporters with two protons per nitrate (Crawford &amp; Glass, 1998) and phosphate by PHT1 symporters with several protons (Raghothama, 1999). <strong>Potassium</strong>, a cation, is pulled in by the membrane potential through channels such as AKT1 (Hirsch et al., 1998) and, at very low concentrations, by high-affinity H⁺-coupled transporters.</p>
+      <p>Because each carrier has a limited number of binding sites and a finite turnover rate, influx saturates at high concentration. Epstein, Rains and Elzam (1963) showed that K⁺ uptake by barley roots follows Michaelis–Menten kinetics, with a high-affinity mechanism that is half-saturated at about 0.02 mM. Claassen and Barber (1974) added the threshold C<sub>min</sub>, the concentration below which net influx stops because efflux balances influx (Figure 2).</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 640 260" role="img" aria-label="Michaelis–Menten uptake curve with Imax, Km and Cmin">
+          <defs><marker id="nu-ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <line x1="60" y1="220" x2="610" y2="220" class="stroke" stroke-width="1.5" style="color:currentColor" marker-end="url(#nu-ar2)"/>
+          <line x1="60" y1="220" x2="60" y2="30" class="stroke" stroke-width="1.5" marker-end="url(#nu-ar2)"/>
+          <text x="600" y="244" text-anchor="end" class="t-small">concentration at the root surface C</text>
+          <text x="68" y="36" class="t-small">influx J</text>
+          <line x1="60" y1="60" x2="600" y2="60" class="stroke-muted" stroke-dasharray="5 4"/>
+          <text x="596" y="54" text-anchor="end" class="t-small">I<tspan dy="3" font-size="9">max</tspan></text>
+          <line x1="60" y1="140" x2="130" y2="140" class="stroke-amber" stroke-dasharray="4 3" stroke-width="1.5"/>
+          <line x1="130" y1="140" x2="130" y2="220" class="stroke-amber" stroke-dasharray="4 3" stroke-width="1.5"/>
+          <text x="20" y="144" class="t-small">I<tspan dy="3" font-size="9">max</tspan><tspan dy="-3">/2</tspan></text>
+          <text x="130" y="236" text-anchor="middle" class="t-small">K<tspan dy="3" font-size="9">m</tspan><tspan dy="-3"> + C</tspan><tspan dy="3" font-size="9">min</tspan></text>
+          <polyline points="60,220 76,220 87,193 103,167 130,140 168,119 222,103 303,90 411,82 600,75" fill="none" class="stroke-accent" stroke-width="3"/>
+          <circle cx="76" cy="220" r="4" class="fill-magenta"/>
+          <text x="84" y="210" class="t-small">C<tspan dy="3" font-size="9">min</tspan></text>
+          <text x="330" y="130" class="t-small t-muted">J = I<tspan dy="3" font-size="9">max</tspan><tspan dy="-3">(C − C</tspan><tspan dy="3" font-size="9">min</tspan><tspan dy="-3">) / (K</tspan><tspan dy="3" font-size="9">m</tspan><tspan dy="-3"> + C − C</tspan><tspan dy="3" font-size="9">min</tspan><tspan dy="-3">)</tspan></text>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> Michaelis–Menten kinetics with a threshold. I<sub>max</sub> is set by the number and turnover of transporters; K<sub>m</sub> measures their affinity (a low K<sub>m</sub> means half-saturation at a low concentration); below C<sub>min</sub> there is no net uptake.</figcaption>
+      </figure>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 640 290" role="img" aria-label="Transport proteins in the plasma membrane of a root cell">
+          <defs><marker id="nu-ar3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+          <rect x="20" y="122" width="600" height="46" class="fill-amber-soft"/>
+          <line x1="20" y1="122" x2="620" y2="122" class="stroke-amber" stroke-width="2"/><line x1="20" y1="168" x2="620" y2="168" class="stroke-amber" stroke-width="2"/>
+          <text x="24" y="26" class="t-small">Apoplast (cell wall): pH ≈ 5.5, many H⁺, positive side</text>
+          <text x="24" y="280" class="t-small">Cytosol: pH ≈ 7.3, inside-negative membrane potential</text>
+          <rect x="60" y="106" width="70" height="78" rx="14" class="fill-accent-soft stroke-accent" stroke-width="2"/>
+          <text x="95" y="150" text-anchor="middle" class="t-small">H⁺-ATPase</text>
+          <g class="stroke-magenta" stroke-width="2" style="color:var(--magenta)"><line x1="95" y1="232" x2="95" y2="60" marker-end="url(#nu-ar3)"/></g>
+          <text x="104" y="58" class="t-small">H⁺</text>
+          <text x="104" y="222" class="t-small">ATP → ADP + Pᵢ</text>
+          <rect x="200" y="106" width="70" height="78" rx="14" class="fill-water-soft stroke-water" stroke-width="2"/>
+          <text x="235" y="142" text-anchor="middle" class="t-small">NRT2.1</text><text x="235" y="158" text-anchor="middle" class="t-small t-muted">symporter</text>
+          <g class="stroke-water" stroke-width="2" style="color:var(--water)"><line x1="222" y1="60" x2="222" y2="232" marker-end="url(#nu-ar3)"/><line x1="248" y1="60" x2="248" y2="232" marker-end="url(#nu-ar3)"/></g>
+          <text x="196" y="52" class="t-small">NO₃⁻ + 2 H⁺</text>
+          <rect x="340" y="106" width="70" height="78" rx="14" class="fill-amber-soft stroke-amber" stroke-width="2"/>
+          <text x="375" y="142" text-anchor="middle" class="t-small">PHT1</text><text x="375" y="158" text-anchor="middle" class="t-small t-muted">symporter</text>
+          <g class="stroke-amber" stroke-width="2" style="color:var(--amber)"><line x1="362" y1="60" x2="362" y2="232" marker-end="url(#nu-ar3)"/><line x1="388" y1="60" x2="388" y2="232" marker-end="url(#nu-ar3)"/></g>
+          <text x="330" y="52" class="t-small">H₂PO₄⁻ + n H⁺</text>
+          <rect x="480" y="106" width="30" height="78" rx="10" class="fill-magenta-soft stroke-magenta" stroke-width="2"/><rect x="530" y="106" width="30" height="78" rx="10" class="fill-magenta-soft stroke-magenta" stroke-width="2"/>
+          <text x="520" y="200" text-anchor="middle" class="t-small">AKT1 channel</text>
+          <g class="stroke-magenta" stroke-width="2" style="color:var(--magenta)"><line x1="520" y1="60" x2="520" y2="232" marker-end="url(#nu-ar3)"/></g>
+          <text x="528" y="58" class="t-small">K⁺</text>
+        </svg></div>
+        <figcaption><b>Figure 3.</b> Primary and secondary active transport at the root plasma membrane. The H⁺-ATPase builds the proton-motive force (pH gradient plus membrane potential); symporters use it to import anions against their gradient; the membrane potential drives K⁺ in through channels. The 3D membrane scene animates exactly these four proteins.</figcaption>
+      </figure>
+      <h3>Soil versus hydroponics</h3>
+      <p>In a stirred or flowing nutrient solution the bulk concentration reaches right up to a thin unstirred layer around the root, typically tens of micrometres thick. Supply is therefore rarely limiting, and uptake is governed by the membrane kinetics — this is why a hydroponic lettuce thrives on a compact root system. In soil the same root faces a depletion zone: for phosphate the concentration at the root surface can fall to a small fraction of the bulk within hours, and the influx is then set by how fast diffusion can deliver ions, not by I<sub>max</sub>. Two consequences follow: (i) increasing I<sub>max</sub> (more transporters) helps little in soil, whereas (ii) anything that enlarges the volume of soil a root can exploit — root hairs, more root length, mycorrhizal hyphae — helps a lot.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“A high buffer power means the soil holds on to phosphate, so plants get less.” At a <em>given</em> soil-solution concentration, the opposite is true: a well-buffered soil replenishes the solution as the root depletes it, so the depletion zone expands more slowly and the gradient at the root stays steep. Try it: raise b for K⁺ while keeping C<sub>b</sub> fixed and watch the cumulative uptake. What a high buffer power does do is make it harder to <em>raise</em> the solution concentration with fertiliser.</p></div>
+      <h3>Root hairs</h3>
+      <p>Root hairs are tubular outgrowths of epidermal cells, about 10 µm wide and a fraction of a millimetre to more than a millimetre long. For mobile nitrate they hardly matter, because the depletion zone extends far beyond them. For immobile phosphate they are decisive: the soil between the hairs is exhausted quickly, so the whole hair zone acts like a thicker root. Jungk (2001) concluded from the literature that root hairs contribute anything from almost nothing to about 80 % of the uptake of a nutrient, mainly for nutrients of low mobility and high demand; a root-hairless barley mutant did not survive beyond 30 days in a low-phosphorus soil, whereas the wild type did (Gahoonia &amp; Nielsen, 2003).</p>
+      <div class="callout frontier"><div class="callout-title">Research frontier</div><p>Can we breed or engineer longer root hairs for low-input agriculture? Zhang et al. (2018) tripled root-hair length in <em>Brachypodium</em> by over-expressing RSL transcription factors. One line improved phosphorus nutrition, but plant biomass fell — longer hairs alone were not enough. Root-hair traits are now combined with root architecture and uptake kinetics in "root ideotype" breeding (Griffiths &amp; York, 2020).</p></div>
+      <div class="callout history"><div class="callout-title">History</div><p>The mathematical description of nutrient transport to roots was developed in the 1960s–1980s by P. H. Nye and P. B. Tinker in Oxford and by S. A. Barber and J. H. Cushman at Purdue. Their "Barber–Cushman" model — radial diffusion and mass flow to a cylindrical root with Michaelis–Menten uptake at its surface — is the model solved in this laboratory, and it is still the core of modern root-system models.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The simulator solves Eqs. U1–U9 for all three ions each time you move a slider (about a thousand implicit time steps on a 96-point radial grid per ion). Eq. U10 sets the rates in the membrane scene.</p>
+
+      <div class="eq-box" id="eq-nu-mm">
+        <div class="eq-head"><span class="eq-label">Michaelis–Menten influx with a threshold</span><span class="eq-num">(U1)</span></div>
+        <div class="eq-main">\[ J = \frac{I_{\max}\,(C_s - C_{\min})}{K_m + C_s - C_{\min}} \quad (C_s > C_{\min}), \qquad J = 0 \ \text{otherwise} \]</div>
+        <p class="eq-read">the net influx of an ion per unit root surface rises with its concentration at the root surface above a threshold, reaching half of the maximum when the excess concentration equals K<sub>m</sub> and approaching I<sub>max</sub> at high concentration.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default (NO₃⁻ · K⁺ · H₂PO₄⁻)</th></tr>
+          <tr><td>\(J\)</td><td>net influx per unit root surface</td><td>pmol cm⁻² s⁻¹</td><td>—</td></tr>
+          <tr><td>\(I_{\max}\)</td><td>maximum influx at 20 °C</td><td>pmol cm⁻² s⁻¹</td><td>10 · 5 · 3.26</td></tr>
+          <tr><td>\(K_m\)</td><td>Michaelis constant</td><td>µM</td><td>25 · 20 · 5.8</td></tr>
+          <tr><td>\(C_{\min}\)</td><td>concentration at which net influx is zero</td><td>µM</td><td>2 · 2 · 0.2</td></tr>
+          <tr><td>\(C_s\)</td><td>concentration in the solution at the root surface</td><td>µM</td><td>computed</td></tr>
+        </table>
+        <details><summary>Where does the equation come from?</summary><ol class="steps">
+          <li>A carrier T binds the ion S outside, \(T + S \rightleftharpoons TS\), and releases it inside at rate \(k_{\text{cat}}[TS]\).</li>
+          <li>At steady state the fraction of occupied carriers is \([TS]/T_{\text{tot}} = C/(K_m + C)\), so the influx is \(k_{\text{cat}}T_{\text{tot}}\,C/(K_m+C) = I_{\max}C/(K_m+C)\).</li>
+          <li>Ions also leak out of the root. Claassen and Barber (1974) found that net influx becomes zero at a finite concentration C<sub>min</sub>; shifting the curve by C<sub>min</sub> gives Eq. U1, the form used in the Barber–Cushman model.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>One transport system per ion is assumed. Real roots have high- and low-affinity systems (for nitrate a high-affinity system with K<sub>m</sub> of roughly 6–100 µM and a low-affinity system that does not saturate even at tens of millimolar; Griffiths &amp; York, 2020) and regulate I<sub>max</sub> with their nutrient status. The default nitrate and phosphate values are the maize values used by Barber (reported by York et al., 2016, and Ruiz et al., 2020); the K⁺ K<sub>m</sub> follows Epstein et al. (1963), while its I<sub>max</sub> and C<sub>min</sub> are illustrative values of the right order of magnitude.</p></details>
+        <div class="eq-units">\(\dfrac{\text{pmol cm}^{-2}\text{s}^{-1}\cdot \mu\text{M}}{\mu\text{M}} = \text{pmol cm}^{-2}\,\text{s}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="c<=cmin?0:imax*(c-cmin)/(km+c-cmin)" data-output="Influx J" data-unit="pmol cm⁻² s⁻¹" data-digits="3" data-plot="c">
+          <div data-var="c" data-label="Surface concentration C<sub>s</sub>" data-min="0.1" data-max="1000" data-value="10" data-scale="log" data-unit="µM"></div>
+          <div data-var="imax" data-label="I<sub>max</sub>" data-min="0.5" data-max="30" data-step="0.01" data-value="3.26" data-unit="pmol cm⁻² s⁻¹"></div>
+          <div data-var="km" data-label="K<sub>m</sub>" data-min="1" data-max="100" data-step="0.1" data-value="5.8" data-unit="µM"></div>
+          <div data-var="cmin" data-label="C<sub>min</sub>" data-min="0" data-max="5" data-step="0.05" data-value="0.2" data-unit="µM"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nu-temp">
+        <div class="eq-head"><span class="eq-label">Temperature effects</span><span class="eq-num">(U2)</span></div>
+        <div class="eq-main">\[ I_{\max}(T) = I_{\max,20}\,Q_{10}^{(T-20)/10}, \qquad D_l(T) = D_{l,25}\,\frac{T+273.15}{298.15}\,\frac{\eta(25)}{\eta(T)} \]</div>
+        <p class="eq-read">the maximum influx changes by a factor Q₁₀ for every 10 °C change of root-zone temperature, while the diffusion coefficient of an ion in water rises in proportion to absolute temperature divided by the viscosity of water.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(Q_{10}\)</td><td>factor by which I<sub>max</sub> changes per 10 °C (default 2)</td><td>–</td></tr>
+          <tr><td>\(D_{l,25}\)</td><td>diffusion coefficient in water at 25 °C: 1.90 (NO₃⁻), 1.96 (K⁺), 0.846 (H₂PO₄⁻) × 10⁻⁹ (Li &amp; Gregory, 1974)</td><td>m² s⁻¹</td></tr>
+          <tr><td>\(\eta(T)\)</td><td>viscosity of water, \(\eta = 2.414\times10^{-5}\cdot 10^{247.8/(T+133.15)}\) with T in °C (0.890 mPa s at 25 °C)</td><td>Pa s</td></tr>
+        </table>
+        <details><summary>Where do these come from?</summary><ol class="steps">
+          <li>Carrier turnover is an enzyme-like process; over a limited temperature range its rate is well described by a constant Q₁₀, which is equivalent to an Arrhenius law with a fixed activation energy.</li>
+          <li>Diffusion of a small ion follows the Stokes–Einstein relation \(D = k_BT/(6\pi\eta a)\): proportional to absolute temperature and inversely proportional to viscosity. Between 5 and 35 °C this more than doubles \(D_l\).</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Measured temperature responses are ion-specific and not constant: for maize roots, Bravo-F and Uribe (1981) found activation energies for K⁺ uptake of about 3 kcal mol⁻¹ above a transition near 13 °C but about 29 kcal mol⁻¹ below it, and for phosphate about 21 kcal mol⁻¹ between 13 and 22 °C and 10 kcal mol⁻¹ above — corresponding to Q₁₀ values from about 1.2 to above 3, and much larger in the cold. K<sub>m</sub> is kept constant.</p></details>
+        <div class="eq-units">\(Q_{10}\) and the ratios are dimensionless, so \(I_{\max}\) and \(D_l\) keep their units ✓</div>
+        <div class="mini-calc" data-formula="imax*pow(q,(t-20)/10)" data-output="I<sub>max</sub>(T)" data-unit="pmol cm⁻² s⁻¹" data-digits="2" data-plot="t">
+          <div data-var="imax" data-label="I<sub>max</sub> at 20 °C" data-min="1" data-max="30" data-step="0.1" data-value="10" data-unit="pmol cm⁻² s⁻¹"></div>
+          <div data-var="q" data-label="Q₁₀" data-min="1" data-max="3.5" data-step="0.05" data-value="2"></div>
+          <div data-var="t" data-label="Root-zone temperature" data-min="5" data-max="35" data-step="0.5" data-value="10" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nu-de">
+        <div class="eq-head"><span class="eq-label">Effective diffusion coefficient in soil</span><span class="eq-num">(U3)</span></div>
+        <div class="eq-main">\[ D_e = \frac{D_l\,\theta\,f}{b}, \qquad f = \frac{\theta^{7/3}}{\phi^{2}}, \qquad b = \frac{\mathrm{d}C_{\text{tot}}}{\mathrm{d}C_l} \]</div>
+        <p class="eq-read">the effective diffusion coefficient of an ion in soil equals its diffusion coefficient in water times the water content times an impedance factor for the tortuous pore paths, divided by the buffer power — the change in total (adsorbed plus dissolved) amount per unit soil volume for a unit change of solution concentration.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(D_e\)</td><td>effective diffusion coefficient</td><td>m² s⁻¹</td></tr>
+          <tr><td>\(\theta\)</td><td>volumetric water content</td><td>m³ m⁻³</td></tr>
+          <tr><td>\(f\)</td><td>impedance (tortuosity) factor, Millington &amp; Quirk (1961)</td><td>–</td></tr>
+          <tr><td>\(\phi\)</td><td>porosity (0.5)</td><td>m³ m⁻³</td></tr>
+          <tr><td>\(b\)</td><td>buffer power; \(b=\theta\) for a non-adsorbed ion</td><td>–</td></tr>
+          <tr><td>\(C_{\text{tot}}, C_l\)</td><td>total ion per soil volume; concentration in soil solution</td><td>mol m⁻³</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Fick’s law in the soil solution, corrected for the cross-section occupied by water and for path tortuosity: flux \(F = -D_l\theta f\,\partial C_l/\partial x\).</li>
+          <li>Conservation of the total amount: \(\partial C_{\text{tot}}/\partial t = -\partial F/\partial x\).</li>
+          <li>With the buffer power, \(\partial C_{\text{tot}}/\partial t = b\,\partial C_l/\partial t\), so \(\partial C_l/\partial t = (D_l\theta f/b)\,\partial^2 C_l/\partial x^2 = D_e\,\partial^2C_l/\partial x^2\).</li>
+          <li>Worked number for phosphate: \(f = 0.3^{7/3}/0.5^2 = 0.241\); \(D_e = 0.846\times10^{-9}\times0.3\times0.241/239 = 2.6\times10^{-13}\) m² s⁻¹. In one day it spreads \(2\sqrt{D_e t}\approx 0.3\) mm. Nitrate (\(b = \theta\)): \(D_e = 4.6\times10^{-10}\) m² s⁻¹ and about 13 mm per day.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>The buffer power is taken as constant (a linear adsorption isotherm). Real phosphate isotherms are curved and partly irreversible, and b varies from about ten in sandy soils to over a thousand in oxide-rich soils. The Millington–Quirk expression is one of several empirical impedance relations; measured f values also depend on texture (Barraclough &amp; Tinker, 1981).</p></details>
+        <div class="eq-units">\(\dfrac{\text{m}^2\text{s}^{-1}\cdot \text{m}^3\text{m}^{-3}\cdot 1}{1} = \text{m}^2\,\text{s}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="dl*1e-9*th*pow(th,7/3)/0.25/b" data-output="D<sub>e</sub>" data-unit="m² s⁻¹" data-digits="3" data-plot="b">
+          <div data-var="dl" data-label="D<sub>l</sub> (×10⁻⁹)" data-min="0.5" data-max="2" data-step="0.01" data-value="0.846" data-unit="m² s⁻¹"></div>
+          <div data-var="th" data-label="Water content θ" data-min="0.08" data-max="0.45" data-step="0.01" data-value="0.3"></div>
+          <div data-var="b" data-label="Buffer power b" data-min="0.1" data-max="2000" data-value="239" data-scale="log"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nu-bc">
+        <div class="eq-head"><span class="eq-label">Radial transport to a root (Barber–Cushman)</span><span class="eq-num">(U4)</span></div>
+        <div class="eq-main">\[ \frac{\partial C_l}{\partial t} = \frac{1}{r}\frac{\partial}{\partial r}\!\left( r D_e \frac{\partial C_l}{\partial r} + \frac{r_0 v_0}{b}\, C_l \right), \quad r_0 < r < r_1 \]
+        \[ D_e b\,\frac{\partial C_l}{\partial r}\Big|_{r_0} + v_0 C_l(r_0) = J\big(C_l(r_0)\big), \qquad D_e b\,\frac{\partial C_l}{\partial r}\Big|_{r_1} + \frac{r_0 v_0}{r_1} C_l(r_1) = 0 \]</div>
+        <p class="eq-read">the solution concentration at distance r from the root axis changes because ions diffuse and are carried by water flowing radially inwards; at the root surface the diffusive plus convective supply equals the Michaelis–Menten uptake, and half-way to the neighbouring root no ions cross.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(r\)</td><td>radial distance from the root axis</td><td>m</td></tr>
+          <tr><td>\(r_0\)</td><td>root radius (0.2 mm) — or the effective radius with hairs (Eq. U8)</td><td>m</td></tr>
+          <tr><td>\(v_0\)</td><td>water influx at the root surface</td><td>m s⁻¹</td></tr>
+          <tr><td>\(r_1\)</td><td>half-distance between roots (Eq. U7)</td><td>m</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Consider a thin cylindrical shell of soil between r and r + dr, per unit root length. Its content of the ion is \(2\pi r\,\mathrm{d}r\,bC_l\).</li>
+          <li>The inward flux through a cylinder of radius r, per unit length, is \(2\pi r\,(D_e b\,\partial C_l/\partial r) + 2\pi r_0 v_0 C_l\) — diffusion plus the water flux, which is the same through every cylinder (water conservation: \(r v(r) = r_0 v_0\)).</li>
+          <li>The content changes by the difference of the fluxes at r + dr and r. Dividing by \(2\pi r\,\mathrm{d}r\,b\) gives the partial differential equation above.</li>
+          <li>Initially \(C_l = C_b\) everywhere. The simulator writes the equation in \(u=\ln r\), which gives fine resolution near the root, and integrates it with the implicit Euler method; the non-linear uptake boundary condition is linearised and iterated three times per step.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>Single, straight, non-growing root; soil homogeneous and isotropic; constant water content and water influx; no root exudates, microbial activity or mineralisation; linear buffering. The model predicts phosphate and potassium uptake well in many pot experiments but tends to under-predict at low supply, where root hairs, mycorrhizas and rhizosphere chemistry matter (see Samal et al., 2010, for K⁺).</p></details>
+        <div class="eq-units">\(\dfrac{1}{\text{m}}\cdot\dfrac{1}{\text{m}}\big(\text{m}\cdot\text{m}^2\text{s}^{-1}\cdot\tfrac{\text{mol m}^{-3}}{\text{m}}\big) = \text{mol m}^{-3}\,\text{s}^{-1}\) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-nu-qs">
+        <div class="eq-head"><span class="eq-label">Quasi-steady supply to a cylinder</span><span class="eq-num">(U5)</span></div>
+        <div class="eq-main">\[ C_l(r) = C_s + (C_b - C_s)\,\frac{\ln(r/r_0)}{\ln(R/r_0)}, \qquad J = \frac{D_l\,\theta f\,(C_b - C_s)}{r_0 \ln(R/r_0)}, \qquad R \approx r_0 + 2\sqrt{D_e t} \]</div>
+        <p class="eq-read">when the depletion zone reaches out to radius R, the concentration rises logarithmically from the root surface to the bulk, and the supply to the root is proportional to the concentration difference divided by the logarithm of the ratio of radii.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(R\)</td><td>outer radius of the depletion zone</td><td>m</td></tr>
+          <tr><td>\(C_s, C_b\)</td><td>surface and bulk concentration</td><td>mol m⁻³</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Without mass flow and at steady state, Eq. U4 becomes \(\frac{\mathrm{d}}{\mathrm{d}r}\big(r\,\frac{\mathrm{d}C}{\mathrm{d}r}\big) = 0\), so \(r\,\mathrm{d}C/\mathrm{d}r = B\) is constant and \(C = A + B\ln r\).</li>
+          <li>With \(C(r_0)=C_s\) and \(C(R)=C_b\): \(B = (C_b-C_s)/\ln(R/r_0)\).</li>
+          <li>The flux density at the root surface is \(D_e b\,\mathrm{d}C/\mathrm{d}r = D_l\theta f\,B/r_0\). Note that b cancels: at steady state the buffer power no longer matters — it only controls how fast R grows, \(R-r_0\approx2\sqrt{D_e t}\).</li>
+          <li>Setting this supply equal to U1 and solving for C<sub>s</sub> gives the influx. Worked example (phosphate, θ = 0.3, b = 239, C<sub>b</sub> = 5 µM, t = 1 d): R = 0.50 mm, \(\ln(R/r_0) = 0.91\), maximum supply \(D_l\theta f C_b/(r_0\ln(R/r_0)) = 0.17\) pmol cm⁻² s⁻¹; solving with U1 gives C<sub>s</sub> ≈ 0.48 µM and J ≈ 0.15 pmol cm⁻² s⁻¹ — about a tenth of the 1.48 pmol cm⁻² s⁻¹ the same root would take up from a stirred 5 µM solution.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>An approximation to the full transient solution of U4, useful for reasoning and hand calculation. It breaks down when neighbouring depletion zones overlap (R &gt; r₁) and when mass flow is large.</p></details>
+        <div class="eq-units">\(\dfrac{\text{m}^2\text{s}^{-1}\cdot\text{mol m}^{-3}}{\text{m}} = \text{mol m}^{-2}\,\text{s}^{-1}\) ✓ (×10⁸ for pmol cm⁻² s⁻¹)</div>
+        <div class="mini-calc" data-fn="nuQuasiSteady" data-output="Quasi-steady influx J" data-unit="pmol cm⁻² s⁻¹" data-digits="3" data-plot="b">
+          <div data-var="cb" data-label="Bulk concentration C<sub>b</sub>" data-min="0.5" data-max="100" data-step="0.5" data-value="5" data-unit="µM"></div>
+          <div data-var="b" data-label="Buffer power b" data-min="1" data-max="2000" data-value="239" data-scale="log"></div>
+          <div data-var="theta" data-label="Water content θ" data-min="0.1" data-max="0.45" data-step="0.01" data-value="0.3"></div>
+          <div data-var="days" data-label="Time since the root arrived" data-min="0.1" data-max="20" data-step="0.1" data-value="1" data-unit="d"></div>
+          <div data-var="dl" data-label="D<sub>l</sub> (×10⁻⁹ m² s⁻¹)" data-min="0.5" data-max="2" data-step="0.01" data-value="0.846"></div>
+          <div data-var="imax" data-label="I<sub>max</sub>" data-min="0.5" data-max="30" data-step="0.01" data-value="3.26" data-unit="pmol cm⁻² s⁻¹"></div>
+          <div data-var="km" data-label="K<sub>m</sub>" data-min="1" data-max="100" data-step="0.1" data-value="5.8" data-unit="µM"></div>
+          <div data-var="cmin" data-label="C<sub>min</sub>" data-min="0" data-max="5" data-step="0.05" data-value="0.2" data-unit="µM"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nu-mf">
+        <div class="eq-head"><span class="eq-label">Mass flow</span><span class="eq-num">(U6)</span></div>
+        <div class="eq-main">\[ J_{\text{mf}} = v_0\,C_s, \qquad v_0 = \frac{E}{2\pi r_0 L} \]</div>
+        <p class="eq-read">the supply by mass flow is the water influx per unit root surface times the concentration; the water influx is the plant’s transpiration divided by the surface area of its roots.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(E\)</td><td>transpiration of the plant</td><td>m³ s⁻¹</td></tr>
+          <tr><td>\(L\)</td><td>total root length</td><td>m</td></tr>
+          <tr><td>\(v_0\)</td><td>water influx at the root surface</td><td>m s⁻¹</td></tr>
+        </table>
+        <details><summary>Worked number</summary><ol class="steps">
+          <li>Illustration: a plant transpiring 0.1 L d⁻¹ through 50 m of root of radius 0.2 mm: \(v_0 = 10^{-4}/(86400 \cdot 2\pi\cdot 2\times10^{-4}\cdot 50) = 1.8\times10^{-8}\) m s⁻¹ = 1.8 × 10⁻⁶ cm s⁻¹.</li>
+          <li>With 1 mM nitrate this delivers \(1.8\times10^{-8}\times1 = 1.8\times10^{-8}\) mol m⁻² s⁻¹ = 1.8 pmol cm⁻² s⁻¹ — a fifth of I<sub>max</sub>. With 5 µM phosphate it delivers only 0.009 pmol cm⁻² s⁻¹: phosphate must come by diffusion.</li>
+        </ol></details>
+        <div class="eq-units">\(\text{m s}^{-1}\cdot\text{mol m}^{-3} = \text{mol m}^{-2}\,\text{s}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="e*1e-3/86400/(2*PI*2e-4*l)*c*1e-3/1e-8" data-output="Mass-flow supply" data-unit="pmol cm⁻² s⁻¹" data-digits="3" data-plot="c">
+          <div data-var="e" data-label="Transpiration E" data-min="0.01" data-max="1" data-step="0.01" data-value="0.1" data-unit="L d⁻¹"></div>
+          <div data-var="l" data-label="Root length L" data-min="5" data-max="500" data-step="5" data-value="50" data-unit="m"></div>
+          <div data-var="c" data-label="Concentration" data-min="1" data-max="20000" data-value="1000" data-scale="log" data-unit="µM"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nu-r1">
+        <div class="eq-head"><span class="eq-label">Half-distance between roots</span><span class="eq-num">(U7)</span></div>
+        <div class="eq-main">\[ r_1 = \frac{1}{\sqrt{\pi L_v}} \]</div>
+        <p class="eq-read">if each root owns a cylinder of soil and the cylinders fill the soil, the radius of that cylinder is one over the square root of pi times the root length per unit soil volume.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(L_v\)</td><td>root length density</td><td>cm cm⁻³</td></tr><tr><td>\(r_1\)</td><td>outer radius of the soil cylinder per root</td><td>cm</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>1 cm³ of soil contains \(L_v\) cm of root; each centimetre of root owns \(1/L_v\) cm³ of soil.</li><li>A cylinder of length 1 cm with that volume has \(\pi r_1^2 = 1/L_v\), hence the result. With L<sub>v</sub> = 2 cm cm⁻³, r₁ = 0.40 cm.</li></ol></details>
+        <div class="eq-units">\(1/\sqrt{\text{cm cm}^{-3}} = 1/\sqrt{\text{cm}^{-2}} = \text{cm}\) ✓</div>
+        <div class="mini-calc" data-formula="10/sqrt(PI*lv)" data-output="r₁" data-unit="mm" data-digits="2" data-plot="lv">
+          <div data-var="lv" data-label="Root length density L<sub>v</sub>" data-min="0.2" data-max="20" data-value="2" data-scale="log" data-unit="cm cm⁻³"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nu-hair">
+        <div class="eq-head"><span class="eq-label">Root-hair cylinder</span><span class="eq-num">(U8)</span></div>
+        <div class="eq-main">\[ r_{\text{eff}} = \min\!\Big(r_0 + l_h,\ \max\big(r_0,\ r_0\,\tfrac{2x_D}{d_h}\big)\Big), \quad d_h = \sqrt{\frac{2\pi r_0}{N_h}}, \quad x_D = 2\sqrt{D_e\cdot 1\,\text{d}} \]
+        \[ I_{\max,\text{eff}} = I_{\max}\,\frac{2\pi r_0 + N_h\,2\pi r_h l_h}{2\pi r_{\text{eff}}} \]</div>
+        <p class="eq-read">the zone occupied by root hairs behaves like solid root as far out as the gaps between neighbouring hairs are narrower than the distance ions diffuse in a day; the uptake capacity equals the membrane area of root plus hairs, spread over the surface of this effective cylinder.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(l_h, r_h\)</td><td>hair length; hair radius (5 µm)</td><td>m</td></tr>
+          <tr><td>\(N_h\)</td><td>hairs per unit root length</td><td>m⁻¹</td></tr>
+          <tr><td>\(d_h\)</td><td>mean spacing of hair bases on the root surface; the spacing grows ∝ r outwards</td><td>m</td></tr>
+          <tr><td>\(x_D\)</td><td>distance diffused in one day</td><td>m</td></tr>
+        </table>
+        <details><summary>Reasoning</summary><ol class="steps">
+          <li>A single hair is a thin cylinder with its own small depletion zone of radius \(\sim x_D\).</li>
+          <li>Hairs radiate outwards, so the gap between neighbours at radius r is \(d_h r/r_0\). Where this gap is smaller than \(2x_D\), neighbouring depletion zones merge and the soil between hairs is exhausted — the hair zone acts as a thicker root (Jungk, 2001; Itoh &amp; Barber, 1983, for a full treatment).</li>
+          <li>Example (phosphate, N<sub>h</sub> = 50 mm⁻¹, l<sub>h</sub> = 0.4 mm): d<sub>h</sub> = 0.16 mm, x<sub>D</sub> = 0.30 mm, overlap out to 0.75 mm, so r<sub>eff</sub> = r₀ + l<sub>h</sub> = 0.6 mm. For nitrate the hairs lie deep inside a centimetre-scale depletion zone and change little.</li>
+        </ol></details>
+        <details><summary>Assumptions and validity</summary><p>A deliberately simple, transparent approximation. In hydroponics the hairs lie inside the unstirred layer, so the model only adds their membrane area. Hair life span, exudation and the fact that young hairs near the tip are short are ignored.</p></details>
+        <div class="eq-units">\(d_h=\sqrt{\text{m}/\text{m}^{-1}} = \text{m}\) ✓; \(I_{\max,\text{eff}}\): pmol cm⁻² s⁻¹ × (m/m) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-nu-hydro">
+        <div class="eq-head"><span class="eq-label">Stirred nutrient solution</span><span class="eq-num">(U9)</span></div>
+        <div class="eq-main">\[ J = \frac{D_l\,(C_b - C_s)}{r_0\,\ln\!\big(1 + \delta/r_0\big)} = \frac{I_{\max}(C_s - C_{\min})}{K_m + C_s - C_{\min}} \]</div>
+        <p class="eq-read">in a well-mixed solution, ions only need to diffuse across a thin unstirred layer of thickness δ around the root, and the steady influx is where this diffusive supply equals the Michaelis–Menten uptake.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(\delta\)</td><td>thickness of the unstirred (Nernst) layer; default 50 µm (assumed)</td><td>m</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>This is Eq. U5 with pure water (θ = f = 1) and R = r₀ + δ fixed by stirring rather than growing with time.</li><li>Equating supply and uptake gives a quadratic in C<sub>s</sub>, solved exactly in the simulator.</li><li>Example: nitrate, 1 mM, δ = 50 µm: the layer can carry up to \(1.9\times10^{-9}\times1/(2\times10^{-4}\ln1.25) = 4.3\times10^{-5}\) mol m⁻² s⁻¹ = 4300 pmol cm⁻² s⁻¹, far more than I<sub>max</sub>, so C<sub>s</sub> ≈ C<sub>b</sub>.</li></ol></details>
+        <div class="eq-units">\(\dfrac{\text{m}^2\text{s}^{-1}\cdot\text{mol m}^{-3}}{\text{m}} = \text{mol m}^{-2}\,\text{s}^{-1}\) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-nu-proton">
+        <div class="eq-head"><span class="eq-label">Proton and ATP balance at the membrane</span><span class="eq-num">(U10)</span></div>
+        <div class="eq-main">\[ J_{\text{H}^+,\text{pump}} = 2J_{\text{NO}_3} + n\,J_{\text{H}_2\text{PO}_4} + J_{\text{K}}, \qquad J_{\text{ATP}} = J_{\text{H}^+,\text{pump}} \]</div>
+        <p class="eq-read">at steady state the proton pump must export every proton that returns with the symported anions, plus one positive charge for every potassium ion that enters through channels; with one proton per ATP, the ATP use equals the pumping rate.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(n\)</td><td>protons per phosphate (2–4; the animation uses 2)</td><td>–</td></tr><tr><td>\(J_{\text{ATP}}\)</td><td>ATP hydrolysed by H⁺-ATPases</td><td>pmol cm⁻² s⁻¹</td></tr></table>
+        <details><summary>Reasoning</summary><ol class="steps"><li>NRT2 co-transports 2 H⁺ per NO₃⁻; PHT1 several H⁺ per H₂PO₄⁻.</li><li>K⁺ entry through AKT1 would depolarise the membrane; the pump restores the potential by exporting one H⁺ per K⁺.</li><li>The plasma-membrane H⁺-ATPase moves one H⁺ per ATP (Palmgren, 2001). Taking up 1 mol of nitrate therefore costs at least 2 mol ATP at the membrane — before any reduction to ammonium.</li><li>In the membrane scene the event rate of each transporter is proportional to its computed influx, and the pumps run at the rate of this equation.</li></ol></details>
+        <div class="eq-units">all terms in mol of charge or protons per area and time ✓</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Tick each task when you are done; <em>Save investigation</em> copies your settings and results into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Mobile versus immobile</h4><p>With <em>Soil</em>, θ = 0.3 and the literature kinetics for each ion, record the depletion-zone width after 1, 5 and 10 days for NO₃⁻ (1 mM), K⁺ (0.2 mM) and H₂PO₄⁻ (5 µM). Plot width against √t. Is the relation linear, as \(2\sqrt{D_e t}\) predicts? Why does the nitrate depletion zone stop growing?</p></li>
+        <li><h4>How much do root hairs help?</h4><p>Compare the presets <em>Phosphate in soil</em> and <em>Hairless mutant</em>. Calculate the percentage of the 10-day phosphate uptake attributable to hairs. Then vary hair length from 0.1 to 1.5 mm and hair density from 10 to 200 mm⁻¹ and draw the response. Repeat for nitrate. Relate your numbers to Jungk’s (2001) range of 0–80 %.</p></li>
+        <li><h4>Transporters or soil?</h4><p>For phosphate in soil, double I<sub>max</sub>. By how much does 10-day uptake increase? Now halve K<sub>m</sub> instead, and then double the root-hair length. Rank the three “breeding targets” for a soil crop and for a hydroponic crop. Explain the difference using the concept of resistances in series.</p></li>
+        <li><h4>The buffer-power paradox</h4><p>Choose K⁺ in soil at a fixed C<sub>b</sub> of 0.2 mM. Increase b from 2 to 100. What happens to D<sub>e</sub>, to the depletion zone and to cumulative uptake? Write a two-sentence explanation for a farmer who thinks that “potassium held by clay is lost to the plant”.</p></li>
+        <li><h4>Cold roots in a vertical farm</h4><p>Use the preset <em>Cold nutrient solution</em>. How much does uptake fall between 20 °C and 8 °C with Q₁₀ = 2? Compare with the activation energies measured by Bravo-F and Uribe (1981) for maize — convert them into Q₁₀ values with \(Q_{10} = \exp\big(\tfrac{E_a}{R}\,\tfrac{10}{T_1T_2}\big)\). Would heating the nutrient solution be a sensible use of energy?</p></li>
+        <li><h4>What a lettuce root system must do</h4><p>A 200 g lettuce head with 5 % dry matter and 4 % N in its dry matter contains how many millimoles of N? If it takes this up in 30 days, what root length is needed in (a) a stirred solution with 15 mM nitrate and (b) the default soil (5 mM nitrate, L<sub>v</sub> = 1 cm cm⁻³), reading the <em>Uptake per metre of root</em> readout on day 2 and on day 10? Why does the soil answer depend on the day you read it, and what replenishes soil nitrate in a real field that the model leaves out (mineralisation, fertiliser, mass flow from deeper layers)? Then estimate the ATP cost at the membrane (Eq. U10).</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-nutrient-uptake-root">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Phosphate in a soil with θ = 0.3, porosity 0.5 and buffer power b = 239. D<sub>l</sub> = 0.846 × 10⁻⁹ m² s⁻¹. Use the Millington–Quirk impedance factor (Eq. U3) to compute the effective diffusion coefficient D<sub>e</sub> in m² s⁻¹.","answer":2.56e-13,"tol":0.04,"unit":"m² s⁻¹","hint":"f = θ^(7/3)/φ² ≈ 0.241.","explain":"<p>\\(f = 0.3^{7/3}/0.25 = 0.0602/0.25 = 0.241\\); \\(D_e = 0.846\\times10^{-9}\\times0.3\\times0.241/239 = 2.56\\times10^{-13}\\) m² s⁻¹.</p>"},
+          {"type":"numeric","q":"A maize root has I<sub>max</sub> = 3.26 pmol cm⁻² s⁻¹, K<sub>m</sub> = 5.8 µM and C<sub>min</sub> = 0.2 µM for phosphate. What is the influx when the concentration at the root surface is 2 µM?","answer":0.772,"tol":0.03,"unit":"pmol cm⁻² s⁻¹","hint":"Use C − C<sub>min</sub> in both numerator and denominator.","explain":"<p>\\(J = 3.26\\times1.8/(5.8+1.8) = 0.772\\) pmol cm⁻² s⁻¹.</p>"},
+          {"type":"numeric","q":"The root length density in a topsoil is 2 cm cm⁻³. What is the half-distance between neighbouring roots, r₁, in millimetres?","answer":3.99,"tol":0.02,"unit":"mm","explain":"<p>\\(r_1 = 1/\\sqrt{\\pi\\cdot2} = 0.399\\) cm = 3.99 mm.</p>"},
+          {"type":"tf","q":"At a fixed soil-solution concentration, a higher buffer power b reduces the cumulative uptake by a root, because the effective diffusion coefficient D<sub>e</sub> = D<sub>l</sub>θf/b becomes smaller.","answer":false,"explain":"<p>False. A larger b slows the spread of the depletion zone, but it also means much more ion is stored per unit volume and released as the solution is depleted. The gradient at the root stays steeper and cumulative uptake increases (test it with K⁺ in the simulator). In the quasi-steady solution (U5) the flux depends on \\(D_l\\theta f\\), not on b; b only enters through the slower growth of R.</p>"},
+          {"type":"mcq","q":"Run the simulator for 10 days in soil with the literature values of each ion. Which ion develops the widest depletion zone?","options":["Nitrate (NO₃⁻)","Potassium (K⁺)","Phosphate (H₂PO₄⁻)","All three are about equal because the root is the same"],"answer":0,"feedback":["","K⁺ is moderately buffered (b ≈ 10) — its zone is a few millimetres.","Phosphate is the least mobile ion: its zone stays below a millimetre.","The root is the same, but the soil mobility differs by orders of magnitude."],"explain":"<p>Nitrate is not adsorbed (b ≈ θ), so D<sub>e</sub> ≈ 5 × 10⁻¹⁰ m² s⁻¹ and it spreads centimetres — until neighbouring roots compete for the whole soil volume.</p>"},
+          {"type":"numeric","q":"With Q₁₀ = 2, a root has I<sub>max</sub> = 10 pmol cm⁻² s⁻¹ at 20 °C. What is I<sub>max</sub> at 10 °C?","answer":5,"tol":0.02,"unit":"pmol cm⁻² s⁻¹","explain":"<p>\\(10\\times2^{(10-20)/10} = 10\\times2^{-1} = 5\\) pmol cm⁻² s⁻¹.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>A single root segment of radius 0.2 mm (lateral-root value used by Ruiz et al., 2020) in a cylinder of soil of radius r₁ = 1/√(πL<sub>v</sub>); the soil is homogeneous, isotropic and at constant water content; the root does not grow and its uptake properties do not change with time.</li>
+        <li>Influx follows Michaelis–Menten kinetics with a threshold C<sub>min</sub> (Eq. U1); one transport system per ion; I<sub>max</sub> scales with temperature by a constant Q₁₀ and K<sub>m</sub> is temperature-independent. Default kinetics: nitrate and phosphate from maize (Barber’s values as reported by York et al., 2016, and Ruiz et al., 2020); K⁺ K<sub>m</sub> from Epstein et al. (1963); K⁺ I<sub>max</sub> = 5 and C<sub>min</sub> = 2 are illustrative values of the correct order of magnitude, not measurements for lettuce.</li>
+        <li>Soil transport by diffusion and mass flow only (Barber–Cushman). Linear adsorption with a constant buffer power; impedance factor from Millington &amp; Quirk (1961) with porosity 0.5; no mineralisation, exudates, pH changes or microbial uptake in the rhizosphere; no mycorrhizas.</li>
+        <li>Root hairs are represented by an effective absorbing cylinder plus their membrane area (Eq. U8), a simplification of the explicit treatment by Itoh and Barber (1983).</li>
+        <li>Hydroponics: bulk solution well mixed and constant (continuously replenished); an unstirred layer of 50 µm is assumed; the finite volume of a real tank and its declining concentration are not modelled.</li>
+        <li>The 3D scenes are illustrative. Root architecture, cell dimensions, protein shapes (cylinders for transmembrane helices) and the number of ions shown are schematic; the ion density in the root-hair scene and the transport event rates in the membrane scene are driven by the computed concentrations and fluxes, and the membrane animation is slowed down enormously. Membrane potential and pH values are typical textbook values, not computed.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Barber, S. A. (1995). <em>Soil Nutrient Bioavailability: A Mechanistic Approach</em> (2nd ed.). John Wiley &amp; Sons.</li>
+        <li>Barber, S. A., &amp; Cushman, J. H. (1981). Nitrogen uptake model for agronomic crops. In I. K. Iskandar (Ed.), <em>Modeling Wastewater Renovation: Land Treatment</em>. Wiley-Interscience.</li>
+        <li>Tinker, P. B., &amp; Nye, P. H. (2000). <em>Solute Movement in the Rhizosphere</em>. Oxford University Press.</li>
+        <li>Claassen, N., &amp; Barber, S. A. (1974). A method for characterizing the relation between nutrient concentration and flux into roots of intact plants. <em>Plant Physiology</em>, 54(4), 564–568. <a href="https://doi.org/10.1104/pp.54.4.564" target="_blank" rel="noopener">doi:10.1104/pp.54.4.564</a></li>
+        <li>Epstein, E., Rains, D. W., &amp; Elzam, O. E. (1963). Resolution of dual mechanisms of potassium absorption by barley roots. <em>Proceedings of the National Academy of Sciences</em>, 49(5), 684–692. <a href="https://doi.org/10.1073/pnas.49.5.684" target="_blank" rel="noopener">doi:10.1073/pnas.49.5.684</a></li>
+        <li>York, L. M., Silberbush, M., &amp; Lynch, J. P. (2016). Spatiotemporal variation of nitrate uptake kinetics within the maize (<em>Zea mays</em> L.) root system is associated with greater nitrate uptake and interactions with architectural phenes. <em>Journal of Experimental Botany</em>, 67(12), 3763–3775. <a href="https://doi.org/10.1093/jxb/erw133" target="_blank" rel="noopener">doi:10.1093/jxb/erw133</a></li>
+        <li>Ruiz, S., Koebernick, N., Duncan, S., Fletcher, D. M., Scotson, C., Boghi, A., Marin, M., Bengough, A. G., George, T. S., Brown, L. K., Hallett, P. D., &amp; Roose, T. (2020). Significance of root hairs at the field scale – modelling root water and phosphorus uptake under different field conditions. <em>Plant and Soil</em>, 447, 281–304. <a href="https://doi.org/10.1007/s11104-019-04308-2" target="_blank" rel="noopener">doi:10.1007/s11104-019-04308-2</a></li>
+        <li>Millington, R. J., &amp; Quirk, J. P. (1961). Permeability of porous solids. <em>Transactions of the Faraday Society</em>, 57, 1200–1207. <a href="https://doi.org/10.1039/TF9615701200" target="_blank" rel="noopener">doi:10.1039/TF9615701200</a></li>
+        <li>Li, Y.-H., &amp; Gregory, S. (1974). Diffusion of ions in sea water and in deep-sea sediments. <em>Geochimica et Cosmochimica Acta</em>, 38(5), 703–714. <a href="https://doi.org/10.1016/0016-7037(74)90145-8" target="_blank" rel="noopener">doi:10.1016/0016-7037(74)90145-8</a></li>
+        <li>Bravo-F, P., &amp; Uribe, E. G. (1981). Temperature dependence of the concentration kinetics of absorption of phosphate and potassium in corn roots. <em>Plant Physiology</em>, 67(4), 815–819. <a href="https://doi.org/10.1104/pp.67.4.815" target="_blank" rel="noopener">doi:10.1104/pp.67.4.815</a></li>
+        <li>Itoh, S., &amp; Barber, S. A. (1983). A numerical solution of whole plant nutrient uptake for soil–root systems with root hairs. <em>Plant and Soil</em>, 70(3), 403–413. <a href="https://doi.org/10.1007/BF02374895" target="_blank" rel="noopener">doi:10.1007/BF02374895</a></li>
+        <li>Jungk, A. (2001). Root hairs and the acquisition of plant nutrients from soil. <em>Journal of Plant Nutrition and Soil Science</em>, 164(2), 121–129. <a href="https://doi.org/10.1002/1522-2624(200104)164:2%3C121::AID-JPLN121%3E3.0.CO;2-6" target="_blank" rel="noopener">doi:10.1002/1522-2624(200104)164:2&lt;121::AID-JPLN121&gt;3.0.CO;2-6</a></li>
+        <li>Gahoonia, T. S., &amp; Nielsen, N. E. (2003). Phosphorus (P) uptake and growth of a root hairless barley mutant (bald root barley, <em>brb</em>) and wild type in low- and high-P soils. <em>Plant, Cell &amp; Environment</em>, 26(10), 1759–1766. <a href="https://doi.org/10.1046/j.1365-3040.2003.01093.x" target="_blank" rel="noopener">doi:10.1046/j.1365-3040.2003.01093.x</a></li>
+        <li>Palmgren, M. G. (2001). Plant plasma membrane H⁺-ATPases: powerhouses for nutrient uptake. <em>Annual Review of Plant Physiology and Plant Molecular Biology</em>, 52, 817–845. <a href="https://doi.org/10.1146/annurev.arplant.52.1.817" target="_blank" rel="noopener">doi:10.1146/annurev.arplant.52.1.817</a></li>
+        <li>Crawford, N. M., &amp; Glass, A. D. M. (1998). Molecular and physiological aspects of nitrate uptake in plants. <em>Trends in Plant Science</em>, 3(10), 389–395. <a href="https://doi.org/10.1016/S1360-1385(98)01311-9" target="_blank" rel="noopener">doi:10.1016/S1360-1385(98)01311-9</a></li>
+        <li>Raghothama, K. G. (1999). Phosphate acquisition. <em>Annual Review of Plant Physiology and Plant Molecular Biology</em>, 50, 665–693. <a href="https://doi.org/10.1146/annurev.arplant.50.1.665" target="_blank" rel="noopener">doi:10.1146/annurev.arplant.50.1.665</a></li>
+        <li>Hirsch, R. E., Lewis, B. D., Spalding, E. P., &amp; Sussman, M. R. (1998). A role for the AKT1 potassium channel in plant nutrition. <em>Science</em>, 280(5365), 918–921. <a href="https://doi.org/10.1126/science.280.5365.918" target="_blank" rel="noopener">doi:10.1126/science.280.5365.918</a></li>
+        <li>Griffiths, M., &amp; York, L. M. (2020). Targeting root ion uptake kinetics to increase plant productivity and nutrient use efficiency. <em>Plant Physiology</em>, 182(4), 1854–1868. <a href="https://doi.org/10.1104/pp.19.01496" target="_blank" rel="noopener">doi:10.1104/pp.19.01496</a></li>
+        <li>Zhang, C., Simpson, R. J., Kim, C. M., Warthmann, N., Delhaize, E., Dolan, L., Byrne, M. E., Wu, Y., &amp; Ryan, P. R. (2018). Do longer root hairs improve phosphorus uptake? Testing the hypothesis with transgenic <em>Brachypodium distachyon</em> lines overexpressing endogenous RSL genes. <em>New Phytologist</em>, 217(4), 1654–1666. <a href="https://doi.org/10.1111/nph.14980" target="_blank" rel="noopener">doi:10.1111/nph.14980</a></li>
+        <li>Samal, D., Kovar, J. L., Steingrobe, B., Sadana, U. S., Bhadoria, P. S., &amp; Claassen, N. (2010). Potassium uptake efficiency and dynamics in the rhizosphere of maize (<em>Zea mays</em> L.), wheat (<em>Triticum aestivum</em> L.), and sugar beet (<em>Beta vulgaris</em> L.) evaluated with a mechanistic model. <em>Plant and Soil</em>, 332, 105–121. <a href="https://doi.org/10.1007/s11104-009-0277-6" target="_blank" rel="noopener">doi:10.1007/s11104-009-0277-6</a></li>
+        <li>Hoagland, D. R., &amp; Arnon, D. I. (1950). <em>The Water-Culture Method for Growing Plants without Soil</em> (Circular 347). California Agricultural Experiment Station.</li>
+        <li>Barraclough, P. B., &amp; Tinker, P. B. (1981). The determination of ionic diffusion coefficients in field soils. I. Diffusion coefficients in sieved soils in relation to water content and bulk density. <em>Journal of Soil Science</em>, 32(2), 225–236. <a href="https://doi.org/10.1111/j.1365-2389.1981.tb01702.x" target="_blank" rel="noopener">doi:10.1111/j.1365-2389.1981.tb01702.x</a></li>
+      </ol>
+      <p>Related: lesson <a href="/lessons/mineral-nutrition/">Mineral nutrition and nutrient uptake</a> · lesson <a href="/lessons/root-zone/">The root zone</a> · laboratory <a href="/laboratories/nutrient-mixer/">Nutrient mixer</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

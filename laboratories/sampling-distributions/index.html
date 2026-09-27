@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sampling distributions and p-values · Future Food Production</title>
+<meta name="description" content="Draw thousands of virtual samples of lettuce fresh weights to see the central limit theorem, the coverage of confidence intervals, the dance of the p-values and statistical power.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* live calculators for the Derive tab (Student t CDF by Simpson integration; normal CDF by erf approximation) */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  function lg(z) { var c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5], x = z, y = z, t = x + 5.5; t -= (x + 0.5) * Math.log(t); var s = 1.000000000190015; for (var j = 0; j < 6; j++) s += c[j] / ++y; return -t + Math.log(2.5066282746310005 * s / x); }
+  function tpdf(t, v) { return Math.exp(lg((v + 1) / 2) - lg(v / 2)) / Math.sqrt(v * Math.PI) * Math.pow(1 + t * t / v, -(v + 1) / 2); }
+  function tcdf(t, v) { var n = 400, h = t / n, s = tpdf(0, v) + tpdf(t, v); for (var i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * tpdf(i * h, v); return 0.5 + s * h / 3; }
+  function ncdf(x) { var t = 1 / (1 + 0.2316419 * Math.abs(x)), d = 0.3989422804014327 * Math.exp(-x * x / 2), p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429)))); return x > 0 ? 1 - p : p; }
+  FFP_CALC.sdZcov = function (o) { return 100 * (2 * tcdf(1.96, Math.round(o.n) - 1) - 1); };
+  FFP_CALC.sdPowerApprox = function (o) { var delta = o.d * Math.sqrt(o.n / 2), z = 1.959964; return 100 * (ncdf(delta - z) + ncdf(-delta - z)); };
+})();
+</script>
+<style>
+.stage.light-stage .stage-hud { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 110px); }
+.stage.light-stage .stage-hud .hud-chip { background: color-mix(in srgb, var(--bg-elev) 88%, transparent); color: var(--ink); border-color: var(--line); }
+.stage.light-stage .stage-hud .hud-chip b { color: var(--accent); }
+.stage.light-stage .stage-toolbar button { background: var(--bg-sunk); color: var(--ink-2); border-color: var(--line); }
+.sd-canvas { position: absolute; inset: 0; }
+</style>
+</head>
+<body data-page="lab" data-slug="sampling-distributions">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Sampling distributions and p-values</h1>
+    <p class="lead">Your project gives you one small sample of lettuce plants — and one mean, one confidence interval and one p-value. How much would they change if you grew the crop again? Here you can repeat the experiment thousands of times in a few seconds and watch the central limit theorem, confidence intervals, p-values and statistical power emerge from pure chance.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>The square-root law</h3>
+      <div class="chart-sub">Standard error of the mean σ/√n (left axis) and the skewness of the sampling distribution γ/√n (right axis). Diamonds are simulated SDs of the means — draw at least 200 samples, then change n.</div>
+      <div class="chart" id="chart-se"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Coverage of confidence intervals</h3>
+      <div class="chart-sub">Running share of intervals that contain the true mean μ. A correctly calibrated interval stays inside the band around its nominal level.</div>
+      <div class="chart" id="chart-cov"></div>
+    </div>
+    <div class="chart-card">
+      <h3>How p-values are distributed</h3>
+      <div class="chart-sub">Cumulative distribution of p. Under H₀ it is the diagonal (p is uniform); under H₁ it rises steeply — and its height at u = α is the power.</div>
+      <div class="chart" id="chart-p"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Power versus sample size</h3>
+      <div class="chart-sub">Exact power of a two-sided two-sample t-test (noncentral t). Squares: simulated power from the p-value and power experiments (± 95 % binomial error).</div>
+      <div class="chart" id="chart-pow"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>Five things to watch</h2>
+      <ol>
+        <li><strong>Means are less variable than plants.</strong> In <em>Means (CLT)</em> the top panel is the population of harvest fresh weights, right-skewed like real plant weights (a few giants, many average heads). Each sample of n plants falls into the middle strip; its mean (magenta triangle) drops into the lower panel. After a few hundred samples the pile of means is far narrower than the population: its standard deviation is σ/√n, the <em>standard error</em>.</li>
+        <li><strong>The central limit theorem at work.</strong> Choose <em>Skewed weights, n = 3</em>: the means are still skewed. Increase n to 10, then 30 — the pile becomes symmetric and bell-shaped and fits the black normal curve. Try <em>Very skewed, n = 30</em>: with extreme skew even n = 30 is not quite enough (skewness of the means 4/√30 = 0.73). “n = 30” is a rule of thumb, not a law.</li>
+        <li><strong>95 % of intervals, not 95 % probability.</strong> In <em>CIs</em> each line is one sample's 95 % confidence interval. About 5 in 100 miss μ (red). Any single interval either contains μ or it does not — the 95 % describes the long-run behaviour of the procedure. Now switch on <em>Use z = 1.96 instead of t</em> with n = 4: coverage drops to about 86 %, because the z interval ignores the uncertainty in the estimated SD.</li>
+        <li><strong>The dance of the p-values.</strong> In <em>p-values</em> with the preset <em>Typical project: d = 0.8, n = 6</em>, the true effect is large (0.8 SD, e.g. 48&nbsp;g at σ = 60&nbsp;g) — yet consecutive replications give p = .002, then .41, then .07… Only about a quarter of the experiments reach p &lt; .05. This is what Cumming (2008) called the dance of the p-values.</li>
+        <li><strong>When nothing is going on.</strong> Choose <em>p-values when H₀ is true</em> (d = 0). The histogram of p becomes flat: every value between 0 and 1 is equally likely, and 5 % of experiments are “significant” by chance alone. Then open <em>Power</em> to see the two sampling distributions of t behind all of this.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Every statistic you compute — a mean, an interval, a p-value — is one draw from its <strong>sampling distribution</strong>. Statistics is the art of knowing how wide that distribution is. With the small samples of a student project it is wide, so report estimates with confidence intervals and treat single p-values with humility.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From one sample to the sampling distribution</h2>
+      <p>Imagine growing the same butterhead lettuce under the same conditions again and again. Each harvest gives a sample of n fresh weights and a sample mean \(\bar x\). The means differ from harvest to harvest — not because the crop changed but because each harvest is a random sample of plants. The distribution of \(\bar x\) over all possible harvests is its <em>sampling distribution</em>. You never observe it directly (you only have one harvest), but probability theory tells us its centre, spread and shape.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 720 250" role="img" aria-label="Population, repeated samples and the sampling distribution of the mean">
+          <defs><marker id="sdar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <text x="110" y="24" text-anchor="middle" font-weight="600">Population</text>
+          <path d="M20 170 C 50 170, 60 60, 95 58 C 130 56, 150 120, 200 160 C 215 168, 225 170, 235 170 Z" class="fill-accent-soft" stroke="currentColor" stroke-width="1.5"/>
+          <text x="110" y="195" text-anchor="middle" class="t-small t-muted">μ, σ, skewness γ</text>
+          <line x1="245" y1="110" x2="300" y2="110" stroke="currentColor" marker-end="url(#sdar)"/>
+          <text x="390" y="24" text-anchor="middle" font-weight="600">Repeated samples (size n)</text>
+          <g class="t-small"><rect x="310" y="45" width="160" height="30" rx="6" class="fill-sunk"/><text x="320" y="65">sample 1 → x̄₁ = 176 g</text>
+          <rect x="310" y="85" width="160" height="30" rx="6" class="fill-sunk"/><text x="320" y="105">sample 2 → x̄₂ = 191 g</text>
+          <rect x="310" y="125" width="160" height="30" rx="6" class="fill-sunk"/><text x="320" y="145">sample 3 → x̄₃ = 183 g</text>
+          <text x="390" y="178" text-anchor="middle" class="t-muted">⋮ thousands of times</text></g>
+          <line x1="480" y1="110" x2="535" y2="110" stroke="currentColor" marker-end="url(#sdar)"/>
+          <text x="625" y="24" text-anchor="middle" font-weight="600">Sampling distribution of x̄</text>
+          <path d="M555 170 C 590 170, 605 60, 625 58 C 645 60, 660 170, 695 170 Z" class="fill-magenta-soft" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="625" y1="58" x2="625" y2="172" class="stroke-muted" stroke-dasharray="4 3"/>
+          <line x1="607" y1="120" x2="643" y2="120" class="stroke-amber" stroke-width="2"/>
+          <text x="625" y="195" text-anchor="middle" class="t-small t-muted">centre μ · spread σ/√n · skew γ/√n</text>
+          <text x="360" y="232" text-anchor="middle" class="t-small">The CLT: for large n the sampling distribution of x̄ is approximately normal, whatever the shape of the population.</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The idea behind every standard error, confidence interval and p-value: what would happen if the experiment were repeated many times?</figcaption>
+      </figure>
+
+      <h3>The central limit theorem</h3>
+      <p>Three facts describe the sampling distribution of the mean of n independent observations: its mean equals the population mean μ; its standard deviation — the <strong>standard error</strong> — is σ/√n; and its shape approaches the normal distribution as n grows, whatever the shape of the population (the central limit theorem). How fast it approaches normality depends on the skewness γ of the population: the skewness of \(\bar x\) is γ/√n. Plant sizes are typically right-skewed because larger plants capture a disproportionate share of light and suppress their neighbours (Weiner, 1990), and many biological quantities follow approximately lognormal distributions (Limpert et al., 2001). For your data this means that means of 3–5 plants can still have skewed sampling distributions.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“The CLT makes my data normal.” No — the CLT is about the distribution of the <em>mean</em> over repeated samples. Your individual plant weights stay as skewed as they are. The CLT is the reason why t-tests work reasonably well for moderately skewed data, provided n is not tiny.</p></div>
+
+      <h3>Standard deviation versus standard error</h3>
+      <p>The SD describes how different the plants are; it does not shrink when you measure more plants. The SE describes how precisely you know the mean; it halves when you measure four times as many plants. Error bars in a report must say which one they show. Use SD to describe variability, SE or — better — a 95 % confidence interval to show precision (Cumming &amp; Finch, 2005).</p>
+
+      <h3>What “95 % confidence” means</h3>
+      <p>A 95 % confidence interval is produced by a procedure that captures the true mean in 95 % of repeated experiments. The CIs panel lets you watch this happen. Once computed, a particular interval (say 168–205 g) either contains μ or does not; the 95 % is a property of the method. The multiplier matters: because σ is unknown and estimated by s, the interval must use Student's t distribution (Student, 1908), whose quantile for n = 4 is 3.18 instead of 1.96. Using 1.96 with small samples gives intervals that are too narrow and cover μ only about 86 % of the time.</p>
+
+      <h3>p-values dance</h3>
+      <p>A p-value is itself a random variable: repeat the experiment and you get a different p. If H₀ is true, p is uniformly distributed between 0 and 1 — that is why a threshold of α = 0.05 gives 5 % false positives. If the effect is real, small p-values become more likely, but for small experiments the distribution of p is extremely wide. Replications of the same experiment often give p-values that differ by orders of magnitude (Cumming, 2008; Halsey et al., 2015). The American Statistical Association warns against basing conclusions on whether p passes a threshold alone (Wasserstein &amp; Lazar, 2016).</p>
+      <div class="callout warn"><div class="callout-title">The winner's curse</div><p>In the p-value panel, look at which experiments reach p &lt; .05 when power is low: they are the ones whose estimated difference happened to be large. Averaged over only the “significant” experiments, the effect is exaggerated — Gelman and Carlin (2014) call this a type M (magnitude) error. Publishing only significant results therefore inflates effect sizes in the literature.</p></div>
+
+      <h3>Power, α and β</h3>
+      <p>Before an experiment there are two possible truths and two possible decisions. If H₀ is true, you wrongly reject it with probability α (type I error, false positive). If the effect is real, you miss it with probability β (type II error); the power 1 − β is the probability of detecting it. In the Power panel the black curve is the sampling distribution of the t statistic when H₀ is true; the green curve when the true standardised effect is d. The critical values ±t<sub>crit</sub> cut α/2 from each tail of the black curve; the green area beyond them is the power. Increasing n, increasing the effect, or reducing the noise σ (uniform growing conditions, blocking) all pull the two curves apart.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The mathematics behind the simulations</h2>
+
+      <div class="eq-box" id="eq-sd-se">
+        <div class="eq-head"><span class="eq-label">Standard error of the mean</span><span class="eq-num">(S1)</span></div>
+        <div class="eq-main">\[ E(\bar X) = \mu, \qquad \operatorname{Var}(\bar X) = \frac{\sigma^2}{n}, \qquad \mathrm{SE} = \frac{\sigma}{\sqrt n} \]</div>
+        <p class="eq-read">the mean of a random sample is centred on the population mean, and its standard deviation equals the population standard deviation divided by the square root of the sample size.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\mu, \sigma\)</td><td>population mean and standard deviation of fresh weight</td><td>g</td></tr>
+          <tr><td>\(n\)</td><td>number of independent plants in the sample</td><td>–</td></tr>
+          <tr><td>\(\bar X\)</td><td>sample mean (a random variable before the sample is drawn)</td><td>g</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>\(\bar X = \frac1n\sum_{i=1}^n X_i\). Expectation is linear: \(E(\bar X) = \frac1n\sum E(X_i) = \frac1n\,n\mu = \mu\).</li>
+          <li>For <em>independent</em> \(X_i\), variances add: \(\operatorname{Var}(\sum X_i) = n\sigma^2\).</li>
+          <li>Scaling by 1/n scales the variance by 1/n²: \(\operatorname{Var}(\bar X) = n\sigma^2/n^2 = \sigma^2/n\).</li>
+          <li>Hence to halve the SE you need four times as many plants — the square-root law in the first chart.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Independence is essential. If plants share a tray, their weights are positively correlated with intra-class correlation ρ and \(\operatorname{Var}(\bar X) = \frac{\sigma^2}{n}[1+(n-1)\rho]\) — the formula σ/√n then underestimates the true uncertainty (see the <a href="/laboratories/experiment-designer/">Experiment designer</a>).</p></details>
+        <div class="eq-units">\(\sqrt{\text{g}^2} = \text{g}\): the SE has the unit of the data. ✓</div>
+        <div class="mini-calc" data-formula="sigma/sqrt(n)" data-output="Standard error" data-unit="g" data-digits="2" data-plot="n">
+          <div data-var="sigma" data-label="Population SD σ" data-min="5" data-max="150" data-step="1" data-value="60" data-unit="g"></div>
+          <div data-var="n" data-label="Sample size n" data-min="1" data-max="100" data-step="1" data-value="9"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sd-clt">
+        <div class="eq-head"><span class="eq-label">Central limit theorem and the skewness of the mean</span><span class="eq-num">(S2)</span></div>
+        <div class="eq-main">\[ \frac{\bar X - \mu}{\sigma/\sqrt n} \xrightarrow{\;d\;} N(0,1) \text{ as } n\to\infty, \qquad \gamma_1(\bar X) = \frac{\gamma_1(X)}{\sqrt n} \]</div>
+        <p class="eq-read">the standardised sample mean approaches a standard normal distribution as the sample grows; the skewness of the sample mean is the skewness of the population divided by the square root of n.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(\gamma_1\)</td><td>skewness, \(E[(X-\mu)^3]/\sigma^3\) (0 for symmetric distributions)</td><td>–</td></tr></table>
+        <details><summary>Follow the derivation of γ/√n</summary><ol class="steps">
+          <li>Third central moments of independent variables add, like variances: \(E[(\sum X_i - n\mu)^3] = n\,E[(X-\mu)^3] = n\gamma_1\sigma^3\).</li>
+          <li>The standard deviation of the sum is \(\sqrt n\,\sigma\), so the skewness of the sum (and of the mean, which is only rescaled) is \(n\gamma_1\sigma^3/(\sqrt n\sigma)^3 = \gamma_1/\sqrt n\).</li>
+          <li>For the lognormal with σ/μ = 1 (γ₁ = 4), n = 30 still leaves skewness 0.73 — visible in the simulation. The Berry–Esseen theorem makes the same point: the error of the normal approximation shrinks like 1/√n and grows with skewness.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Independent, identically distributed observations with finite variance. Heavy-tailed populations converge slowly.</p></details>
+        <div class="eq-units">Skewness is a ratio of g³ to g³: dimensionless. ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-sd-ci">
+        <div class="eq-head"><span class="eq-label">Confidence interval and its coverage</span><span class="eq-num">(S3)</span></div>
+        <div class="eq-main">\[ \bar x \pm t_{1-\alpha/2,\,n-1}\frac{s}{\sqrt n}, \qquad P\!\left(\mu \in \bar X \pm c\frac{S}{\sqrt n}\right) = 2F_{t,\,n-1}(c) - 1 \]</div>
+        <p class="eq-read">the interval extends a critical value times the estimated standard error on both sides of the mean; the probability that it covers μ is determined by the t distribution with n − 1 degrees of freedom evaluated at the multiplier c.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(c\)</td><td>multiplier: \(t_{0.975,n-1}\) (correct) or 1.96 (z, only for large n)</td><td>–</td></tr>
+          <tr><td>\(F_{t,n-1}\)</td><td>cumulative distribution function of Student's t</td><td>–</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>For normal data \(T = (\bar X-\mu)/(S/\sqrt n)\) follows \(t_{n-1}\) exactly.</li>
+          <li>\(\mu\) lies in the interval exactly when \(|T| \le c\), which has probability \(F(c) - F(-c) = 2F(c) - 1\).</li>
+          <li>With c = t<sub>0.975,n−1</sub> the coverage is 95 %. With c = 1.96 and n = 4: \(2F_{t,3}(1.96) - 1 = 0.855\) — the 86 % you see in the simulation.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Normal population. For skewed populations and small n, even the t interval under-covers slightly — try it with the lognormal population and n = 3.</p></details>
+        <div class="eq-units">\(t\,s/\sqrt n\) has the unit of the data (g); coverage is a probability. ✓</div>
+        <div class="mini-calc" data-fn="sdZcov" data-output="Coverage of x̄ ± 1.96·s/√n" data-unit="%" data-digits="1" data-plot="n" data-ymin="60" data-ymax="100">
+          <div data-var="n" data-label="Sample size n" data-min="2" data-max="60" data-step="1" data-value="4"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sd-puniform">
+        <div class="eq-head"><span class="eq-label">Why p is uniform when H₀ is true</span><span class="eq-num">(S4)</span></div>
+        <div class="eq-main">\[ p = 2\left[1 - F_0(|T|)\right], \qquad P_{H_0}(p \le u) = u \quad \text{for all } 0 \le u \le 1 \]</div>
+        <p class="eq-read">the two-sided p-value is twice the tail probability of the observed statistic under the null distribution; if the null hypothesis is true, the probability that p is at most u equals u — p is uniformly distributed.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(F_0\)</td><td>CDF of the test statistic under H₀ (here Student's t with 2n − 2 df)</td><td>–</td></tr><tr><td>\(u\)</td><td>any threshold between 0 and 1</td><td>–</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Under H₀, \(|T|\) has CDF \(G(x) = 2F_0(x)-1\) for x ≥ 0, so \(p = 1 - G(|T|)\).</li>
+          <li>\(P(p \le u) = P(G(|T|) \ge 1-u) = P(|T| \ge G^{-1}(1-u)) = 1 - (1-u) = u\) (probability integral transform).</li>
+          <li>So rejecting when p ≤ α gives a false-positive rate of exactly α — and the flat histogram in the simulation.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>The null distribution must be correct: independent observations, and for small samples approximately normal data. Pseudo-replication breaks this and makes small p-values far too common.</p></details>
+        <div class="eq-units">p and u are probabilities (dimensionless). ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-sd-power">
+        <div class="eq-head"><span class="eq-label">Power and the distribution of p under H₁</span><span class="eq-num">(S5)</span></div>
+        <div class="eq-main">\[ T \sim t'_{\,2n-2}(\delta),\;\; \delta = d\sqrt{\frac n2},\;\; d=\frac{\Delta}{\sigma}; \qquad 1-\beta = P\big(|T|>t_{1-\alpha/2}\big), \qquad P_{H_1}(p\le u) = 1-\beta(u) \]</div>
+        <p class="eq-read">when the true difference is Δ, the two-sample t statistic follows a noncentral t distribution with noncentrality δ; power is the probability that it lands beyond the critical values; the cumulative distribution of p under H₁ at u equals the power the test would have at α = u.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\Delta\)</td><td>true difference between treatment means</td><td>g</td></tr>
+          <tr><td>\(d\)</td><td>standardised effect (Cohen's d)</td><td>–</td></tr>
+          <tr><td>\(\delta\)</td><td>noncentrality: the expected value of T, approximately</td><td>–</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>\(\bar X_B - \bar X_A \sim N(\Delta, 2\sigma^2/n)\). Dividing by its true SE gives \(Z \sim N(\delta, 1)\) with \(\delta = \Delta/(\sigma\sqrt{2/n})\).</li>
+          <li>Replacing σ by the pooled estimate \(s_p\) (with \((2n-2)s_p^2/\sigma^2 \sim \chi^2_{2n-2}\)) turns \(Z\) into \(T = Z/\sqrt{\chi^2/(2n-2)}\): a noncentral t.</li>
+          <li>Power is the area of this distribution beyond \(\pm t_{1-\alpha/2,\,2n-2}\), computed exactly with Lenth's (1989) algorithm. Example: d = 0.8, n = 6 → δ = 1.39 and power = 24 %; n = 26 → power = 81 %.</li>
+          <li>Replacing α by any u in the same calculation gives \(P(p\le u)\): the green theory curve in the p-value chart.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Normal populations with equal variances. For the skewed and bimodal populations the curves are normal-theory approximations — compare them with the simulated squares in the power chart.</p></details>
+        <div class="eq-units">δ, d, power: dimensionless. ✓</div>
+        <div class="mini-calc" data-fn="sdPowerApprox" data-output="Power (normal approximation)" data-unit="%" data-digits="1" data-plot="n" data-ymin="0" data-ymax="100">
+          <div data-var="d" data-label="Effect size d" data-min="0.1" data-max="2" data-step="0.05" data-value="0.8"></div>
+          <div data-var="n" data-label="n per group" data-min="2" data-max="60" data-step="1" data-value="6"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sd-pop">
+        <div class="eq-head"><span class="eq-label">The population models</span><span class="eq-num">(S6)</span></div>
+        <div class="eq-main">\[ \text{lognormal: } s^2 = \ln\!\left(1+\frac{\sigma^2}{\mu^2}\right),\;\; m = \ln\mu - \frac{s^2}{2},\;\; \gamma_1 = (e^{s^2}+2)\sqrt{e^{s^2}-1}; \qquad \text{bimodal: } \tfrac12 N(\mu-k\sigma,\,b^2)+\tfrac12 N(\mu+k\sigma,\,b^2),\;\; b=\sigma\sqrt{1-k^2} \]</div>
+        <p class="eq-read">the lognormal parameters are chosen so that the population has exactly the mean μ and standard deviation σ you set, which fixes its skewness; the bimodal population mixes two equal sub-populations whose centres are k standard deviations from μ, again with overall SD σ.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(m, s\)</td><td>mean and SD of ln(weight)</td><td>ln g</td></tr>
+          <tr><td>\(k\)</td><td>separation of the modes (slider)</td><td>–</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>If \(\ln X \sim N(m, s^2)\) then \(E(X) = e^{m+s^2/2}\) and \(\operatorname{Var}(X) = (e^{s^2}-1)e^{2m+s^2}\).</li>
+          <li>Dividing the variance by the squared mean gives \(\sigma^2/\mu^2 = e^{s^2}-1\), solved for \(s^2\); then \(m = \ln\mu - s^2/2\).</li>
+          <li>For the mixture, the total variance is within-component variance plus the variance of the component means: \(b^2 + (k\sigma)^2 = \sigma^2\).</li>
+          <li>Example: μ = 180 g, σ = 60 g gives s² = 0.1054 and skewness 1.04.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>The shapes are idealisations used to explore sampling behaviour, not fitted models of a particular crop.</p></details>
+        <div class="eq-units">\(\sigma/\mu\) is dimensionless, so \(s^2\) is dimensionless; \(m\) is a logarithm of grams. ✓</div>
+        <div class="mini-calc" data-formula="(exp(log(1+cv*cv))+2)*sqrt(exp(log(1+cv*cv))-1)" data-output="Skewness of the lognormal population" data-digits="2" data-plot="cv">
+          <div data-var="cv" data-label="Coefficient of variation σ/μ" data-min="0.05" data-max="1.5" data-step="0.01" data-value="0.33"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Tick each task when you are done; <em>Save investigation</em> copies the current settings and results into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Test the square-root law</h4><p>In <em>Means (CLT)</em> with the normal population (σ = 60 g), draw 1000 samples for n = 4, 16 and 64 (press +1000 after each change). Plot the simulated SD of the means against n in your notebook. Do the points follow σ/√n? How many plants do you need for an SE of 10 g?</p></li>
+        <li><h4>How much n is “enough”?</h4><p>With the lognormal population, find the smallest n at which the skewness of the means falls below 0.3, for σ/μ = 0.33 (σ = 60 g at μ = 180 g) and for σ/μ = 1. Compare with γ/√n. What does this mean for a project with 5 plants per treatment?</p></li>
+        <li><h4>Break the confidence interval</h4><p>Find three ways to make the coverage deviate from the nominal level: the z multiplier with small n; a strongly skewed population with n = 3; and a 99 % interval with few samples (is it really broken, or is it random variation? use the band in the coverage chart).</p></li>
+        <li><h4>Dance and power</h4><p>With d = 0.8 and n = 6, run 1000 experiments. Record the share of p &lt; .05 and compare with the exact power. Then find n for 80 % power in the Power mode and repeat. How often does a replication of a “significant” experiment also come out significant?</p></li>
+        <li><h4>The winner's curse</h4><p>With d = 0.5, n = 6, watch the dance and note the estimated differences of the experiments with p &lt; .05. Are they larger or smaller than the true Δ = 0.5σ? Explain why significant results from small experiments exaggerate effects.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-sampling-distributions">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Lettuce fresh weights have σ = 60 g. What is the standard error of the mean of 9 plants?","answer":20,"tol":0.01,"unit":"g","hint":"Eq. S1.","explain":"<p>SE = σ/√n = 60/3 = 20 g. To halve it to 10 g you would need 36 plants.</p>"},
+          {"type":"numeric","q":"A student computes 95 % intervals as x̄ ± 1.96·s/√n with n = 4 plants. What is the true coverage of such intervals (normal data)?","answer":85.5,"abstol":1.5,"unit":"%","hint":"Use the CIs mode with the z toggle, or Eq. S3 with t on 3 df.","explain":"<p>Coverage = 2F<sub>t,3</sub>(1.96) − 1 = 0.855. The correct multiplier is t<sub>0.975,3</sub> = 3.18.</p>"},
+          {"type":"mcq","q":"You obtained the 95 % CI 168–205 g for mean fresh weight. Which statement is correct?","options":["There is a 95 % probability that μ lies between 168 and 205 g","95 % of the plants weigh between 168 and 205 g","The method used produces intervals that contain μ in 95 % of repeated experiments","If you repeated the experiment, 95 % of the new means would fall between 168 and 205 g"],"answer":2,"feedback":["In the frequentist framework μ is fixed; this particular interval either contains it or not.","That would be a prediction or tolerance interval for plants; a CI concerns the mean.","","The next means scatter around μ, not around this interval; on average only about 83 % of replication means fall inside a 95 % CI (the difference of two means has √2 times the SE)."],"explain":"<p>Confidence refers to the long-run success rate of the procedure — exactly what the CIs panel shows.</p>"},
+          {"type":"numeric","q":"H₀ is true and you run 1000 independent experiments, testing each at α = 0.05. How many are expected to give p &lt; .05?","answer":50,"abstol":0.5,"hint":"Eq. S4: under H₀, P(p ≤ u) = u.","explain":"<p>1000 × 0.05 = 50 false positives — the flat p-value histogram in the simulation.</p>"},
+          {"type":"numeric","q":"Use the Power mode. What is the power of a two-sided two-sample t-test (α = 0.05) to detect d = 0.8 with n = 6 plants per treatment?","answer":24.1,"abstol":1.5,"unit":"%","hint":"Set d = 0.8 and n = 6 and read the power readout.","explain":"<p>Power = 24 %: three times out of four, a real effect of 0.8 SD would be missed. About 26 plants per treatment are needed for 80 % power.</p>"},
+          {"type":"multi","q":"Which changes increase the power of a two-group comparison? (Select all that apply.)","options":["More replicate plants per treatment","Reducing variability between plants (uniform conditions, blocking)","Lowering α from 0.05 to 0.01","A larger true effect"],"answer":[0,1,3],"explain":"<p>Power grows with δ = (Δ/σ)√(n/2): larger n, larger Δ or smaller σ. A stricter α moves the critical values outward and reduces power.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>Every simulated plant is an independent random draw from the population (seeded Mulberry32 generator with the Marsaglia polar method for normal deviates). Real plants in the same tray or reservoir are not independent — see the Experiment designer.</li>
+        <li>Populations are idealised: normal, lognormal (parameterised by μ and σ, Eq. S6), uniform, and a 50:50 mixture of two normals. They illustrate sampling behaviour and are not fitted to a particular cultivar.</li>
+        <li>Confidence intervals use x̄ ± t·s/√n (or the deliberately wrong z version). The two-group experiments use Student's pooled-variance t-test with equal n per group; the treatment population is the control population shifted by d·σ.</li>
+        <li>Theoretical power and the theoretical distribution of p use the exact noncentral t distribution (Lenth, 1989). For non-normal populations these are approximations; the simulation shows the truth.</li>
+        <li>Animations are slowed down for clarity; +100 and +1000 add samples instantly.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Cumming, G. (2008). Replication and p intervals: p values predict the future only vaguely, but confidence intervals do much better. <em>Perspectives on Psychological Science</em>, 3(4), 286–300. <a href="https://doi.org/10.1111/j.1745-6924.2008.00079.x" target="_blank" rel="noopener">doi:10.1111/j.1745-6924.2008.00079.x</a></li>
+        <li>Cumming, G., &amp; Finch, S. (2005). Inference by eye: confidence intervals and how to read pictures of data. <em>American Psychologist</em>, 60(2), 170–180. <a href="https://doi.org/10.1037/0003-066X.60.2.170" target="_blank" rel="noopener">doi:10.1037/0003-066X.60.2.170</a></li>
+        <li>Gelman, A., &amp; Carlin, J. (2014). Beyond power calculations: assessing type S (sign) and type M (magnitude) errors. <em>Perspectives on Psychological Science</em>, 9(6), 641–651. <a href="https://doi.org/10.1177/1745691614551642" target="_blank" rel="noopener">doi:10.1177/1745691614551642</a></li>
+        <li>Halsey, L. G., Curran-Everett, D., Vowler, S. L., &amp; Drummond, G. B. (2015). The fickle P value generates irreproducible results. <em>Nature Methods</em>, 12(3), 179–185. <a href="https://doi.org/10.1038/nmeth.3288" target="_blank" rel="noopener">doi:10.1038/nmeth.3288</a></li>
+        <li>Lenth, R. V. (1989). Algorithm AS 243: Cumulative distribution function of the non-central t distribution. <em>Applied Statistics</em>, 38(1), 185–189. <a href="https://doi.org/10.2307/2347693" target="_blank" rel="noopener">doi:10.2307/2347693</a></li>
+        <li>Limpert, E., Stahel, W. A., &amp; Abbt, M. (2001). Log-normal distributions across the sciences: keys and clues. <em>BioScience</em>, 51(5), 341–352. <a href="https://doi.org/10.1641/0006-3568(2001)051[0341:LNDATS]2.0.CO;2" target="_blank" rel="noopener">doi:10.1641/0006-3568(2001)051[0341:LNDATS]2.0.CO;2</a></li>
+        <li>Student. (1908). The probable error of a mean. <em>Biometrika</em>, 6(1), 1–25. <a href="https://doi.org/10.1093/biomet/6.1.1" target="_blank" rel="noopener">doi:10.1093/biomet/6.1.1</a></li>
+        <li>Wasserstein, R. L., &amp; Lazar, N. A. (2016). The ASA statement on p-values: context, process, and purpose. <em>The American Statistician</em>, 70(2), 129–133. <a href="https://doi.org/10.1080/00031305.2016.1154108" target="_blank" rel="noopener">doi:10.1080/00031305.2016.1154108</a></li>
+        <li>Weiner, J. (1990). Asymmetric competition in plant populations. <em>Trends in Ecology &amp; Evolution</em>, 5(11), 360–364. <a href="https://doi.org/10.1016/0169-5347(90)90095-U" target="_blank" rel="noopener">doi:10.1016/0169-5347(90)90095-U</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

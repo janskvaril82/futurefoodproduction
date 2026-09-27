@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Soilless systems gallery · Future Food Production</title>
+<meta name="description" content="Six hydroponic systems — NFT, deep-water culture, ebb-and-flow, drip on rock wool, wick and Kratky — as animated 3D cut-aways driven by quantitative models of water, oxygen, energy and failure risk.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+FFP_CALC.ssgMu = function (T) { return 2.414e-5 * Math.pow(10, 247.8 / (T + 133.15)); };
+/* Nusselt film thickness, mm: Q L/min, slope %, W cm, T C */
+FFP_CALC.ssgFilm = function (v) { var s = v.S / 100, q = v.Q / 60000 / (v.W / 100); return Math.cbrt(3 * FFP_CALC.ssgMu(v.T) * q / (998 * 9.81 * s / Math.sqrt(1 + s * s))) * 1000; };
+/* wick capacity, L/d: n wicks of diameter d mm, Ks m/s, hc m, lift Z cm; path = Z + 6 cm; suction limit 0.5 m */
+FFP_CALC.ssgWick = function (v) {
+  var A = Math.PI * Math.pow(v.d / 2000, 2), a = 1 / v.hc, Z = v.Z / 100, L = Z + 0.06, ht = 0.5, q;
+  if (Z >= ht) return 0;
+  if (Z < 1e-4) q = v.Ks * (1 - Math.exp(-a * ht)) / (a * L); else q = v.Ks * (Z / L) * (1 - Math.exp(-a * (ht - Z))) / (Math.exp(a * Z) - 1);
+  return v.n * A * q * 86400 * 1000;
+};
+/* logistic head mass, g, after t days at constant factor f */
+FFP_CALC.ssgMass = function (v) { return 250 / (1 + 124 * Math.exp(-0.218 * v.f * v.t)); };
+/* Kratky: days until the tote is empty at constant use */
+FFP_CALC.ssgKratky = function (v) { return (v.A * v.z / 100 * 1000) / (v.n * v.E); };
+</script>
+<style>
+  .ssg-legend { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:.8rem; color: var(--ink-2); margin: 4px 0 0; }
+  .ssg-legend span { display:inline-flex; align-items:center; gap:6px; }
+  .ssg-legend i { width:10px; height:10px; border-radius:3px; display:inline-block; }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+</head>
+<body data-page="lab" data-slug="soilless-systems-3d">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Soilless systems gallery</h1>
+    <p class="lead">Six ways to grow lettuce without soil stand side by side on the laboratory floor, built at real size and cut open so that you can see the water and the roots: nutrient film technique, deep-water culture, ebb-and-flow, drip irrigation on stone-wool slabs, a wick system and a Kratky tote. Every one of them is driven by its own physical model. Grow the crop from transplanting to harvest and watch which system runs short of water or oxygen first, how much water and electricity each one uses per kilogram of lettuce, and how long each would survive a power cut. Click a system to fly to it.</p>
+    <div class="ssg-legend" aria-hidden="true"><span><i style="background:#2f8fb8"></i>NFT</span><span><i style="background:#1f9e9a"></i>Deep-water culture</span><span><i style="background:#b86e0b"></i>Ebb-and-flow</span><span><i style="background:#6a4fc2"></i>Drip on rock wool</span><span><i style="background:#b23f8c"></i>Wick</span><span><i style="background:#1d7a4a"></i>Kratky</span></div>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Compare the six systems</h3>
+      <div class="chart-sub" id="cmp-sub">Choose the comparison under “Energy, cost and comparison”.</div>
+      <div class="chart" id="chart-compare"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Supply ÷ demand across the crop cycle</h3>
+      <div class="chart-sub">For each system, the ratio of what it can deliver to what the growing crop needs (logarithmic axis): oxygen for NFT and DWC (DO ÷ 4 mg L⁻¹), water stored between floods for ebb-and-flow, daily supply for drip, wick capacity for the wick system, and solution left ÷ solution still needed for Kratky. Below 1 the plants go short.</div>
+      <div class="chart" id="chart-margin"></div>
+    </div>
+    <div class="chart-card">
+      <h3 id="detail-title">The crop that every system must supply</h3>
+      <div class="chart-sub" id="detail-sub">Select a system to see its own design chart.</div>
+      <div class="chart" id="chart-detail"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour</h2>
+      <ol>
+        <li><strong>Start with all six.</strong> The crop is shown on the day selected under <em>Crop and climate</em> (24 days after transplanting, when an unstressed butterhead weighs about 150 g). The readouts summarise one critical number for each system and colour it green, amber or red. Press <em>▶ Grow the crop</em> and watch the <em>Supply ÷ demand</em> chart: every line falls as the plants grow, because demand grows and some supplies shrink.</li>
+        <li><strong>NFT.</strong> Click the NFT system. Blue particles leave the submersible pump in the black reservoir, climb to the feed manifold and run down the two gullies as a film about a millimetre deep; the front gully has a clear lid and no front wall, so you can see the root mats lying in the film. The film is fast (≈ 0.13 m s⁻¹) and the gully short, so oxygen hardly falls — the <a href="/laboratories/nft-system/">NFT channel simulator</a> shows what happens in 10–30 m commercial gullies.</li>
+        <li><strong>Deep-water culture.</strong> The raft floats on 44 litres of solution; bubbles rise from two air stones fed by the air pump through a check valve. Set the air flow to 0.2 L min⁻¹ and read the DO probe; then increase the solution temperature to 28 °C. Note how many hours the crop would survive if the air pump stopped.</li>
+        <li><strong>Ebb-and-flow.</strong> The tray floods for a few minutes (30 × real time): the pump fills it through the fitting in the floor, the overflow standpipe limits the depth, and when the timer switches the pump off the water drains back through the pump. Reduce the floods per day to 2 and watch the water margin between floods.</li>
+        <li><strong>Drip on rock wool.</strong> Pressure-compensating emitters deliver short pulses through drip stakes into stone-wool blocks; the surplus drains out of the slab into the gutter and a measuring bucket. Compare the drain fraction early in the crop and at harvest.</li>
+        <li><strong>Wick.</strong> Cotton wicks lift solution by capillarity from the reservoir into the substrate. As the plants grow and the reservoir level falls, the lift grows and the wick delivers less: the upper part of the wick turns pale and the <em>supply ÷ demand</em> label turns red in the last days of the crop. Try four wicks, or a fuller reservoir.</li>
+        <li><strong>Kratky.</strong> No pump at all. The level falls as the plants drink, and the growing air gap under the lid fills with a mat of “oxygen roots”, while the “water roots” follow the solution down. Halve the initial solution depth and see when the tote runs dry.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Every soilless system is a set of <strong>buffers and fluxes</strong> (<a href="/lessons/soilless-systems/">Lesson 5.1</a>). Water, nutrients and oxygen reach the roots from a buffer — a reservoir, a film, a slab, a wick, the air — at a rate the hardware must sustain as the crop grows. Pumped systems buy control and compactness with electricity and with short survival times when the power fails; passive systems (wick, Kratky) are silent and robust but can only deliver what capillarity or a stored volume allows.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Six answers to the same three questions</h2>
+      <p>Every soilless system must answer three questions: how does water with nutrients reach the roots, how do the roots get oxygen, and what happens when something stops? The six systems in this gallery answer them differently (<a href="/lessons/soilless-systems/#systems">Lesson 5.1</a>, Figure 2; Raviv et al., 2019, give the full engineering treatment).</p>
+      <table>
+        <caption>Table 1. How the six gallery systems supply water and oxygen, and their critical design number (gallery hardware in brackets).</caption>
+        <thead><tr><th>System</th><th>Water moves by</th><th>Oxygen from</th><th>Critical number</th><th>Main risk</th></tr></thead>
+        <tbody>
+          <tr><td>NFT (2 gullies × 1.2 m, 12 plants)</td><td>pump, continuous film</td><td>film surface + air around the upper root mat</td><td>film thickness, outlet DO (S1–S2)</td><td>roots dry within hours if the pump stops</td></tr>
+          <tr><td>Deep-water culture (44 L, 6 plants)</td><td>none — roots hang in the tank</td><td>air stones</td><td>steady-state DO from \(k_La\) (S3)</td><td>hypoxia if aeration stops; warm water</td></tr>
+          <tr><td>Ebb-and-flow (flood tray, 6 pots)</td><td>pump on a timer, gravity drain</td><td>air drawn into the drained substrate</td><td>fill/drain time, water stored between floods (S4)</td><td>disease spread through shared flood water</td></tr>
+          <tr><td>Drip on rock wool (4 plants)</td><td>pump pulses through emitters</td><td>air-filled pores of the slab</td><td>supply per plant, drain fraction (S5)</td><td>clogged emitters, salt build-up, nutrient emissions</td></tr>
+          <tr><td>Wick (2 plants)</td><td>capillarity</td><td>air-filled pores of the substrate</td><td>wick capacity vs demand (S6)</td><td>too little water for large plants</td></tr>
+          <tr><td>Kratky (36 L tote, 6 plants)</td><td>none — the level falls</td><td>moist air gap under the lid</td><td>volume per plant (S7)</td><td>running dry; refilling above the oxygen roots</td></tr>
+        </tbody>
+      </table>
+      <h3>Pumped solution: NFT and deep-water culture</h3>
+      <p>In NFT a film a millimetre or two deep flows down a sloping gully; its thickness follows Nusselt's falling-film law and grows only with the cube root of the flow (<a href="/lessons/hydraulic-design/#film">Lesson 5.4</a>). Commercial guidance is about 1 L min⁻¹ per gully on slopes of 1:30 to 1:100 (Graves, 1983). The film is replaced within seconds, so oxygen and nutrients change little along a short gully — but it holds only about 40 mL of water per plant, so a stopped pump is an emergency. In deep-water culture the roots hang in tens of litres of solution. The buffer of water is enormous; the limiting resource is oxygen. An aquarium pump that pushes 2 L of air per minute through a stone dissolves only about 2 % of the oxygen it carries, yet that is enough to keep a lettuce crop near saturation (<a href="/lessons/root-zone/#eq-rz-aeration">Lesson 5.3</a>). The Cornell raft system keeps about 7–8 mg L⁻¹ and notes stress below 3–4 mg L⁻¹ (Brechner &amp; Both, 2013).</p>
+      <h3>Periodic wetting: ebb-and-flow and drip</h3>
+      <p>Substrate systems store water in the pores of the growing medium and refill them periodically. An ebb-and-flow tray is flooded by the pump until the overflow standpipe limits the depth, then drains back by gravity; while the water leaves, air is sucked into the substrate. The drain time follows Torricelli's law for an orifice, so a small drain opening can keep roots submerged much longer than intended. In drip systems each plant receives short pulses from an emitter; growers apply more than the crop uses so that a <strong>drain fraction</strong> of 10–40 % leaches accumulating salts (<a href="/lessons/soilless-systems/#open-closed">Lesson 5.1</a>). A fixed schedule is therefore wasteful early in the crop, when small plants transpire little, and may be insufficient on hot days near harvest — the reason commercial growers control irrigation by accumulated radiation or by drain measurements.</p>
+      <h3>Passive systems: wick and Kratky</h3>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 700 300" role="img" aria-label="Cross-section of a wick system with reservoir, wick, substrate and plants, showing the lift from the water surface to the substrate and the capillary length of the wick">
+          <defs>
+            <marker id="ssg-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--water)"/></marker>
+            <marker id="ssg-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          </defs>
+          <rect x="60" y="80" width="260" height="70" class="fill-amber-soft" stroke="currentColor" stroke-width="1.5"/>
+          <text x="70" y="98" class="t-small">substrate: water held at suction ψ</text>
+          <path d="M130 80 C115 50 100 42 88 44 M130 80 C145 48 160 40 176 44 M130 80 C128 46 132 32 136 28" class="stroke-accent" stroke-width="5" fill="none" stroke-linecap="round"/>
+          <path d="M250 80 C235 50 220 42 208 44 M250 80 C265 48 280 40 296 44 M250 80 C248 46 252 32 256 28" class="stroke-accent" stroke-width="5" fill="none" stroke-linecap="round"/>
+          <rect x="60" y="160" width="260" height="110" class="fill-bg" stroke="currentColor" stroke-width="1.5"/>
+          <rect x="61" y="205" width="258" height="64" class="fill-water-soft"/>
+          <line x1="61" y1="205" x2="319" y2="205" class="stroke-water" stroke-width="1.5"/>
+          <path d="M190 262 C188 230 192 190 190 150 C192 120 205 112 240 110" stroke="var(--amber)" stroke-width="7" fill="none" stroke-linecap="round"/>
+          <line x1="205" y1="240" x2="205" y2="120" stroke="var(--water)" stroke-width="1.8" marker-end="url(#ssg-a1)"/>
+          <text x="212" y="190" class="t-small" style="fill:var(--water)">q (Darcy)</text>
+          <line x1="345" y1="205" x2="345" y2="152" class="stroke" stroke-width="1.2" marker-start="url(#ssg-a2)" marker-end="url(#ssg-a2)"/>
+          <text x="352" y="182" class="t-small" style="font-weight:600">lift Z</text>
+          <text x="70" y="290" class="t-small t-muted">reservoir: level falls as the plants drink → Z grows</text>
+          <!-- capacity curve -->
+          <text x="420" y="36" style="font-weight:700">Wick capacity versus lift</text>
+          <line x1="440" y1="250" x2="680" y2="250" class="stroke" stroke-width="1.2" marker-end="url(#ssg-a2)"/>
+          <line x1="440" y1="250" x2="440" y2="50" class="stroke" stroke-width="1.2" marker-end="url(#ssg-a2)"/>
+          <text x="660" y="270" class="t-small" text-anchor="end">lift Z</text>
+          <text x="446" y="58" class="t-small">q</text>
+          <path d="M442 70 C470 130 500 170 540 196 C580 220 620 234 670 242" class="stroke-magenta" stroke-width="2.4" fill="none"/>
+          <line x1="440" y1="160" x2="680" y2="160" class="stroke-danger" stroke-width="1.5" stroke-dasharray="5 4"/>
+          <text x="600" y="152" class="t-small" style="fill:var(--danger)">demand of big plants</text>
+          <line x1="440" y1="212" x2="680" y2="212" class="stroke-water" stroke-width="1.5" stroke-dasharray="3 3"/>
+          <text x="560" y="228" class="t-small" style="fill:var(--water)">demand of seedlings</text>
+          <line x1="520" y1="250" x2="520" y2="160" class="stroke-muted" stroke-dasharray="2 3"/>
+          <text x="520" y="266" class="t-small t-muted" text-anchor="middle">fails here</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> A wick system and its capacity curve. The wick is an unsaturated porous medium whose conductivity falls roughly exponentially with suction; the flux it can carry falls steeply as the lift from the water surface approaches its capillary length (Eq. S6; Gardner, 1958). Seedlings are supplied at any reasonable lift, large plants only when the lift is small.</figcaption>
+      </figure>
+      <p>A wick lifts solution by the same capillary forces that set the height of water in a thin tube (Jurin's law, <a href="/lessons/soilless-systems/#eq-jurin">Eq. 5.1.1</a>). But the equilibrium rise is reached only when nothing flows. To carry a flux the wick needs a gradient of suction along its length, and the wetter it must stay to conduct water, the smaller that gradient can be. Knutson and Selker (1994) measured this for fibreglass wicks: their unsaturated conductivity falls exponentially with suction. For such a material, Gardner's (1958) steady-state solution gives the flux that can be lifted over a height Z (Eq. S6) — high when the lift is small compared with the wick's capillary length, and collapsing when the lift approaches it. That is the physical reason wick systems suit herbs and seedlings but struggle with a lettuce close to harvest, whose transpiration is several times larger.</p>
+      <p>The Kratky method avoids every moving part (Kratky, 2009). The tote is filled once; as the plants transpire, the level falls and a humid air space opens under the lid, where roots grow that take oxygen from the air. The only design question is volume: the tote must hold the water the crop will use, with a margin (<a href="/lessons/soilless-systems/#eq-kratky-budget">Eq. 5.1.2</a>). Kratky reports 4–8 L of solution per lettuce, of which a 150–250 g head uses 3–6 L.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“Hydroponics always saves water.” Only the water that passes through the plants is productive. Open drip systems deliberately drain 10–40 %; small systems throw away their reservoir at the end of each crop; a Kratky tote may be emptied with a quarter of its solution still in it. Switch <em>Count solution discarded at harvest</em> on and off and compare the water-use chart with the 20 L kg⁻¹ modelled for a hydroponic greenhouse by Barbosa et al. (2015) and the 11–20 L kg⁻¹ Kratky (2009) measured.</p></div>
+      <h3>Energy and risk</h3>
+      <p>Electricity use is set not by the laws of hydraulics — the hydraulic power of a small pump is only a few watts — but by how long the pump runs and how many plants share it. A 20 W pump running continuously for twelve NFT plants costs far more per kilogram than the same pump running a few minutes a day for an ebb-and-flow tray. Risk follows the same “buffer over rate” logic as in <a href="/lessons/soilless-systems/#risks">Lesson 5.1</a> (Eq. 5.1.8): the time a crop survives a power cut is the water or oxygen stored per plant divided by the rate at which the plant consumes it. At harvest a lettuce transpires about 20 mL an hour: the 40 mL left in an NFT gully lasts two hours, whereas the 17 L still in the Kratky tote at harvest last about six days — without any electricity at all.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The models behind the six systems</h2>
+      <p>All six systems grow the same lettuce crop (S8). Each system then limits the supply of water or oxygen in its own way (S1–S7), and the comparison uses three system-level indicators (S9). Numbers in the tables are the gallery defaults at harvest.</p>
+
+      <div class="eq-box" id="eq-ssg-nft">
+        <div class="eq-head"><span class="eq-label">NFT: film thickness, velocity and residence time</span><span class="eq-num">(S1)</span></div>
+        <div class="eq-main">\[ h=\left(\frac{3\,\mu\,Q}{\rho\,g\,W\sin\theta}\right)^{1/3},\qquad \bar u=\frac{Q}{W h},\qquad t_{\text{res}}=\frac{L}{\bar u} \]</div>
+        <p class="eq-read">the depth of the film is the cube root of three times the viscosity times the flow per unit width, divided by density, gravity and the sine of the slope; the mean velocity is the flow divided by the film cross-section, and the residence time is the gully length divided by the velocity.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Gallery value</th></tr>
+          <tr><td>\(Q,\ W,\ L\)</td><td>flow per gully; floor width; gully length</td><td>m³ s⁻¹; m; m</td><td>1 L min⁻¹; 0.10; 1.2</td></tr>
+          <tr><td>\(\theta\)</td><td>slope angle (1:40 → sin θ ≈ 0.025)</td><td>rad</td><td>–</td></tr>
+          <tr><td>\(h,\ \bar u,\ t_{\text{res}}\)</td><td>film thickness; mean velocity; residence time</td><td>m; m s⁻¹; s</td><td>1.25 mm; 0.13 m s⁻¹; 9 s</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>A force balance on a laminar film on an incline gives a parabolic velocity profile; integrating it gives the flow per unit width \(q=\rho g\sin\theta\,h^3/(3\mu)\) (Nusselt, 1916; full derivation in <a href="/lessons/hydraulic-design/#eq-hd-film">Lesson 5.4, Eq. 5.4.2</a> and in the <a href="/laboratories/nft-system/">NFT channel simulator</a>, Eq. N1).</li><li>Solve for \(h\); divide the flow by the film cross-section \(Wh\) for \(\bar u\); divide the length by \(\bar u\) for \(t_{\text{res}}\).</li></ol></details>
+        <div class="eq-units">\((\text{Pa s}\cdot\text{m}^3\text{s}^{-1}/(\text{kg m}^{-3}\,\text{m s}^{-2}\,\text{m}))^{1/3}=\text{m}\) ✓</div>
+        <div class="mini-calc" data-fn="ssgFilm" data-output="Film thickness h" data-unit="mm" data-digits="2" data-plot="Q" data-ymin="0">
+          <div data-var="Q" data-label="Flow per gully" data-min="0.1" data-max="3" data-step="0.05" data-value="1" data-unit="L min⁻¹"></div>
+          <div data-var="S" data-label="Slope" data-min="0.5" data-max="5" data-step="0.1" data-value="2.5" data-unit="%"></div>
+          <div data-var="W" data-label="Floor width" data-min="6" data-max="20" data-step="0.5" data-value="10" data-unit="cm"></div>
+          <div data-var="T" data-label="Temperature" data-min="10" data-max="32" data-step="0.5" data-value="22" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ssg-nftdo">
+        <div class="eq-head"><span class="eq-label">NFT: dissolved oxygen at the end of the gully</span><span class="eq-num">(S2)</span></div>
+        <div class="eq-main">\[ \begin{gathered} C_{out}=C_{eq}+\big(C_{in}-C_{eq}\big)\,e^{-L/\lambda} \\[6pt] \lambda=\frac{Q}{K_LW},\qquad C_{eq}=C^*-\frac{n_p R_{O_2}}{L\,K_LW} \end{gathered} \]</div>
+        <p class="eq-read">the outlet oxygen concentration relaxes from the inlet value towards an equilibrium set by the balance between root uptake and re-aeration through the film surface, over a relaxation length equal to the flow divided by the surface-transfer coefficient times the width.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Gallery value</th></tr>
+          <tr><td>\(C_{in},\ C^*\)</td><td>inlet DO (8 mg L⁻¹ or saturation, whichever is lower); saturation (Benson &amp; Krause, 1984)</td><td>mg L⁻¹</td><td>8.0; 8.74 at 22 °C</td></tr>
+          <tr><td>\(K_L\)</td><td>surface-transfer coefficient, penetration theory with a 1 m renewal length (Higbie, 1935)</td><td>m s⁻¹</td><td>≈ 2.3 × 10⁻⁵</td></tr>
+          <tr><td>\(n_p,\ R_{O_2}\)</td><td>plants per gully; root O₂ uptake per plant (growth-linked, Q₁₀ = 2; Lesson 5.3)</td><td>–; g s⁻¹</td><td>6; ≈ 8 mg h⁻¹ at harvest</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>A steady O₂ balance on a slice of gully: \(Q\,\mathrm{d}C/\mathrm{d}x=K_LW(C^*-C)-r'\), with \(r'=n_pR_{O_2}/L\) the uptake per metre.</li><li>With constant coefficients the solution is the boxed exponential (<a href="/lessons/hydraulic-design/#eq-hd-depletion">Lesson 5.4, Eq. 5.4.3</a>).</li><li>For the 1.2 m gallery gully \(L/\lambda\approx0.17\): the outlet DO stays within about 1 mg L⁻¹ of the inlet.</li></ol></details>
+        <div class="eq-units">\(r'/(K_LW)\): g m⁻¹ s⁻¹ ÷ m² s⁻¹ = g m⁻³ = mg L⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-ssg-dwc">
+        <div class="eq-head"><span class="eq-label">Deep-water culture: aeration and steady-state oxygen</span><span class="eq-num">(S3)</span></div>
+        <div class="eq-main">\[ \begin{gathered} k_La=\frac{E_{O_2}\,\rho_{O_2,air}\,Q_{air}}{V\,C^*}\,\theta^{T-20} \\[6pt] C_{ss}=C^*-\frac{n\,R_{O_2}/V}{k_La},\qquad \tau_{fail}=\frac{C_{ss}-C_{crit}}{n\,R_{O_2}/V} \end{gathered} \]</div>
+        <p class="eq-read">the volumetric transfer coefficient is the oxygen actually dissolved from the air stream divided by the tank volume and the saturation concentration, corrected for temperature; the steady oxygen concentration lies below saturation by the uptake rate per litre divided by that coefficient; and after an air-pump failure the dissolved oxygen falls to the critical level after the stored surplus divided by the uptake rate.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Gallery value</th></tr>
+          <tr><td>\(E_{O_2}\)</td><td>fraction of the pumped O₂ that dissolves (air stone, 15–30 cm deep; Lesson 5.3)</td><td>–</td><td>0.02</td></tr>
+          <tr><td>\(\rho_{O_2,air}\)</td><td>O₂ in air at 20 °C, 1 atm</td><td>mg L⁻¹</td><td>279</td></tr>
+          <tr><td>\(Q_{air},\ V\)</td><td>air flow; solution volume</td><td>L h⁻¹; L</td><td>120 (2 L min⁻¹); 44</td></tr>
+          <tr><td>\(\theta\)</td><td>temperature correction of \(k_La\) (ASCE clean-water standard, Lesson 5.3)</td><td>–</td><td>1.024</td></tr>
+          <tr><td>\(C_{ss},\ C_{crit}\)</td><td>steady-state DO; critical DO for damage (Lesson 5.1, Eq. 5.1.8)</td><td>mg L⁻¹</td><td>8.1; 3</td></tr>
+          <tr><td>\(\tau_{fail}\)</td><td>time to the critical level after aeration stops</td><td>h</td><td>4.6</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Tank O₂ balance (<a href="/lessons/root-zone/#eq-rz-mass-balance">Lesson 5.3, Eq. 5.3.5</a>): \(\mathrm{d}C/\mathrm{d}t=k_La(C^*-C)-\text{OUR}\) with \(\text{OUR}=nR_{O_2}/V\).</li><li>At steady state \(k_La(C^*-C_{ss})=\text{OUR}\), which gives \(C_{ss}\).</li><li>Into oxygen-free water the transfer rate is \(k_La\,C^*V\); equating it to the dissolved part of the pumped oxygen, \(E_{O_2}\rho_{O_2}Q_{air}\), gives \(k_La\) (<a href="/lessons/root-zone/#eq-rz-aeration">Eq. 5.3.6</a>).</li><li>With the pump off, \(k_La\approx0\) and \(C\) falls linearly at the rate OUR: \(\tau=(C_{ss}-C_{crit})/\text{OUR}\).</li></ol></details>
+        <div class="eq-units">\(k_La\): (mg L⁻¹ × L h⁻¹)/(L × mg L⁻¹) = h⁻¹; \(\text{OUR}/k_La\): mg L⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="Cs - n*R/V/(eff/100*279*Qa*60/(V*Cs))" data-output="Steady-state DO" data-unit="mg L⁻¹" data-digits="2" data-plot="Qa" data-ymin="0">
+          <div data-var="Qa" data-label="Air flow Q<sub>air</sub>" data-min="0.1" data-max="6" data-step="0.1" data-value="2" data-unit="L min⁻¹"></div>
+          <div data-var="eff" data-label="Transfer efficiency" data-min="0.5" data-max="5" data-step="0.1" data-value="2" data-unit="%"></div>
+          <div data-var="V" data-label="Solution volume V" data-min="10" data-max="100" data-step="1" data-value="44" data-unit="L"></div>
+          <div data-var="n" data-label="Plants n" data-min="1" data-max="12" data-step="1" data-value="6"></div>
+          <div data-var="R" data-label="O₂ uptake per plant" data-min="1" data-max="15" data-step="0.1" data-value="8.2" data-unit="mg h⁻¹"></div>
+          <div data-var="Cs" data-label="Saturation C*" data-min="7" data-max="10.5" data-step="0.01" data-value="8.74" data-unit="mg L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">How long does the DWC crop survive a power cut?</span></div>
+        <div class="we-problem"><p>The gallery DWC tote holds 44 L of solution at 22 °C (\(C^*\) = 8.74 mg L⁻¹) for six 150 g lettuces that each respire 8.2 mg O₂ h⁻¹. An aquarium pump pushes 2 L min⁻¹ of air through the stones, of which 2 % of the oxygen dissolves. (a) What is \(k_La\)? (b) What DO does the tank settle at? (c) How long after the pump stops does DO fall to 3 mg L⁻¹?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Oxygen dissolved into O₂-free water:</strong> \(\text{OTR}_{\max} = 0.02\times279\ \text{mg L}^{-1}\times120\ \text{L h}^{-1} = 670\) mg h⁻¹.</li>
+            <li><strong>(a)</strong> \(k_La(20) = 670/(44\times8.74) = 1.74\) h⁻¹; at 22 °C \(1.74\times1.024^{2} = 1.82\) h⁻¹.</li>
+            <li><strong>(b)</strong> \(\text{OUR} = 6\times8.2/44 = 1.12\) mg L⁻¹ h⁻¹; \(C_{ss} = 8.74 - 1.12/1.82 = 8.13\) mg L⁻¹ — the air pump has a large reserve.</li>
+            <li><strong>(c)</strong> With \(k_La\approx0\): \(\tau = (8.13-3)/1.12 = 4.6\) h.</li>
+            <li><strong>Interpretation.</strong> Capacity is not the problem, reliability is: a power cut in the evening is found in the morning with a hypoxic crop. Doubling the solution depth doubles \(\tau\); a battery-backed air pump removes the risk. Compare the <em>DWC</em> readouts of the gallery.</li>
+          </ol>
+          <span class="answer">(a) k<sub>L</sub>a ≈ 1.8 h⁻¹; (b) C<sub>ss</sub> ≈ 8.1 mg L⁻¹; (c) ≈ 4.6 h</span>
+        </div></details>
+      </div>
+
+      <div class="eq-box" id="eq-ssg-ebb">
+        <div class="eq-head"><span class="eq-label">Ebb-and-flow: filling, Torricelli drainage and water between floods</span><span class="eq-num">(S4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} t_{fill}=\frac{A\,d}{Q_p},\qquad t_{drain}=\frac{A}{C_d\,a}\sqrt{\frac{2d}{g}} \\[6pt] M=\frac{V_{EAW}}{E\,\Delta t_{flood}} \end{gathered} \]</div>
+        <p class="eq-read">the fill time is the flooded water volume divided by the pump flow; the drain time through an opening of area a follows from Torricelli's law; and the water margin is the easily available water stored in a pot divided by the water the plant uses between two floods.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Gallery value</th></tr>
+          <tr><td>\(A,\ d\)</td><td>free water area of the tray (tray minus pots); flood depth set by the standpipe</td><td>m²; m</td><td>0.43; 0.04</td></tr>
+          <tr><td>\(Q_p\)</td><td>pump flow</td><td>m³ s⁻¹</td><td>8 L min⁻¹</td></tr>
+          <tr><td>\(a,\ C_d\)</td><td>area of the drain-back opening; discharge coefficient of a sharp-edged orifice (Çengel &amp; Cimbala, 2018)</td><td>m²; –</td><td>Ø 13 mm; 0.61</td></tr>
+          <tr><td>\(V_{EAW}\)</td><td>easily available water in a 0.58 L pot (25 % of the volume, as in Lesson 5.1, Figure 6)</td><td>L</td><td>0.145</td></tr>
+          <tr><td>\(E,\ \Delta t_{flood}\)</td><td>transpiration per plant; interval between floods (24 h ÷ floods per day)</td><td>L d⁻¹; d</td><td>0.45; 6 h</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li><strong>Filling:</strong> the pump delivers \(Q_p\) until the tray holds \(Ad\), so \(t_{fill}=Ad/Q_p\) (the drain-back path is closed by the running pump).</li><li><strong>Draining:</strong> with depth \(h\) the outflow is \(C_da\sqrt{2gh}\) (Bernoulli/Torricelli), so \(A\,\mathrm{d}h/\mathrm{d}t=-C_da\sqrt{2gh}\).</li><li>Separate variables: \(\mathrm{d}h/\sqrt h=-(C_da\sqrt{2g}/A)\,\mathrm{d}t\); integrating from \(d\) to 0 gives \(2\sqrt d=(C_da\sqrt{2g}/A)\,t_{drain}\), i.e. the boxed result. The depth falls as \(h=d(1-t/t_{drain})^2\).</li><li><strong>Margin:</strong> between floods the plant draws on the easily available water of its pot; if \(M \lt 1\) the substrate dries before the next flood and growth slows in proportion.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>The drain-back path through the pump is represented by an equivalent sharp-edged orifice discharging freely; friction in the return pipe would lengthen the drain time. Water absorbed by the substrate during the flood and the water held in the saucers of the pots are ignored in \(t_{fill}\).</p></details>
+        <div class="eq-units">\(Ad/Q_p\): m³ ÷ m³ s⁻¹ = s; \((A/a)\sqrt{d/g}\): \(\sqrt{\text{m}/(\text{m s}^{-2})}=\text{s}\) ✓</div>
+        <div class="mini-calc" data-formula="(A/(0.61*PI*pow(D/2000,2)))*sqrt(2*d/100/9.81)/60" data-output="Drain time" data-unit="min" data-digits="1" data-plot="D" data-ymin="0">
+          <div data-var="A" data-label="Tray water area A" data-min="0.1" data-max="2" data-step="0.01" data-value="0.43" data-unit="m²"></div>
+          <div data-var="d" data-label="Flood depth d" data-min="1" data-max="8" data-step="0.5" data-value="4" data-unit="cm"></div>
+          <div data-var="D" data-label="Drain opening diameter" data-min="6" data-max="30" data-step="1" data-value="13" data-unit="mm"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Setting the ebb-and-flow timer</span></div>
+        <div class="we-problem"><p>The flood tray has a free water area of 0.433 m² and an overflow standpipe 4 cm high. The pump delivers 8 L min⁻¹; when it stops, the tray drains back through the pump, which behaves like a 13 mm sharp-edged orifice (\(C_d\) = 0.61). The timer holds each flood for 5 minutes. Each 0.58 L pot stores 25 % of its volume as easily available water, and a 150 g lettuce transpires 0.45 L d⁻¹. (a) Calculate the fill and drain times. (b) Are four floods a day enough? (c) What is the minimum number of floods, and on a hot day (0.75 L d⁻¹)?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Flood volume and filling:</strong> \(V = 0.433\times0.04 = 0.0173\) m³ = 17.3 L; \(t_{fill} = 17.3/8 = 2.2\) min.</li>
+            <li><strong>Draining (Torricelli):</strong> \(a = \pi(0.0065)^2 = 1.33\times10^{-4}\) m²; \(A/(C_da) = 0.433/(0.61\times1.33\times10^{-4}) = 5348\); \(\sqrt{2\times0.04/9.81} = 0.0903\) s; \(t_{drain} = 483\) s = 8.0 min.</li>
+            <li><strong>Submergence:</strong> 2.2 + 5 + 8.0 = 15 min per flood, i.e. 1.0 h per day with four floods — short enough for the pores to refill with air.</li>
+            <li><strong>(b) Water margin:</strong> stored \(0.58\times0.25 = 0.145\) L; used between floods \(0.45/4 = 0.113\) L; \(M = 1.29\) ✓.</li>
+            <li><strong>(c) Minimum floods:</strong> \(0.45/0.145 = 3.1\) → at least 4 floods a day; on a hot day \(0.75/0.145 = 5.2\) → at least 6. Floods at night are unnecessary because transpiration is small without light.</li>
+          </ol>
+          <span class="answer">t<sub>fill</sub> ≈ 2.2 min, t<sub>drain</sub> ≈ 8.0 min; four floods give M ≈ 1.3; at least 4 floods a day (6 on hot days)</span>
+        </div></details>
+      </div>
+
+      <div class="eq-box" id="eq-ssg-drip">
+        <div class="eq-head"><span class="eq-label">Drip: supply, drain fraction and emitter uniformity</span><span class="eq-num">(S5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} S=q_e\,n_{pulse}\,t_{pulse},\qquad \text{DF}=1-\frac{E}{S} \\[6pt] \frac{q_{last}}{q_{first}}=\left(1-\frac{\Delta H}{H}\right)^{x},\qquad E_N=(S-E)\,c_N \end{gathered} \]</div>
+        <p class="eq-read">the daily supply per plant is the emitter flow times the number of pulses times their duration; the drain fraction is one minus transpiration over supply; the flow of the last emitter relative to the first follows the pressure drop raised to the emitter exponent; and the nitrogen lost from an open system is the drained volume times its nitrogen concentration.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Gallery value</th></tr>
+          <tr><td>\(q_e\)</td><td>emitter flow</td><td>L h⁻¹</td><td>2</td></tr>
+          <tr><td>\(n_{pulse},\ t_{pulse}\)</td><td>pulses per day; pulse duration</td><td>d⁻¹; h</td><td>6; 3 min</td></tr>
+          <tr><td>\(\text{DF}\)</td><td>drain fraction (10–40 % in practice; Lesson 5.1)</td><td>–</td><td>0.25 at harvest</td></tr>
+          <tr><td>\(x,\ \Delta H/H\)</td><td>emitter exponent (≈ 0 pressure-compensating, 0.5 orifice; Keller &amp; Karmeli, 1974); relative pressure drop along the lateral</td><td>–</td><td>0.05; 0.2</td></tr>
+          <tr><td>\(c_N\)</td><td>nitrogen in the drain (taken equal to the Cornell supply, 125 mg L⁻¹ — a lower bound)</td><td>mg L⁻¹</td><td>125</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Water balance of the slab over a day (storage constant): supply = transpiration + drain, hence \(\text{DF}=V_d/V_s=1-E/S\) (<a href="/lessons/soilless-systems/#eq-drain-fraction">Eq. 5.1.6</a>).</li><li>Emitter law \(q=kH^x\) (<a href="/lessons/hydraulic-design/#eq-hd-uniformity">Eq. 5.4.8</a>): the ratio of two emitters is \((H_2/H_1)^x\).</li><li>If \(S \lt E\) there is no drain and the slab dries; growth is then reduced in proportion to \(S/E\).</li></ol></details>
+        <div class="eq-units">L h⁻¹ × d⁻¹ × h = L d⁻¹ ✓; (L d⁻¹) × (mg L⁻¹) = mg d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="100*max(0, 1 - E/(q*n*t/60))" data-output="Drain fraction" data-unit="%" data-digits="0" data-plot="E" data-ymin="0">
+          <div data-var="q" data-label="Emitter flow" data-min="0.5" data-max="4" data-step="0.1" data-value="2" data-unit="L h⁻¹"></div>
+          <div data-var="n" data-label="Pulses per day" data-min="1" data-max="20" data-step="1" data-value="6"></div>
+          <div data-var="t" data-label="Pulse duration" data-min="1" data-max="10" data-step="0.5" data-value="3" data-unit="min"></div>
+          <div data-var="E" data-label="Transpiration per plant" data-min="0.02" data-max="1" data-step="0.01" data-value="0.45" data-unit="L d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ssg-wick">
+        <div class="eq-head"><span class="eq-label">Wick: steady capillary flux against gravity (Darcy with exponential conductivity)</span><span class="eq-num">(S6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} K(\psi)=K_s\,e^{\alpha\psi},\qquad \alpha=\frac{1}{h_c} \\[6pt] q_{\max}=K_s\,\frac{Z}{L}\;\frac{1-e^{-\alpha(h_{top}-Z)}}{e^{\alpha Z}-1},\qquad Q_{wick}=n_w\,\frac{\pi d_w^2}{4}\,q_{\max} \end{gathered} \]</div>
+        <p class="eq-read">the conductivity of the wick falls exponentially as its suction increases, with a capillary length h_c; solving Darcy's law along a wick that rises Z over a path length L, the largest flux it can deliver while the substrate end stays wetter than the suction h_top is the boxed expression, and the capacity of the wick set is that flux times the wick cross-section and the number of wicks.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Gallery value</th></tr>
+          <tr><td>\(K_s\)</td><td>saturated hydraulic conductivity of the wick; measured 220–1380 cm h⁻¹ (6 × 10⁻⁴–4 × 10⁻³ m s⁻¹) for fibreglass wicks (Knutson &amp; Selker, 1994); lower for cotton (assumed)</td><td>m s⁻¹</td><td>1 × 10⁻⁴</td></tr>
+          <tr><td>\(h_c=1/\alpha\)</td><td>capillary length of the wick ≈ equilibrium capillary rise (Jurin, Eq. 5.1.1)</td><td>m</td><td>0.15</td></tr>
+          <tr><td>\(Z,\ L\)</td><td>lift from the water surface to the substrate (+3 cm into it); wick path, \(Z\) + 6 cm run in the substrate</td><td>m</td><td>0.07 → 0.13 during the crop</td></tr>
+          <tr><td>\(h_{top}\)</td><td>largest suction at which the substrate still supplies easily available water (≈ 50 cm, Lesson 5.1)</td><td>m</td><td>0.5</td></tr>
+          <tr><td>\(n_w,\ d_w\)</td><td>number and diameter of wicks</td><td>–; m</td><td>2; 8 mm</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Darcy's law for unsaturated flow along a wick inclined by \(\beta\) (\(\sin\beta=Z/L\)), with pressure head \(\psi\le0\) and upward flux \(q\): \(q=-K(\psi)\left(\dfrac{\mathrm{d}\psi}{\mathrm{d}s}+\sin\beta\right)\).</li>
+            <li>Rearrange: \(\mathrm{d}s=-\dfrac{K(\psi)\,\mathrm{d}\psi}{q+K(\psi)\sin\beta}\). With \(K=K_se^{\alpha\psi}\) the integral is elementary: \(L=\dfrac{1}{\alpha\sin\beta}\ln\dfrac{q+K_s\sin\beta}{q+K_s\sin\beta\,e^{\alpha\psi_{top}}}\), taking \(\psi=0\) at the water surface and \(\psi_{top}\) at the substrate end.</li>
+            <li>Solve for \(q\) with \(\psi_{top}=-h_{top}\) and \(L\sin\beta=Z\): \(q=K_s\sin\beta\,\dfrac{1-e^{\alpha(Z-h_{top})}}{e^{\alpha Z}-1}\) — the boxed result. For a vertical column and \(h_{top}\to\infty\) it reduces to Gardner's (1958) classic limit \(q=K_s/(e^{\alpha Z}-1)\) for evaporation from a water table.</li>
+            <li>For small lifts \(q\approx K_s(1-e^{-\alpha h_{top}})/(\alpha L)\): the wick behaves like a horizontal Darcy conductor. When \(Z\) approaches \(h_c\) the denominator grows exponentially and the capacity collapses.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The exponential \(K(\psi)\) was observed for fibreglass wicks (Knutson &amp; Selker, 1994); cotton ropes and felts swell, age and clog with salts, so their parameters are uncertain — measure your own wick's capillary rise (it gives \(h_c\)) and the time it takes to deliver a known volume. The contact between wick and substrate and the conductivity of the substrate itself add further resistance, so the model is an upper limit.</p></details>
+        <div class="eq-units">\(K_s\,(Z/L)\) is m s⁻¹; the fraction is dimensionless because \(\alpha Z\) and \(\alpha h_{top}\) are dimensionless; m s⁻¹ × m² = m³ s⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="ssgWick" data-output="Wick capacity" data-unit="L d⁻¹" data-digits="2" data-plot="Z" data-ymin="0">
+          <div data-var="Z" data-label="Lift Z" data-min="0.5" data-max="40" data-step="0.5" data-value="10" data-unit="cm"></div>
+          <div data-var="n" data-label="Number of wicks" data-min="1" data-max="6" data-step="1" data-value="2"></div>
+          <div data-var="d" data-label="Wick diameter" data-min="4" data-max="15" data-step="0.5" data-value="8" data-unit="mm"></div>
+          <div data-var="Ks" data-label="K<sub>s</sub>" data-min="0.00001" data-max="0.003" data-step="0.00001" data-value="0.0001" data-unit="m s⁻¹" data-scale="log" data-digits="5"></div>
+          <div data-var="hc" data-label="Capillary length h<sub>c</sub>" data-min="0.05" data-max="0.5" data-step="0.01" data-value="0.15" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">Will two wicks keep up?</span></div>
+        <div class="we-problem"><p>The gallery wick system feeds two lettuces through two 8 mm cotton ropes with \(K_s\) = 1 × 10⁻⁴ m s⁻¹ and a capillary length \(h_c\) = 15 cm. At harvest the reservoir level has fallen so far that the lift from the water surface to 3 cm inside the substrate is \(Z\) = 12.1 cm (wick path \(L = Z\) + 6 cm = 18.1 cm); the substrate still supplies easily available water up to a suction of 50 cm. Each 150 g head transpires 0.45 L d⁻¹. (a) What can the wicks deliver? (b) How many 10 mm wicks are needed for a margin of 1.2?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Dimensionless groups:</strong> \(\alpha = 1/0.15 = 6.67\) m⁻¹; \(\alpha Z = 0.807\); \(\alpha(h_{top}-Z) = 6.67\times0.379 = 2.53\).</li>
+            <li><strong>Flux (S6):</strong> \(q = 10^{-4}\times\dfrac{0.121}{0.181}\times\dfrac{1-e^{-2.53}}{e^{0.807}-1} = 10^{-4}\times0.669\times\dfrac{0.920}{1.241} = 4.96\times10^{-5}\) m s⁻¹.</li>
+            <li><strong>(a) Capacity:</strong> each wick has \(A = \pi(0.004)^2 = 5.03\times10^{-5}\) m²; two wicks carry \(2\times5.03\times10^{-5}\times4.96\times10^{-5} = 4.99\times10^{-9}\) m³ s⁻¹ = 0.43 L d⁻¹ — less than half of the 0.90 L d⁻¹ the two heads need. In the gallery the plants therefore slow down in the last days and reach 134 g instead of 150 g.</li>
+            <li><strong>(b) Thicker wicks:</strong> a 10 mm wick has 1.56 times the area and carries 0.34 L d⁻¹; \(1.2\times0.90/0.34 = 3.2\) → four 10 mm wicks (1.35 L d⁻¹, margin 1.5).</li>
+            <li><strong>Sanity check.</strong> At the start of the crop the lift is only 7.5 cm and the same two wicks carry about 0.7 L d⁻¹, while two seedlings need about 10 mL a day: the wick system looks perfect for three weeks and fails in the last one — exactly the pattern in the supply ÷ demand chart.</li>
+          </ol>
+          <span class="answer">(a) ≈ 0.43 L d⁻¹ (supply ÷ demand ≈ 0.48); (b) four 10 mm wicks</span>
+        </div></details>
+      </div>
+
+      <div class="eq-box" id="eq-ssg-kratky">
+        <div class="eq-head"><span class="eq-label">Kratky: falling level and days until the tote is empty</span><span class="eq-num">(S7)</span></div>
+        <div class="eq-main">\[ V(t)=V_0-n\int_0^t E\,\mathrm{d}t',\qquad z(t)=\frac{V(t)}{A},\qquad t_{empty}:\;V(t_{empty})=0 \]</div>
+        <p class="eq-read">the solution left is the initial volume minus everything the plants have transpired; the depth is that volume divided by the tote area; the tote is empty when the cumulative water use equals the initial volume.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Gallery value</th></tr>
+          <tr><td>\(V_0,\ A\)</td><td>initial volume; inner area of the tote (55 × 35 cm)</td><td>L; m²</td><td>36; 0.1925</td></tr>
+          <tr><td>\(n,\ E\)</td><td>plants; transpiration per plant (grows with the plant, S8)</td><td>–; L d⁻¹</td><td>6; up to 0.45</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Nothing is added after planting, so the volume can only decrease by transpiration (plus a little evaporation through the lid holes, neglected here): \(\mathrm{d}V/\mathrm{d}t=-nE(t)\).</li><li>For vertical walls \(z=V/A\) (<a href="/lessons/soilless-systems/#eq-kratky-budget">Eq. 5.1.2</a>). With constant use the tote lasts \(V_0/(nE)\) days; with a growing crop most of the water is used in the last two weeks.</li><li>If the tote runs dry before harvest, growth stops in the simulator; Kratky's rule is to top up, if at all, only to a level that keeps the oxygen roots in air.</li></ol></details>
+        <div class="eq-units">L − (– × L d⁻¹ × d) = L; L ÷ m² = 10⁻³ m ✓</div>
+        <div class="mini-calc" data-fn="ssgKratky" data-output="Days until empty (constant use)" data-unit="d" data-digits="0" data-plot="E">
+          <div data-var="A" data-label="Tote area" data-min="0.05" data-max="0.5" data-step="0.005" data-value="0.1925" data-unit="m²"></div>
+          <div data-var="z" data-label="Initial depth" data-min="5" data-max="30" data-step="0.5" data-value="18.5" data-unit="cm"></div>
+          <div data-var="n" data-label="Plants" data-min="1" data-max="20" data-step="1" data-value="6"></div>
+          <div data-var="E" data-label="Water use per plant" data-min="0.05" data-max="0.8" data-step="0.01" data-value="0.2" data-unit="L d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ssg-crop">
+        <div class="eq-head"><span class="eq-label">The shared crop: growth, transpiration and supply limitation</span><span class="eq-num">(S8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \frac{\mathrm{d}m}{\mathrm{d}t}=r\,f\,m\left(1-\frac{m}{K}\right),\qquad E=e_w\,m \\[6pt] f=\min\!\left(1,\ \frac{\text{supply}}{\text{demand}}\right)\ \ \text{or}\ \ f=f_{O_2}(C) \end{gathered} \]</div>
+        <p class="eq-read">every head grows logistically, and transpires in proportion to its mass; when a system cannot supply the water the plant demands, growth is reduced in proportion (growth follows transpiration), and in the solution systems growth follows the oxygen response of the NFT simulator.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(r,\ K,\ m_0\)</td><td>relative growth rate; asymptote; mass at transplanting — 150 g at 24 days (35 days after seeding; Brechner &amp; Both, 2013)</td><td>d⁻¹; g; g</td><td>0.218; 250; 2</td></tr>
+          <tr><td>\(e_w\)</td><td>crop water use per kg of fresh mass per day (3 ≈ 20 L per kg over the crop, cf. Barbosa et al., 2015)</td><td>L kg⁻¹ d⁻¹</td><td>3</td></tr>
+          <tr><td>\(f\)</td><td>supply factor (water) or \(f_{O_2}\) = 1 above 4, 0.8 at 3, 0.5 at 2 mg L⁻¹ (oxygen)</td><td>–</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Logistic growth with the parameters of the <a href="/laboratories/nft-system/">NFT channel simulator</a> (Eq. N9) reproduces the Cornell schedule.</li><li>Biomass production of a crop is closely proportional to its transpiration when the atmosphere is unchanged, so a plant that can transpire only a fraction \(f\) of its demand grows at a fraction \(f\) of its potential rate.</li><li>The model is integrated in quarter-day steps with the exact logistic solution for each step.</li></ol></details>
+        <div class="eq-units">d⁻¹ × g = g d⁻¹; L kg⁻¹ d⁻¹ × kg = L d⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="ssgMass" data-output="Head fresh mass" data-unit="g" data-digits="0" data-plot="t" data-ymin="0">
+          <div data-var="t" data-label="Days after transplanting" data-min="0" data-max="35" data-step="1" data-value="24" data-unit="d"></div>
+          <div data-var="f" data-label="Supply factor f" data-min="0.2" data-max="1" data-step="0.01" data-value="1"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ssg-compare">
+        <div class="eq-head"><span class="eq-label">Comparison indicators: water per kilogram, electricity per kilogram, time to damage</span><span class="eq-num">(S9)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{WU}=\frac{n\,W_p+V_d+V_{disc}}{n\,m_h},\qquad e=\frac{P_{el}\,t_{on}}{n\,m_h} \\[6pt] \tau=\frac{V_{avail}}{E}\ \ \text{or}\ \ \tau=\frac{C_{ss}-C_{crit}}{\text{OUR}} \end{gathered} \]</div>
+        <p class="eq-read">water use per kilogram is the water transpired by all plants plus drainage plus solution thrown away, divided by the harvested mass; electricity per kilogram is pump power times running time divided by the harvested mass; and the time to damage after a power cut is the stored water per plant divided by transpiration, or for deep-water culture the stored oxygen surplus divided by uptake.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Gallery value</th></tr>
+          <tr><td>\(W_p,\ V_d,\ V_{disc}\)</td><td>water transpired per plant; drained water (open drip); solution discarded at harvest (toggle)</td><td>L</td><td>–</td></tr>
+          <tr><td>\(m_h\)</td><td>head mass at harvest</td><td>kg</td><td>≈ 0.15</td></tr>
+          <tr><td>\(P_{el},\ t_{on}\)</td><td>electrical power of the pump or air pump; running time over the crop</td><td>W; h</td><td>20 W water pump, 3 W air pump</td></tr>
+          <tr><td>\(V_{avail}\)</td><td>plant-available water stored per plant (Lesson 5.1, Fig. 6): NFT 40 mL, ebb-and-flow 145 mL, drip 400 mL, wick and Kratky: the reservoir</td><td>L</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Water use per kilogram (<a href="/lessons/soilless-systems/#eq-wue">Eq. 5.1.7</a>): everything that enters must leave as transpiration, drainage or discarded solution.</li><li>Electricity: energy = power × time; a continuously running pump uses \(P_{el}\times24\) Wh per day whatever the flow (small synchronous pumps; <a href="/lessons/hydraulic-design/#eq-hd-pump">Lesson 5.4</a>).</li><li>Time to damage: "buffer over rate" (<a href="/lessons/soilless-systems/#eq-survival">Eq. 5.1.8</a>).</li></ol></details>
+        <div class="eq-units">L ÷ kg = L kg⁻¹; W × h ÷ kg = Wh kg⁻¹; L ÷ L h⁻¹ = h ✓</div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the gallery to answer. <em>Save investigation</em> stores all settings and the readouts in your notebook; the link reproduces the scenario.</p>
+      <ol class="task-list">
+        <li><h4>The power cut</h4><p>Compare the six systems by <em>Hours to damage after a power cut</em> at day 10 and at day 24. Explain the ranking with the buffer and the rate of each system. Which systems would survive a weekend without electricity at harvest? What would you change in the NFT and DWC systems to survive a night?</p></li>
+        <li><h4>How many wicks?</h4><p>Select the wick system. Find the smallest number of 8 mm wicks with which the plants reach harvest unstressed. Then keep two wicks and find the initial reservoir depth that works. Use the capacity-versus-lift chart to explain why a fuller reservoir helps, and why doubling the wick diameter helps more than doubling their number would suggest (hint: area ∝ d²).</p></li>
+        <li><h4>Timer settings for ebb-and-flow</h4><p>With <em>Hot summer</em>, find the smallest number of floods per day that keeps the water margin above 1.2 at harvest. How long are the roots submerged per day? Then halve the drain-back opening and explain the change in drain time with Torricelli's law (S4).</p></li>
+        <li><h4>A drip schedule that follows the crop</h4><p>With the default drip schedule, record the drain fraction on days 5, 12, 18 and 24. Design a schedule for day 24 that gives a drain fraction of 20–30 %, and calculate how much water and nitrogen the fixed schedule wastes over the crop compared with a schedule that follows transpiration. Relate your answer to the nitrogen emissions of open systems in Lesson 5.1.</p></li>
+        <li><h4>Water and electricity per kilogram</h4><p>Rank the systems by water use per kilogram with and without the solution discarded at harvest, and by electricity per kilogram. Compare with 20 L kg⁻¹ (hydroponic greenhouse; Barbosa et al., 2015) and 11–20 L kg⁻¹ (Kratky, 2009). Which choices in the gallery hardware (tank size, pump running time, number of plants per pump) dominate the result, and how would they scale in a commercial system?</p></li>
+        <li><h4>Choose a system for your project</h4><p>Using the gallery, the risks and your available equipment, choose one system for the course project. Write down its critical design number, the value you will use, what could fail, and how you will detect a failure before the plants do.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-soilless-systems-3d">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the gallery and the equations","questions":[
+          {"type":"numeric","q":"A DWC tote holds 44 L for six lettuces, each consuming 8.2 mg O₂ h⁻¹. The air stones give k_La = 1.8 h⁻¹ and saturation is 8.74 mg L⁻¹. What is the steady-state dissolved oxygen (Eq. S3)?","answer":8.12,"tol":0.02,"unit":"mg L⁻¹","hint":"OUR = n R / V in mg L⁻¹ h⁻¹; C_ss = C* − OUR / k_La.","explain":"<p>OUR = 6 × 8.2 / 44 = 1.12 mg L⁻¹ h⁻¹; \\(C_{ss} = 8.74 - 1.12/1.8 = 8.12\\) mg L⁻¹ — aeration capacity is not the problem; its reliability is.</p>"},
+          {"type":"numeric","q":"A larger ebb-and-flow bench has a free water area of 1.2 m² and is flooded 5 cm deep. How long does it take to drain through a 20 mm opening with C_d = 0.61 (Eq. S4)?","answer":10.54,"tol":0.03,"unit":"min","hint":"t = (A/(C_d a)) √(2d/g), with a = π (0.010 m)².","explain":"<p>\\(a = 3.14\\times10^{-4}\\) m²; \\(A/(C_da) = 1.2/(0.61\\times3.14\\times10^{-4}) = 6262\\); \\(\\sqrt{2\\times0.05/9.81} = 0.101\\) s; \\(t = 632\\) s ≈ 10.5 min. The drain time grows with the area and with the square root of the depth, and falls with the square of the opening diameter.</p>"},
+          {"type":"numeric","q":"A drip emitter delivers 2 L h⁻¹ in 6 pulses of 3 minutes a day. A lettuce near harvest transpires 0.45 L d⁻¹. What is the drain fraction (Eq. S5)?","answer":25,"tol":0.03,"unit":"%","explain":"<p>Supply \\(S = 2\\times6\\times3/60 = 0.60\\) L d⁻¹; DF = 1 − 0.45/0.60 = 0.25. Two weeks earlier, when the plant used only a tenth of that, the same schedule drained about 90 %.</p>"},
+          {"type":"mcq","q":"In the default gallery the wick system is fine for three weeks and then its plants fall behind. Why?","options":["Demand grows with the plants while the falling reservoir level increases the lift, and the wick capacity falls steeply as the lift approaches the capillary length","The nutrients in the wick reservoir are used up","The wick becomes saturated and the roots suffocate","Capillary rise stops at night"],"answer":0,"feedback":["","Nutrients are not modelled as limiting in the wick system, and a 16 L reservoir holds plenty.","A saturated wick delivers the most water; suffocation is a risk of over-wet substrates, not the failure shown here.","Capillarity does not depend on light; transpiration does."],"explain":"<p>Eq. S6: \\(q\\) falls roughly as \\(e^{-Z/h_c}\\) once the lift is comparable with \\(h_c\\), while transpiration grows with head mass (S8).</p>"},
+          {"type":"multi","q":"At harvest, which of the gallery systems keep their plants undamaged for more than 12 hours after a power cut with the default settings? (Use the comparison chart.)","options":["NFT","Deep-water culture","Ebb-and-flow","Drip on rock wool","Wick","Kratky"],"answer":[3,4,5],"explain":"<p>NFT holds about 40 mL per plant (≈ 2 h), DWC runs out of oxygen in ≈ 4–5 h, ebb-and-flow pots hold ≈ 8 h of water; the drip slab (≈ 21 h), the wick reservoir and the Kratky tote last longer. Passive systems need no electricity at all.</p>","shuffle":false},
+          {"type":"tf","q":"When the solution in a Kratky tote has fallen by 8 cm, it should be topped up to the original level so that all roots are back in solution.","answer":false,"explain":"<p>The roots that grew in the moist air gap are adapted to air and supply the plant with oxygen; submerging them can drown the plant (Kratky, 2009). If a top-up is needed, keep the level well below the oxygen roots.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>One crop for all.</strong> Every system grows the same butterhead lettuce (logistic, 150 g at 24 days after transplanting; Brechner &amp; Both, 2013), with transpiration proportional to fresh mass. Light, CO₂, air humidity and nutrient composition are assumed adequate everywhere; only the supply of water (and oxygen for NFT and DWC) differs between systems.</li>
+        <li><strong>Supply limitation.</strong> When a system delivers less water than the plant demands, growth and transpiration are reduced in the same proportion; oxygen limitation uses the illustrative response of the NFT simulator (no effect above 4 mg L⁻¹). Recovery after a stress is immediate, and wilting, root death and disease are not modelled.</li>
+        <li><strong>NFT.</strong> Nusselt film and a constant-coefficient oxygen balance for a 1.2 m gully (surface renewal length 1 m, inlet 8 mg L⁻¹). The pump runs continuously.</li>
+        <li><strong>DWC.</strong> Well-mixed tank; aeration capacity from a fixed transfer efficiency of the air stones (Lesson 5.3); surface re-aeration and microbial oxygen demand neglected. The raft covers the surface.</li>
+        <li><strong>Ebb-and-flow.</strong> Linear filling at the pump flow, overflow at the standpipe height, and drainage back through the pump as a free orifice (Torricelli, C<sub>d</sub> = 0.61); each 0.58 L pot stores 25 % of its volume as easily available water. Water taken up by the substrate during the flood is ignored.</li>
+        <li><strong>Drip.</strong> A fixed irrigation schedule; drain water carries nitrogen at the supply concentration (a lower bound, as drains are usually more concentrated); emitter uniformity from the emitter law only (no clogging).</li>
+        <li><strong>Wick.</strong> Gardner's exponential conductivity with parameters that you set; the default \(K_s\) = 10⁻⁴ m s⁻¹ and \(h_c\) = 15 cm are order-of-magnitude assumptions for a cotton rope (measured fibreglass wicks conduct 6–40 times better; Knutson &amp; Selker, 1994). Wick–substrate contact resistance and the substrate's own conductivity are ignored, so the capacity is an upper limit.</li>
+        <li><strong>Kratky.</strong> A vertical-walled tote; only transpiration removes water; growth stops if the tote runs dry.</li>
+        <li><strong>Energy.</strong> Only pumps are counted (no lighting or climate control); the electrical power ratings are inputs, with defaults taken from Lessons 5.3–5.4. Water discarded at harvest is the reservoir or the solution left over.</li>
+        <li><strong>3D scene.</strong> Plant sizes, root lengths, water levels, flow speeds, bubble rates, drip rates, the flood cycle and wick wetness follow the models; the hardware is built at realistic scale but is illustrative.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Barbosa, G. L., Gadelha, F. D. A., Kublik, N., Proctor, A., Reichelm, L., Weissinger, E., Wohlleb, G. M., &amp; Halden, R. U. (2015). Comparison of land, water, and energy requirements of lettuce grown using hydroponic vs. conventional agricultural methods. <em>International Journal of Environmental Research and Public Health</em>, 12(6), 6879–6891. <a href="https://doi.org/10.3390/ijerph120606879" target="_blank" rel="noopener">doi:10.3390/ijerph120606879</a></li>
+        <li>Benson, B. B., &amp; Krause, D. (1984). The concentration and isotopic fractionation of oxygen dissolved in freshwater and seawater in equilibrium with the atmosphere. <em>Limnology and Oceanography</em>, 29(3), 620–632. <a href="https://doi.org/10.4319/lo.1984.29.3.0620" target="_blank" rel="noopener">doi:10.4319/lo.1984.29.3.0620</a></li>
+        <li>Brechner, M., &amp; Both, A. J. (2013). <em>Hydroponic Lettuce Handbook</em>. Cornell University Controlled Environment Agriculture (CEA) Program, Ithaca, NY.</li>
+        <li>Çengel, Y. A., &amp; Cimbala, J. M. (2018). <em>Fluid Mechanics: Fundamentals and Applications</em> (4th ed.). McGraw-Hill Education, New York.</li>
+        <li>Gardner, W. R. (1958). Some steady-state solutions of the unsaturated moisture flow equation with application to evaporation from a water table. <em>Soil Science</em>, 85(4), 228–232. <a href="https://doi.org/10.1097/00010694-195804000-00006" target="_blank" rel="noopener">doi:10.1097/00010694-195804000-00006</a></li>
+        <li>Graves, C. J. (1983). The nutrient film technique. <em>Horticultural Reviews</em>, 5, 1–44. <a href="https://doi.org/10.1002/9781118060728.ch1" target="_blank" rel="noopener">doi:10.1002/9781118060728.ch1</a></li>
+        <li>Higbie, R. (1935). The rate of absorption of a pure gas into a still liquid during short periods of exposure. <em>Transactions of the American Institute of Chemical Engineers</em>, 31, 365–389.</li>
+        <li>Keller, J., &amp; Karmeli, D. (1974). Trickle irrigation design parameters. <em>Transactions of the ASAE</em>, 17(4), 678–684. <a href="https://doi.org/10.13031/2013.36936" target="_blank" rel="noopener">doi:10.13031/2013.36936</a></li>
+        <li>Knutson, J. H., &amp; Selker, J. S. (1994). Unsaturated hydraulic conductivities of fiberglass wicks and designing capillary wick pore-water samplers. <em>Soil Science Society of America Journal</em>, 58(3), 721–729. <a href="https://doi.org/10.2136/sssaj1994.03615995005800030012x" target="_blank" rel="noopener">doi:10.2136/sssaj1994.03615995005800030012x</a></li>
+        <li>Kratky, B. A. (2009). Three non-circulating hydroponic methods for growing lettuce. <em>Acta Horticulturae</em>, 843, 65–72. <a href="https://doi.org/10.17660/ActaHortic.2009.843.6" target="_blank" rel="noopener">doi:10.17660/ActaHortic.2009.843.6</a></li>
+        <li>Nusselt, W. (1916). Die Oberflächenkondensation des Wasserdampfes. <em>Zeitschrift des Vereines Deutscher Ingenieure</em>, 60, 541–546 and 569–575.</li>
+        <li>Raviv, M., Lieth, J. H., &amp; Bar-Tal, A. (Eds.). (2019). <em>Soilless Culture: Theory and Practice</em> (2nd ed.). Elsevier. <a href="https://doi.org/10.1016/B978-0-444-63696-6.00001-3" target="_blank" rel="noopener">doi:10.1016/B978-0-444-63696-6.00001-3</a> (introductory chapter)</li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

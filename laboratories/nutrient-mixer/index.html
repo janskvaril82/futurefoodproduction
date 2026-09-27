@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nutrient-solution mixer · Future Food Production</title>
+<meta name="description" content="A professional nutrient-recipe calculator: water analysis, crop targets, a non-negative least-squares solver, grams per A/B stock tank, ion balance, two EC estimates, acid dose and precipitation checks, with a printable mixing sheet.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* APHA Standard Methods 2510: κ = κ°·y², Davies activity coefficient of a monovalent ion */
+FFP_CALC.nmApha = function (v) {
+  var k0 = 73.5 * v.K + 2 * 59.5 * v.Ca + 2 * 53.1 * v.Mg + 73.5 * v.NH4 + 71.4 * v.NO3 + 36.0 * v.P + 2 * 80.0 * v.S;
+  var I = 0.5 * (v.K + 4 * v.Ca + 4 * v.Mg + v.NH4 + v.NO3 + v.P + 4 * v.S) / 1000;
+  var y = Math.pow(10, -0.5 * (Math.sqrt(I) / (1 + Math.sqrt(I)) - 0.3 * I));
+  return k0 * y * y / 1000;
+};
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+.nm-wrap { margin: 4px 0 18px; overflow-x: auto; }
+.nm-table { width: 100%; border-collapse: collapse; font-size: .84rem; background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); }
+.nm-table caption { text-align: left; font: 650 .92rem var(--font-sans); padding: 0 0 6px; color: var(--ink); }
+.nm-table th, .nm-table td { padding: 6px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.nm-table th { font: 700 .68rem var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.nm-table td.num, .nm-table th.num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+.nm-table .muted { color: var(--muted); font-size: .78em; display: block; margin-left: 15px; line-height: 1.3; }
+.nm-table td.nm-name { line-height: 1.3; min-width: 150px; }
+.nm-table th:first-child, .nm-table td:first-child { width: 34px; }
+.stage.light-stage .stage-hud { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 110px); }
+.stage.light-stage .stage-hud .hud-chip { background: color-mix(in srgb, var(--bg-elev) 88%, transparent); color: var(--ink); border-color: var(--line); }
+.stage.light-stage .stage-hud .hud-chip b { color: var(--accent); }
+.stage.light-stage .stage-toolbar button { background: var(--bg-sunk); color: var(--ink-2); border-color: var(--line); }
+.nm-tank { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; font: 800 .8rem var(--font-sans); color: #fff; }
+.nm-A { background: #b86e0b; } .nm-B { background: #1c78a3; }
+.nm-sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+.nm-move { border: 1px solid var(--line); background: var(--bg); color: var(--ink-2); border-radius: 999px; font: 600 .72rem var(--font-sans); padding: 2px 8px; cursor: pointer; white-space: nowrap; }
+.nm-move:hover { border-color: var(--accent); color: var(--accent); }
+.nm-clash td { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.nm-notes { margin: 8px 0 0; padding-left: 18px; font-size: .84rem; color: var(--ink-2); }
+.nm-notes li { margin: 3px 0; }
+.nm-ok { font-size: .84rem; color: var(--ok); margin: 8px 0 0; }
+#mix-sheet { max-width: 900px; width: calc(100% - 32px); border: 1px solid var(--line); border-radius: 14px; padding: 22px 26px; background: var(--bg-elev); color: var(--ink); box-shadow: var(--shadow-2); }
+#mix-sheet::backdrop { background: rgba(8, 14, 12, .5); }
+#mix-sheet h2 { margin: 0 0 4px; font-size: 1.35rem; } #mix-sheet h3 { margin: 16px 0 6px; font-size: 1rem; }
+#mix-sheet table { width: 100%; border-collapse: collapse; font-size: .85rem; } #mix-sheet th, #mix-sheet td { border-bottom: 1px solid var(--line); padding: 5px 7px; text-align: left; }
+#mix-sheet .small { font-size: .76rem; color: var(--muted); }
+.sheet-actions { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 10px; }
+@media print {
+  html.nm-printing body > *:not(#mix-sheet) { display: none !important; }
+  html.nm-printing #mix-sheet { position: static; display: block; border: 0; box-shadow: none; max-width: none; width: auto; padding: 0; background: #fff; color: #000; }
+  html.nm-printing .sheet-actions { display: none; }
+}
+</style>
+</head>
+<body data-page="lab" data-slug="nutrient-mixer">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Nutrient-solution mixer</h1>
+    <p class="lead">Every hydroponic grower eventually faces the same puzzle: a crop needs about a dozen ions in the right amounts, but every fertiliser salt delivers two of them at once, the tap water already contains some of them and too much of others, and a concentrated stock solution will turn to stone if calcium meets sulfate. This laboratory is the tool professionals use to solve the puzzle. Enter your water analysis, choose a crop recipe and the fertilisers on your shelf, and a least-squares solver finds how many grams to weigh into the A and B stock tanks — with the ion balance, two independent EC estimates, the acid dose for your water, precipitation and solubility checks, and a printable mixing sheet for your project.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage light-stage" id="stage" aria-label="Animated A and B stock tanks dosing into the working nutrient solution, with EC and pH meters"></div>
+      <div class="readouts" id="readouts"></div>
+      <div class="nm-wrap" id="recipe-table"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Target versus achieved</h3>
+      <div class="chart-sub">Ion concentrations of the working solution (mmol L⁻¹): recipe target, what the chosen salts and water actually give, and the part that comes from the water alone. Na⁺, Cl⁻ and HCO₃⁻ come only from the water.</div>
+      <div class="chart tall" id="chart-ions"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Charge balance</h3>
+      <div class="chart-sub">Cations and anions in milliequivalents per litre. Electroneutrality demands equal columns; because every salt is neutral, a recipe built from salts balances automatically — any gap comes from the water analysis.</div>
+      <div class="chart tall" id="chart-meq"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Where each nutrient comes from</h3>
+      <div class="chart-sub">Element concentrations (mg L⁻¹) split by source: the water and each fertiliser. With hard water, a large share of the calcium, magnesium and sulfur is already there before you weigh anything.</div>
+      <div class="chart tall" id="chart-src"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Reproduce a professional recipe.</strong> Choose <em>Lettuce · Dutch standard</em> and <em>Rain / reverse-osmosis water</em>, concentration factor 100× and a stock volume of 1000 L. The solver asks for about 97 kg of calcium nitrate, 61 kg of potassium nitrate, 20 kg of monopotassium phosphate, 25 kg of Epsom salt and 17 kg of potassium sulfate — the same amounts, within a few per cent, as the published A+B recipe for lettuce in water culture (van der Lugt, 2016). The small differences come from the ammonium source.</li>
+        <li><strong>Now use real tap water.</strong> Switch to the <em>hard Swedish groundwater</em> example. Calcium nitrate falls sharply because the water already supplies 2.7 mmol L⁻¹ of calcium; the acid dose rises to neutralise 5.7 mmol L⁻¹ of bicarbonate; sodium and chloride appear in the charge balance and push the EC above the recipe value. Compare the three charts before and after.</li>
+        <li><strong>Break the rule on purpose.</strong> In the weighing list, press <em>→ A</em> next to magnesium sulfate. The A tank turns cloudy and a white layer of gypsum settles at the bottom; the readout <em>Stock tanks: compatibility</em> turns red. At 100× concentration the ion product of Ca²⁺ and SO₄²⁻ exceeds the solubility product of gypsum more than a thousand-fold. Move it back.</li>
+        <li><strong>Become a private buyer.</strong> Tick <em>Private buyer in the EU</em>. Nitric acid and ammonium nitrate disappear from your shelf — they are restricted explosives precursors. With hard water, phosphoric acid now has to neutralise all the bicarbonate, and the phosphorus overshoots its target: a real constraint for project groups working at home.</li>
+        <li><strong>Watch pH drift before it happens.</strong> Compare the two pH readouts: just after mixing, CO₂ from the neutralised bicarbonate is still dissolved; in an aerated tank it escapes and the pH rises. Switch <em>Acid calculated for</em> to <em>target pH, aerated</em> and see how much more acid a DWC or NFT system needs.</li>
+        <li><strong>Take it to the bench.</strong> Set your own system volume and press <em>Mixing sheet</em> for a printable weighing list with check boxes, the expected EC and pH, and the safety procedure.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A nutrient recipe is a small system of linear equations: each salt contributes fixed amounts of two (or three) ions, the water contributes its own ions, and the sum must match the target. Because salts come in fixed pairs, not every target can be met exactly — the solver finds the closest non-negative combination and tells you where it falls short.</p></div>
+      <a class="lab-link" data-lab="ph-availability" data-why="See why the target pH matters: phosphate and carbonate speciation, iron-chelate stability and the acid titration of your water."></a>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From a list of ions to a list of salts</h2>
+      <p>A recipe is written in millimoles of ions per litre — the language of plant uptake (<a href="/lessons/nutrient-solution-chemistry/#units">Lesson 5.2</a>). A fertiliser bag is sold in kilograms of salt. Translating between the two is bookkeeping with a twist: each salt brings a <em>pair</em> of ions in a fixed ratio. Potassium nitrate gives equal amounts of K⁺ and NO₃⁻; commercial calcium nitrate gives 2.2 NO₃⁻ and 0.2 NH₄⁺ with every Ca²⁺; potassium sulfate gives two K⁺ per SO₄²⁻. The grower's problem is to choose amounts of 8–11 salts so that about 8 ion concentrations match their targets, with the obvious constraint that you cannot weigh a negative mass.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="The recipe as a linear system: a matrix of ions supplied per unit of each salt multiplied by the unknown amounts equals the target minus the water">
+            <text x="20" y="26" style="font-weight:700">The recipe as a linear system</text>
+            <g class="t-small" text-anchor="middle">
+              <text x="160" y="52" class="t-muted">salts →</text>
+              <text x="92" y="72">CN</text><text x="132" y="72">KNO₃</text><text x="172" y="72">MKP</text><text x="212" y="72">MgSO₄</text><text x="252" y="72">K₂SO₄</text><text x="292" y="72">HNO₃</text>
+            </g>
+            <rect x="72" y="80" width="240" height="176" rx="8" class="fill-sunk" stroke="currentColor"/>
+            <g class="t-small t-mono" text-anchor="middle">
+              <text x="40" y="100" text-anchor="end">NH₄⁺</text><text x="92" y="100">0.2</text><text x="132" y="100">·</text><text x="172" y="100">·</text><text x="212" y="100">·</text><text x="252" y="100">·</text><text x="292" y="100">·</text>
+              <text x="40" y="122" text-anchor="end">K⁺</text><text x="92" y="122">·</text><text x="132" y="122">1</text><text x="172" y="122">1</text><text x="212" y="122">·</text><text x="252" y="122">2</text><text x="292" y="122">·</text>
+              <text x="40" y="144" text-anchor="end">Ca²⁺</text><text x="92" y="144">1</text><text x="132" y="144">·</text><text x="172" y="144">·</text><text x="212" y="144">·</text><text x="252" y="144">·</text><text x="292" y="144">·</text>
+              <text x="40" y="166" text-anchor="end">Mg²⁺</text><text x="92" y="166">·</text><text x="132" y="166">·</text><text x="172" y="166">·</text><text x="212" y="166">1</text><text x="252" y="166">·</text><text x="292" y="166">·</text>
+              <text x="40" y="188" text-anchor="end">NO₃⁻</text><text x="92" y="188">2.2</text><text x="132" y="188">1</text><text x="172" y="188">·</text><text x="212" y="188">·</text><text x="252" y="188">·</text><text x="292" y="188">1</text>
+              <text x="40" y="210" text-anchor="end">H₂PO₄⁻</text><text x="92" y="210">·</text><text x="132" y="210">·</text><text x="172" y="210">1</text><text x="212" y="210">·</text><text x="252" y="210">·</text><text x="292" y="210">·</text>
+              <text x="40" y="232" text-anchor="end">SO₄²⁻</text><text x="92" y="232">·</text><text x="132" y="232">·</text><text x="172" y="232">·</text><text x="212" y="232">1</text><text x="252" y="232">1</text><text x="292" y="232">·</text>
+              <text x="40" y="252" text-anchor="end">H⁺</text><text x="92" y="252">·</text><text x="132" y="252">·</text><text x="172" y="252">·</text><text x="212" y="252">·</text><text x="252" y="252">·</text><text x="292" y="252">1</text>
+            </g>
+            <text x="335" y="172" style="font-size:22px">×</text>
+            <rect x="360" y="80" width="46" height="176" rx="8" class="fill-accent-soft" stroke="currentColor"/>
+            <g class="t-small t-mono" text-anchor="middle"><text x="383" y="100">x₁</text><text x="383" y="128">x₂</text><text x="383" y="156">x₃</text><text x="383" y="184">x₄</text><text x="383" y="212">x₅</text><text x="383" y="240">x₆</text></g>
+            <text x="383" y="274" text-anchor="middle" class="t-small">amounts ≥ 0</text>
+            <text x="424" y="172" style="font-size:22px">≈</text>
+            <rect x="450" y="80" width="80" height="176" rx="8" class="fill-water-soft" stroke="currentColor"/>
+            <g class="t-small t-mono" text-anchor="middle"><text x="490" y="100">target</text><text x="490" y="118">−</text><text x="490" y="136">water</text><text x="490" y="174" class="t-muted">(mmol L⁻¹)</text><text x="490" y="252">acid need</text></g>
+            <g class="t-small">
+              <text x="550" y="104">8–9 equations,</text><text x="550" y="120">8–11 unknowns,</text><text x="550" y="136">x ≥ 0 →</text><text x="550" y="152" style="font-weight:600">non-negative least</text><text x="550" y="168" style="font-weight:600">squares (NNLS)</text>
+              <text x="550" y="200" class="t-muted">degenerate pairs, e.g.</text><text x="550" y="216" class="t-muted">MgSO₄ + 2 KNO₃ =</text><text x="550" y="232" class="t-muted">Mg(NO₃)₂ + K₂SO₄,</text><text x="550" y="248" class="t-muted">are broken by preferences</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Each column of the matrix is a salt: the ions it supplies per mole of "unit" (for commercial calcium nitrate, per mole of Ca). The solver chooses non-negative amounts \(x_j\) so that the ions supplied match the target minus what the water already provides, plus the acid needed to neutralise the water's bicarbonate.</figcaption>
+      </figure>
+
+      <h3>Water first</h3>
+      <p>Tap water is not an empty solvent. Water from Lake Mälaren delivered by Norrvatten contained on average 34 mg L⁻¹ Ca, 4.9 mg L⁻¹ Mg, 13 mg L⁻¹ Na, 50 mg L⁻¹ SO₄²⁻ and 70 mg L⁻¹ HCO₃⁻ in 2025 (Norrvatten, 2025) — soft to medium-hard. Groundwater from the Uppsala esker at Vänge carried 110 mg L⁻¹ Ca, 46 mg L⁻¹ Na and 349 mg L⁻¹ HCO₃⁻ (Uppsala Vatten, 2023). The solver subtracts what is already there; useful ions (Ca, Mg, SO₄) save fertiliser, while sodium and chloride are ballast that raise the EC without feeding the crop. A useful classification for recirculating systems: below 1.5 mmol L⁻¹ Na or Cl the water suits all crops; 1.5–2.5 mmol L⁻¹ rules out recirculation for sensitive crops; above that, salt-sensitive crops suffer (van der Lugt, 2016).</p>
+      <div class="callout warn"><div class="callout-title">Never use softened water</div><p>Household water softeners exchange calcium and magnesium for sodium. At Vänge the softened tap water held 190 mg L⁻¹ of sodium — 8.3 mmol L⁻¹, five times the limit for recirculation — while the calcium the crop needs had been removed (Uppsala Vatten, 2023). Take hydroponic water from before the softener, or collect rain water.</p></div>
+
+      <h3>Bicarbonate, acid and the target pH</h3>
+      <p>Bicarbonate is a base. Unless it is neutralised, it pushes the pH of the nutrient solution towards 7–8, where iron, manganese and phosphate become unavailable (<a href="/laboratories/ph-availability/">pH laboratory</a>). The mixer offers three ways to calculate the acid: the grower's rule of leaving about 0.5 mmol L⁻¹ of bicarbonate as a buffer (van der Lugt, 2016); an equilibrium calculation to the target pH in a closed tank, where the CO₂ formed stays dissolved; and the same calculation for an aerated tank, where CO₂ escapes to the air and almost all bicarbonate must go. Phosphoric acid is used first because it doubles as the phosphorus source; nitric acid supplies the rest and adds nitrate, which the solver counts.</p>
+
+      <h3>Two ways to predict EC</h3>
+      <p>Conductivity is carried by ions, so it can be estimated from the composition. The grower's rule — EC in dS m⁻¹ ≈ sum of cations in meq L⁻¹ divided by 10 (Sonneveld &amp; Voogt, 2009) — is quick and surprisingly good for nutrient solutions. A more physical estimate sums the contribution of each ion, charge × equivalent conductance × concentration, which would be exact at infinite dilution (Kohlrausch's law), and then corrects for the drag of the ionic atmosphere at real concentrations with the square of a Davies activity coefficient. This is the procedure of <em>Standard Methods</em> 2510 for checking water analyses, where calculated and measured conductivities of natural waters agreed within 2 % (APHA, 1992). For the Cornell lettuce solution the two estimates give 1.20 and 1.26 dS m⁻¹ against a target of 1.2; the uncorrected Kohlrausch sum would give 1.6.</p>
+
+      <h3>Why A and B tanks — and how concentrated?</h3>
+      <p>At working strength a nutrient solution is undersaturated with respect to gypsum (CaSO₄·2H₂O) and calcium phosphates. Concentrate it 100 times and the ion products rise 10 000-fold: calcium must be kept away from sulfate and phosphate. Tank A therefore holds calcium nitrate and the iron chelate; tank B holds phosphates, sulfates, micronutrient salts and the acid; potassium nitrate is split between the two so that both tanks hold similar masses (van der Lugt, 2016). A second limit is solubility: potassium sulfate dissolves only to about 111 g L⁻¹ at 20 °C, and potassium nitrate falls from 316 g L⁻¹ at 20 °C to 133 g L⁻¹ at 0 °C (Haynes, 2014) — a stock prepared at 100× in a warm lab can crystallise in a cold shed. The mixer compares the concentration of every salt in each tank with its solubility at your storage temperature.</p>
+
+      <h3>Iron and micronutrients</h3>
+      <p>Iron is supplied as a chelate whose pH stability matters: Fe-EDTA holds iron up to about pH 6–6.5, Fe-DTPA to about 7–7.5 and Fe-EDDHA to about 9 (van der Lugt, 2016; Hershkowitz et al., 2025). Manganese, zinc and copper can be given as sulfates or as EDTA chelates; the sulfates are cheaper, but free metal ions can displace iron from its chelate, so recirculating systems often use chelated forms (van der Lugt, 2016). Micronutrient masses are small — grams per thousand litres — so weigh them on a 0.01 g balance or make a separate micronutrient pre-stock.</p>
+
+      <div class="callout note"><div class="callout-title">Regulation · what a private buyer can get (as of 2026)</div><p>Since 1 February 2021, Regulation (EU) 2019/1148 on explosives precursors forbids making nitric acid above 3 % w/w and ammonium nitrate (16 % N or more from ammonium nitrate) available to members of the general public; professional users such as growers and universities can still buy them. Calcium nitrate fertiliser, whose small ammonium-nitrate content gives far less than 16 % N, is not affected. A student mixing at home therefore relies on phosphoric acid (or ready-made "pH down") and on calcium nitrate and monoammonium phosphate for ammonium. Tick <em>Private buyer</em> to see what this means for your water.</p></div>
+      <a class="lab-link" data-lab="deep-water-culture" data-why="Put the solution into a DWC tank and follow its oxygen, temperature and root health through day and night."></a>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the mixer</h2>
+
+      <div class="eq-box" id="eq-nm-supply">
+        <div class="eq-head"><span class="eq-label">Ions supplied by a salt mixture and grams per stock tank</span><span class="eq-num">(N1)</span></div>
+        <div class="eq-main">\[ c_i = c_{i,\text{w}} + \sum_j \nu_{ij}\,x_j, \qquad m_j = x_j\,M_j\,\frac{F\,V_s}{1000}, \qquad V_{\text{acid},j} = \frac{x_j\,F\,V_s}{C_{\text{acid},j}} \]</div>
+        <p class="eq-read">the concentration of ion \(i\) in the working solution equals what the water brings plus, for every fertiliser \(j\), the number of ions per unit of that fertiliser times the amount dissolved. The mass to weigh into a stock tank is the amount per litre of working solution times the molar mass of the unit times the number of litres of working solution the tank will serve, which is the concentration factor times the tank volume; acids are measured by volume instead.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example</th></tr>
+          <tr><td>\(c_i,\ c_{i,\text{w}}\)</td><td>concentration of ion \(i\) in the working solution; in the source water</td><td>mmol L⁻¹</td><td>Ca: 4.5; 0.85 (Mälaren)</td></tr>
+          <tr><td>\(\nu_{ij}\)</td><td>ions \(i\) supplied per unit of fertiliser \(j\)</td><td>mol mol⁻¹</td><td>NO₃⁻ per Ca in commercial calcium nitrate: 2.2</td></tr>
+          <tr><td>\(x_j\)</td><td>amount of fertiliser unit per litre of working solution (the unknown)</td><td>mmol L⁻¹</td><td>4.50 (calcium nitrate, Ca units)</td></tr>
+          <tr><td>\(M_j\)</td><td>molar mass of the unit as sold (with crystal water)</td><td>g mol⁻¹</td><td>216.1 (one fifth of 5Ca(NO₃)₂·NH₄NO₃·10H₂O)</td></tr>
+          <tr><td>\(F,\ V_s\)</td><td>concentration factor; volume of each stock tank</td><td>–; L</td><td>100; 1000</td></tr>
+          <tr><td>\(C_{\text{acid}}\)</td><td>molarity of the concentrated acid, \(10\,w\rho/M\)</td><td>mol L⁻¹</td><td>7.45 (HNO₃ 38 %), 12.05 (H₃PO₄ 75 %)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Mass balance for ion \(i\) in one litre of working solution: what is present = what the water brought + what each salt released. Salts dissolve completely at these concentrations.</li>
+            <li>One litre of stock tank, diluted \(F\) times, makes \(F\) litres of working solution; a tank of \(V_s\) litres serves \(F V_s\) litres. It must therefore contain \(x_j F V_s\) mmol of unit \(j\), i.e. \(x_j F V_s M_j/1000\) grams.</li>
+            <li>Example (Dutch lettuce recipe, rain water): calcium nitrate \(x = 4.50\) mmol L⁻¹ → \(4.50 \times 216.1 \times 100 \times 1000 / 1000 = 97\,200\) g = 97 kg per 1000 L tank at 100×.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Commercial salts are assumed to match their formulae; check the label (calcium nitrate is hygroscopic; iron chelates vary from 3 to 13 % Fe). The volume occupied by dissolved salt is ignored — dissolve in three-quarters of the water, then fill to the mark.</p></details>
+        <div class="eq-units">mmol L⁻¹ × g mol⁻¹ × L ÷ 1000 = mmol × mg mmol⁻¹ ÷ 1000 = g ✓; mmol L⁻¹ × L ÷ mol L⁻¹ = mL ✓</div>
+        <div class="mini-calc" data-formula="x*M*F*Vs/1000" data-output="Mass per stock tank" data-unit="g" data-digits="0" data-plot="x" data-ymin="0">
+          <div data-var="x" data-label="Amount in working solution x" data-min="0" data-max="10" data-step="0.05" data-value="4.5" data-unit="mmol L⁻¹"></div>
+          <div data-var="M" data-label="Molar mass of the unit M" data-min="60" data-max="300" data-step="0.1" data-value="216.1" data-unit="g mol⁻¹"></div>
+          <div data-var="F" data-label="Concentration factor F" data-min="25" data-max="400" data-step="25" data-value="100"></div>
+          <div data-var="Vs" data-label="Stock tank volume V<sub>s</sub>" data-min="5" data-max="1000" data-step="5" data-value="20" data-unit="L"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nm-nnls">
+        <div class="eq-head"><span class="eq-label">Weighted non-negative least squares</span><span class="eq-num">(N2)</span></div>
+        <div class="eq-main">\[ \min_{\mathbf{x}\,\ge\,0}\ \sum_i \left(\frac{w_i}{\max(1,\,b_i)}\Big(\sum_j A_{ij}x_j - b_i\Big)\right)^{2} + \varepsilon\sum_j \lambda_j x_j^2, \qquad b_i = c_i^{\text{target}} - c_{i,\text{w}} \]</div>
+        <p class="eq-read">choose non-negative amounts that minimise the weighted squared differences between supplied and needed ions — relative differences for concentrations above 1 mmol L⁻¹, absolute ones below — plus a tiny penalty on less conventional salts that decides between chemically equivalent mixtures.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(A_{ij}\)</td><td>matrix of \(\nu_{ij}\) for the salts you have enabled; the last row holds the H⁺ each acid supplies</td><td>mol mol⁻¹</td><td>Figure 1</td></tr>
+          <tr><td>\(b_i\)</td><td>ions still needed after the water (never negative); for H⁺: the acid requirement (Eq. N3)</td><td>mmol L⁻¹</td><td>–</td></tr>
+          <tr><td>\(w_i\)</td><td>importance weights</td><td>–</td><td>1 for K, Ca, Mg, P; 0.8 NO₃, SO₄; 0.35 NH₄; 0.3 Cl; 3 for H⁺</td></tr>
+          <tr><td>\(\lambda_j,\ \varepsilon\)</td><td>preference penalty; its scale</td><td>–</td><td>1–2 for HNO₃, KH₂PO₄, Mg(NO₃)₂, K₂SO₄, NH₄H₂PO₄, CaCl₂; 0 otherwise; ε = 10⁻³</td></tr>
+        </table>
+        <details><summary>How the solver works (Lawson &amp; Hanson)</summary>
+          <ol class="steps">
+            <li>Start with all amounts zero ("passive" set). Compute the gradient \(\mathbf{w} = A^{\mathsf T}(\mathbf{b} - A\mathbf{x})\): a positive component means that adding that salt would reduce the error.</li>
+            <li>Move the salt with the largest positive gradient into the "active" set and solve the ordinary least-squares problem for the active salts only.</li>
+            <li>If any active amount comes out negative, step back along the line towards the previous feasible point until the first amount hits zero, and return that salt to the passive set; repeat.</li>
+            <li>Stop when no passive salt has a positive gradient: the Karush–Kuhn–Tucker conditions for a minimum under \(\mathbf{x}\ge 0\) are satisfied (Lawson &amp; Hanson, 1974).</li>
+            <li><strong>Why the penalty?</strong> Chemistry creates exact ties: MgSO₄ + 2 KNO₃ supply exactly the same ions as Mg(NO₃)₂ + K₂SO₄, and HNO₃ + KH₂PO₄ the same as H₃PO₄ + KNO₃. A tiny quadratic penalty on the "secondary" salt of each pair selects the conventional allocation used by advisers — magnesium from Epsom salt first, phosphorus from phosphoric acid first — without measurably changing the fit.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The weights express nutritional priorities (a 10 % error in calcium matters more than in ammonium) and are a design choice, not chemistry. If a target is impossible with the enabled salts — for example, more sulfate in the water than in the recipe — the solver returns the closest compromise and the readout <em>Largest deviation</em> reports it.</p></details>
+        <div class="eq-units">Each residual is in mmol L⁻¹ divided by mmol L⁻¹ (or by 1 mmol L⁻¹): the objective is dimensionless, so ions of very different size can be compared ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-nm-acid">
+        <div class="eq-head"><span class="eq-label">Acid requirement for a target pH</span><span class="eq-num">(N3)</span></div>
+        <div class="eq-main">\[ n_{\mathrm{H^+}} = A_{\text{w}} - A(\text{pH}^{*}), \qquad A(\text{pH}) = C_T\,(\alpha_1 + 2\alpha_2) + P_T\,(\alpha_{\mathrm{HPO_4}} - \alpha_{\mathrm{H_3PO_4}}) + [\mathrm{OH^-}] - [\mathrm{H^+}] \]</div>
+        <p class="eq-read">the acid needed, in millimoles of H⁺ per litre, is the alkalinity of the water minus the alkalinity that the solution may keep at the target pH. That alkalinity is the carbonate that is still present as bicarbonate or carbonate, plus the part of the phosphate that has lost a second proton, plus hydroxide minus hydrogen ions.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(A_{\text{w}}\)</td><td>alkalinity of the source water (≈ its HCO₃⁻)</td><td>mmol L⁻¹</td></tr>
+          <tr><td>\(C_T\)</td><td>total inorganic carbon; closed tank: that of the water, \(C_T = A_{\text{w}}/(\alpha_1+2\alpha_2)\) at its own pH; aerated tank: \(C_T = [\mathrm{CO_2}]_{\text{air}}/\alpha_0(\text{pH}^*)\)</td><td>mmol L⁻¹</td></tr>
+          <tr><td>\(\alpha_0,\ \alpha_1,\ \alpha_2\)</td><td>fractions of \(C_T\) as CO₂, HCO₃⁻, CO₃²⁻ (pK 6.35, 10.33)</td><td>–</td></tr>
+          <tr><td>\(P_T\)</td><td>phosphate from the recipe (reference species H₂PO₄⁻; pK 2.15, 7.20, 12.35)</td><td>mmol L⁻¹</td></tr>
+          <tr><td>\([\mathrm{CO_2}]_{\text{air}}\)</td><td>CO₂ in equilibrium with air, \(K_H\,p_{\mathrm{CO_2}}\) = 0.0334 mol L⁻¹ atm⁻¹ × 425 ppm</td><td>0.014 mmol L⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Alkalinity is the capacity of a solution to neutralise acid, relative to a reference: CO₂ for carbon, H₂PO₄⁻ for phosphate (KH₂PO₄ and H₃PO₄ at the target pH both end up mostly as H₂PO₄⁻).</li>
+            <li>A strong acid lowers alkalinity one-for-one; the salts, being neutral at the reference level, do not change it. So the acid needed is \(A_{\text{w}} - A(\text{pH}^*)\).</li>
+            <li>Closed tank: no CO₂ escapes, \(C_T\) is conserved; at pH 5.8 about a fifth of it remains as HCO₃⁻, which is why "leave ≈ 0.5 mmol L⁻¹" works for moderately hard water.</li>
+            <li>Aerated tank: CO₂ equilibrates with air at only 0.014 mmol L⁻¹, so at pH 5.8 almost no bicarbonate may remain — nearly all alkalinity must be neutralised.</li>
+            <li>Example, Mälaren water (1.15 mmol L⁻¹ HCO₃⁻, pH 8.2) with 1 mmol L⁻¹ phosphate: 0.86 mmol L⁻¹ closed, 1.11 aerated, 0.65 by the 0.5 mmol L⁻¹ rule.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>25 °C constants without activity corrections; other bases in the water (silicate, organic matter) are ignored. A titration of your own water with dilute acid is the definitive test (see the pH laboratory).</p></details>
+        <div class="eq-units">All terms are mmol L⁻¹ of charge equivalents; α's are dimensionless ✓</div>
+        <div class="mini-calc" data-formula="(h0-ht)*V/(10*w*rho/63.01)" data-output="38 % nitric acid, by the residual rule" data-unit="mL" data-digits="1" data-plot="h0" data-title="Try it — acid volume by the grower's rule (compare with Lesson 5.2, Eq. 5.2.7)">
+          <div data-var="h0" data-label="Bicarbonate in water" data-min="0" data-max="6" data-step="0.05" data-value="1.15" data-unit="mmol L⁻¹"></div>
+          <div data-var="ht" data-label="Residual HCO₃⁻ kept" data-min="0" data-max="1" data-step="0.05" data-value="0.5" data-unit="mmol L⁻¹"></div>
+          <div data-var="V" data-label="Water volume" data-min="10" data-max="2000" data-step="10" data-value="1000" data-unit="L"></div>
+          <div data-var="w" data-label="Acid strength" data-min="10" data-max="68" data-step="1" data-value="38" data-unit="%"></div>
+          <div data-var="rho" data-label="Acid density" data-min="1.05" data-max="1.42" data-step="0.005" data-value="1.235" data-unit="g mL⁻¹" data-digits="3"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nm-balance">
+        <div class="eq-head"><span class="eq-label">Ion balance</span><span class="eq-num">(N4)</span></div>
+        <div class="eq-main">\[ \Sigma_+ = \sum_{\text{cations}} z_i c_i, \qquad \Sigma_- = \sum_{\text{anions}} |z_i|\,c_i, \qquad \text{IBE} = 100\,\frac{\Sigma_+ - \Sigma_-}{\Sigma_+ + \Sigma_-}\ \% \]</div>
+        <p class="eq-read">sum the charge concentrations of cations and anions; the ion-balance error is their difference divided by their sum, in per cent.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(z_i,\ c_i\)</td><td>charge number; concentration (NH₄⁺, K⁺, Ca²⁺, Mg²⁺, Na⁺ / NO₃⁻, H₂PO₄⁻, SO₄²⁻, Cl⁻, HCO₃⁻)</td><td>–; mmol L⁻¹</td></tr>
+          <tr><td>\(\Sigma_\pm\)</td><td>cation and anion sums</td><td>meq L⁻¹</td></tr>
+        </table>
+        <details><summary>Why a recipe balances automatically</summary><p>Every salt and acid is electrically neutral, so it adds equal cation and anion charge (H⁺ from acids is consumed by bicarbonate). A computed recipe can only be unbalanced if the <em>water analysis</em> is — for instance because potassium or nitrate were not reported. Laboratories accept an IBE within about ±5 % (Lesson 5.2); van der Lugt (2016) tolerates up to 10 % in routine analyses.</p></details>
+        <div class="eq-units">mmol L⁻¹ × charge = meq L⁻¹ on both sides; IBE is a ratio ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-nm-ec">
+        <div class="eq-head"><span class="eq-label">Two estimates of electrical conductivity</span><span class="eq-num">(N5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{EC}_{\text{rule}} \approx \frac{\Sigma_+}{10}, \qquad \kappa^{\circ} = \sum_i |z_i|\,\lambda_i^{\circ}\,c_i, \qquad \kappa = \kappa^{\circ}\,y^2 \\[6pt] \log_{10} y = -0.5\Big(\frac{\sqrt I}{1+\sqrt I} - 0.3\,I\Big), \qquad I = \tfrac12\sum_i z_i^2 c_i \end{gathered} \]</div>
+        <p class="eq-read">the quick estimate divides the cation sum in meq per litre by ten. The physical estimate multiplies each ion's charge, equivalent conductance and concentration and adds them up, then multiplies by the square of the Davies activity coefficient of a monovalent ion at the solution's ionic strength.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value (25 °C)</th></tr>
+          <tr><td>\(\lambda_i^{\circ}\)</td><td>equivalent ionic conductance at infinite dilution</td><td>S cm² eq⁻¹</td><td>Ca²⁺ 59.5, Mg²⁺ 53.1, Na⁺ 50.1, K⁺ 73.5, HCO₃⁻ 44.5, Cl⁻ 76.4, SO₄²⁻ 80.0, NO₃⁻ 71.4 (APHA, 1992); NH₄⁺ 73.5, H₂PO₄⁻ 36 (Haynes, 2014)</td></tr>
+          <tr><td>\(\kappa^{\circ},\ \kappa\)</td><td>ideal (Kohlrausch) and corrected conductivity</td><td>µS cm⁻¹ (÷1000 → dS m⁻¹)</td><td>–</td></tr>
+          <tr><td>\(I\)</td><td>ionic strength (with \(c\) in mol L⁻¹)</td><td>mol L⁻¹</td><td>0.015–0.04</td></tr>
+          <tr><td>\(y\)</td><td>Davies activity coefficient of a monovalent ion</td><td>–</td><td>0.84–0.89</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Each ion carries current in proportion to its charge, concentration and mobility; at infinite dilution the contributions add (Kohlrausch). With \(c\) in mmol L⁻¹ and \(\lambda\) in S cm² eq⁻¹, \(\sum |z|\lambda c\) is in µS cm⁻¹ (Lesson 5.2, Eq. 5.2.4).</li>
+            <li>At real concentrations each ion drags an atmosphere of opposite charge that slows it. <em>Standard Methods</em> 2510 approximates the whole effect by multiplying \(\kappa^{\circ}\) by \(y^2\), with \(y\) from the Davies equation; for 39 natural waters the result matched measurements within 2 % (APHA, 1992).</li>
+            <li>The rule \(\Sigma_+/10\) is its empirical shortcut for nutrient solutions (Sonneveld &amp; Voogt, 2009); van der Lugt (2016) writes it as \((\Sigma_+ + \Sigma_-)/20\), which is the same thing for a balanced solution.</li>
+            <li>Example (Cornell lettuce solution): \(\kappa^{\circ}\) = 1.61 dS m⁻¹, \(I\) = 0.016 mol L⁻¹, \(y\) = 0.88, \(\kappa\) = 1.25 dS m⁻¹; rule 1.19; target 1.2.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ion pairs (CaSO₄⁰, MgSO₄⁰) are not treated explicitly; both methods are therefore least accurate for sulfate-rich solutions and above about 4 dS m⁻¹. Both give EC at 25 °C — compare with a temperature-compensated meter reading.</p></details>
+        <div class="eq-units">(–) × S cm² eq⁻¹ × meq L⁻¹ = S cm² × 10⁻⁶ eq cm⁻³ eq⁻¹ = µS cm⁻¹ ✓; 1 dS m⁻¹ = 1 mS cm⁻¹ = 1000 µS cm⁻¹</div>
+        <div class="mini-calc" data-fn="nmApha" data-output="EC by APHA 2510 (κ°·y²)" data-unit="dS m⁻¹" data-digits="2" data-plot="Ca" data-ymin="0">
+          <div data-var="K" data-label="K⁺" data-min="0" data-max="12" data-step="0.1" data-value="5.5" data-unit="mmol L⁻¹"></div>
+          <div data-var="Ca" data-label="Ca²⁺" data-min="0" data-max="8" data-step="0.1" data-value="2.1" data-unit="mmol L⁻¹"></div>
+          <div data-var="Mg" data-label="Mg²⁺" data-min="0" data-max="4" data-step="0.1" data-value="1.0" data-unit="mmol L⁻¹"></div>
+          <div data-var="NH4" data-label="NH₄⁺" data-min="0" data-max="3" data-step="0.05" data-value="0.2" data-unit="mmol L⁻¹"></div>
+          <div data-var="NO3" data-label="NO₃⁻" data-min="0" data-max="25" data-step="0.1" data-value="8.7" data-unit="mmol L⁻¹"></div>
+          <div data-var="P" data-label="H₂PO₄⁻" data-min="0" data-max="3" data-step="0.05" data-value="1.0" data-unit="mmol L⁻¹"></div>
+          <div data-var="S" data-label="SO₄²⁻" data-min="0" data-max="6" data-step="0.05" data-value="1.1" data-unit="mmol L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nm-si">
+        <div class="eq-head"><span class="eq-label">Precipitation in the working solution and in the stocks</span><span class="eq-num">(N6)</span></div>
+        <div class="eq-main">\[ \text{SI} = \log_{10}\frac{y_2[\mathrm{Ca^{2+}}]\;y_2[\mathrm{X}]}{K_{sp}}, \qquad \log_{10} y_2 = 4\log_{10} y, \qquad [\mathrm{HPO_4^{2-}}] = P_T\,\alpha_{\mathrm{HPO_4}}(\text{pH}) \]</div>
+        <p class="eq-read">the saturation index is the logarithm of the ion activity product of calcium and its partner divided by the solubility product; divalent activity coefficients are the monovalent one to the fourth power (Davies). For phosphate only the HPO₄²⁻ fraction counts, which grows steeply with pH.</p>
+        <table class="symbols">
+          <tr><th>Solid</th><th>Partner X</th><th>\(\log_{10}K_{sp}\) (25 °C)</th></tr>
+          <tr><td>gypsum CaSO₄·2H₂O</td><td>SO₄²⁻</td><td>−4.6 (Lindsay, 1979)</td></tr>
+          <tr><td>brushite CaHPO₄·2H₂O</td><td>HPO₄²⁻</td><td>−6.6 (Lindsay, 1979)</td></tr>
+          <tr><td>calcite CaCO₃</td><td>CO₃²⁻</td><td>−8.48</td></tr>
+        </table>
+        <details><summary>Stocks versus working solution</summary><p>In the working solution (I ≈ 0.02–0.04 mol L⁻¹) the Davies equation is reliable and gypsum stays undersaturated (SI ≈ −1.5 to −0.6 for the recipes here). In a stock tank at 100× the ionic strength exceeds 1 mol L⁻¹, where no simple activity model is valid; the mixer therefore reports the ideal ion product and flags any tank that contains calcium together with sulfate or phosphate. Putting Epsom salt into tank A with the Dutch lettuce recipe gives [Ca²⁺][SO₄²⁻] = 0.45 × 0.10 = 10⁻¹·³⁵ (mol L⁻¹)², over three orders of magnitude above the solubility product.</p></details>
+        <div class="eq-units">(mol L⁻¹)² ÷ (mol L⁻¹)² = 1 → SI dimensionless ✓</div>
+        <div class="mini-calc" data-formula="log10(ca*1e-3*so4*1e-3) + 2*(-0.51*4*(sqrt(I)/(1+sqrt(I)) - 0.3*I)) + 4.6" data-output="Gypsum SI" data-unit="" data-digits="2" data-plot="ca" data-title="Try it — gypsum in a working solution (SI &gt; 0: precipitation possible)">
+          <div data-var="ca" data-label="[Ca²⁺]" data-min="1" data-max="500" data-step="1" data-value="4.5" data-unit="mmol L⁻¹" data-scale="log"></div>
+          <div data-var="so4" data-label="[SO₄²⁻]" data-min="0.5" data-max="200" data-step="0.5" data-value="2" data-unit="mmol L⁻¹" data-scale="log"></div>
+          <div data-var="I" data-label="Ionic strength I" data-min="0.01" data-max="0.5" data-step="0.001" data-value="0.03" data-unit="mol L⁻¹" data-scale="log"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nm-sol">
+        <div class="eq-head"><span class="eq-label">Solubility check of a stock tank</span><span class="eq-num">(N7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \rho_{j} = \frac{x_j\,M_j\,F}{1000}\ \ (\text{g L}^{-1}), \qquad u_j = \frac{\rho_j}{S_j(T)} \times 100\ \% \\[6pt] S_{\mathrm{KNO_3}}(T) \approx 133 + 9.15\,T \quad (0 \le T \le 20\ ^{\circ}\text{C}) \end{gathered} \]</div>
+        <p class="eq-read">the concentration of each salt in its stock tank is its amount in the working solution times its molar mass times the concentration factor; dividing by the solubility at the storage temperature gives the percentage of the solubility used.</p>
+        <table class="symbols">
+          <tr><th>Salt</th><th>Solubility at 20 °C (g L⁻¹ water)</th><th>Note</th></tr>
+          <tr><td>KNO₃</td><td class="num">316 (133 at 0 °C)</td><td>strongly temperature dependent</td></tr>
+          <tr><td>K₂SO₄</td><td class="num">111</td><td>the usual limit at high factors</td></tr>
+          <tr><td>KH₂PO₄</td><td class="num">226</td><td></td></tr>
+          <tr><td>MgSO₄·7H₂O</td><td class="num">1130</td><td></td></tr>
+          <tr><td>calcium nitrate (as tetrahydrate)</td><td class="num">1290</td><td></td></tr>
+          <tr><td>NH₄NO₃</td><td class="num">1920</td><td></td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Solubilities of the pure salts in water (Haynes, 2014); in a mixed stock, common ions (K⁺ from KNO₃ and K₂SO₄ together) lower the effective solubility, so treat anything above 80 % as a warning. The linear KNO₃ interpolation between 0 and 20 °C slightly underestimates the true curve at 10 °C.</p></details>
+        <div class="eq-units">mmol L⁻¹ × g mol⁻¹ × (–) ÷ 1000 = g L⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="x*101.1*F/1000/(133+9.15*min(T,20))*100" data-output="KNO₃ solubility used" data-unit="%" data-digits="0" data-plot="T" data-ymin="0" data-title="Try it — potassium nitrate in a cold store">
+          <div data-var="x" data-label="KNO₃ in this tank (per L solution)" data-min="0.5" data-max="10" data-step="0.1" data-value="4.8" data-unit="mmol L⁻¹"></div>
+          <div data-var="F" data-label="Concentration factor" data-min="50" data-max="600" data-step="10" data-value="400"></div>
+          <div data-var="T" data-label="Storage temperature" data-min="0" data-max="20" data-step="1" data-value="5" data-unit="°C"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Save each result with <em>Save investigation</em>; the link stores all your settings.</p>
+      <ol class="task-list">
+        <li><h4>Your own water</h4><p>Find the latest drinking-water analysis of your municipality (most Swedish utilities publish annual means of Ca, Mg, Na, Cl, SO₄ and alkalinity). Enter it, check its ion balance with Eq. N4, and classify it for recirculation. How many grams of calcium nitrate and how many millilitres of acid does it save or cost per 100 L compared with rain water, for the recipe you will use in your project?</p></li>
+        <li><h4>Reproduce and criticise a published recipe</h4><p>Choose the Dutch tomato recipe with rain water, 100× and 1000 L tanks, and enable calcium chloride. Compare the solver's masses with the published tomato A+B recipe (van der Lugt, 2016: 106 kg calcium nitrate, 43 kg potassium nitrate, 35 kg potassium sulfate, 17 kg monopotassium phosphate, 59 kg magnesium sulfate, 6 kg calcium chloride, 3 kg MAP). Explain every difference larger than 5 %.</p></li>
+        <li><h4>The acid budget of a DWC system</h4><p>With the hard-water example and the Cornell recipe, compare the acid dose for the three bases (0.5 mM rule, closed, aerated). Then use the <a href="/laboratories/ph-availability/">pH laboratory</a>'s titration simulator to check the closed and aerated numbers. Which basis would you use for an NFT channel, a DWC tank and a drip-to-waste rock-wool system, and why?</p></li>
+        <li><h4>How concentrated can the stocks be?</h4><p>For the tomato recipe, raise the concentration factor to 400× and the storage temperature down to 2 °C. Which salt limits first, in which tank? Propose two changes to the recipe or the tank layout that let you keep 200× through a Swedish winter in an unheated shed.</p></li>
+        <li><h4>A legal home recipe</h4><p>Tick <em>Private buyer</em> and use your own water. Can you meet the lettuce target with phosphoric acid as the only acid? If the phosphorus overshoots, quantify by how much, and design a workable alternative (e.g., blending tap water with rain water — which blend ratio keeps P within 20 % of target?).</p></li>
+        <li><h4>EC: rule versus physics</h4><p>For each of the four recipes with rain water, record both EC estimates and the recipe's nominal EC. Which method is closer? Now use the softened water: why do the two methods diverge so much for a sodium-rich solution? (Hint: compare λ° of Na⁺ with those of K⁺ and Ca²⁺.)</p></li>
+      </ol>
+
+      <div class="quiz" data-quiz="lab-nutrient-mixer">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the mixer and the equations","questions":[
+          {"type":"numeric","q":"Dutch lettuce recipe, rain water, 100× concentration, 1000 L stock tanks: how many kilograms of commercial calcium nitrate go into tank A?","answer":97.2,"tol":0.02,"unit":"kg","hint":"x = 4.5 mmol L⁻¹ of Ca units, M = 216.1 g mol⁻¹, F V_s = 100 000 L (Eq. N1).","explain":"<p>4.50 × 216.1 × 100 × 1000 / 1000 = 97 245 g ≈ 97 kg — the value of the published A+B recipe (van der Lugt, 2016).</p>"},
+          {"type":"numeric","q":"Tap water contains 34 mg L⁻¹ of calcium (Lake Mälaren, Norrvatten 2025). How many mmol L⁻¹ of Ca²⁺ is that?","answer":0.848,"tol":0.02,"unit":"mmol L⁻¹","explain":"<p>34 / 40.078 = 0.848 mmol L⁻¹ (= 1.70 meq L⁻¹). The solver subtracts it from the calcium target.</p>"},
+          {"type":"mcq","q":"Why must Epsom salt (MgSO₄·7H₂O) not be dissolved in the same concentrated stock tank as calcium nitrate?","options":["Magnesium would oxidise the nitrate","At 100× the ion product of Ca²⁺ and SO₄²⁻ far exceeds the solubility product of gypsum, which precipitates","Epsom salt is not soluble in water","The EC of the tank would become too high to measure"],"answer":1,"feedback":["No redox reaction occurs between these ions.","","Epsom salt dissolves to more than 1 kg per litre.","EC is irrelevant in the stock; the problem is a solid forming."],"explain":"<p>Concentrating 100 times multiplies the ion product by 10 000; gypsum (log K<sub>sp</sub> ≈ −4.6) then precipitates in the tank and in the dosing lines. In the diluted working solution the same ions are undersaturated.</p>"},
+          {"type":"numeric","q":"Use the mixer: Cornell lettuce recipe, rain water. What EC does the APHA ionic-conductivity method (κ°·y²) predict?","answer":1.26,"tol":0.03,"unit":"dS m⁻¹","hint":"Read the readout 'EC estimate, ionic conductivity (APHA)'.","explain":"<p>About 1.26 dS m⁻¹ against 1.20 by the Σ cations ÷ 10 rule and a target of 1.2. Without the y² correction the Kohlrausch sum would give about 1.6.</p>"},
+          {"type":"multi","q":"Which statements about the acid dose are correct? (Select all that apply.)","options":["An aerated tank needs more acid than a closed one to hold the same target pH","Phosphoric acid is used first because it also supplies phosphorus","Rain water always needs more acid than hard water","Nitric acid adds nitrate that the recipe must account for"],"answer":[0,1,3],"explain":"<p>In an aerated tank CO₂ escapes and the bicarbonate that remains raises the pH, so nearly all alkalinity must be neutralised (Eq. N3). Rain water has almost no bicarbonate and needs little or no acid.</p>"},
+          {"type":"tf","q":"In the EU a private person can buy 38 % nitric acid for a home hydroponic system.","answer":false,"explain":"<p>False: since February 2021, Regulation (EU) 2019/1148 prohibits making nitric acid above 3 % w/w (and ammonium nitrate) available to members of the general public. Phosphoric acid remains available.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Compositions</strong> are those of the ideal formulae (commercial calcium nitrate as 5Ca(NO₃)₂·NH₄NO₃·10H₂O; iron chelates 6–13 % Fe; micronutrient contents of van der Lugt, 2016, Table 5). Real products differ slightly; always check the label.</li>
+        <li><strong>Recipes</strong>: Dutch standard solutions for lettuce and herbs in water culture and for tomato on inert substrate (van der Lugt, 2016, after De Kreij et al., 1999), and the Cornell deep-water lettuce solution as tabulated in Lesson 5.2 (Brechner &amp; Both, 2013). Micronutrients are scaled with the strength slider but are not optimised — each comes from one source.</li>
+        <li><strong>Water examples</strong> are typical, published annual means (Norrvatten 2025; Uppsala Vatten 2023, data for 2022) and not guaranteed for any tap today. Potassium was not reported for Vänge and is taken as zero, which leaves an ion-balance error of about 3 %.</li>
+        <li><strong>Solver</strong>: weighted non-negative least squares (Lawson &amp; Hanson, 1974) with importance weights and a small preference penalty that selects conventional salt pairs; the resulting allocation is one of several chemically equivalent mixtures.</li>
+        <li><strong>Carbonate chemistry</strong> at 25 °C without activity corrections; CO₂ in air 425 ppm (NOAA's 2024 global mean was 422.8 ppm); Henry's constant 0.0334 mol L⁻¹ atm⁻¹ (Sander, 2023). Phosphoric acid is counted as delivering one proton (H₂PO₄⁻ reference).</li>
+        <li><strong>EC</strong> by Σ cations/10 (Sonneveld &amp; Voogt, 2009) and by APHA Standard Methods 2510 (κ°·y², Davies); ion pairs not treated explicitly.</li>
+        <li><strong>Precipitation</strong>: saturation indices for gypsum, brushite and calcite in the working solution with Davies activities; stock tanks are flagged by rule (Ca with SO₄ or PO₄) and by solubility of the pure salts, with temperature dependence only for KNO₃.</li>
+        <li>The animation shows ions as particles in proportion to their molar concentrations; it is qualitative.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>American Public Health Association, American Water Works Association, &amp; Water Pollution Control Federation. (1992). <em>Standard Methods for the Examination of Water and Wastewater</em> (18th ed.), Method 2510 Conductivity. APHA. <a href="https://archive.org/details/gov.law.apha.method.2510.1992" target="_blank" rel="noopener">archive.org/details/gov.law.apha.method.2510.1992</a></li>
+        <li>Brechner, M., &amp; Both, A. J. (2013). <em>Hydroponic Lettuce Handbook</em>. Cornell University Controlled Environment Agriculture (CEA) Program, Ithaca, NY.</li>
+        <li>De Kreij, C., Voogt, W., van den Bos, A. L., &amp; Baas, R. (1999). <em>Bemestingsadviesbasis substraten</em>. Proefstation voor Bloemisterij en Glasgroente, Naaldwijk.</li>
+        <li>European Parliament and Council. (2019). Regulation (EU) 2019/1148 on the marketing and use of explosives precursors. <em>Official Journal of the European Union</em>, L 186, 1–20. <a href="https://eur-lex.europa.eu/eli/reg/2019/1148/oj" target="_blank" rel="noopener">eur-lex.europa.eu/eli/reg/2019/1148/oj</a></li>
+        <li>Haynes, W. M. (Ed.). (2014). <em>CRC Handbook of Chemistry and Physics</em> (95th ed.). CRC Press. <a href="https://doi.org/10.1201/b17118" target="_blank" rel="noopener">doi:10.1201/b17118</a></li>
+        <li>Hershkowitz, J. A., Dey, M. G., Heins, R., &amp; Bugbee, B. (2025). Fertigation with Fe-EDTA, Fe-DTPA, and Fe-EDDHA chelates to prevent iron chlorosis of sensitive species in high-pH soilless media. <em>HortScience</em>, 60(3), 404–410. <a href="https://doi.org/10.21273/HORTSCI17892-24" target="_blank" rel="noopener">doi:10.21273/HORTSCI17892-24</a></li>
+        <li>Lawson, C. L., &amp; Hanson, R. J. (1974). <em>Solving Least Squares Problems</em>. Prentice-Hall (republished 1995 by SIAM). <a href="https://doi.org/10.1137/1.9781611971217" target="_blank" rel="noopener">doi:10.1137/1.9781611971217</a></li>
+        <li>Lindsay, W. L. (1979). <em>Chemical Equilibria in Soils</em>. Wiley-Interscience, New York.</li>
+        <li>Norrvatten. (2025). <em>Vattenkvalitet, Norrvatten 2025: medelvärden</em> (drinking-water quality, annual means, Görväln waterworks). <a href="https://www.norrvatten.se/dricksvatten/Dricksvattenkvalitet/" target="_blank" rel="noopener">norrvatten.se</a></li>
+        <li>Sander, R. (2023). Compilation of Henry's law constants (version 5.0.0) for water as solvent. <em>Atmospheric Chemistry and Physics</em>, 23(19), 10901–12440. <a href="https://doi.org/10.5194/acp-23-10901-2023" target="_blank" rel="noopener">doi:10.5194/acp-23-10901-2023</a></li>
+        <li>Sonneveld, C., &amp; Voogt, W. (2009). <em>Plant Nutrition of Greenhouse Crops</em>. Springer, Dordrecht. <a href="https://doi.org/10.1007/978-90-481-2532-6" target="_blank" rel="noopener">doi:10.1007/978-90-481-2532-6</a></li>
+        <li>Uppsala Vatten. (2023). <em>Dricksvattenkvalitet i Vänge 2022</em> (drinking-water quality at Vänge, 2022). <a href="https://www.uppsalavatten.se/" target="_blank" rel="noopener">uppsalavatten.se</a></li>
+        <li>van der Lugt, G. (Ed.). (2016). <em>Nutrient Solutions for Greenhouse Crops</em>. Eurofins Agro, AkzoNobel, NMI, SQM and Yara. <a href="https://cdnmedia.eurofins.com/corporate-eurofins/media/12142795/160825_manual_nutrient_solutions_digital_en.pdf" target="_blank" rel="noopener">PDF</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<dialog id="mix-sheet" aria-label="Printable mixing sheet">
+  <div class="sheet-actions"><button type="button" class="btn btn-sm btn-primary" id="sheet-print">Print</button><button type="button" class="btn btn-sm" id="sheet-close">Close</button></div>
+  <div id="sheet-body"></div>
+</dialog>
+
+<div data-site-footer></div>
+</body>
+</html>

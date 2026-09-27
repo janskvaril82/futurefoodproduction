@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED spectrum mixer · Future Food Production</title>
+<meta name="description" content="Blend UV-A, blue, green, red, far-red and white LED channels; compute PPFD, photon efficacy, YPF, R:FR, phytochrome photostationary state, illuminance and the perceived colour of the light.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  .chart-card.span-all { grid-column: 1 / -1; }
+  .chart-card .chart.cie { height: 440px; }
+  #chart-comp { display: grid; grid-template-columns: 1fr 1.25fr; gap: 22px; align-items: center; margin: 12px 0 6px; }
+  @media (max-width: 860px) { #chart-comp { grid-template-columns: 1fr; } }
+  .sm-comp-h { font: 650 .86rem var(--font-sans); margin-bottom: 2px; }
+  .sm-comp-n { font-size: .78rem; color: var(--muted); }
+  .sm-comp { display: flex; height: 34px; border-radius: 9px; overflow: hidden; margin: 8px 0 14px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+  .sm-comp span { display: flex; align-items: center; justify-content: center; color: #fff; font: 600 .74rem var(--font-mono); white-space: nowrap; overflow: hidden; text-shadow: 0 1px 2px rgba(0,0,0,.5); min-width: 2px; }
+  .sm-comp-t { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  .sm-comp-t th, .sm-comp-t td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+  .sm-comp-t td.num, .sm-comp-t th.num { text-align: right; font-family: var(--font-mono); }
+  .sm-comp-t i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; vertical-align: -1px; }
+  #stage canvas { display: block; }
+  .ch-table td:first-child i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+</style>
+</head>
+<body data-page="lab" data-slug="spectrum-mixer">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>LED spectrum mixer</h1>
+    <p class="lead">Mix seven LED channels — UV-A, royal blue, green, deep red, far-red, warm and cool white — the way a fixture designer does, and add sunlight for comparison. Every change is propagated through the physics: from electrical watts to radiant watts, from watts to photons, from photons to PPFD, ePAR and yield photon flux, to the red:far-red ratio and the phytochrome photostationary state, and finally to how bright and what colour the light looks to your eye. The grow tent on the left is rendered from the spectrum itself: each surface's colour is the product of the light, the surface reflectance and the CIE colour-matching functions.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card span-all">
+      <h3>Spectral photon flux density at the canopy</h3>
+      <div class="chart-sub">The filled area is the spectrum, coloured by how each wavelength looks. Dashed lines show the individual channels (and, with daylight on, the sunlight model and the ASTM G173 reference). Right axis: McCree's relative quantum efficiency and, optionally, the phytochrome cross-sections. Switch to <em>Energy</em> to see the same light in W m⁻² nm⁻¹ — notice how the blue end grows and the red end shrinks.</div>
+      <div class="chart tall" id="chart-spectrum"></div>
+      <div id="chart-comp"></div>
+    </div>
+    <div class="chart-card">
+      <h3>What colour is the light? (CIE 1931)</h3>
+      <div class="chart-sub">Chromaticity of each channel (dots), the mixing polygon of the active channels, the Planckian (black-body) locus with colour temperatures, the sRGB gamut of your screen (dashed) and the chromaticity of the mix (large dot).</div>
+      <div class="chart cie" id="chart-cie"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Phytochrome photostationary state vs R:FR</h3>
+      <div class="chart-sub">The magenta curve is every possible mixture of the 660 nm and 730 nm channels. Sunlight (model and ASTM G173) and your mix are marked; the dotted line is the PSS of a typical broad white LED (≈ 0.83). PSS responds strongly only when R:FR falls below about 2.</div>
+      <div class="chart" id="chart-pss"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Morphology map (illustrative)</h3>
+      <div class="chart-sub">Relative stem-extension index from Eq. S12 over PSS and blue share of PPFD. Green = compact, red = elongated (shade avoidance). This is a teaching illustration of the <em>direction</em> of documented responses, not a calibrated crop model.</div>
+      <div class="chart" id="chart-morph"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Photon efficacy of each channel</h3>
+      <div class="chart-sub">Photons per electrical joule at the current package and fixture efficiencies. Solid: PPF (400–700 nm). Pale: ePAR (400–750 nm). The red dashed line is the DLC Horticultural V4.0 minimum (2.5 µmol J⁻¹); the green line is your mix.</div>
+      <div class="chart" id="chart-eff"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the mixer</h2>
+      <ol>
+        <li><strong>Press “Blurple” red + blue.</strong> The tent turns magenta and the lettuce-green leaves look almost black-purple: there are hardly any green photons for them to reflect. Read the <em>Illuminance</em>: only about 8 lux per µmol m⁻² s⁻¹ (sunlight gives about 55), so this light looks dim even though its PPFD is high. Now read the <em>Photon efficacy</em> — red-and-blue fixtures are the most efficient, because deep-red LEDs deliver many photons per joule.</li>
+        <li><strong>Press “Broad white”.</strong> The plants look green again, the illuminance per µmol rises almost nine-fold (to about 73 lux per µmol m⁻² s⁻¹), and the photon efficacy falls: some energy is lost in the phosphor that converts blue photons into longer wavelengths (the Stokes shift). Look at the <em>CIE diagram</em>: the mix sits almost on the black-body curve, which is why it looks “white”.</li>
+        <li><strong>Press “White + far-red”.</strong> Compared with broad white, PPFD barely changes — the 60 W of far-red photons lie outside 400–700 nm — but the ePAR flux rises by almost a fifth, R:FR falls from above 20 to about 2.3 and the phytochrome PSS from 0.83 to 0.78. On the morphology map the point moves left, and the illustrated plants stretch and lift their leaves: the classic shade-avoidance syndrome.</li>
+        <li><strong>Press “Sunlight”.</strong> The model spectrum (Planck 5778 K filtered by the atmosphere) lies on top of the ASTM G173 reference spectrum in the chart. Sunlight contains roughly one far-red photon (700–750 nm) for every five PAR photons, R:FR ≈ 1.1 and PSS ≈ 0.70.</li>
+        <li><strong>Switch the spectrum to <em>Energy</em> units.</strong> The same light now looks bluer: a blue photon carries 47 % more energy than a 660 nm photon. Photosynthesis counts photons, electricity bills count joules — engineers must juggle both.</li>
+        <li><strong>Turn off the white channels and raise only green.</strong> Green LEDs are inefficient (the “green gap”), but green light penetrates deeper into leaves and canopies. The efficacy bar chart shows the cost of each colour at a glance.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A spectrum is not one number. The same electrical power can give very different <strong>photon flux</strong> (growth), <strong>photon composition</strong> (morphology and quality through photoreceptors), <strong>illuminance</strong> (what workers see) and <strong>colour rendering</strong> (whether you can spot a disease). A good spectrum is a deliberate compromise between efficacy, plant response and human needs.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>From electrons to photons</h2>
+      <p>An LED is a semiconductor p–n junction. When a current flows, electrons and holes recombine in thin quantum wells and each recombination can emit a photon whose energy is close to the band gap of the well material. Indium-gallium-nitride (InGaN) wells emit UV-A, violet, blue and green; aluminium-gallium-indium-phosphide (AlGaInP) wells emit red; aluminium-gallium-arsenide emits far-red. The emission of a single-colour LED is a narrow band with a full width at half maximum (FWHM) of about 10–35 nm.</p>
+      <p>The <strong>wall-plug efficiency</strong> \(\eta_{\text{wp}}\) is the radiant power out divided by the electrical power in. Kusuma, Pattison and Bugbee (2020) compiled values for the best packages at a moderate current density (100 mA mm⁻²) and 25 °C junction temperature: 93 % for royal blue (450 nm), 81 % for deep red (660 nm), 77 % for far-red (730 nm), 76 % and 69 % for cool (6500 K) and warm (2700 K) phosphor-converted white, but only 42 % for green (530 nm) — the notorious <em>green gap</em>. These are the defaults in this laboratory. For UV-A at 385 nm the 2020 UV-emitter roadmap reports an external quantum efficiency of about 50 % (Amano et al., 2020), which corresponds to a wall-plug efficiency of about 45 % once the forward voltage is taken into account (Derive, S1).</p>
+      <p>Packages do not work at 25 °C and optimal current in a real fixture. Kusuma et al. list four fixture losses: current droop, thermal droop (≈ 10 % from 25 to 85 °C), driver losses (drivers are 85–95 % efficient) and optical losses (covers transmit ≈ 92 %). Multiplying the typical factors (0.90 × 0.90 × 0.90 × 0.92) gives 0.67 of the package efficacy; near-optimal engineering reaches ≈ 0.93. The <em>fixture efficiency</em> slider (\(\eta_{\text{fix}}\), default 0.80) represents this product.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 680 230" role="img" aria-label="Phosphor-converted white LED: a blue chip, a phosphor layer and the resulting spectrum">
+            <defs><marker id="sm-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10z" fill="currentColor"/></marker></defs>
+            <rect x="40" y="150" width="160" height="22" rx="3" class="fill-sunk" stroke="currentColor"/>
+            <text x="120" y="190" text-anchor="middle" class="t-small">substrate + heat sink</text>
+            <rect x="85" y="130" width="70" height="20" class="fill-water" stroke="currentColor"/>
+            <text x="120" y="144" text-anchor="middle" class="t-small" style="fill:#fff">InGaN chip</text>
+            <path d="M60 130 Q120 60 180 130 Z" class="fill-amber-soft" stroke="currentColor"/>
+            <text x="120" y="102" text-anchor="middle" class="t-small">phosphor</text>
+            <line x1="100" y1="80" x2="80" y2="30" class="stroke-water" stroke-width="2" marker-end="url(#sm-ar)" style="color:var(--water)"/>
+            <line x1="140" y1="80" x2="165" y2="30" class="stroke-amber" stroke-width="2" marker-end="url(#sm-ar)" style="color:var(--amber)"/>
+            <text x="44" y="24" class="t-small">blue passes</text><text x="150" y="24" class="t-small">converted (Stokes loss)</text>
+            <g transform="translate(300,20)">
+              <line x1="0" y1="170" x2="340" y2="170" class="stroke" /><line x1="0" y1="0" x2="0" y2="170" class="stroke"/>
+              <path d="M40 170 C55 170 60 20 75 20 C90 20 95 150 110 150 C150 120 170 70 200 70 C240 70 270 120 330 165" class="stroke-magenta" stroke-width="2.4" fill="none"/>
+              <text x="75" y="14" text-anchor="middle" class="t-small">blue pump ≈ 450 nm</text>
+              <text x="215" y="60" text-anchor="middle" class="t-small">phosphor band 500–700 nm</text>
+              <text x="170" y="198" text-anchor="middle" class="t-small t-muted">wavelength →</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> A phosphor-converted white LED is a blue LED coated with luminescent phosphor. Part of the blue light passes; the rest is absorbed and re-emitted at longer wavelengths. Each converted photon loses the energy difference (Stokes shift), so whites are less efficient than the blue pump — and warm whites, with more conversion, less efficient than cool whites.</figcaption>
+      </figure>
+
+      <h2 data-nonum>Counting photons: PPFD, ePAR and YPF</h2>
+      <p>Photosynthesis is a photochemical process: every absorbed photon can drive one electron transfer, whatever its energy. Plant lighting is therefore specified in <em>photons</em>. The classic definition of photosynthetically active radiation counts photons between 400 and 700 nm (PPFD). Zhen and Bugbee (2020) showed that far-red photons up to 750 nm, when they arrive together with shorter wavelengths, drive canopy photosynthesis as efficiently as PAR photons; this gives <em>extended PAR</em> (ePAR, 400–750 nm). McCree's (1972) relative quantum efficiency curve weights photons by their measured effectiveness in single leaves, giving the <em>yield photon flux</em> (YPF). The mixer computes all three so you can compare how much each definition changes the ranking of spectra.</p>
+
+      <h2 data-nonum>Phytochrome: a photoreversible switch</h2>
+      <p>Plants sense the colour of light with photoreceptors. Phytochromes exist in two interconvertible forms: <strong>Pr</strong> absorbs mainly red light (peak ≈ 665 nm) and is converted to the active form <strong>Pfr</strong>; Pfr absorbs mainly far-red (peak ≈ 730 nm) and is converted back. Under any constant spectrum the two reactions reach a dynamic equilibrium, the <strong>photostationary state</strong> PSS = Pfr/(Pr + Pfr). Sager et al. (1988) showed how to compute it from a measured spectrum and the photochemical cross-sections of the two forms; here we use the cross-sections of purified oat phytochrome measured by Lagarias et al. (1987), as tabulated by Kusuma and Bugbee (2021).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 640 190" role="img" aria-label="Two-state phytochrome photoconversion cycle between Pr and Pfr">
+            <defs><marker id="sm-ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10z" fill="currentColor"/></marker></defs>
+            <rect x="90" y="65" width="120" height="60" rx="30" class="fill-accent-soft" stroke="currentColor"/>
+            <text x="150" y="92" text-anchor="middle" style="font-weight:700">Pr</text><text x="150" y="110" text-anchor="middle" class="t-small t-muted">inactive</text>
+            <rect x="430" y="65" width="120" height="60" rx="30" class="fill-magenta-soft" stroke="currentColor"/>
+            <text x="490" y="92" text-anchor="middle" style="font-weight:700">Pfr</text><text x="490" y="110" text-anchor="middle" class="t-small t-muted">biologically active</text>
+            <path d="M215 80 Q320 20 425 80" fill="none" stroke="#d0303f" stroke-width="2.5" marker-end="url(#sm-ar2)" style="color:#d0303f"/>
+            <text x="320" y="36" text-anchor="middle" class="t-small">red (σR): k₁ = Σ q(λ) σR(λ)</text>
+            <path d="M425 110 Q320 170 215 110" fill="none" stroke="#6a1030" stroke-width="2.5" marker-end="url(#sm-ar2)" style="color:#6a1030"/>
+            <text x="320" y="170" text-anchor="middle" class="t-small">far-red (σFR): k₂ = Σ q(λ) σFR(λ)</text>
+            <text x="590" y="70" class="t-small t-muted">→ gene</text><text x="590" y="86" class="t-small t-muted">expression</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> The two-state model of phytochrome photoconversion used in Eq. S7. Both forms absorb at all wavelengths, so even pure red light converts only about 88 % of the pool to Pfr. Dark reversion, synthesis and degradation are ignored — reasonable at the photon fluxes used in horticulture.</figcaption>
+      </figure>
+      <p>Because leaves absorb red strongly but transmit and reflect far-red, light under a canopy is depleted in red: R:FR drops from about 1.1 in open sunlight to well below 1 in shade (Smith, 1982). Plants read a low PSS as “neighbours are shading me” and respond with the <strong>shade-avoidance syndrome</strong>: faster stem and petiole extension, more upright (hyponastic) leaves, larger but thinner leaves, reduced branching and earlier flowering in many species. Morgan and Smith (1976) found a linear relationship between PSS and the stem extension rate of plants grown under simulated natural radiation. Growers exploit this: adding far-red increases leaf expansion and light capture of young plants (Park &amp; Runkle, 2017), whereas a high PSS keeps transplants compact.</p>
+      <p>Blue photons are sensed by cryptochromes and phototropins. Raising the blue share generally reduces stem elongation and leaf expansion, with diminishing effect above ≈ 20–30 % and a strong interaction with total photon flux (Cope &amp; Bugbee, 2013; Snowden et al., 2016). Cope and Bugbee showed that the <em>absolute</em> blue photon flux, not only the relative fraction, controls several responses — a caveat for any index that uses fractions.</p>
+
+      <h2 data-nonum>What the eye sees: lux and colour</h2>
+      <p>The eye is a very different detector. Its daytime sensitivity \(V(\lambda)\) peaks at 555 nm and is only about 4 % of the peak at 450 nm and 6 % at 660 nm. Illuminance (lux) weights the spectral irradiance by \(V(\lambda)\) and the constant 683 lm W⁻¹. A red-and-blue spectrum that is excellent for photosynthesis therefore looks dim, while green-rich white light looks bright. Colour is computed with the three CIE 1931 colour-matching functions \(\bar x, \bar y, \bar z\) (\(\bar y = V\)), giving tristimulus values X, Y, Z and chromaticity coordinates (x, y). Mixtures of light sources lie inside the polygon spanned by their chromaticities — the CIE chart shows why only specific red–green–blue or blue–phosphor mixtures can look white. The laboratory uses the analytic fit of Wyman, Sloan and Shirley (2013), which reproduces the tabulated CIE functions closely, and converts XYZ to the sRGB colour space of your screen (IEC 61966-2-1).</p>
+      <div class="callout warn"><div class="callout-title">What the rendering can and cannot show</div><p>The tent preview uses a fixed daylight (D65) white balance, like a camera: warm light looks orange and blurple light looks magenta. Your eyes adapt partly to the illuminant, so in a real tent warm white looks whiter than on screen. Saturated LED colours also lie outside the sRGB gamut and are shown desaturated. The leaf, soil and film reflectances are stylised spectral shapes, not measurements.</p></div>
+      <div class="callout note"><div class="callout-title">Why workers care</div><p>Under red–blue light, nutrient deficiencies, pests and diseases are hard to see and many people report discomfort. Commercial fixtures therefore usually combine white LEDs with deep red: a little efficacy is traded for good colour rendering and a more natural plant appearance.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The model works on a 1-nm wavelength grid from 300 to 800 nm. Every integral below is evaluated as a sum over that grid (\(\Delta\lambda = 1\) nm).</p>
+
+      <div class="eq-box" id="eq-sm-channel">
+        <div class="eq-head"><span class="eq-label">Radiant output of an LED channel</span><span class="eq-num">(S1)</span></div>
+        <div class="eq-main">\[ \Phi_{e,i}(\lambda) = \eta_{\text{wp},i}\,\eta_{\text{fix}}\,P_i\;s_i(\lambda), \qquad s_i(\lambda)=\frac{\exp\!\left[-4\ln 2\,(\lambda-\lambda_{p,i})^2/w_i^2\right]}{\int \exp\!\left[-4\ln 2\,(\lambda-\lambda_{p,i})^2/w_i^2\right]\mathrm{d}\lambda} \]</div>
+        <p class="eq-read">the spectral radiant power of channel \(i\) equals its electrical power times its package wall-plug efficiency times the fixture efficiency, distributed over wavelength by a normalised emission shape — a Gaussian of peak \(\lambda_p\) and full width at half maximum \(w\) for single-colour LEDs.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(P_i\)</td><td>electrical power drawn by channel \(i\)</td><td>W</td><td>0–300</td></tr>
+          <tr><td>\(\eta_{\text{wp},i}\)</td><td>package wall-plug (radiant) efficiency</td><td>W W⁻¹</td><td>0.42 (green) – 0.93 (blue)</td></tr>
+          <tr><td>\(\eta_{\text{fix}}\)</td><td>fixture efficiency: driver × optics × thermal and current droop</td><td>–</td><td>0.67–0.93</td></tr>
+          <tr><td>\(s_i(\lambda)\)</td><td>emission shape, \(\int s_i\,\mathrm{d}\lambda = 1\)</td><td>nm⁻¹</td><td></td></tr>
+          <tr><td>\(\lambda_{p,i},\,w_i\)</td><td>peak wavelength and FWHM</td><td>nm</td><td>385/12, 450/20, 530/32, 660/20, 730/28</td></tr>
+        </table>
+        <details><summary>Where the numbers come from</summary>
+          <ol class="steps">
+            <li>Wall-plug efficiencies for blue, green, red, far-red, cool and warm white are the package values in Table 1 of Kusuma et al. (2020) (100 mA mm⁻², 25 °C).</li>
+            <li>For UV-A, the roadmap of Amano et al. (2020) gives an external quantum efficiency EQE ≈ 0.50 at 385 nm. The wall-plug efficiency is EQE × (photon energy ÷ electrical energy per electron): \(\eta_{\text{wp}} = \text{EQE}\cdot\frac{hc/\lambda}{qV_f} = 0.50\times\frac{3.22\ \text{eV}}{3.5\ \text{eV}} \approx 0.46\), with an assumed forward voltage \(V_f\approx 3.5\) V. We use 0.45.</li>
+            <li>The Gaussian's area is \(w\sqrt{\pi/(4\ln 2)} = 1.0645\,w\), so the peak value of \(s_i\) is \(1/(1.0645\,w)\).</li>
+            <li>Phosphor-converted whites are modelled as a split-Gaussian blue pump (450 nm) plus one or two broad split-Gaussian phosphor bands. Their parameters were tuned with the laboratory's own colorimetry (S9–S10) so that the cool white has CCT ≈ 6600 K with Duv ≈ 0 and ≈ 29 % blue photons, and the warm white CCT ≈ 2700 K and ≈ 9 % blue photons — consistent with the ≈ 30 % and ≈ 10 % blue quoted by Kusuma et al. (2020) for 6500 K and warm whites.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Real LED spectra are slightly asymmetric and shift to longer wavelengths (and broaden) as the junction warms; efficiencies fall with drive current and temperature. \(\eta_{\text{fix}}\) lumps all these effects into one factor, applied equally to all channels.</p></details>
+        <div class="eq-units">W W⁻¹ × – × W × nm⁻¹ = W nm⁻¹ ✓ (spectral radiant flux)</div>
+        <div class="mini-calc" data-formula="wp*fix*P" data-output="Radiant output Φe" data-unit="W" data-digits="1" data-plot="P">
+          <div data-var="P" data-label="Electrical power P" data-min="0" data-max="300" data-step="1" data-value="150" data-unit="W"></div>
+          <div data-var="wp" data-label="Wall-plug efficiency η<sub>wp</sub>" data-min="0.3" data-max="0.95" data-step="0.01" data-value="0.81"></div>
+          <div data-var="fix" data-label="Fixture efficiency η<sub>fix</sub>" data-min="0.6" data-max="1" data-step="0.01" data-value="0.8"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-photons">
+        <div class="eq-head"><span class="eq-label">From watts to photons</span><span class="eq-num">(S2)</span></div>
+        <div class="eq-main">\[ q(\lambda) = \Phi_e(\lambda)\,\frac{\lambda}{h\,c\,N_A}\times10^{6} \approx 0.008359\,\lambda\;\Phi_e(\lambda), \qquad \eta_{\text{ph}} \approx \eta_{\text{wp}}\,\eta_{\text{fix}}\;0.008359\,\bar\lambda \]</div>
+        <p class="eq-read">the spectral photon flux in micromoles per second per nanometre equals the spectral radiant power times the wavelength divided by Planck's constant, the speed of light and Avogadro's number; for a narrow channel the photon efficacy is simply the radiant efficiency times 0.008359 times its (mean) wavelength in nanometres.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(q(\lambda)\)</td><td>spectral photon flux</td><td>µmol s⁻¹ nm⁻¹</td></tr>
+          <tr><td>\(h, c, N_A\)</td><td>Planck constant, speed of light, Avogadro constant</td><td>J s, m s⁻¹, mol⁻¹</td></tr>
+          <tr><td>\(\eta_{\text{ph}}\)</td><td>photon efficacy of the channel</td><td>µmol J⁻¹</td></tr>
+          <tr><td>\(\bar\lambda\)</td><td>energy-weighted mean wavelength of the channel (in nm in the numerical form)</td><td>nm</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>One photon of wavelength \(\lambda\) carries \(E = hc/\lambda\). A mole carries \(N_A hc/\lambda\).</li>
+            <li>Radiant power \(\Phi_e\) (J s⁻¹) therefore delivers \(\Phi_e\lambda/(N_A hc)\) mol s⁻¹; multiply by 10⁶ for µmol.</li>
+            <li>With λ in nm: \(10^{6}\times10^{-9}/(6.626\times10^{-34}\times2.998\times10^{8}\times6.022\times10^{23}) = 0.008359\) µmol J⁻¹ nm⁻¹.</li>
+            <li>Example: deep red, \(\eta_{\text{wp}}=0.81\), \(\eta_{\text{fix}}=0.80\): \(0.81\times0.80\times0.008359\times660 = 3.58\) µmol J⁻¹. Royal blue at 0.93: \(0.93\times0.80\times0.008359\times450 = 2.80\) µmol J⁻¹ — more efficient in watts, less in photons.</li>
+          </ol>
+        </details>
+        <div class="eq-units">W nm⁻¹ × nm × µmol J⁻¹ nm⁻¹ = J s⁻¹ nm⁻¹ × µmol J⁻¹ = µmol s⁻¹ nm⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="wp*fix*0.008359*l" data-output="Photon efficacy η<sub>ph</sub>" data-unit="µmol J⁻¹" data-digits="2" data-plot="l">
+          <div data-var="l" data-label="Wavelength λ" data-min="380" data-max="750" data-step="1" data-value="660" data-unit="nm"></div>
+          <div data-var="wp" data-label="Wall-plug efficiency η<sub>wp</sub>" data-min="0.3" data-max="0.95" data-step="0.01" data-value="0.81"></div>
+          <div data-var="fix" data-label="Fixture efficiency η<sub>fix</sub>" data-min="0.6" data-max="1" data-step="0.01" data-value="0.8"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-bands">
+        <div class="eq-head"><span class="eq-label">PPF, ePAR and yield photon flux</span><span class="eq-num">(S3)</span></div>
+        <div class="eq-main">\[ \text{PPF}=\int_{400}^{700} q\,\mathrm{d}\lambda,\qquad \text{ePF}=\int_{400}^{750} q\,\mathrm{d}\lambda,\qquad \text{YPF}=\int_{360}^{760} \text{RQE}(\lambda)\,q\,\mathrm{d}\lambda \]</div>
+        <p class="eq-read">the photosynthetic photon flux counts every photon between 400 and 700 nm equally; the extended flux adds 700–750 nm; the yield photon flux weights each photon by McCree's relative quantum efficiency.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>PPF</td><td>photosynthetic photon flux (400–700 nm)</td><td>µmol s⁻¹</td></tr>
+          <tr><td>ePF</td><td>extended-PAR photon flux (400–750 nm; Zhen &amp; Bugbee 2020)</td><td>µmol s⁻¹</td></tr>
+          <tr><td>RQE(λ)</td><td>relative quantum efficiency, McCree (1972) average of 22 species</td><td>–</td></tr>
+          <tr><td>YPF</td><td>yield photon flux</td><td>µmol s⁻¹</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>McCree's RQE was measured on single leaves under monochromatic light at low flux; in canopies and under broad spectra the differences between wavelengths shrink. ePAR assumes far-red is always mixed with PAR photons (it is ineffective alone). Hence YPF and ePAR are best used to <em>compare</em> spectra, not as absolute predictors of growth.</p></details>
+        <div class="eq-units">µmol s⁻¹ nm⁻¹ × nm = µmol s⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-ppfd">
+        <div class="eq-head"><span class="eq-label">PPFD at the canopy and daily light integral</span><span class="eq-num">(S4)</span></div>
+        <div class="eq-main">\[ \text{PPFD}=\frac{f_{\text{cap}}\,\text{PPF}}{A},\qquad \text{DLI}=\frac{\text{PPFD}\;t_{\text{photo}}\;3600}{10^{6}} \]</div>
+        <p class="eq-read">the mean photon flux density on the canopy equals the fraction of emitted photons that reach it times the fixture PPF, divided by the growing area; the daily light integral multiplies by the photoperiod in seconds and converts micromoles to moles.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(f_{\text{cap}}\)</td><td>photon capture fraction (share of emitted photons landing on the canopy)</td><td>–</td><td>0.90</td></tr>
+          <tr><td>\(A\)</td><td>illuminated growing area</td><td>m²</td><td>1.44</td></tr>
+          <tr><td>\(t_{\text{photo}}\)</td><td>photoperiod</td><td>h d⁻¹</td><td>16</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>This is an area-averaged value. The spatial distribution of PPFD (hot spots, edges) is the topic of the <a href="/laboratories/grow-room-lighting/">grow-room lighting designer</a>. Spectral composition is assumed to be the same everywhere in the tent.</p></details>
+        <div class="eq-units">(–) × µmol s⁻¹ / m² = µmol m⁻² s⁻¹; × h d⁻¹ × s h⁻¹ / (µmol mol⁻¹) = mol m⁻² d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="f*eff*P/A*t*3600/1e6" data-output="DLI" data-unit="mol m⁻² d⁻¹" data-digits="1" data-plot="P">
+          <div data-var="P" data-label="Fixture power" data-min="50" data-max="1000" data-step="10" data-value="350" data-unit="W"></div>
+          <div data-var="eff" data-label="Photon efficacy" data-min="1.5" data-max="4" data-step="0.05" data-value="3.0" data-unit="µmol J⁻¹"></div>
+          <div data-var="f" data-label="Capture f<sub>cap</sub>" data-min="0.5" data-max="1" data-step="0.01" data-value="0.9"></div>
+          <div data-var="A" data-label="Area A" data-min="0.25" data-max="4" data-step="0.01" data-value="1.44" data-unit="m²"></div>
+          <div data-var="t" data-label="Photoperiod" data-min="8" data-max="24" data-step="0.5" data-value="16" data-unit="h"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-efficacy">
+        <div class="eq-head"><span class="eq-label">Photon efficacy of the whole fixture</span><span class="eq-num">(S5)</span></div>
+        <div class="eq-main">\[ \eta_{\text{PPF}}=\frac{\sum_i \text{PPF}_i}{\sum_i P_i}=\frac{\sum_i \eta_{\text{ph},i}\,P_i}{\sum_i P_i} \]</div>
+        <p class="eq-read">the fixture's photon efficacy is the power-weighted mean of the channel efficacies: a channel that draws half the power contributes half the weight.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\eta_{\text{PPF}}\)</td><td>photosynthetic photon efficacy of the fixture (the “PPE” on product labels)</td><td>µmol J⁻¹</td></tr>
+          <tr><td>\(\eta_{\text{ph},i}\)</td><td>PPF efficacy of channel \(i\) (400–700 nm photons only)</td><td>µmol J⁻¹</td></tr>
+        </table>
+        <details><summary>Consequences</summary><p>Far-red and UV-A photons count zero in PPF, so adding them always lowers the PPF efficacy, although far-red raises ePAR efficacy. This is why lamp labels should state the waveband (Both et al., 2017). The DesignLights Consortium's Horticultural Technical Requirements V4.0 (effective April 2025) require at least 2.5 µmol J⁻¹ (400–700 nm) for listed LED products.</p></details>
+        <div class="eq-units">µmol J⁻¹ × W / W = µmol J⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="(Pr*er+Pw*ew)/(Pr+Pw)" data-output="Fixture efficacy" data-unit="µmol J⁻¹" data-digits="2" data-plot="Pr">
+          <div data-var="Pr" data-label="Red channel power" data-min="0" data-max="300" data-step="5" data-value="150" data-unit="W"></div>
+          <div data-var="er" data-label="Red efficacy" data-min="2" data-max="4.5" data-step="0.05" data-value="3.58" data-unit="µmol J⁻¹"></div>
+          <div data-var="Pw" data-label="White channel power" data-min="1" data-max="300" data-step="5" data-value="200" data-unit="W"></div>
+          <div data-var="ew" data-label="White efficacy" data-min="1.5" data-max="3.5" data-step="0.05" data-value="2.3" data-unit="µmol J⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-fractions">
+        <div class="eq-head"><span class="eq-label">Colour fractions and red:far-red ratio</span><span class="eq-num">(S6)</span></div>
+        <div class="eq-main">\[ f_B=\frac{\int_{400}^{500}q\,\mathrm{d}\lambda}{\text{PPFD}},\qquad \text{R:FR}=\frac{\int_{655}^{665}q\,\mathrm{d}\lambda}{\int_{725}^{735}q\,\mathrm{d}\lambda} \]</div>
+        <p class="eq-read">the blue fraction is the share of PAR photons between 400 and 500 nm (green 500–600 and red 600–700 nm analogously, ANSI/ASABE S640 bands); the red:far-red ratio compares the photon flux in 10-nm windows centred on 660 and 730 nm, the definition of Smith (1982).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(f_B\)</td><td>blue share of PPFD</td><td>–</td></tr>
+          <tr><td>R:FR</td><td>red to far-red photon ratio (narrow-band)</td><td>–</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Other definitions exist, e.g. broad bands 600–700 / 700–800 nm. For LED spectra with narrow peaks they give very different numbers, so always state the definition. For sunlight the narrow-band ratio is ≈ 1.1 (this model and ASTM G173).</p></details>
+        <div class="eq-units">µmol m⁻² s⁻¹ / µmol m⁻² s⁻¹ = dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-pss">
+        <div class="eq-head"><span class="eq-label">Phytochrome photostationary state</span><span class="eq-num">(S7)</span></div>
+        <div class="eq-main">\[ \text{PSS}=\frac{P_{fr}}{P_{tot}}=\frac{\sum_\lambda q(\lambda)\,\sigma_R(\lambda)}{\sum_\lambda q(\lambda)\,\sigma_R(\lambda)+\sum_\lambda q(\lambda)\,\sigma_{FR}(\lambda)} \]</div>
+        <p class="eq-read">the fraction of phytochrome in the active far-red-absorbing form equals the red-form conversion rate divided by the sum of the conversion rates of both forms, each rate being the photon spectrum weighted by that form's photochemical cross-section.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\sigma_R(\lambda),\ \sigma_{FR}(\lambda)\)</td><td>photoconversion cross-sections (extinction coefficient × quantum yield) of Pr and Pfr; Lagarias et al. (1987)</td><td>m² mol⁻¹</td></tr>
+          <tr><td>\(k_1, k_2\)</td><td>first-order rate constants Pr→Pfr and Pfr→Pr</td><td>s⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A pigment molecule with cross-section σ exposed to photon flux density \(q\) (mol m⁻² s⁻¹) is converted at rate \(k=\sigma q\) (m² mol⁻¹ × mol m⁻² s⁻¹ = s⁻¹). For a spectrum, sum over wavelengths: \(k_1=\sum q\,\sigma_R\), \(k_2=\sum q\,\sigma_{FR}\).</li>
+            <li>The two-state balance: \(\mathrm{d}P_{fr}/\mathrm{d}t = k_1 P_r - k_2 P_{fr}\), with \(P_r + P_{fr} = P_{tot}\).</li>
+            <li>At steady state \(k_1 (P_{tot}-P_{fr}) = k_2 P_{fr}\), so \(P_{fr}/P_{tot} = k_1/(k_1+k_2)\).</li>
+            <li>The equilibrium is independent of intensity — only the spectral shape matters — and it is reached within seconds to minutes at horticultural fluxes (the time constant is \(1/(k_1+k_2)\)).</li>
+            <li>Example with the cross-sections at the peaks: pure 660 nm light gives \(4209/(4209+553) = 0.88\); pure 730 nm gives \(36/(36+1209)=0.03\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The cross-sections were measured on purified oat phytochrome in solution. Inside a leaf, chlorophyll absorbs red strongly, so deeper tissue sees a lower R:FR and a lower PSS than the incident spectrum suggests (Kusuma &amp; Bugbee, 2021). Different published cross-section sets (e.g. those tabulated by Sager et al., 1988) give PSS values that differ by a few hundredths.</p></details>
+        <div class="eq-units">(µmol m⁻² s⁻¹ nm⁻¹ × m² mol⁻¹ × nm) / (same) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="(nR*4209+nF*36.3)/(nR*(4209+553.4)+nF*(36.3+1209.1))" data-output="PSS" data-digits="3" data-plot="nF" data-ymin="0" data-ymax="1">
+          <div data-var="nR" data-label="Photons at 660 nm" data-min="0" data-max="500" data-step="5" data-value="300" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="nF" data-label="Photons at 730 nm" data-min="0" data-max="500" data-step="5" data-value="50" data-unit="µmol m⁻² s⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-lux">
+        <div class="eq-head"><span class="eq-label">Illuminance</span><span class="eq-num">(S8)</span></div>
+        <div class="eq-main">\[ E_v = K_m\int_{380}^{780} E_e(\lambda)\,V(\lambda)\,\mathrm{d}\lambda, \qquad K_m = 683\ \text{lm W}^{-1},\qquad E_e(\lambda)=\frac{q(\lambda)}{0.008359\,\lambda} \]</div>
+        <p class="eq-read">illuminance in lux is 683 times the spectral irradiance weighted by the eye's photopic sensitivity curve and integrated over the visible band; the spectral irradiance is recovered from the photon spectrum by dividing by the photons per joule at each wavelength.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(E_v\)</td><td>illuminance</td><td>lx = lm m⁻²</td></tr>
+          <tr><td>\(E_e(\lambda)\)</td><td>spectral irradiance</td><td>W m⁻² nm⁻¹</td></tr>
+          <tr><td>\(V(\lambda)\)</td><td>CIE photopic luminous efficiency (= \(\bar y\))</td><td>–</td></tr>
+        </table>
+        <details><summary>Lux per µmol m⁻² s⁻¹ for monochromatic light</summary><p>For a single wavelength, 1 µmol m⁻² s⁻¹ equals \(1/(0.008359\lambda)\) W m⁻², so lux per PPFD \(= 683\,V(\lambda)/(0.008359\lambda)\). At 555 nm: 147 lx per µmol m⁻² s⁻¹; at 660 nm only ≈ 8; at 450 nm ≈ 7. Sunlight gives ≈ 55. The calculator uses a Gaussian approximation of \(V(\lambda)\).</p></details>
+        <div class="eq-units">lm W⁻¹ × W m⁻² nm⁻¹ × nm = lm m⁻² = lx ✓</div>
+        <div class="mini-calc" data-formula="683*1.019*exp(-285.4*pow(l/1000-0.559,2))/(0.008359*l)" data-output="lux per µmol m⁻² s⁻¹" data-unit="lx" data-digits="1" data-plot="l">
+          <div data-var="l" data-label="Wavelength λ" data-min="400" data-max="700" data-step="1" data-value="555" data-unit="nm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-xyz">
+        <div class="eq-head"><span class="eq-label">Colour of the light: CIE XYZ → sRGB</span><span class="eq-num">(S9)</span></div>
+        <div class="eq-main">\[ X=\int E_e\,\bar x\,\mathrm{d}\lambda,\ \ Y=\int E_e\,\bar y\,\mathrm{d}\lambda,\ \ Z=\int E_e\,\bar z\,\mathrm{d}\lambda;\quad x=\tfrac{X}{X+Y+Z},\ y=\tfrac{Y}{X+Y+Z};\quad \begin{pmatrix}R\\G\\B\end{pmatrix}_{\text{lin}}=\begin{pmatrix}3.2406&-1.5372&-0.4986\\-0.9689&1.8758&0.0415\\0.0557&-0.2040&1.0570\end{pmatrix}\begin{pmatrix}X\\Y\\Z\end{pmatrix} \]</div>
+        <p class="eq-read">the three tristimulus values are the spectrum weighted by the three colour-matching functions; normalising gives the chromaticity (x, y); a fixed matrix converts XYZ to the linear red–green–blue of the sRGB display standard, which is then gamma-encoded.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\bar x,\bar y,\bar z\)</td><td>CIE 1931 2° colour-matching functions (Wyman et al. 2013 fit)</td><td>–</td></tr>
+          <tr><td>\(x, y\)</td><td>chromaticity coordinates</td><td>–</td></tr>
+        </table>
+        <details><summary>The analytic colour-matching functions</summary>
+          <p>Wyman, Sloan and Shirley (2013) fit each function with a sum of piecewise Gaussians \(g(\lambda;\mu,\gamma,\delta)=\exp\{-\tfrac12[(\lambda-\mu)\,S]^2\}\), where \(S=\gamma\) for \(\lambda&lt;\mu\) and \(S=\delta\) otherwise:</p>
+          <p>\(\bar x = 0.362\,g(442.0; 0.0624, 0.0374) + 1.056\,g(599.8; 0.0264, 0.0323) - 0.065\,g(501.1; 0.0490, 0.0382)\)</p>
+          <p>\(\bar y = 0.821\,g(568.8; 0.0213, 0.0247) + 0.286\,g(530.9; 0.0613, 0.0322)\)</p>
+          <p>\(\bar z = 1.217\,g(437.0; 0.0845, 0.0278) + 0.681\,g(459.0; 0.0385, 0.0725)\)</p>
+          <p>Check built into the model: the integrals of the fitted functions from 360 to 830 nm are 106.7, 107.0 and 106.9, close to the tabulated CIE values (≈ 106.9 each).</p>
+        </details>
+        <details><summary>Surface colours in the tent preview</summary><p>A surface with spectral reflectance \(\rho(\lambda)\) sends \(E_e(\lambda)\rho(\lambda)\) to the eye, so its tristimulus values are \(\int E_e\rho\,\bar x\,\mathrm{d}\lambda\) etc. The preview does exactly this for the reflective film (ρ = 0.9), the leaves (low in blue and red, a green peak of ≈ 13 % and a steep rise above 700 nm), stems, soil and pots, with an exposure that increases with illuminance.</p></details>
+        <div class="eq-units">W m⁻² nm⁻¹ × (–) × nm → relative tristimulus values; x and y are dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-cct">
+        <div class="eq-head"><span class="eq-label">Correlated colour temperature and Duv</span><span class="eq-num">(S10)</span></div>
+        <div class="eq-main">\[ u=\frac{4X}{X+15Y+3Z},\quad v=\frac{6Y}{X+15Y+3Z};\qquad \text{CCT}=\arg\min_T \big\|(u,v)-(u_P(T),v_P(T))\big\|,\quad D_{uv}=\pm\min_T\|\cdot\| \]</div>
+        <p class="eq-read">the correlated colour temperature is the temperature of the black body whose chromaticity, in the CIE 1960 (u, v) diagram, lies closest to that of the light; Duv is that shortest distance, positive above the black-body curve (greenish) and negative below it (pinkish).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(u_P(T), v_P(T)\)</td><td>chromaticity of a black body at temperature \(T\) (Planck's law × CMFs)</td><td>–</td></tr>
+          <tr><td>CCT</td><td>correlated colour temperature</td><td>K</td></tr>
+          <tr><td>\(D_{uv}\)</td><td>distance from the Planckian locus</td><td>–</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>CCT is only meaningful for lights that look white (|Duv| ≲ 0.02–0.05); for red–blue light the laboratory reports the colour name instead. The Planckian locus is computed from 1000 to 30 000 K with the same CMF fit, so the method is internally consistent; McCamy's (1992) cubic formula is a popular shortcut that agrees within tens of kelvin for near-white lights.</p></details>
+        <div class="eq-units">u, v and Duv are dimensionless; CCT in K ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-sun">
+        <div class="eq-head"><span class="eq-label">Sunlight spectrum model</span><span class="eq-num">(S11)</span></div>
+        <div class="eq-main">\[ E_{\odot}(\lambda)\propto B(\lambda,5778\ \text{K})\;\exp\!\left[-m\,a\,\lambda_{\mu\text{m}}^{-4}\right]\prod_j\left[1-d_j\,e^{-\left((\lambda-\lambda_j)/w_j\right)^2}\right], \qquad B=\frac{2hc^2}{\lambda^5}\frac{1}{e^{hc/(\lambda k_B T)}-1} \]</div>
+        <p class="eq-read">sunlight at the ground is modelled as a black body at the Sun's effective temperature, dimmed by a scattering term that grows as the inverse fourth power of wavelength and multiplied by four absorption bands of the atmosphere.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(m\)</td><td>relative air mass</td><td>–</td><td>1.5</td></tr>
+          <tr><td>\(a\)</td><td>effective scattering coefficient (fitted)</td><td>µm⁴</td><td>0.0079</td></tr>
+          <tr><td>\(\lambda_j, w_j, d_j\)</td><td>absorption bands: ozone Chappuis ≈ 595 nm, O₂-B 687 nm, H₂O 720 nm, O₂-A 760 nm</td><td>nm, nm, –</td><td>(595, 40, 0.06), (687, 3, 0.19), (720, 12, 0.17), (760, 4, 0.56)</td></tr>
+        </table>
+        <details><summary>How the parameters were obtained</summary><p>\(a\) and \(d_j\) were fitted by least squares to the ASTM G173-03 global-tilt reference spectrum (Gueymard et al., 2002) between 350 and 800 nm, with \(m\) fixed at 1.5 (the standard's air mass). The fitted \(a\) is of the same order as the molecular (Rayleigh) scattering coefficient (Bodhaine et al., 1999), but it is an effective value: it also absorbs aerosol extinction and the diffuse sky light that global irradiance adds back. The model reproduces the reference well for plant-relevant metrics: R:FR 1.10 (G173: 1.10), PSS 0.697 (0.695), 56 (55.5) lx per µmol m⁻² s⁻¹.</p></details>
+        <div class="eq-units">\(B\) in W m⁻² sr⁻¹ m⁻¹; only the shape is used — the spectrum is scaled to the PPFD chosen with the daylight slider ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-sm-morph">
+        <div class="eq-head"><span class="eq-label">Illustrative morphology index</span><span class="eq-num">(S12)</span></div>
+        <div class="eq-main">\[ I_{\text{stem}}=\big[1+2.0\,(0.83-\text{PSS})\big]\,\big[1+1.5\,(0.15-f_B)\big],\qquad I_{\text{leaf}}=\big[1+1.2\,(0.83-\text{PSS})\big]\,\big[1-0.6\,(f_B-0.15)\big] \]</div>
+        <p class="eq-read">the relative stem-extension index rises linearly as the photostationary state falls below that of a typical white LED (0.83) and falls as the blue share rises above 15 %; the leaf-size index follows the same directions more weakly.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(I_{\text{stem}}, I_{\text{leaf}}\)</td><td>stem-extension and leaf-size index relative to a broad-white reference (= 1)</td><td>–</td></tr>
+          <tr><td>\(f_B\)</td><td>blue share of PPFD (capped at 0.40)</td><td>–</td></tr>
+        </table>
+        <details><summary>What is — and is not — behind this equation</summary><p>The <em>form</em> follows the literature: a linear decline of extension growth with increasing PSS (Morgan &amp; Smith, 1976), suppression of elongation and leaf expansion by blue photons that saturates at higher fractions (Cope &amp; Bugbee, 2013; Snowden et al., 2016), and increased leaf expansion with far-red (Park &amp; Runkle, 2017). The <em>coefficients</em> (2.0, 1.5, 1.2, 0.6) were chosen by the course authors to produce visible, plausibly sized changes; they are <strong>not</strong> fitted to any data set. Real responses depend on species, cultivar, photon flux, photoperiod, temperature and timing (e.g. end-of-day far-red). Use the index to reason about directions, never to predict plant height.</p></details>
+        <div class="eq-units">all terms dimensionless ✓</div>
+        <div class="mini-calc" data-formula="min(1.9,max(0.55,(1+2*(0.83-pss))*(1+1.5*(0.15-min(0.4,fb)))))" data-output="Stem index I<sub>stem</sub>" data-digits="2" data-plot="pss">
+          <div data-var="pss" data-label="PSS" data-min="0.45" data-max="0.9" data-step="0.005" data-value="0.83"></div>
+          <div data-var="fb" data-label="Blue share f<sub>B</sub>" data-min="0" data-max="0.5" data-step="0.01" data-value="0.15"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator. Record settings and results with <em>Save investigation</em>, and download spectra as CSV for your report.</p>
+      <ol class="task-list">
+        <li><h4>The price of colour</h4><p>Keep the total electrical power at 350 W. Compare the photon efficacy, PPFD, YPF, illuminance and CCT/colour of (a) red + blue (10 % blue photons), (b) broad white, (c) white + deep red. Put the results in a table. How much PPFD (in %) does the grower give up to work under white light? Which metric (PPF, YPF, ePAR) changes the ranking?</p></li>
+        <li><h4>Far-red: more photons or a morphological signal?</h4><p>Start from “White + deep red”. Add far-red in steps of 20 W up to 100 W while reducing deep red by the same power. Plot PPFD, ePAR photon flux, R:FR and PSS against far-red power. At what R:FR does PSS start to fall steeply? Explain with the shape of the magenta curve in the PSS chart and the cross-sections in the spectrum chart.</p></li>
+        <li><h4>Design a “sun-like” LED spectrum</h4><p>Using only LED channels, try to match sunlight's PSS (≈ 0.70), blue share (≈ 25 % of PPFD) and R:FR (≈ 1.1) as closely as possible. Report your recipe (W per channel), its photon efficacy and how close you got. Why is a sun-like spectrum not automatically the best one for a vertical farm?</p></li>
+        <li><h4>How good is the lux meter?</h4><p>For five presets, record lux and PPFD and compute lux per µmol m⁻² s⁻¹. A grower owns only a lux meter calibrated to sunlight (55 lx per µmol m⁻² s⁻¹). Calculate the error (%) of the PPFD he would infer for each spectrum. Which spectra give the largest errors, and why (use Eq. S8)?</p></li>
+        <li><h4>The green gap in numbers</h4><p>Set 100 W on the green channel only, then 100 W on cool white. Compare photon efficacy, the CIE chromaticity and the leaf colour in the tent. Now raise the green wall-plug efficiency to 0.70 (a plausible future value). How much would a mixed RGB “white” then gain over a phosphor white? Discuss with Kusuma et al. (2020).</p></li>
+        <li><h4>Connect to your project</h4><p>Obtain the spectrum (datasheet or measured) of the lamp above your soilless system. Recreate it approximately with the channels, record the predicted PPFD, PSS and colour, and compare with a quantum-sensor measurement. List three reasons why the prediction and measurement might differ.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-spectrum-mixer">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A deep-red (660 nm) channel has a package wall-plug efficiency of 0.81 and the fixture efficiency is 0.80. What is its photon efficacy? (Eq. S2)","answer":3.575,"tol":0.03,"unit":"µmol J⁻¹","hint":"\\(\\eta_{ph} = \\eta_{wp}\\,\\eta_{fix}\\times0.008359\\,\\lambda\\) with λ in nm.","explain":"<p>\\(0.81\\times0.80\\times0.008359\\times660 = 3.58\\) µmol J⁻¹ — exactly what the efficacy bar chart shows for the red channel at the default settings.</p>"},
+          {"type":"numeric","q":"A 350 W fixture with a photon efficacy of 3.0 µmol J⁻¹ lights a 1.2 × 1.2 m tent. 90 % of the photons reach the canopy. What is the mean PPFD? (Eq. S4)","answer":656.25,"tol":0.02,"unit":"µmol m⁻² s⁻¹","explain":"<p>PPF = 350 × 3.0 = 1050 µmol s⁻¹; PPFD = 0.9 × 1050 / 1.44 = 656 µmol m⁻² s⁻¹.</p>"},
+          {"type":"numeric","q":"Under a spectrum, the red-form conversion rate is k₁ = Σqσ_R = 3.6 × 10⁵ and the far-red-form rate is k₂ = Σqσ_FR = 1.2 × 10⁵ (same arbitrary units). What is the PSS? (Eq. S7)","answer":0.75,"abstol":0.005,"unit":"","explain":"<p>PSS = k₁/(k₁ + k₂) = 3.6/(3.6 + 1.2) = 0.75.</p>"},
+          {"type":"mcq","q":"A red + blue (“blurple”) spectrum and a broad-white spectrum give the same PPFD. Why does the blurple tent look much darker to a person?","options":["Because red and blue photons carry less energy than green photons.","Because the eye's photopic sensitivity V(λ) is very low at 450 and 660 nm, so the illuminance is far lower.","Because the phytochrome PSS is higher under blurple light.","Because blurple light contains no far-red."],"answer":1,"feedback":["Blue photons carry more energy than green ones; energy is not the reason.","","PSS describes the plant's photoreceptor, not human vision.","Far-red hardly contributes to human brightness either way."],"explain":"<p>Illuminance weights irradiance by V(λ), which peaks at 555 nm. The mixer shows about 8 lx per µmol m⁻² s⁻¹ for blurple versus about 73 for broad white.</p>"},
+          {"type":"tf","q":"Adding a far-red (730 nm) channel to a fixture increases its PPF efficacy (400–700 nm) because far-red LEDs are very efficient.","answer":false,"explain":"<p>Far-red photons lie outside 400–700 nm, so they add electrical power but no PPF: the PPF efficacy falls. The ePAR efficacy, however, can rise.</p>"},
+          {"type":"multi","q":"Which changes lower the phytochrome PSS of a white + red fixture? (Select all that apply.)","options":["Adding far-red LEDs","Increasing the total PPFD at constant spectrum","Replacing some deep red with far-red at equal power","Adding more deep red"],"answer":[0,2],"explain":"<p>PSS depends on the spectral shape only (Eq. S7), not on intensity. More far-red lowers it; more red raises it.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li>Single-colour channels have Gaussian emission with fixed peak and FWHM (UV-A 385/12, blue 450/20, green 530/32, red 660/20, far-red 730/28 nm; typical datasheet widths). Temperature-dependent peak shifts and broadening are ignored.</li>
+        <li>Phosphor-converted whites are modelled as a blue pump plus broad phosphor bands, tuned so that the computed CCT, Duv and blue share match the stated class (cool ≈ 6600 K, Duv ≈ 0, 29 % blue; warm ≈ 2700 K, Duv ≈ −0.002, 9 % blue).</li>
+        <li>Package wall-plug efficiencies are the best-in-class values of Kusuma et al. (2020, Table 1) at 100 mA mm⁻² and 25 °C; UV-A is derived from the EQE reported by Amano et al. (2020). One fixture efficiency factor (default 0.80) represents driver, optical, thermal and current-droop losses for all channels.</li>
+        <li>PPFD is an area average: PPF × capture fraction / area. The spatial distribution is not modelled.</li>
+        <li>PSS uses the two-state model (no dark reversion, synthesis or destruction) and the cross-sections of purified oat phytochrome (Lagarias et al., 1987, interpolated from 5-nm samples of the 1-nm table in Kusuma &amp; Bugbee, 2021). In-leaf spectral distortion is ignored.</li>
+        <li>Colour uses the Wyman et al. (2013) analytic CIE 1931 functions and the sRGB primaries with a D65 white; the preview has a fixed daylight white balance and stylised surface reflectances.</li>
+        <li>Sunlight is a Planck 5778 K spectrum with a fitted λ⁻⁴ attenuation and four absorption bands (Eq. S11); it represents clear-sky global light at air mass 1.5, not cloudy or canopy-shade light.</li>
+        <li>The morphology index (Eq. S12) is a qualitative teaching device with author-chosen coefficients.</li>
+      </ul>
+      <h2 data-nonum>Default channel parameters</h2>
+      <table class="ch-table">
+        <caption>Table 1. Channel defaults (package level, η<sub>fix</sub> = 1).</caption>
+        <thead><tr><th>Channel</th><th class="num">Peak / FWHM (nm)</th><th class="num">η<sub>wp</sub></th><th>Source of η<sub>wp</sub></th></tr></thead>
+        <tbody>
+          <tr><td><i style="background:#8b5cf6"></i>UV-A</td><td class="num">385 / 12</td><td class="num">0.45</td><td>EQE ≈ 0.50 (Amano et al., 2020) × E<sub>ph</sub>/(qV<sub>f</sub>)</td></tr>
+          <tr><td><i style="background:#2f55ff"></i>Royal blue</td><td class="num">450 / 20</td><td class="num">0.93</td><td>Kusuma et al. (2020)</td></tr>
+          <tr><td><i style="background:#20c060"></i>Green</td><td class="num">530 / 32</td><td class="num">0.42</td><td>Kusuma et al. (2020)</td></tr>
+          <tr><td><i style="background:#e0203a"></i>Deep red</td><td class="num">660 / 20</td><td class="num">0.81</td><td>Kusuma et al. (2020)</td></tr>
+          <tr><td><i style="background:#7a0a1c"></i>Far-red</td><td class="num">730 / 28</td><td class="num">0.77</td><td>Kusuma et al. (2020)</td></tr>
+          <tr><td><i style="background:#ffc47a"></i>Warm white 2700 K</td><td class="num">broad</td><td class="num">0.54</td><td>Kusuma et al. (2020): ≈ 2.6 µmol J⁻¹</td></tr>
+          <tr><td><i style="background:#dfe9ff"></i>Cool white 6500 K</td><td class="num">broad</td><td class="num">0.65</td><td>Kusuma et al. (2020): ≈ 2.9 µmol J⁻¹</td></tr>
+        </tbody>
+      </table>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Amano, H., Collazo, R., De Santi, C., Einfeldt, S., Funato, M., Glaab, J., … Zhang, Y. (2020). The 2020 UV emitter roadmap. <em>Journal of Physics D: Applied Physics</em>, 53(50), 503001. <a href="https://doi.org/10.1088/1361-6463/aba64c" target="_blank" rel="noopener">doi:10.1088/1361-6463/aba64c</a></li>
+        <li>Cope, K. R., &amp; Bugbee, B. (2013). Spectral effects of three types of white light-emitting diodes on plant growth and development: absolute versus relative amounts of blue light. <em>HortScience</em>, 48(4), 504–509. <a href="https://doi.org/10.21273/HORTSCI.48.4.504" target="_blank" rel="noopener">doi:10.21273/HORTSCI.48.4.504</a></li>
+        <li>DesignLights Consortium (2025). <em>Technical Requirements for LED-based Horticultural Lighting, Version 4.0</em> (effective 18 April 2025). <a href="https://designlights.org/our-work/horticultural-lighting/technical-requirements/hort-v4-0/" target="_blank" rel="noopener">designlights.org</a></li>
+        <li>Gueymard, C. A., Myers, D., &amp; Emery, K. (2002). Proposed reference irradiance spectra for solar energy systems testing. <em>Solar Energy</em>, 73(6), 443–467. <a href="https://doi.org/10.1016/S0038-092X(03)00005-7" target="_blank" rel="noopener">doi:10.1016/S0038-092X(03)00005-7</a> (basis of ASTM G173-03)</li>
+        <li>Kusuma, P., &amp; Bugbee, B. (2021). Improving the predictive value of phytochrome photoequilibrium: consideration of spectral distortion within a leaf. <em>Frontiers in Plant Science</em>, 12, 596943. <a href="https://doi.org/10.3389/fpls.2021.596943" target="_blank" rel="noopener">doi:10.3389/fpls.2021.596943</a> (supplementary table of σ<sub>R</sub>, σ<sub>FR</sub>)</li>
+        <li>Kusuma, P., Pattison, P. M., &amp; Bugbee, B. (2020). From physics to fixtures to food: current and potential LED efficacy. <em>Horticulture Research</em>, 7, 56. <a href="https://doi.org/10.1038/s41438-020-0283-7" target="_blank" rel="noopener">doi:10.1038/s41438-020-0283-7</a></li>
+        <li>Lagarias, J. C., Kelly, J. M., Cyr, K. L., &amp; Smith, W. O. (1987). Comparative photochemical analysis of highly purified 124 kilodalton oat and rye phytochromes in vitro. <em>Photochemistry and Photobiology</em>, 46(1), 5–13. <a href="https://doi.org/10.1111/j.1751-1097.1987.tb04729.x" target="_blank" rel="noopener">doi:10.1111/j.1751-1097.1987.tb04729.x</a></li>
+        <li>McCree, K. J. (1972). The action spectrum, absorptance and quantum yield of photosynthesis in crop plants. <em>Agricultural Meteorology</em>, 9, 191–216. <a href="https://doi.org/10.1016/0002-1571(71)90022-7" target="_blank" rel="noopener">doi:10.1016/0002-1571(71)90022-7</a></li>
+        <li>Morgan, D. C., &amp; Smith, H. (1976). Linear relationship between phytochrome photoequilibrium and growth in plants under simulated natural radiation. <em>Nature</em>, 262, 210–212. <a href="https://doi.org/10.1038/262210a0" target="_blank" rel="noopener">doi:10.1038/262210a0</a></li>
+        <li>Park, Y., &amp; Runkle, E. S. (2017). Far-red radiation promotes growth of seedlings by increasing leaf expansion and whole-plant net assimilation. <em>Environmental and Experimental Botany</em>, 136, 41–49. <a href="https://doi.org/10.1016/j.envexpbot.2016.12.013" target="_blank" rel="noopener">doi:10.1016/j.envexpbot.2016.12.013</a></li>
+        <li>Sager, J. C., Smith, W. O., Edwards, J. L., &amp; Cyr, K. L. (1988). Photosynthetic efficiency and phytochrome photoequilibria determination using spectral data. <em>Transactions of the ASAE</em>, 31(6), 1882–1889. <a href="https://doi.org/10.13031/2013.30952" target="_blank" rel="noopener">doi:10.13031/2013.30952</a></li>
+        <li>Smith, H. (1982). Light quality, photoperception, and plant strategy. <em>Annual Review of Plant Physiology</em>, 33, 481–518. <a href="https://doi.org/10.1146/annurev.pp.33.060182.002405" target="_blank" rel="noopener">doi:10.1146/annurev.pp.33.060182.002405</a></li>
+        <li>Snowden, M. C., Cope, K. R., &amp; Bugbee, B. (2016). Sensitivity of seven diverse species to blue and green light: interactions with photon flux. <em>PLoS ONE</em>, 11(10), e0163121. <a href="https://doi.org/10.1371/journal.pone.0163121" target="_blank" rel="noopener">doi:10.1371/journal.pone.0163121</a></li>
+        <li>Wyman, C., Sloan, P.-P., &amp; Shirley, P. (2013). Simple analytic approximations to the CIE XYZ color matching functions. <em>Journal of Computer Graphics Techniques</em>, 2(2), 1–11. <a href="https://jcgt.org/published/0002/02/01/" target="_blank" rel="noopener">jcgt.org/published/0002/02/01</a></li>
+        <li>Zhen, S., &amp; Bugbee, B. (2020). Far-red photons have equivalent efficiency to traditional photosynthetic photons: implications for redefining photosynthetically active radiation. <em>Plant, Cell &amp; Environment</em>, 43(5), 1259–1272. <a href="https://doi.org/10.1111/pce.13730" target="_blank" rel="noopener">doi:10.1111/pce.13730</a></li>
+      </ol>
+      <p class="muted" style="font-size:.86rem">Also used: Both et al. (2017) on lamp labelling (<a href="https://doi.org/10.21273/HORTTECH03648-16" target="_blank" rel="noopener">doi:10.21273/HORTTECH03648-16</a>); Bodhaine et al. (1999) on Rayleigh optical depth (<a href="https://doi.org/10.1175/1520-0426(1999)016&lt;1854:ORODC&gt;2.0.CO;2" target="_blank" rel="noopener">doi</a>); McCamy (1992) on CCT (<a href="https://doi.org/10.1002/col.5080170211" target="_blank" rel="noopener">doi:10.1002/col.5080170211</a>); CIE 015:2018 <em>Colorimetry</em> (<a href="https://doi.org/10.25039/TR.015.2018" target="_blank" rel="noopener">doi:10.25039/TR.015.2018</a>); IEC 61966-2-1 (sRGB); ANSI/ASABE S640 (wavebands). Related lessons: <a href="/lessons/radiation-physics/">4.1 Radiation physics</a> and <a href="/lessons/spectral-quality/">4.4 Spectral quality and photomorphogenesis</a>.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

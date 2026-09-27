@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interactive psychrometric chart · Future Food Production</title>
+<meta name="description" content="A full psychrometric chart at any altitude: drag air states, read every property, and trace heating, cooling coils with condensate, pad cooling, mixing and the latent load of a transpiring crop, with VPD and Botrytis overlays and PNG export.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live calculators for the Derive tab (AUTHORING §4.3); same equations as psy.js. */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  function es(t) { return 0.6108 * Math.exp(17.27 * t / (t + 237.3)); }
+  function W(e, P) { return 0.62198 * e / (P - e); }
+  function Pz(z) { return 101.3 * Math.pow((293 - 0.0065 * z) / 293, 5.26); }
+  /* Eq. P5 — thermodynamic wet-bulb temperature at altitude z (ASHRAE eq. 33, bisection) */
+  FFP_CALC.pcTwb = function (v) {
+    var P = Pz(v.z), Wa = W(es(v.T) * v.RH / 100, P), lo = -40, hi = v.T;
+    for (var i = 0; i < 60; i++) { var m = (lo + hi) / 2, Ws = W(es(m), P); var Wl = ((2501 - 2.326 * m) * Ws - 1.006 * (v.T - m)) / (2501 + 1.86 * v.T - 4.186 * m); if (Wl > Wa) hi = m; else lo = m; }
+    return (lo + hi) / 2;
+  };
+  /* Eq. P1 + P4 — humidity ratio at altitude, g per kg dry air */
+  FFP_CALC.pcW = function (v) { return 1000 * W(es(v.T) * v.RH / 100, Pz(v.z)); };
+  /* Eq. P9 — condensate of a cooling coil, kg h-1 */
+  FFP_CALC.pcCoil = function (v) {
+    var P = 101.3, W1 = W(es(v.T) * v.RH / 100, P), e1 = es(v.T) * v.RH / 100, a = Math.log(e1 / 0.6108), Td = 237.3 * a / (17.27 - a);
+    if (v.adp >= Td) return 0;
+    var Wadp = W(es(v.adp), P), W2 = Wadp + v.bf * (W1 - Wadp), vol = 0.287042 * (v.T + 273.15) * (1 + 1.607858 * W1) / P;
+    return v.V / vol * (W1 - W2);
+  };
+  /* Eq. P12 — minutes until a closed room reaches 90 % RH at constant temperature */
+  FFP_CALC.pcT90 = function (v) {
+    var P = 101.3, W0 = W(es(v.T) * v.RH / 100, P), W90 = W(0.9 * es(v.T), P), vol = 0.287042 * (v.T + 273.15) * (1 + 1.607858 * W0) / P;
+    var ma = v.H / vol, rate = v.E / 3600 / ma; return W90 > W0 ? (W90 - W0) / rate / 60 : 0;
+  };
+})();
+</script>
+<script type="module" src="./main.js"></script>
+</head>
+<body data-page="lab" data-slug="psychrometric-chart">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Interactive psychrometric chart</h1>
+    <p class="lead">The psychrometric chart is the map on which every heating, cooling, ventilating and humidifying process of a greenhouse or plant factory is a line. This one is computed live from the equations of Lesson 8.2 at whatever altitude you choose. Drag air states across it and read all their properties; then send the air through a heater, a cooling coil, a wet pad, a mixing box or a sealed room full of transpiring plants, and see the energy and water that each process costs or recovers.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage light-stage" id="stage" style="min-height:460px"></div>
+      <div class="readouts" id="readouts"></div>
+      <h3 style="font:650 .92rem var(--font-sans);margin:4px 0 0">Process results</h3>
+      <div class="readouts" id="proc-ro"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3 id="sweep-title">Process sweep</h3>
+      <div class="chart-sub">How the selected process responds to its main setting; the magenta dot marks your current setting. For the closed room: humidity against time without dehumidification.</div>
+      <div class="chart tall" id="chart-sweep"></div>
+    </div>
+    <div class="chart-card">
+      <h3>VPD made visible</h3>
+      <div class="chart-sub">Saturation vapour pressure against temperature. Each point's vertical bar runs from its actual vapour pressure up to saturation: the length of the bar is its vapour pressure deficit. Dashed lines bound the plant comfort zone.</div>
+      <div class="chart tall" id="chart-vpd"></div>
+    </div>
+    <div class="chart-card">
+      <h3 id="bar-title">Energy of the air</h3>
+      <div class="chart-sub">Sensible and latent parts of the enthalpy change of the process (or of the enthalpy of the active point when no process is selected), per kg of dry air.</div>
+      <div class="chart tall" id="chart-bar"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ================================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>Reading the map</h2>
+      <ol>
+        <li><strong>Find your way around.</strong> Dry-bulb temperature runs along the bottom, the humidity ratio up the right-hand side. The thick blue curve is saturation (100 % RH); the grey curves are 10–90 % RH; the thin amber lines slope down to the right at constant enthalpy; the dashed blue lines are wet-bulb temperatures; the dotted magenta lines are specific volumes. Hover anywhere to read the state under the cursor.</li>
+        <li><strong>Drag point A</strong> (24 °C, 70 %). Its dew point (18.2 °C) is where a horizontal line from A meets saturation; its wet-bulb temperature (20.1 °C) is where the dashed line through A meets saturation. Drag A to the right: RH falls, the dew point stays — heating never changes the water content.</li>
+        <li><strong>Choose “Cooling coil”.</strong> The air runs from A towards the coil's apparatus dew point on the saturation curve. With the coil at 10 °C and 10 000 m³ h⁻¹, the coil condenses about 54 kg of water per hour: this is where a plant factory recovers its crop's transpiration. Lower the coil temperature and watch the condensate grow in the sweep chart.</li>
+        <li><strong>Try “Winter vent: fog?”.</strong> Humid greenhouse air mixes with frosty outside air along a straight line. Because the saturation curve bends upwards, the straight line crosses it: above about 27 % outside air the mixture is supersaturated and fog forms — the plume you see above a greenhouse vent on a cold morning.</li>
+        <li><strong>Seal a growth room.</strong> With the dehumidifier off, 100 m² of lettuce transpiring 0.15 L m⁻² h⁻¹ push a 3-m-high room from 60 % to 90 % RH in about 7 minutes. The latent load (≈ 10 kW) is as large as the lamps' sensible heat: the sensible heat ratio is about 0.5.</li>
+        <li><strong>Climb a mountain.</strong> Load “Highland greenhouse (2400 m)”. The same 25 °C and 60 % RH now correspond to 16.0 instead of 11.9 g of water per kg of dry air, because the air itself is thinner. Every curve moves; only the dew point and the VPD, which depend on vapour pressure alone, stay put.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Two independent properties fix the state of moist air; everything else can be read off the chart. Processes are lines: <strong>sensible heating</strong> is horizontal, <strong>evaporative cooling</strong> follows a wet-bulb line, <strong>mixing</strong> is a straight chord, <strong>dehumidification</strong> heads for the coil's point on the saturation curve, and a <strong>transpiring crop in a sealed room</strong> climbs vertically.</p></div>
+      <a class="lab-link" data-lab="greenhouse-climate" data-why="See the same humidity physics play out over a whole day in a 3D greenhouse with condensation on the glass, screens and ventilation."></a>
+    </section>
+
+    <!-- ================================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Why a chart, and how this one is built</h2>
+      <p>Before computers, engineers designed air-conditioning with a ruler on the psychrometric chart: the equations of moist air (Lesson 8.2) are all there, drawn once and for all at one pressure. The chart is still the best way to <em>see</em> a process — whether a coil will dehumidify, whether mixing makes fog, how close a pad can cool towards the wet bulb. This chart is not a picture but a live computation: every curve is recalculated from Eqs. P1–P7 when you change the altitude or switch to saturation over ice.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 640 300" role="img" aria-label="Sketch of the psychrometric chart showing the directions of the main processes from a state point">
+            <defs><marker id="pcA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-magenta"/></marker></defs>
+            <line x1="60" y1="260" x2="590" y2="260" class="stroke" stroke-width="1.5"/><line x1="590" y1="260" x2="590" y2="30" class="stroke" stroke-width="1.5"/>
+            <path d="M60 252 C 200 235, 330 190, 420 120 S 520 40, 540 30" class="stroke-water" stroke-width="3" fill="none"/>
+            <text x="430" y="104" class="t-small" style="fill:var(--water)">saturation (100 %)</text>
+            <path d="M60 256 C 220 245, 360 215, 470 160 S 560 110, 590 92" class="stroke-muted" stroke-width="1" fill="none"/><text x="560" y="86" class="t-small t-muted">50 %</text>
+            <circle cx="330" cy="200" r="7" class="fill-accent"/><text x="340" y="215" class="t-small">state A</text>
+            <line x1="330" y1="200" x2="470" y2="200" class="stroke-magenta" stroke-width="2.4" marker-end="url(#pcA)"/><text x="400" y="192" class="t-small" style="fill:var(--magenta)">heating</text>
+            <line x1="330" y1="200" x2="215" y2="200" class="stroke-magenta" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#pcA)"/><text x="200" y="192" text-anchor="end" class="t-small" style="fill:var(--magenta)">cooling → dew point</text>
+            <line x1="330" y1="200" x2="250" y2="148" class="stroke-magenta" stroke-width="2.4" marker-end="url(#pcA)"/><text x="170" y="140" class="t-small" style="fill:var(--magenta)">pad cooling (constant T<tspan baseline-shift="sub" font-size="9">wb</tspan>)</text>
+            <line x1="330" y1="200" x2="330" y2="120" class="stroke-magenta" stroke-width="2.4" marker-end="url(#pcA)"/><text x="336" y="118" class="t-small" style="fill:var(--magenta)">transpiration at constant T</text>
+            <line x1="330" y1="200" x2="200" y2="236" class="stroke-magenta" stroke-width="2.4" marker-end="url(#pcA)"/><text x="170" y="252" class="t-small" style="fill:var(--magenta)">cooling coil → ADP</text>
+            <text x="325" y="286" text-anchor="middle" class="t-small">dry-bulb temperature →</text>
+            <text x="612" y="150" class="t-small" transform="rotate(90 612 150)" text-anchor="middle">humidity ratio W →</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Directions of the processes on the chart. Heating and cooling above the dew point are horizontal (constant \(W\)); evaporative cooling follows a wet-bulb line up and to the left; a coil moves the air towards its apparatus dew point (ADP) on the saturation curve; a crop transpiring into air held at constant temperature moves the state straight up.</figcaption>
+      </figure>
+      <h3>The families of lines</h3>
+      <ul>
+        <li><strong>Relative humidity</strong> curves are the saturation curve scaled down: \(W = 0.622\,\phi e_s/(P-\phi e_s)\). They crowd together at low temperature and fan out at high temperature because \(e_s\) grows exponentially.</li>
+        <li><strong>Enthalpy</strong> lines are nearly straight and slope down to the right: warming the air at constant enthalpy requires removing water, and vice versa.</li>
+        <li><strong>Wet-bulb</strong> lines are almost parallel to the enthalpy lines. They are not identical: along a wet-bulb line the enthalpy rises slightly by the enthalpy of the evaporated liquid water (Eq. P5).</li>
+        <li><strong>Specific volume</strong> lines are steep: warm, humid air takes more space per kilogram of dry air, which matters when fans are sized in cubic metres per hour but loads are computed per kilogram.</li>
+      </ul>
+      <h3>Why altitude changes the chart</h3>
+      <p>Relative humidity, dew point and VPD depend only on the vapour pressure \(e\) and the temperature. The humidity ratio, however, compares the mass of vapour with the mass of dry air, and at 2400 m there is a quarter less dry air in each cubic metre: the same \(e\) means a larger \(W\) (Eq. P1). Highland greenhouses — in Kenya, Colombia or the Alps — therefore need charts drawn for their pressure, and ventilation removes more water per cubic metre there than at sea level.</p>
+      <h3>Plant comfort and disease on the chart</h3>
+      <p>The green band marks a leaf-to-air vapour pressure deficit of 0.8–1.2 kPa, a common grower target for fruiting crops such as tomato: Iraqi et al. (1995) found higher photosynthesis and yield of greenhouse tomato at 0.8 kPa than at 0.5 kPa, and the ranges compiled by Shamshiri et al. (2018) span roughly 0.4–1.3 kPa between sources. Treat the band as a rule of thumb that you can move with the sliders, not as a physiological constant (Lesson 8.2). The amber and red bands mark relative humidities above 85 % and 90 %, where grey mould (<em>Botrytis cinerea</em>) risk rises because surfaces stay wet or close to saturation; keeping wetting periods short by ventilation and heating reduces epidemics (Yunis et al., 1994; Elad et al., 2016).</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“Evaporative cooling removes heat from the air.” A wet pad removes no energy at all: the enthalpy of the air leaving the pad is the same as that entering (plus the tiny enthalpy of the water). Sensible heat is converted into latent heat. That is why a pad cannot cool below the wet-bulb temperature, and why it works well in dry Almería (wet bulb 21 °C at 34 °C and 30 %) but hardly in humid air.</p></div>
+      <div class="callout note"><div class="callout-title">Which saturation formula?</div><p>The course uses the Tetens (FAO-56) equation throughout, and so does this chart by default. ASHRAE charts use the Hyland–Wexler equations and, below 0 °C, saturation over ice. The differences are below 0.3 % above freezing; below freezing, switch on “saturation over ice” to see the frost curve (Murray, 1967).</p></div>
+    </section>
+
+    <!-- ================================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the chart</h2>
+      <p>Temperatures \(T\) in °C (absolute temperatures in K where marked), pressures in kPa, humidity ratio \(W\) in kg of water per kg of dry air. Each equation is implemented in <code>psy.js</code>; the lesson numbers refer to <a href="/lessons/psychrometrics/">Lesson 8.2</a>.</p>
+
+      <div class="eq-box" id="eq-pc-w">
+        <div class="eq-head"><span class="eq-label">Humidity ratio from vapour pressure</span><span class="eq-num">(P1)</span></div>
+        <div class="eq-main">\[ W = \frac{M_w}{M_a}\,\frac{e}{P-e} = 0.62198\,\frac{e}{P-e}, \qquad e = \frac{W\,P}{0.62198 + W} \]</div>
+        <p class="eq-read">the humidity ratio is the mass ratio of vapour to dry air: the molar-mass ratio times the partial pressure of vapour divided by the partial pressure of dry air (Dalton's law). Inverting gives the vapour pressure of air with a given humidity ratio.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(e\)</td><td>partial pressure of water vapour</td><td>kPa</td><td>0.1–7</td></tr>
+          <tr><td>\(P\)</td><td>barometric pressure (Eq. P4)</td><td>kPa</td><td>101.3 at sea level</td></tr>
+          <tr><td>\(M_w/M_a\)</td><td>18.015/28.965</td><td>–</td><td>0.62198 (as <code>physics.js</code>)</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Ideal-gas law for each component in the same volume and temperature: \(m_v = eVM_w/(RT)\), \(m_a = (P-e)VM_a/(RT)\).</li><li>Divide: \(W = (M_w/M_a)\,e/(P-e)\); \(V\), \(R\), \(T\) cancel (Lesson 8.2, Eq. 8.2.2).</li><li>Solve for \(e\): \(W(P-e) = 0.622e\) → \(e = WP/(0.622+W)\).</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Ideal gases; the enhancement factor (≈ 1.004) of real moist air is neglected, as in all agricultural calculations.</p></details>
+        <div class="eq-units">kPa ÷ kPa = dimensionless (kg kg⁻¹) ✓</div>
+        <div class="mini-calc" data-fn="pcW" data-output="Humidity ratio W" data-unit="g kg⁻¹" data-digits="2" data-plot="z" data-title="Try it — the same RH holds more water per kg of dry air at altitude">
+          <div data-var="T" data-label="Temperature" data-min="-10" data-max="45" data-step="0.5" data-value="25" data-unit="°C"></div>
+          <div data-var="RH" data-label="Relative humidity" data-min="5" data-max="100" data-step="1" data-value="60" data-unit="%"></div>
+          <div data-var="z" data-label="Altitude" data-min="0" data-max="4000" data-step="50" data-value="2400" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-es">
+        <div class="eq-head"><span class="eq-label">Saturation vapour pressure over water and over ice</span><span class="eq-num">(P2)</span></div>
+        <div class="eq-main">\[ e_s(T) = 0.6108\,\exp\!\left(\frac{17.27\,T}{T+237.3}\right) \ \ \text{(water)}, \qquad e_{s,i}(T) = 0.6108\,\exp\!\left(\frac{21.875\,T}{T+265.5}\right) \ \ \text{(ice, } T<0) \]</div>
+        <p class="eq-read">the saturation vapour pressure rises roughly exponentially with temperature; over ice it is lower than over supercooled water because molecules escape a crystal less easily.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(e_s\)</td><td>saturation vapour pressure over water (Tetens, FAO-56)</td><td>kPa</td><td>0.611 at 0 °C; 2.338 at 20 °C</td></tr>
+          <tr><td>\(e_{s,i}\)</td><td>over ice (Tetens form with Murray's 1967 constants)</td><td>kPa</td><td>0.260 at −10 °C (water: 0.287)</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Clausius–Clapeyron: \(\mathrm{d}e_s/\mathrm{d}T = \lambda e_s/(R_vT^2)\) (Lesson 8.2, Eq. 8.2.3).</li><li>Integrating with constant latent heat gives an exponential in \(1/T\); the Magnus form \(\exp(aT/(T+b))\) fitted to measurements corrects for the temperature dependence of \(\lambda\).</li><li>Over ice the latent heat is that of sublimation (≈ 2.83 MJ kg⁻¹), so the curve is steeper and the constants larger (21.875, 265.5).</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Accurate to about 0.1–0.3 % between 0 and 50 °C over water (Alduchov &amp; Eskridge, 1996); the chart covers −20 to 50 °C.</p></details>
+        <div class="eq-units">kPa × dimensionless exponent = kPa ✓</div>
+        <div class="mini-calc" data-formula="0.6108*exp(17.27*T/(T+237.3)) - 0.6108*exp(21.875*T/(T+265.5))" data-output="Water minus ice saturation pressure" data-unit="kPa" data-digits="4" data-plot="T" data-title="Try it — the gap between the water and ice curves below 0 °C">
+          <div data-var="T" data-label="Temperature" data-min="-20" data-max="0" data-step="0.5" data-value="-10" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-rh">
+        <div class="eq-head"><span class="eq-label">Relative humidity and dew point</span><span class="eq-num">(P3)</span></div>
+        <div class="eq-main">\[ \text{RH} = 100\,\frac{e}{e_s(T)}, \qquad T_d = \frac{237.3\,\alpha}{17.27-\alpha}, \quad \alpha = \ln\frac{e}{0.6108} \]</div>
+        <p class="eq-read">relative humidity is the vapour pressure as a percentage of saturation at the air temperature; the dew point is the temperature at which the actual vapour pressure would be saturating — the inverse of Eq. P2.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>RH</td><td>relative humidity</td><td>%</td></tr><tr><td>\(T_d\)</td><td>dew point (frost point with the ice curve, constants 21.875 and 265.5)</td><td>°C</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Set \(e_s(T_d) = e\) and take logarithms: \(17.27T_d/(T_d+237.3) = \alpha\).</li><li>Solve the linear equation for \(T_d\).</li><li>On the chart, the dew point is found by moving horizontally (constant \(W\), hence constant \(e\) at fixed \(P\)) to the saturation curve.</li></ol></details>
+        <div class="eq-units">kPa/kPa × 100 = %; °C × (–)/(–) = °C ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-p">
+        <div class="eq-head"><span class="eq-label">Barometric pressure at altitude</span><span class="eq-num">(P4)</span></div>
+        <div class="eq-main">\[ P = 101.3\left(\frac{293 - 0.0065\,z}{293}\right)^{5.26} \]</div>
+        <p class="eq-read">the pressure falls with altitude \(z\) in a standard atmosphere whose temperature decreases by 6.5 K per kilometre (FAO-56 eq. 7, <code>pressureAtElevation</code>).</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr><tr><td>\(z\)</td><td>altitude above sea level</td><td>m</td><td>0–4000</td></tr><tr><td>\(P\)</td><td>pressure</td><td>kPa</td><td>76.0 at 2400 m</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Hydrostatics \(\mathrm{d}P/\mathrm{d}z = -\rho g = -Pg/(R_aT)\) with a linear temperature profile \(T = T_0 - \Gamma z\).</li><li>Integrate: \(P = P_0\,(T/T_0)^{g/(R_a\Gamma)}\); with \(g/(R_a\Gamma) = 9.81/(287\times0.0065) = 5.26\) and \(T_0\) = 293 K.</li></ol></details>
+        <div class="eq-units">kPa × dimensionless = kPa ✓</div>
+        <div class="mini-calc" data-formula="101.3*pow((293-0.0065*z)/293,5.26)" data-output="Barometric pressure" data-unit="kPa" data-digits="2" data-plot="z"><div data-var="z" data-label="Altitude" data-min="0" data-max="4500" data-step="50" data-value="2400" data-unit="m"></div></div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-twb">
+        <div class="eq-head"><span class="eq-label">Thermodynamic wet-bulb temperature</span><span class="eq-num">(P5)</span></div>
+        <div class="eq-main">\[ W = \frac{(2501 - 2.326\,T_{wb})\,W_s(T_{wb}) - 1.006\,(T - T_{wb})}{2501 + 1.86\,T - 4.186\,T_{wb}} \qquad (T_{wb} \ge 0) \]</div>
+        <p class="eq-read">air of dry-bulb temperature \(T\) and humidity ratio \(W\) has the wet-bulb temperature \(T_{wb}\) at which adiabatically evaporating water into it would saturate it: the enthalpy of the air plus the enthalpy of the added liquid water equals the enthalpy of saturated air at \(T_{wb}\).</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(T_{wb}\)</td><td>thermodynamic wet-bulb temperature</td><td>°C</td></tr><tr><td>\(W_s(T_{wb})\)</td><td>saturation humidity ratio at \(T_{wb}\) and pressure \(P\)</td><td>kg kg⁻¹</td></tr><tr><td>2.326, 4.186</td><td>from the enthalpies of vapour and liquid water</td><td>kJ kg⁻¹ K⁻¹</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Adiabatic saturator: air enters at (\(T, W\)), leaves saturated at \(T_{wb}\); liquid water is supplied at \(T_{wb}\). Energy balance per kg dry air: \(h(T,W) + (W_s - W)\,4.186\,T_{wb} = h(T_{wb}, W_s)\).</li><li>Insert \(h = 1.006T + W(2501 + 1.86T)\) on both sides and solve for \(W\): the boxed ASHRAE (2021) equation. Below 0 °C the liquid term is replaced by ice (2830 − 0.24 \(T_{wb}\), 2.1 \(T_{wb}\)).</li><li>The simulator solves for \(T_{wb}\) by bisection, at any pressure. The empirical Stull (2011) formula in <code>physics.js</code> is shown for comparison in the readout note; it is valid at sea level only.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>The thermodynamic wet bulb equals the reading of a well-ventilated psychrometer to within a few tenths of a kelvin (Lewis relation ≈ 1).</p></details>
+        <div class="eq-units">(kJ kg⁻¹ × kg kg⁻¹ − kJ kg⁻¹ K⁻¹ × K) ÷ kJ kg⁻¹ = kg kg⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="pcTwb" data-output="Wet-bulb temperature" data-unit="°C" data-digits="2" data-plot="RH" data-title="Try it — the wet bulb is the floor of evaporative cooling">
+          <div data-var="T" data-label="Dry bulb" data-min="0" data-max="45" data-step="0.5" data-value="34" data-unit="°C"></div>
+          <div data-var="RH" data-label="Relative humidity" data-min="5" data-max="100" data-step="1" data-value="30" data-unit="%"></div>
+          <div data-var="z" data-label="Altitude" data-min="0" data-max="4000" data-step="50" data-value="0" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-h">
+        <div class="eq-head"><span class="eq-label">Specific enthalpy of moist air</span><span class="eq-num">(P6)</span></div>
+        <div class="eq-main">\[ h = 1.006\,T + W\,(2501 + 1.86\,T) \quad \text{kJ per kg dry air}, \qquad T = \frac{h - 2501\,W}{1.006 + 1.86\,W} \]</div>
+        <p class="eq-read">the energy content per kilogram of dry air is the sensible heat of the dry air plus, for each kilogram of vapour, the latent heat at 0 °C and the sensible heat of the vapour; the inverse gives the temperature of air with known enthalpy and humidity ratio (used for mixing and for adiabatic processes).</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(h\)</td><td>specific enthalpy (zero for dry air at 0 °C)</td><td>kJ kg⁻¹</td></tr><tr><td>1.006, 1.86</td><td>specific heats of dry air and vapour</td><td>kJ kg⁻¹ K⁻¹</td></tr><tr><td>2501</td><td>latent heat of vaporisation at 0 °C</td><td>kJ kg⁻¹</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Enthalpies add: \(h = h_a + W h_v\) (Lesson 8.2, Eq. 8.2.7).</li><li>\(h_a = c_{pa}T\); \(h_v = \lambda_0 + c_{pv}T\) (evaporate at 0 °C, then warm the vapour).</li><li>Solving for \(T\) gives the inverse form.</li></ol></details>
+        <div class="eq-units">kJ kg⁻¹ K⁻¹ × °C + kg kg⁻¹ × kJ kg⁻¹ = kJ kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="1.006*T + W/1000*(2501+1.86*T)" data-output="Enthalpy h" data-unit="kJ kg⁻¹" data-digits="1" data-plot="W"><div data-var="T" data-label="Temperature" data-min="-10" data-max="45" data-step="0.5" data-value="24" data-unit="°C"></div><div data-var="W" data-label="Humidity ratio" data-min="0" data-max="30" data-step="0.1" data-value="13.1" data-unit="g kg⁻¹"></div></div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-v">
+        <div class="eq-head"><span class="eq-label">Specific volume, density and absolute humidity</span><span class="eq-num">(P7)</span></div>
+        <div class="eq-main">\[ v = \frac{R_a\,(T+273.15)\,(1 + 1.607858\,W)}{P}, \qquad \rho = \frac{1+W}{v}, \qquad \rho_v = \frac{W}{v} \]</div>
+        <p class="eq-read">the volume occupied by one kilogram of dry air with its vapour follows from the ideal-gas law; the density of the moist air is the total mass per that volume, and the absolute humidity is the vapour mass per volume.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr><tr><td>\(v\)</td><td>specific volume per kg dry air</td><td>m³ kg⁻¹</td><td>0.76–0.95 at sea level</td></tr><tr><td>\(R_a\)</td><td>gas constant of dry air</td><td>kJ kg⁻¹ K⁻¹</td><td>0.287042</td></tr><tr><td>1.607858</td><td>\(M_a/M_w\)</td><td>–</td><td>—</td></tr><tr><td>\(\rho, \rho_v\)</td><td>density of moist air; absolute humidity</td><td>kg m⁻³</td><td>—</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Mixture of ideal gases: \(PV = (m_aR_a + m_vR_v)T\).</li><li>Per kg dry air (\(m_a = 1\), \(m_v = W\)): \(v = R_aT(1 + W R_v/R_a)/P\) with \(R_v/R_a = 1.607858\).</li><li>Fans move volume, loads depend on mass: the dry-air mass flow of a fan delivering \(\dot V\) m³ h⁻¹ is \(\dot m_a = \dot V/(3600\,v)\).</li></ol></details>
+        <div class="eq-units">kJ kg⁻¹ K⁻¹ × K ÷ kPa = m³ kg⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-heat">
+        <div class="eq-head"><span class="eq-label">Sensible heating and cooling</span><span class="eq-num">(P8)</span></div>
+        <div class="eq-main">\[ \dot Q = \dot m_a\,(h_2 - h_1) + \dot m_w h_{w}, \qquad \dot m_a = \frac{\dot V}{3600\,v_1}, \qquad W_2 = W_1 \ \ \text{if } T_2 \ge T_{d,1} \]</div>
+        <p class="eq-read">the heat added to (or removed from) an air stream is its dry-air mass flow times the enthalpy change; above the dew point the humidity ratio does not change. If the air is cooled below its dew point it follows the saturation curve and the condensate \(\dot m_w\) leaves with enthalpy \(h_w = 4.186\,T_2\).</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(\dot V\)</td><td>volume flow measured at the inlet state</td><td>m³ h⁻¹</td></tr><tr><td>\(\dot m_a\)</td><td>dry-air mass flow</td><td>kg s⁻¹</td></tr><tr><td>\(\dot Q\)</td><td>heat flow (+ heating, − cooling)</td><td>kW</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Steady-flow energy balance for a heater with no work: \(\dot Q = \dot m_a(h_2 - h_1)\) plus any liquid water leaving.</li><li>Sensible part \(\dot m_a(1.006 + 1.86W)(T_2 - T_1)\); the rest is latent.</li><li>Example (preset “Greenhouse winter night”): 18 °C/85 % heated to 22 °C: RH falls to 66 %; with 20 000 m³ h⁻¹, \(\dot m_a\) = 6.62 kg s⁻¹ and \(\dot Q\) = 6.62 × 4.1 ≈ 27 kW.</li></ol></details>
+        <div class="eq-units">kg s⁻¹ × kJ kg⁻¹ = kW ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-coil">
+        <div class="eq-head"><span class="eq-label">Cooling coil: apparatus dew point, bypass factor and condensate</span><span class="eq-num">(P9)</span></div>
+        <div class="eq-main">\[ T_2 = T_{\text{adp}} + \text{BF}\,(T_1 - T_{\text{adp}}), \quad W_2 = W_s(T_{\text{adp}}) + \text{BF}\,\big(W_1 - W_s(T_{\text{adp}})\big), \quad \dot m_w = \dot m_a (W_1 - W_2), \quad \text{SHR} = \frac{\dot Q_s}{\dot Q} \]</div>
+        <p class="eq-read">a fraction BF of the air bypasses the coil untreated while the rest leaves saturated at the coil's apparatus dew point; the mixture lies on the straight line between inlet and ADP. The water condensed is the dry-air flow times the drop in humidity ratio; the sensible heat ratio is the sensible share of the total cooling.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr><tr><td>\(T_{\text{adp}}\)</td><td>apparatus dew point (effective coil surface temperature)</td><td>°C</td><td>5–12</td></tr><tr><td>BF</td><td>bypass factor</td><td>–</td><td>0.05–0.3</td></tr><tr><td>\(\dot m_w\)</td><td>condensate</td><td>kg s⁻¹</td><td>—</td></tr><tr><td>SHR</td><td>sensible heat ratio</td><td>–</td><td>0.5–0.9</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Model the coil as two parallel streams: (1 − BF) touches the fins and leaves saturated at \(T_{\text{adp}}\); BF passes unchanged.</li><li>Adiabatic mixing of the two streams (Eq. P11) gives the linear formulas.</li><li>If \(T_{\text{adp}}\) is above the inlet dew point the coil is dry and only cools sensibly.</li><li>Preset “Plant-factory cooling coil” (24 °C/75 %, ADP 8 °C, BF 0.12, 10 000 m³ h⁻¹): \(\dot m_a\) = 3.23 kg s⁻¹, \(W\) falls from 14.05 to 7.55 g kg⁻¹, condensate 75.6 kg h⁻¹, load 99 kW, SHR 0.47.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>The ADP–bypass model is the classic textbook description of a coil; real coils have a curved process line and a surface temperature that varies along the coil.</p></details>
+        <div class="eq-units">kg s⁻¹ × kg kg⁻¹ = kg s⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="pcCoil" data-output="Condensate" data-unit="kg h⁻¹" data-digits="1" data-plot="adp" data-title="Try it — the colder the coil, the more water it recovers">
+          <div data-var="T" data-label="Inlet temperature" data-min="15" data-max="35" data-step="0.5" data-value="24" data-unit="°C"></div>
+          <div data-var="RH" data-label="Inlet RH" data-min="30" data-max="95" data-step="1" data-value="75" data-unit="%"></div>
+          <div data-var="adp" data-label="Apparatus dew point" data-min="0" data-max="22" data-step="0.5" data-value="8" data-unit="°C"></div>
+          <div data-var="bf" data-label="Bypass factor" data-min="0" data-max="0.5" data-step="0.01" data-value="0.12"></div>
+          <div data-var="V" data-label="Air flow" data-min="1000" data-max="50000" data-step="500" data-value="10000" data-unit="m³ h⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-evap">
+        <div class="eq-head"><span class="eq-label">Evaporative (pad) cooling</span><span class="eq-num">(P10)</span></div>
+        <div class="eq-main">\[ T_2 = T_1 - \eta\,(T_1 - T_{wb}), \qquad W_2 = W(T_2)\big|_{T_{wb}\ \text{const}}, \qquad \dot m_{\text{water}} = \dot m_a\,(W_2 - W_1) \]</div>
+        <p class="eq-read">a wet pad of saturation effectiveness η cools the air a fraction η of the way from its dry-bulb to its wet-bulb temperature; the state moves along the wet-bulb line (Eq. P5), and the water evaporated equals the gain in humidity ratio times the dry-air flow.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr><tr><td>η</td><td>saturation effectiveness of the pad</td><td>–</td><td>0.7–0.9 for cellulose pads</td></tr><tr><td>\(T_{wb}\)</td><td>inlet wet-bulb temperature</td><td>°C</td><td>—</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>No heat is exchanged with the surroundings; water at about the wet-bulb temperature evaporates, so the process is the adiabatic saturation of Eq. P5 stopped part-way.</li><li>Preset “Pad-and-fan in Almería” (34 °C/30 %, η = 0.85, 50 000 m³ h⁻¹): \(T_{wb}\) = 20.8 °C, leaving air 22.8 °C and 84 % RH, water use ≈ 265 L h⁻¹.</li></ol></details>
+        <div class="eq-units">°C; kg s⁻¹ × kg kg⁻¹ = kg s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="T - eta/100*(T - Twb)" data-output="Leaving dry bulb" data-unit="°C" data-digits="1" data-plot="eta"><div data-var="T" data-label="Inlet dry bulb" data-min="20" data-max="45" data-step="0.5" data-value="34" data-unit="°C"></div><div data-var="Twb" data-label="Inlet wet bulb (Eq. P5)" data-min="5" data-max="30" data-step="0.1" data-value="20.8" data-unit="°C"></div><div data-var="eta" data-label="Pad effectiveness" data-min="0" data-max="100" data-step="1" data-value="85" data-unit="%"></div></div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-mix">
+        <div class="eq-head"><span class="eq-label">Adiabatic mixing and fog</span><span class="eq-num">(P11)</span></div>
+        <div class="eq-main">\[ W_m = (1-x)\,W_A + x\,W_B, \qquad h_m = (1-x)\,h_A + x\,h_B, \qquad \text{fog} = W_m - W_s(T^{*}) \ \text{ if } W_m > W_s\big(T(h_m, W_m)\big) \]</div>
+        <p class="eq-read">mixing averages the humidity ratio and the enthalpy by dry-air mass; if the mixture lies above the saturation curve, the excess vapour condenses as fog and the air settles on the saturation curve at the temperature \(T^{*}\) with the same enthalpy.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(x\)</td><td>dry-air mass fraction of stream B</td><td>–</td></tr><tr><td>\(T^{*}\)</td><td>saturation temperature with enthalpy \(h_m\)</td><td>°C</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Conservation of dry air, water and energy (Lesson 8.2, Eq. 8.2.8).</li><li>The mixture lies on the straight chord A–B. The saturation curve is convex, so a chord between two nearly saturated states can pass above it.</li><li>Preset “Winter vent: fog?” (18 °C/85 % with −5 °C/90 %): fog appears above \(x\) ≈ 0.27; at \(x\) = 0.3 about 0.05 g of water per kg of air condenses.</li></ol></details>
+        <div class="eq-units">kg kg⁻¹ and kJ kg⁻¹ averages ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-room">
+        <div class="eq-head"><span class="eq-label">A transpiring crop in a sealed room: the latent load</span><span class="eq-num">(P12)</span></div>
+        <div class="eq-main">\[ m_a\frac{\mathrm{d}W}{\mathrm{d}t} = E\,A_f, \qquad m_a = \frac{A_f H}{v}, \qquad t_{90} = \frac{W_{90} - W_0}{E\,A_f/m_a}, \qquad \dot Q_L = \lambda\,E\,A_f, \qquad \text{SHR} = \frac{q_s A_f}{q_s A_f + \dot Q_L} \]</div>
+        <p class="eq-read">with the temperature held by a thermostat and no dehumidification, the humidity ratio of the room air rises at the transpiration rate divided by the mass of dry air in the room; the time to reach 90 % RH follows directly. The latent load that an air-conditioner must remove is the latent heat of the transpired water, and the sensible heat ratio compares it with the sensible gains.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr><tr><td>\(E\)</td><td>crop transpiration per floor area</td><td>kg m⁻² s⁻¹ (input in L m⁻² h⁻¹)</td><td>0.1–0.3 L m⁻² h⁻¹ under lamps</td></tr><tr><td>\(A_f, H\)</td><td>floor area and room height</td><td>m², m</td><td>—</td></tr><tr><td>\(\lambda\)</td><td>latent heat at room temperature, \(2501 - 2.361\,T\)</td><td>kJ kg⁻¹</td><td>2449 at 22 °C</td></tr><tr><td>\(q_s\)</td><td>sensible gain per floor area (lamps, drivers)</td><td>W m⁻²</td><td>50–300</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Water balance of the room air with no sinks: storage = source.</li><li>Energy: the thermostat removes the sensible gain; the transpired vapour carries its latent heat into the air, which is the load the coil must eventually remove (Lesson 8.1, Figure 7; Kozai, 2013).</li><li>Preset “Sealed growth room”: 100 m² × 3 m at 22 °C/60 % holds 353 kg of dry air; 0.15 L m⁻² h⁻¹ adds 4.2 g s⁻¹; RH reaches 90 % after 7.2 min and saturation after 9.6 min. Latent load 10.2 kW against 10 kW sensible: SHR ≈ 0.5.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Airtight room, uniform air, transpiration independent of humidity (in reality it slows as VPD falls), no condensation on cold surfaces until the air saturates.</p></details>
+        <div class="eq-units">kg s⁻¹ ÷ kg = kg kg⁻¹ s⁻¹; kJ kg⁻¹ × kg s⁻¹ = kW ✓</div>
+        <div class="mini-calc" data-fn="pcT90" data-output="Time to 90 % RH" data-unit="min" data-digits="1" data-plot="E" data-title="Try it — why plant factories must dehumidify continuously">
+          <div data-var="T" data-label="Room temperature" data-min="15" data-max="30" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="RH" data-label="Starting RH" data-min="30" data-max="85" data-step="1" data-value="60" data-unit="%"></div>
+          <div data-var="H" data-label="Room height" data-min="2" data-max="8" data-step="0.1" data-value="3" data-unit="m"></div>
+          <div data-var="E" data-label="Transpiration" data-min="0.02" data-max="0.6" data-step="0.01" data-value="0.15" data-unit="L m⁻² h⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-pc-vpd">
+        <div class="eq-head"><span class="eq-label">VPD zone and humidity-risk curves on the chart</span><span class="eq-num">(P13)</span></div>
+        <div class="eq-main">\[ \text{VPD} = e_s(T) - e, \qquad W_{\text{VPD}}(T) = 0.62198\,\frac{e_s(T) - D}{P - e_s(T) + D}, \qquad W_{\text{RH}}(T) = 0.62198\,\frac{\phi\,e_s(T)}{P - \phi\,e_s(T)} \]</div>
+        <p class="eq-read">a line of constant vapour pressure deficit \(D\) is the saturation curve shifted down by \(D\) in vapour pressure; the comfort zone is the band between two such curves. A line of constant relative humidity φ is the saturation curve scaled by φ.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr><tr><td>\(D\)</td><td>vapour pressure deficit of the zone limits</td><td>kPa</td><td>0.8 and 1.2 (adjustable)</td></tr><tr><td>φ</td><td>relative humidity of the risk limits</td><td>–</td><td>0.85, 0.90</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>From the definition \(D = e_s(T) - e\) solve for \(e = e_s(T) - D\) and insert into Eq. P1.</li><li>At low temperature \(e_s < D\) and the curve would be negative: no air that cold can have such a large deficit, so the band ends there.</li></ol></details>
+        <div class="eq-units">kPa − kPa = kPa; W dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*(1 - D/(0.6108*exp(17.27*T/(T+237.3))))" data-output="RH at which the VPD equals D" data-unit="%" data-digits="1" data-plot="T" data-title="Try it — the same VPD means very different RH"><div data-var="T" data-label="Air temperature" data-min="5" data-max="40" data-step="0.5" data-value="24" data-unit="°C"></div><div data-var="D" data-label="VPD" data-min="0.2" data-max="2" data-step="0.05" data-value="1" data-unit="kPa"></div></div>
+      </div>
+    </section>
+
+    <!-- ================================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <ol class="task-list">
+        <li><h4>Heat to dry?</h4><p>Load “Greenhouse winter night”. By how much must you heat the 18 °C, 85 % air to bring it to 70 % RH? How much heat does that take for 20 000 m³ h⁻¹, and why is the dew point — the real condensation risk on cold leaves — unchanged? Compare with the minimum-pipe strategy in the <a href="/laboratories/greenhouse-climate/">greenhouse climate simulator</a>.</p></li>
+        <li><h4>Design a plant-factory coil</h4><p>Load “Plant-factory cooling coil”. Find the coil temperature and bypass factor that return the air at 16–18 °C and about 90 % RH while removing at least 60 kg of water per hour. Record the load and the SHR. Then express the condensate as litres per m² of cultivation area per day if the coil serves 400 m² and runs 16 h a day.</p></li>
+        <li><h4>How far can a pad cool?</h4><p>With “Pad-and-fan in Almería”, move point A along constant temperature (34 °C) from 20 % to 70 % RH. Plot the leaving temperature and the water use against inlet RH. At what inlet humidity is a pad no longer worth running (say, less than 5 K of cooling)?</p></li>
+        <li><h4>When does the vent plume appear?</h4><p>With “Winter vent: fog?”, find the share of outside air at which fog first forms for inside air at 85 % RH, and repeat for 75 % and 90 %. Explain with Eq. P11 why drier inside air tolerates more outside air before fog forms.</p></li>
+        <li><h4>The latent load of a crop</h4><p>With “Sealed growth room”, vary the transpiration rate and the lamp heat. Plot the SHR against lamp heat for 0.1, 0.2 and 0.3 L m⁻² h⁻¹. What does an SHR near 0.5 mean for the choice of air-conditioning equipment designed for offices (SHR ≈ 0.7–0.8)?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-psychrometric-chart">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the chart and the equations","questions":[
+          {"type":"numeric","q":"Load “Plant-factory cooling coil” (24 °C, 75 %, coil 8 °C, bypass 0.12, 10 000 m³ h⁻¹). How much condensate does the coil produce?","answer":75.6,"tol":0.04,"unit":"kg h⁻¹","hint":"Read the “Water” process readout, or use Eq. P9 with ṁa = V/(3600 v).","explain":"<p>\\(\\dot m_a\\) = 10 000/(3600 × 0.861) = 3.23 kg s⁻¹; \\(W\\) falls from 14.05 to 7.55 g kg⁻¹, so \\(\\dot m_w\\) = 3.23 × 0.0065 = 0.021 kg s⁻¹ ≈ 75.6 kg h⁻¹.</p>"},
+          {"type":"numeric","q":"Load “Pad-and-fan in Almería” (34 °C, 30 %, pad effectiveness 85 %). What is the dry-bulb temperature of the air leaving the pad?","answer":22.8,"abstol":0.3,"unit":"°C","hint":"First find the wet bulb (≈ 20.8 °C), then Eq. P10.","explain":"<p>\\(T_2 = 34 - 0.85\\,(34 - 20.8) = 22.8\\) °C, at about 84 % RH.</p>"},
+          {"type":"tf","q":"In “Winter vent: fog?”, mixing 30 % outside air (−5 °C, 90 %) with greenhouse air (18 °C, 85 %) produces fog.","answer":true,"explain":"<p>The chord between the two states crosses the saturation curve above about 27 % outside air; at 30 % roughly 0.05 g kg⁻¹ condenses (Eq. P11), as in Worked example 4 of Lesson 8.2.</p>"},
+          {"type":"numeric","q":"Load “Sealed growth room”. After how many minutes does the room reach 90 % RH with the dehumidifier off?","answer":7.2,"abstol":0.6,"unit":"min","hint":"The note under the “Water” readout, or the vertical line in the sweep chart.","explain":"<p>353 kg of dry air, 4.17 g s⁻¹ of vapour: \\(t_{90} = (14.97 - 9.89)\\times10^{-3}/(1.18\\times10^{-5})\\) s ≈ 430 s ≈ 7.2 min (Eq. P12).</p>"},
+          {"type":"numeric","q":"Load “Highland greenhouse (2400 m)”. What is the humidity ratio of air at 25 °C and 60 % RH there?","answer":16.0,"tol":0.03,"unit":"g kg⁻¹","hint":"P ≈ 76 kPa at 2400 m (Eq. P4); then Eq. P1 with e = 0.6 e_s(25 °C).","explain":"<p>\\(e\\) = 0.6 × 3.168 = 1.901 kPa; \\(W\\) = 0.622 × 1.901/(75.97 − 1.901) = 0.0160 kg kg⁻¹, against 11.9 g kg⁻¹ at sea level. RH, dew point and VPD are the same at both altitudes.</p>"},
+          {"type":"mcq","q":"Air at 18 °C and 85 % RH is heated to 22 °C without adding or removing water. Which statement is correct?","options":["RH falls to about 66 % while the dew point stays at 15.4 °C","RH stays at 85 % because no water is removed","The dew point rises to about 19 °C","The humidity ratio falls because warm air holds more water"],"answer":0,"feedback":["","RH depends on temperature through e_s.","The dew point depends only on the vapour pressure, which is unchanged.","W is a mass ratio: unchanged by heating."],"explain":"<p>Sensible heating is a horizontal line (Eq. P8): \\(W\\) = 10.96 g kg⁻¹ and \\(T_d\\) = 15.4 °C stay; RH = 1.754/2.644 = 66 %.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ================================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Assumptions</h2>
+      <ul>
+        <li>Moist air is a mixture of ideal gases; the enhancement factor of real moist air (≈ 0.4 %) is neglected.</li>
+        <li>Saturation vapour pressure: Tetens / FAO-56 over water (as everywhere in the course); optionally Tetens with Murray's constants over ice below 0 °C. ASHRAE's Hyland–Wexler formulation differs by less than 0.3 % above 0 °C.</li>
+        <li>Enthalpy, specific volume and the thermodynamic wet bulb follow ASHRAE (2021); the pressure at altitude follows the FAO-56 standard atmosphere.</li>
+        <li>Relative humidity below 0 °C is taken relative to the saturation curve in use (water or ice).</li>
+        <li>Processes are steady and adiabatic except for the stated heat flows; condensate leaves at the coil (or final) temperature; fans add no heat.</li>
+        <li>The coil is the ADP–bypass-factor model; pad cooling follows the wet-bulb line; the closed room is held at constant temperature with transpiration independent of humidity.</li>
+        <li>The VPD comfort band and the RH risk thresholds are adjustable rules of thumb from the literature, not physiological constants or a disease model.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>ASHRAE. (2021). Psychrometrics. In <em>ASHRAE handbook — Fundamentals</em> (Chapter 1). American Society of Heating, Refrigerating and Air-Conditioning Engineers.</li>
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56). FAO. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">fao.org</a></li>
+        <li>Murray, F. W. (1967). On the computation of saturation vapor pressure. <em>Journal of Applied Meteorology</em>, 6(1), 203–204. <a href="https://doi.org/10.1175/1520-0450(1967)006&lt;0203:OTCOSV&gt;2.0.CO;2" target="_blank" rel="noopener">doi:10.1175/1520-0450(1967)006&lt;0203:OTCOSV&gt;2.0.CO;2</a></li>
+        <li>Alduchov, O. A., &amp; Eskridge, R. E. (1996). Improved Magnus form approximation of saturation vapor pressure. <em>Journal of Applied Meteorology</em>, 35(4), 601–609. <a href="https://doi.org/10.1175/1520-0450(1996)035&lt;0601:IMFAOS&gt;2.0.CO;2" target="_blank" rel="noopener">doi:10.1175/1520-0450(1996)035&lt;0601:IMFAOS&gt;2.0.CO;2</a></li>
+        <li>Stull, R. (2011). Wet-bulb temperature from relative humidity and air temperature. <em>Journal of Applied Meteorology and Climatology</em>, 50(11), 2267–2269. <a href="https://doi.org/10.1175/JAMC-D-11-0143.1" target="_blank" rel="noopener">doi:10.1175/JAMC-D-11-0143.1</a></li>
+        <li>Shamshiri, R. R., Jones, J. W., Thorp, K. R., Ahmad, D., Man, H. C., &amp; Taheri, S. (2018). Review of optimum temperature, humidity, and vapour pressure deficit for microclimate evaluation and control in greenhouse cultivation of tomato: A review. <em>International Agrophysics</em>, 32(2), 287–302. <a href="https://doi.org/10.1515/intag-2017-0005" target="_blank" rel="noopener">doi:10.1515/intag-2017-0005</a></li>
+        <li>Iraqi, D., Gagnon, S., Dubé, S. L., &amp; Gosselin, A. (1995). Vapor pressure deficit (VPD) effects on the physiology and yield of greenhouse tomato [Abstract]. <em>HortScience</em>, 30(4), 846. <a href="https://doi.org/10.21273/HORTSCI.30.4.846E" target="_blank" rel="noopener">doi:10.21273/HORTSCI.30.4.846E</a></li>
+        <li>Yunis, H., Shtienberg, D., Elad, Y., &amp; Mahrer, Y. (1994). Qualitative approach for modelling outbreaks of grey mould epidemics in non-heated cucumber greenhouses. <em>Crop Protection</em>, 13(2), 99–104. <a href="https://doi.org/10.1016/0261-2194(94)90158-9" target="_blank" rel="noopener">doi:10.1016/0261-2194(94)90158-9</a></li>
+        <li>Elad, Y., Vivier, M., &amp; Fillinger, S. (Eds.) (2016). <em>Botrytis – the fungus, the pathogen and its management in agricultural systems</em>. Springer. <a href="https://doi.org/10.1007/978-3-319-23371-0" target="_blank" rel="noopener">doi:10.1007/978-3-319-23371-0</a></li>
+        <li>Kozai, T. (2013). Resource use efficiency of closed plant production system with artificial light: Concept, estimation and application to plant factory. <em>Proceedings of the Japan Academy, Series B</em>, 89(10), 447–461. <a href="https://doi.org/10.2183/pjab.89.447" target="_blank" rel="noopener">doi:10.2183/pjab.89.447</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

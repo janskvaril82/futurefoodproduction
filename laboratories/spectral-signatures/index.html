@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spectral signatures · Future Food Production</title>
+<meta name="description" content="Explore reflectance spectra from 400 to 2500 nm of healthy, stressed and senescent crops (PROSPECT-D leaf model and a Kubelka–Munk canopy), soils, water and snow, with Sentinel-2, Landsat, drone and RGB bands, live vegetation indices, NDVI saturation and spectral mixing.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live calculators for the Derive tab (Eqs. S1, S3, S4, S8) */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  function E1(x) {
+    if (x <= 0) return Infinity;
+    if (x <= 1) { var s = 0, t = 1; for (var k = 1; k < 80; k++) { t *= -x / k; s += t / k; if (Math.abs(t / k) < 1e-17) break; } return -0.5772156649015329 - Math.log(x) - s; }
+    var b = x + 1, c = 1e300, d = 1 / b, h = d; for (var i = 1; i < 300; i++) { var an = -i * i; b += 2; d = 1 / (an * d + b); c = b + an / c; var del = c * d; h *= del; if (Math.abs(del - 1) < 1e-15) break; } return h * Math.exp(-x);
+  }
+  FFP_CALC.ssTau = function (v) { var k = v.cab * 0.06611 / v.N; return k > 0 ? (1 - k) * Math.exp(-k) + k * k * E1(k) : 1; };
+  FFP_CALC.ssKM = function (v) {
+    var r = v.r, t = v.t, L = v.L, Rs = v.Rs; if (L <= 1e-6) return Rs;
+    var a = (1 - t) / r, b = Math.sqrt(Math.max(1e-12, a * a - 1)), x = b * r * L, ct = x > 18 ? 1 : 1 / Math.tanh(x);
+    return (1 - Rs * (a - b * ct)) / (a - Rs + b * ct);
+  };
+  FFP_CALC.ssMix = function (v) { var red = v.f * v.rv + (1 - v.f) * v.rs, nir = v.f * v.nv + (1 - v.f) * v.ns; return (nir - red) / (nir + red); };
+  FFP_CALC.ssSnow = function (v) { var gamma = 4 * Math.PI * v.chi / (v.lam * 1e-9); return Math.exp(-Math.sqrt(gamma * 6.3 * 6.3 * v.a * 1e-6)); };
+})();
+</script>
+<script type="module" src="./main.js"></script>
+</head>
+<body data-page="lab" data-slug="spectral-signatures">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Spectral signatures</h1>
+    <p class="lead">Every satellite and drone image used in precision agriculture starts here: with the way leaves, soils, water and snow reflect sunlight between 400 and 2500 nm. In this laboratory the crop spectra are not drawings — they are computed from leaf chemistry with the PROSPECT-D leaf model and a physically based canopy model, so you can add chlorophyll, dry the leaves or thin the canopy and watch the green peak, the red edge and the water bands respond. Overlay the bands of Sentinel-2, Landsat, a multispectral drone camera or an ordinary RGB camera, and see exactly what each sensor “sees” and which vegetation indices it can compute.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage light-stage tall" id="stage"><canvas id="spec" aria-label="Reflectance spectra from 400 to 2500 nm of crops, soils, water and snow, with the bands of the selected sensor. Hover to read values."></canvas></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Why NDVI saturates</h3>
+      <div class="chart-sub">Indices of the healthy canopy as its leaf area index grows, for the selected sensor. NDVI tracks how much ground is covered and flattens above LAI ≈ 2–3; red-edge and EVI-type indices keep responding for longer.</div>
+      <div class="chart" id="chart-lai"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Linear spectral mixing in one pixel</h3>
+      <div class="chart-sub">A pixel covered by a fraction <i>f</i> of canopy and 1 − <i>f</i> of soil. Reflectances mix linearly (right axis); NDVI does not — it is weighted towards the brighter component.</div>
+      <div class="chart" id="chart-mix"></div>
+    </div>
+    <div class="chart-card">
+      <h3>What the sensor records</h3>
+      <div class="chart-sub">Band-averaged reflectance of the analysed spectrum in every band of the selected sensor (bars coloured by wavelength; purple = NIR, amber = SWIR).</div>
+      <div class="chart" id="chart-bands"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Inside one leaf (PROSPECT-D)</h3>
+      <div class="chart-sub">Leaf reflectance, transmittance and absorptance of the healthy leaf. Pigments absorb in the visible, the leaf is almost lossless in the NIR, and water absorbs in the SWIR.</div>
+      <div class="chart" id="chart-leaf"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the spectrum</h2>
+      <ol>
+        <li><strong>Read the healthy crop from left to right.</strong> Hover over the thick green curve. In the blue (450 nm) and the red (670 nm) reflectance is only 2–4 %: chlorophyll absorbs almost all of it. Between them is the small <em>green peak</em> (≈ 8 % at 550 nm) that makes plants look green to us. At ≈ 700–740 nm the curve shoots up — the <em>red edge</em> — to a NIR plateau of 50–60 %. Further right, deep troughs at 1450 and 1940 nm and shallower ones at 970 and 1200 nm are the fingerprints of liquid water in the leaves.</li>
+        <li><strong>Remove chlorophyll.</strong> Drag <em>C<sub>ab</sub></em> from 45 to 15 µg cm⁻². The red well fills in, the green peak widens into yellow and the red edge moves to shorter wavelengths (watch the <em>red-edge inflection point</em> readout drop by ≈ 20 nm). The NIR plateau hardly moves: NIR reflectance is controlled by leaf structure, not pigments.</li>
+        <li><strong>Dry the leaves.</strong> Drag <em>C<sub>w</sub></em> from 0.015 to 0.004 cm. Only the SWIR changes: reflectance at 1600 and 2200 nm rises and the NDWI readout falls. NDVI does not notice — a drought-stressed crop can look perfectly “green” to NDVI until it wilts.</li>
+        <li><strong>Thin the canopy.</strong> Set LAI to 0.5. The canopy spectrum drifts towards the soil spectrum: the red rises, the NIR falls and NDVI drops sharply. Now raise LAI step by step and watch the first chart: NDVI climbs quickly and then <em>saturates</em>, while NDRE and EVI keep rising.</li>
+        <li><strong>Switch sensors.</strong> Choose <em>Landsat 8/9 OLI</em>: the red-edge bands disappear and NDRE shows “—”. Choose the <em>RGB camera</em>: without a NIR band none of the classic indices can be computed. Choose the <em>Mavic 3M</em>: its red-edge band at 730 nm sits higher up the red edge than Sentinel-2's B5, so the same canopy gives a lower NDRE — indices from different sensors are not interchangeable.</li>
+        <li><strong>Mix a pixel.</strong> Set <em>f</em> = 0.3 and compare the dashed mixed-pixel spectrum with the canopy and the soil. Change the soil from dry to wet and see the mixed-pixel NDVI change even though the crop is identical: the soil background is part of every crop signal until the canopy closes.</li>
+        <li><strong>Look at water and snow.</strong> Clear water is dark everywhere and almost black beyond 750 nm; add sediment (<em>b<sub>bp</sub></em>) and it brightens in the green and red. Fresh snow reflects ≈ 99 % of visible light but almost nothing at 1500–1650 nm; coarse, old snow is darker in the NIR.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A reflectance spectrum is a chemical and structural fingerprint. Pigments write in the visible, cell structure in the NIR and water and dry matter in the SWIR. A sensor with a few bands reads only a few letters of that fingerprint — so choosing a sensor means choosing which crop properties you will be able to see.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>How a leaf treats sunlight</h2>
+      <p>Light entering a leaf meets two kinds of obstacles. <strong>Absorbers</strong> — chlorophylls and carotenoids in the chloroplasts, anthocyanins in vacuoles, water everywhere and the dry matter of the cell walls — remove photons at wavelengths that match their electronic or vibrational transitions. <strong>Scatterers</strong> — the thousands of interfaces between hydrated cell walls (refractive index ≈ 1.4) and the air spaces of the spongy mesophyll (1.0) — change the direction of photons without absorbing them (Knipling, 1970; Gates et al., 1965). What leaves the leaf upwards is reflected; what leaves downwards is transmitted.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 870 330" role="img" aria-label="Cross-section of a leaf showing how blue, red, green, near-infrared and shortwave-infrared light interact with chloroplasts, cell walls, air spaces and water">
+          <defs>
+            <marker id="ss-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+          </defs>
+          <rect x="40" y="70" width="620" height="16" rx="3" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+          <text x="668" y="82" class="t-small">upper epidermis + cuticle</text>
+          <g class="stroke-accent" stroke-width="1.2">
+            <rect x="46" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="86" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="126" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="166" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="206" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="246" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="286" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="326" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="366" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="406" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="446" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="486" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="526" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="566" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/><rect x="606" y="90" width="34" height="78" rx="12" class="fill-accent-soft"/>
+          </g>
+          <g class="fill-accent"><circle cx="56" cy="104" r="3.4"/><circle cx="70" cy="130" r="3.4"/><circle cx="58" cy="152" r="3.4"/><circle cx="98" cy="110" r="3.4"/><circle cx="110" cy="140" r="3.4"/><circle cx="138" cy="100" r="3.4"/><circle cx="150" cy="128" r="3.4"/><circle cx="178" cy="150" r="3.4"/><circle cx="190" cy="112" r="3.4"/><circle cx="218" cy="132" r="3.4"/><circle cx="230" cy="104" r="3.4"/><circle cx="258" cy="148" r="3.4"/><circle cx="270" cy="120" r="3.4"/><circle cx="298" cy="100" r="3.4"/><circle cx="310" cy="136" r="3.4"/><circle cx="338" cy="118" r="3.4"/><circle cx="350" cy="150" r="3.4"/><circle cx="378" cy="104" r="3.4"/><circle cx="390" cy="134" r="3.4"/><circle cx="418" cy="120" r="3.4"/><circle cx="430" cy="152" r="3.4"/><circle cx="458" cy="102" r="3.4"/><circle cx="470" cy="138" r="3.4"/><circle cx="498" cy="118" r="3.4"/><circle cx="510" cy="148" r="3.4"/><circle cx="538" cy="108" r="3.4"/><circle cx="550" cy="140" r="3.4"/><circle cx="578" cy="126" r="3.4"/><circle cx="590" cy="100" r="3.4"/><circle cx="618" cy="146" r="3.4"/><circle cx="630" cy="114" r="3.4"/></g>
+          <text x="668" y="130" class="t-small">palisade cells with chloroplasts</text>
+          <g class="stroke-accent fill-accent-soft" stroke-width="1.2">
+            <ellipse cx="70" cy="196" rx="26" ry="16"/><ellipse cx="135" cy="210" rx="24" ry="15"/><ellipse cx="200" cy="192" rx="27" ry="15"/><ellipse cx="262" cy="214" rx="24" ry="14"/><ellipse cx="325" cy="196" rx="26" ry="16"/><ellipse cx="392" cy="212" rx="25" ry="15"/><ellipse cx="455" cy="192" rx="24" ry="15"/><ellipse cx="520" cy="210" rx="27" ry="16"/><ellipse cx="585" cy="194" rx="25" ry="15"/><ellipse cx="632" cy="222" rx="18" ry="12"/>
+            <ellipse cx="100" cy="240" rx="25" ry="14"/><ellipse cx="170" cy="244" rx="24" ry="13"/><ellipse cx="236" cy="240" rx="24" ry="14"/><ellipse cx="300" cy="244" rx="25" ry="13"/><ellipse cx="362" cy="240" rx="22" ry="13"/><ellipse cx="425" cy="244" rx="25" ry="14"/><ellipse cx="490" cy="242" rx="24" ry="13"/><ellipse cx="555" cy="244" rx="24" ry="13"/>
+          </g>
+          <text x="668" y="210" class="t-small">spongy mesophyll:</text>
+          <text x="668" y="224" class="t-small">cells + air spaces</text>
+          <rect x="40" y="258" width="620" height="14" rx="3" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+          <text x="668" y="270" class="t-small">lower epidermis</text>
+          <!-- blue & red absorbed -->
+          <g class="stroke-water" stroke-width="2.4" fill="none"><path d="M70 14 L70 98" marker-end="url(#ss-ah)"/></g>
+          <text x="32" y="28" class="t-small">blue 450</text>
+          <circle cx="70" cy="104" r="8" fill="none" class="stroke-water" stroke-width="1.5" stroke-dasharray="3 2"/>
+          <g class="stroke-danger" stroke-width="2.4" fill="none"><path d="M150 14 L150 122" marker-end="url(#ss-ah)"/></g>
+          <text x="132" y="28" class="t-small">red 670</text>
+          <circle cx="150" cy="128" r="8" fill="none" class="stroke-danger" stroke-width="1.5" stroke-dasharray="3 2"/>
+          <text x="96" y="62" class="t-small t-muted">absorbed by chlorophyll</text>
+          <!-- green: partly reflected -->
+          <g class="stroke-accent" stroke-width="2.4" fill="none"><path d="M250 14 L250 150 L268 176" marker-end="url(#ss-ah)"/><path d="M262 120 L290 40" stroke-dasharray="5 3" marker-end="url(#ss-ah)"/></g>
+          <text x="226" y="28" class="t-small">green 550</text>
+          <!-- NIR: multiple scattering, reflected and transmitted -->
+          <g class="stroke-magenta" stroke-width="2.4" fill="none">
+            <path d="M380 14 L380 180 L352 226 L398 229 L380 250 L420 300" marker-end="url(#ss-ah)"/>
+            <path d="M398 229 L430 186 L452 120 L470 20" marker-end="url(#ss-ah)"/>
+          </g>
+          <text x="356" y="28" class="t-small">NIR 850</text>
+          <text x="440" y="316" class="t-small">≈ 45 % transmitted</text>
+          <text x="478" y="16" class="t-small">≈ 45–50 % reflected</text>
+          <text x="120" y="300" class="t-small t-muted">NIR: scattered at cell-wall/air interfaces</text>
+          <!-- SWIR absorbed by water -->
+          <g class="stroke-amber" stroke-width="2.4" fill="none"><path d="M628 30 L628 190" marker-end="url(#ss-ah)"/></g>
+          <circle cx="628" cy="196" r="8" fill="none" class="stroke-amber" stroke-width="1.5" stroke-dasharray="3 2"/>
+          <text x="604" y="26" class="t-small">SWIR 1450</text>
+          <text x="640" y="56" class="t-small t-muted">absorbed by water</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> A leaf in cross-section. Blue and red photons are absorbed by chlorophyll within the first cell layers; some green light is scattered back out (the green peak). Near-infrared photons are not absorbed by any pigment and random-walk between cell walls and air spaces until they leave the leaf — about half upwards, half downwards. In the SWIR, liquid water absorbs strongly at 1450 and 1940 nm and moderately elsewhere. PROSPECT (Eqs. S1–S2) captures this with a stack of absorbing plates.</figcaption>
+      </figure>
+      <p>This division gives the three spectral domains every remote-sensing scientist learns:</p>
+      <table>
+        <caption>Table 1. What controls reflectance in each domain, and what it tells you about a crop.</caption>
+        <tr><th>Domain</th><th>Wavelengths</th><th>Controlled by</th><th>Crop information</th></tr>
+        <tr><td>Visible (VIS)</td><td class="num">400–700 nm</td><td>pigments: chlorophyll a+b, carotenoids, anthocyanins, brown pigments</td><td>chlorophyll and hence nitrogen status; senescence; disease</td></tr>
+        <tr><td>Red edge</td><td class="num">≈ 690–750 nm</td><td>the steep transition from chlorophyll absorption to NIR scattering</td><td>chlorophyll content at high biomass; its inflection point moves from ≈ 700 to ≈ 730 nm as chlorophyll increases (Horler et al., 1983)</td></tr>
+        <tr><td>Near infrared (NIR)</td><td class="num">750–1300 nm</td><td>internal leaf structure (scattering) and canopy architecture (multiple scattering between leaves)</td><td>leaf area, biomass, canopy structure</td></tr>
+        <tr><td>Shortwave infrared (SWIR)</td><td class="num">1300–2500 nm</td><td>liquid water (1450, 1940 nm), dry matter (cellulose, lignin, proteins near 1730, 2100, 2300 nm)</td><td>leaf and canopy water content, dry matter, crop residues, soil minerals</td></tr>
+      </table>
+
+      <h3>From a leaf to a canopy</h3>
+      <p>A canopy is a pile of leaves. Photons that pass through one leaf may be reflected back up by the next, and so on: in the NIR, where leaves absorb only about 5 % of what hits them, this multiple scattering makes a dense canopy <em>brighter</em> than a single leaf. In the red, where a leaf absorbs 95 %, the canopy is darker than one leaf and quickly becomes opaque. The laboratory uses the classic two-stream (Kubelka–Munk) description of this process for horizontal leaves (Allen &amp; Richardson, 1968; Eq. S3): a downward and an upward flux exchange photons with the leaves in every thin layer, and the soil reflects at the bottom.</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 640 250" role="img" aria-label="Two-stream picture of a canopy: downward flux attenuated through leaf layers, upward flux built up by reflection, soil background at the bottom">
+          <defs><marker id="ss-ah2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+          <g class="stroke-accent" stroke-width="3" stroke-linecap="round"><path d="M110 60 L190 60"/><path d="M230 60 L300 60"/><path d="M150 95 L230 95"/><path d="M270 95 L330 95"/><path d="M100 130 L170 130"/><path d="M210 130 L300 130"/><path d="M140 165 L220 165"/><path d="M250 165 L320 165"/></g>
+          <rect x="80" y="192" width="270" height="16" class="fill-amber-soft" stroke="currentColor" stroke-width="1"/>
+          <text x="360" y="204" class="t-small">soil background, reflectance R<tspan dy="3" font-size="9">s</tspan></text>
+          <g class="stroke-water" stroke-width="2.2" fill="none"><path d="M60 26 L60 186" marker-end="url(#ss-ah2)"/></g>
+          <text x="22" y="20" class="t-small">E↓ (down)</text>
+          <g class="stroke-magenta" stroke-width="2.2" fill="none"><path d="M370 186 L370 26" marker-end="url(#ss-ah2)"/></g>
+          <text x="360" y="20" class="t-small">E↑ (up) → canopy reflectance R = E↑/E↓ at the top</text>
+          <text x="400" y="80" class="t-small">each layer dL: intercepts dL of both fluxes;</text>
+          <text x="400" y="98" class="t-small">reflects a fraction r, transmits t,</text>
+          <text x="400" y="116" class="t-small">absorbs 1 − r − t</text>
+          <text x="400" y="150" class="t-small">total leaf area index L</text>
+          <path d="M92 50 L92 172" class="stroke-muted" stroke-width="1" stroke-dasharray="3 3"/>
+          <text x="96" y="238" class="t-small t-muted">Kubelka–Munk: scattering S = r, absorption K = 1 − r − t per unit LAI</text>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> The two-stream canopy model. With the leaf's r and t from PROSPECT, the equations give the reflectance of any canopy over any soil (Eq. S3). As L grows, the soil disappears from the signal and R approaches the value R∞ of an infinitely deep canopy — the physical origin of index saturation.</figcaption>
+      </figure>
+      <p>Two consequences drive much of precision agriculture. First, the <strong>soil background</strong> is part of every crop signal until the canopy closes: the same crop gives a different NDVI over a wet, dark soil than over a dry, bright one. Second, <strong>saturation</strong>: once the red reflectance has fallen to ≈ 2 %, extra leaves hardly change it, so NDVI flattens above LAI ≈ 2–3 (Baret &amp; Guyot, 1991; Carlson &amp; Ripley, 1997). Indices built on the red edge or on the NIR difference (NDRE, EVI) stay sensitive for longer, which is why tractor-mounted nitrogen sensors and the Sentinel-2 red-edge bands matter for nitrogen management in dense cereal crops.</p>
+
+      <h3>The three reference canopies</h3>
+      <table>
+        <caption>Table 2. PROSPECT-D leaf traits of the three canopies. The healthy leaf is set with the sliders; the stressed and senescent leaves are fixed, representative values chosen within published ranges (Féret et al., 2017; Jacquemoud et al., 2009). All three share the LAI and soil of the sliders.</caption>
+        <tr><th>Canopy</th><th class="num">N</th><th class="num">C<sub>ab</sub> (µg cm⁻²)</th><th class="num">C<sub>car</sub> (µg cm⁻²)</th><th class="num">Brown</th><th class="num">C<sub>w</sub> (cm)</th><th class="num">C<sub>m</sub> (g cm⁻²)</th></tr>
+        <tr><td>Healthy (default sliders)</td><td class="num">1.5</td><td class="num">45</td><td class="num">10</td><td class="num">0</td><td class="num">0.015</td><td class="num">0.005</td></tr>
+        <tr><td>N- and water-stressed</td><td class="num">1.6</td><td class="num">18</td><td class="num">7</td><td class="num">0.05</td><td class="num">0.009</td><td class="num">0.005</td></tr>
+        <tr><td>Senescent (ripening)</td><td class="num">2.0</td><td class="num">4</td><td class="num">3</td><td class="num">0.9</td><td class="num">0.003</td><td class="num">0.007</td></tr>
+      </table>
+
+      <h3>Soils, water and snow</h3>
+      <p><strong>Soils</strong> rise gently from the blue to the SWIR; iron oxides make them reddish, organic matter darkens them, and moisture darkens them at all wavelengths while adding water-absorption troughs at 1450 and 1940 nm. The laboratory uses the two measured reference soils distributed with the PROSAIL model and mixes them linearly with a moisture parameter (Jacquemoud et al., 2009). <strong>Water</strong> absorbs strongly beyond ≈ 600 nm, so clear lakes are dark blue-green and almost black in the NIR — the reason NDVI is negative over water. Suspended sediment backscatters light and brightens the green–red, while coloured dissolved organic matter (the brown humic substances typical of Swedish forest lakes) absorbs in the blue (Eq. S9). <strong>Snow</strong> is the brightest natural surface in the visible, but ice absorbs in the NIR and SWIR; the larger the grains, the longer the path through ice and the darker the snow beyond 900 nm (Eq. S8). This SWIR darkness is how satellites tell snow from clouds.</p>
+
+      <h3>What a sensor sees</h3>
+      <p>A sensor does not record the whole spectrum but its average over each band's spectral response (Eq. S5). Band positions and widths differ between sensors, so the “same” index is not identical across them.</p>
+      <table>
+        <caption>Table 3. Bands used in this laboratory. Sentinel-2A: equivalent (barycentre) wavelengths and bandwidths from ESA; Landsat 8/9 OLI: band edges from USGS; MicaSense RedEdge-MX: centre and full width at half maximum (FWHM) from MicaSense; DJI Mavic 3M: centre ± half-width from DJI. The RGB camera is an illustrative Bayer filter, not a specific model.</caption>
+        <tr><th>Role</th><th>Sentinel-2 MSI (nm, res.)</th><th>Landsat 8/9 OLI (nm)</th><th>RedEdge-MX (nm)</th><th>Mavic 3M (nm)</th></tr>
+        <tr><td>Blue</td><td>B2 492.7 ± 32.5 (10 m)</td><td>B2 450–510</td><td>475 (FWHM 32)</td><td>—</td></tr>
+        <tr><td>Green</td><td>B3 559.9 ± 17.5 (10 m)</td><td>B3 530–590</td><td>560 (27)</td><td>560 ± 16</td></tr>
+        <tr><td>Red</td><td>B4 664.6 ± 15.5 (10 m)</td><td>B4 640–670</td><td>668 (14)</td><td>650 ± 16</td></tr>
+        <tr><td>Red edge</td><td>B5 704.1, B6 740.5, B7 782.8 (20 m)</td><td>—</td><td>717 (12)</td><td>730 ± 16</td></tr>
+        <tr><td>NIR</td><td>B8 832.8 ± 59 (10 m); B8A 864.7 ± 10 (20 m)</td><td>B5 850–880</td><td>842 (57)</td><td>860 ± 26</td></tr>
+        <tr><td>SWIR</td><td>B11 1613.7 ± 44.5; B12 2202.4 ± 90 (20 m)</td><td>B6 1570–1650; B7 2110–2290</td><td>—</td><td>—</td></tr>
+      </table>
+      <table>
+        <caption>Table 4. Vegetation indices computed live (Eqs. S6–S7).</caption>
+        <tr><th>Index</th><th>Formula</th><th>Main sensitivity</th><th>Source</th></tr>
+        <tr><td>NDVI</td><td>(NIR − red)/(NIR + red)</td><td>green cover; saturates at LAI ≈ 2–3</td><td>Rouse et al. (1974); Tucker (1979)</td></tr>
+        <tr><td>NDRE</td><td>(NIR − RE)/(NIR + RE)</td><td>chlorophyll/N at high LAI</td><td>Barnes et al. (2000)</td></tr>
+        <tr><td>GNDVI</td><td>(NIR − green)/(NIR + green)</td><td>chlorophyll concentration</td><td>Gitelson et al. (1996)</td></tr>
+        <tr><td>SAVI</td><td>1.5(NIR − red)/(NIR + red + 0.5)</td><td>green cover with reduced soil influence</td><td>Huete (1988)</td></tr>
+        <tr><td>EVI</td><td>2.5(NIR − red)/(NIR + 6 red − 7.5 blue + 1)</td><td>dense canopies, aerosol-resistant</td><td>Huete et al. (2002)</td></tr>
+        <tr><td>NDWI</td><td>(NIR − SWIR)/(NIR + SWIR), SWIR ≈ 1610 nm</td><td>canopy water content</td><td>Gao (1996)</td></tr>
+      </table>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“A higher NDVI always means a healthier crop.” NDVI measures green cover and, above LAI ≈ 3, barely changes. A lush weed patch, a crop with plenty of leaves but too little nitrogen for grain filling, or a water-stressed crop that has not yet wilted can all have high NDVI. Interpret an index only together with the crop stage, the soil and — ideally — a second, differently sensitive index.</p></div>
+      <p>Continue in the <a href="/lessons/remote-sensing/">lesson on remote sensing and vegetation indices</a>, and use these spectra in the <a href="/laboratories/drone-ndvi/">drone NDVI survey</a>, which is built on the same leaf and canopy models.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the spectra</h2>
+      <p>The crop spectra are computed at 421 wavelengths (every 5 nm) from Eqs. S1–S3; soils are measured spectra; water and snow follow Eqs. S8–S9; the sensor values and indices follow Eqs. S5–S7.</p>
+
+      <div class="eq-box" id="eq-ss-layer">
+        <div class="eq-head"><span class="eq-label">Absorption in one elementary leaf layer (PROSPECT)</span><span class="eq-num">(S1)</span></div>
+        <div class="eq-main">\[ k(\lambda)=\frac{1}{N}\sum_i C_i\,K_i(\lambda),\qquad \tau(\lambda)=(1-k)\,e^{-k}+k^{2}\,E_1(k),\qquad E_1(k)=\int_k^{\infty}\frac{e^{-x}}{x}\,\mathrm{d}x \]</div>
+        <p class="eq-read">the absorption thickness of one of the N elementary layers of a leaf is the sum, over all absorbing constituents, of their content per leaf area times their specific absorption coefficient, divided by N; the fraction of diffuse light that crosses the layer without being absorbed is given by the exponential-integral formula τ.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(C_{ab}, C_{car}, C_{anth}\)</td><td>chlorophyll a+b, carotenoid, anthocyanin content per leaf area</td><td>µg cm⁻²</td><td>45, 10, 0</td></tr>
+          <tr><td>\(C_w\)</td><td>equivalent water thickness (water mass per area ÷ density)</td><td>cm</td><td>0.015</td></tr>
+          <tr><td>\(C_m\)</td><td>dry matter per leaf area (leaf mass per area)</td><td>g cm⁻²</td><td>0.005</td></tr>
+          <tr><td>\(K_i(\lambda)\)</td><td>specific absorption coefficient of constituent i (published PROSPECT-D tables)</td><td>cm² µg⁻¹, cm⁻¹, cm² g⁻¹</td><td>\(K_{ab}(670)=0.066\)</td></tr>
+          <tr><td>\(N\)</td><td>leaf structure parameter: number of elementary layers</td><td>–</td><td>1.5</td></tr>
+          <tr><td>\(k\)</td><td>absorption (optical) thickness of one layer</td><td>–</td><td>≈ 2 at 670 nm</td></tr>
+          <tr><td>\(\tau\)</td><td>transmissivity of one layer for isotropic light</td><td>–</td><td>0.06 at 670 nm</td></tr>
+        </table>
+        <details><summary>Follow the derivation of τ</summary>
+          <ol class="steps">
+            <li>Beer–Lambert: a ray crossing the layer at angle θ from its normal travels a path \(1/\cos\theta\) times the thickness and is transmitted with probability \(e^{-k/\cos\theta}\).</li>
+            <li>Inside a leaf light is nearly isotropic (diffuse). For isotropic radiance, the flux crossing a plane from directions around \(\mu=\cos\theta\) is proportional to \(\mu\,\mathrm{d}\mu\), normalised by \(\int_0^1 2\mu\,\mathrm{d}\mu=1\).</li>
+            <li>Average the transmission over this distribution: \(\tau = 2\int_0^1 \mu\,e^{-k/\mu}\,\mathrm{d}\mu\). With \(s=1/\mu\): \(\tau=2\int_1^\infty s^{-3}e^{-ks}\,\mathrm{d}s = 2E_3(k)\), the third exponential integral.</li>
+            <li>Integrate by parts twice (recurrence \(nE_{n+1}(k)=e^{-k}-kE_n(k)\)): \(2E_3(k)=(1-k)e^{-k}+k^2E_1(k)\). ✓</li>
+            <li>Constituents absorb independently, so their absorption thicknesses add: \(k=\sum_i C_iK_i/N\). Worked number at 670 nm with the default leaf: \(k=(45\times0.0661+10\times0+0.015\times0.0041+0.005\times2.3)/1.5=1.99\), \(E_1(1.99)=0.0495\), \(\tau=(1-1.99)e^{-1.99}+1.99^2\times0.0495=0.061\): a single elementary layer already absorbs 94 % of red light.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Absorbers are uniformly distributed within each layer and scattering happens only at the layer surfaces. The specific absorption coefficients were calibrated by inverting PROSPECT against hundreds of measured leaves (Féret et al., 2017), so they are “effective” in-vivo coefficients, not the absorption of extracted pigments in solvent. Brown pigments are in arbitrary units.</p></details>
+        <div class="eq-units">\(C_{ab}K_{ab}\): \(\mu\text{g cm}^{-2}\times\text{cm}^2\,\mu\text{g}^{-1}=1\); \(C_wK_w\): \(\text{cm}\times\text{cm}^{-1}=1\); \(C_mK_m\): \(\text{g cm}^{-2}\times\text{cm}^2\text{g}^{-1}=1\) — k is dimensionless ✓</div>
+        <div class="mini-calc" data-fn="ssTau" data-output="Layer transmissivity τ at 670 nm" data-unit="" data-digits="3" data-plot="cab" data-ymin="0" data-ymax="1" data-title="Try it — how quickly does chlorophyll make a layer opaque?">
+          <div data-var="cab" data-label="Chlorophyll C<sub>ab</sub>" data-min="0" data-max="100" data-step="1" data-value="45" data-unit="µg cm⁻²"></div>
+          <div data-var="N" data-label="Structure N" data-min="1" data-max="3" data-step="0.05" data-value="1.5"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ss-plates">
+        <div class="eq-head"><span class="eq-label">A leaf as a pile of plates (Allen–Stokes)</span><span class="eq-num">(S2)</span></div>
+        <div class="eq-main">\[ R_1=r_{\alpha}+\frac{t_{\alpha}\,t_{21}\,r_{21}\,\tau^2}{1-r_{21}^2\tau^2},\qquad T_1=\frac{t_{\alpha}\,t_{21}\,\tau}{1-r_{21}^2\tau^2} \]
+        \[ R=R_1+\frac{T_1\,R_{N-1}\,t}{1-R_{N-1}\,r},\qquad T=\frac{T_1\,T_{N-1}}{1-R_{N-1}\,r} \]</div>
+        <p class="eq-read">the first layer reflects what its top surface reflects plus light that crosses the layer, bounces off the bottom surface and comes back out; it transmits what survives crossing both surfaces and the absorbing interior, with all repeated internal reflections summed. The remaining N − 1 layers, stacked below, add their reflectance and transmittance through the same bookkeeping.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(t_\alpha, r_\alpha=1-t_\alpha\)</td><td>transmissivity/reflectivity of the leaf surface for light arriving within a cone of 40° (Stern 1964; Allen 1973)</td><td>–</td></tr>
+          <tr><td>\(t_{12}, t_{21}=t_{12}/n^2\)</td><td>transmissivity of the surface for isotropic light, outside→inside and inside→outside</td><td>–</td></tr>
+          <tr><td>\(r_{21}=1-t_{21}\)</td><td>internal reflectivity (includes total internal reflection)</td><td>–</td></tr>
+          <tr><td>\(n(\lambda)\)</td><td>refractive index of the leaf material (≈ 1.51 at 400 nm, 1.29 at 2200 nm)</td><td>–</td></tr>
+          <tr><td>\(r, t\)</td><td>reflectance/transmittance of one inner elementary layer (isotropic light on both sides)</td><td>–</td></tr>
+          <tr><td>\(R_{N-1}, T_{N-1}\)</td><td>reflectance/transmittance of a pile of N − 1 such layers (Stokes 1862)</td><td>–</td></tr>
+          <tr><td>\(R, T\)</td><td>reflectance and transmittance of the whole leaf</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Light entering through the top surface (probability \(t_\alpha\)) crosses the layer (\(\tau\)) and meets the bottom surface: it leaves with probability \(t_{21}\) or is reflected back (\(r_{21}\)).</li>
+            <li>Every round trip inside the plate multiplies the surviving light by \(r_{21}^2\tau^2\). Summing the geometric series \(1+r_{21}^2\tau^2+r_{21}^4\tau^4+\dots=1/(1-r_{21}^2\tau^2)\) gives \(T_1\).</li>
+            <li>The reflected part is the direct surface reflection \(r_\alpha\) plus light that went down, was reflected at the bottom (\(r_{21}\tau\)) and escaped upwards — again summed over all internal bounces.</li>
+            <li>Stokes (1862) solved the pile of identical plates in closed form: with \(\Delta=\sqrt{(1+r+t)(1+r-t)(1-r+t)(1-r-t)}\), \(a=(1+r^2-t^2+\Delta)/(2r)\) and \(b=(1-r^2+t^2+\Delta)/(2t)\), a pile of M plates has \(R_M=a(b^{2M}-1)/(a^2b^{2M}-1)\) and \(T_M=b^M(a^2-1)/(a^2b^{2M}-1)\). N need not be an integer.</li>
+            <li>Finally the top layer and the pile are combined, again summing the inter-reflections between them (denominator \(1-R_{N-1}r\)).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The leaf is a stack of identical, flat, absorbing plates separated by air — a caricature of the mesophyll that works remarkably well: PROSPECT reproduces measured leaf spectra from 400 to 2500 nm to within a few per cent reflectance (Jacquemoud &amp; Baret, 1990; Féret et al., 2017). It ignores leaf-surface gloss direction (specular reflection), hairs and wax, and assumes the leaf is laterally uniform.</p></details>
+        <div class="eq-units">All quantities are fractions of incident flux — dimensionless ✓. Energy conservation: \(R+T+A=1\) with absorptance \(A\ge0\) (see the “Inside one leaf” chart).</div>
+      </div>
+
+      <div class="eq-box" id="eq-ss-km">
+        <div class="eq-head"><span class="eq-label">Canopy reflectance (Kubelka–Munk two-stream)</span><span class="eq-num">(S3)</span></div>
+        <div class="eq-main">\[ R_c=\frac{1-R_s\left(a-b\coth(b\,r\,L)\right)}{a-R_s+b\coth(b\,r\,L)},\qquad a=\frac{1-t}{r},\quad b=\sqrt{a^2-1},\qquad R_\infty=a-b \]</div>
+        <p class="eq-read">the reflectance of a canopy of leaf area index L lying on a soil of reflectance R<sub>s</sub> depends on the leaf reflectance r and transmittance t through the two combinations a and b; as the canopy gets deeper the hyperbolic cotangent tends to one and the reflectance tends to the value R∞ of an infinitely deep canopy.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical (red / NIR)</th></tr>
+          <tr><td>\(r, t\)</td><td>leaf reflectance and transmittance at λ (from PROSPECT)</td><td>–</td><td>0.036, 0.004 / 0.46, 0.49</td></tr>
+          <tr><td>\(L\)</td><td>leaf area index (one-sided leaf area per ground area)</td><td>m² m⁻²</td><td>0–8</td></tr>
+          <tr><td>\(R_s\)</td><td>soil reflectance</td><td>–</td><td>0.24 / 0.31</td></tr>
+          <tr><td>\(R_c\), \(R_\infty\)</td><td>canopy reflectance; its limit for a deep canopy</td><td>–</td><td>0.018 / 0.56 at L = 3</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Let \(E_\downarrow\) and \(E_\uparrow\) be the downward and upward diffuse fluxes at cumulative leaf area \(L'\) below the canopy top. A layer \(\mathrm{d}L'\) of horizontal leaves intercepts a fraction \(\mathrm{d}L'\) of each flux.</li>
+            <li>Of the intercepted downward flux, a fraction t continues downwards, r is sent upwards and \(1-r-t\) is absorbed. Hence \(\mathrm{d}E_\downarrow/\mathrm{d}L'=-(1-t)E_\downarrow+rE_\uparrow\) and \(-\mathrm{d}E_\uparrow/\mathrm{d}L'=-(1-t)E_\uparrow+rE_\downarrow\).</li>
+            <li>These are the Kubelka–Munk equations with scattering coefficient \(S=r\) and absorption coefficient \(K=1-r-t\), so \((K+S)/S=(1-t)/r=a\).</li>
+            <li>Solve with the boundary condition \(E_\uparrow=R_sE_\downarrow\) at \(L'=L\): the standard solution (Kubelka, 1948) is the equation above, with \(\coth\) arising from the \(e^{\pm bSL}\) terms.</li>
+            <li>Check the limits: \(L\to0\) gives \(\coth\to\infty\) and \(R_c\to R_s\) (bare soil) ✓; \(L\to\infty\) gives \(\coth\to1\) and \(R_c\to 1/(a+b)=a-b=R_\infty\) ✓ (since \((a+b)(a-b)=1\)).</li>
+            <li>Worked number in the NIR: \(r=0.459\), \(t=0.491\): \(a=0.509/0.459=1.109\), \(b=\sqrt{1.109^2-1}=0.479\), \(R_\infty=0.630\) — higher than the leaf's 0.459, because photons transmitted by the top leaves are reflected back by lower ones. In the red, \(r=0.036\), \(t=0.004\): \(R_\infty=0.018\), lower than one leaf.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Leaves are horizontal, randomly placed and small compared with the canopy; light is diffuse; there is no specular reflection, no shadow hot-spot and no clumping into rows. Real canopies with inclined leaves, stems, ears and shadows reflect 10–30 % less in the NIR than this idealised canopy, and their reflectance depends on the sun and view angles (models such as SAIL treat this; Jacquemoud et al., 2009). The qualitative behaviour — soil influence at low LAI, saturation at high LAI — is robust.</p></details>
+        <div class="eq-units">\(a\), \(b\), \(rL\) and \(R\) are all dimensionless (L is m² m⁻²) ✓</div>
+        <div class="mini-calc" data-fn="ssKM" data-output="Canopy reflectance R<sub>c</sub>" data-digits="3" data-plot="L" data-ymin="0" data-title="Try it — watch the soil disappear as the canopy closes">
+          <div data-var="r" data-label="Leaf reflectance r" data-min="0.01" data-max="0.6" data-step="0.005" data-value="0.46"></div>
+          <div data-var="t" data-label="Leaf transmittance t" data-min="0" data-max="0.6" data-step="0.005" data-value="0.49"></div>
+          <div data-var="L" data-label="Leaf area index L" data-min="0" data-max="8" data-step="0.05" data-value="3" data-unit="m² m⁻²"></div>
+          <div data-var="Rs" data-label="Soil reflectance R<sub>s</sub>" data-min="0" data-max="0.6" data-step="0.01" data-value="0.31"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ss-mix">
+        <div class="eq-head"><span class="eq-label">Linear mixing and the NDVI of a mixed pixel</span><span class="eq-num">(S4)</span></div>
+        <div class="eq-main">\[ \rho_{\text{pix}}=f\,\rho_v+(1-f)\,\rho_s \] \[ \text{NDVI}_{\text{pix}}=w\,\text{NDVI}_v+(1-w)\,\text{NDVI}_s,\qquad w=\frac{f\,\Sigma_v}{f\,\Sigma_v+(1-f)\,\Sigma_s} \]</div>
+        <p class="eq-read">in every band the pixel reflectance is the area-weighted average of the vegetation and soil reflectances; the pixel's NDVI is also an average of the two NDVIs, but weighted by each component's share of the summed NIR + red reflectance, not by its area.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(f\)</td><td>fraction of the pixel covered by vegetation</td><td>–</td></tr>
+          <tr><td>\(\rho_v, \rho_s\)</td><td>reflectance of the pure vegetation and soil (endmembers) in a band</td><td>–</td></tr>
+          <tr><td>\(\Sigma_v, \Sigma_s\)</td><td>\(\rho_{\text{NIR}}+\rho_{\text{red}}\) of vegetation and soil</td><td>–</td></tr>
+          <tr><td>\(w\)</td><td>effective (brightness) weight of the vegetation</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Linear mixing (Lesson 11.2, Eq. 11.2.2) applies band by band: \(\rho_{\text{NIR}}=f\rho_{v,\text{NIR}}+(1-f)\rho_{s,\text{NIR}}\), and likewise for red.</li>
+            <li>Write \(\Delta=\rho_{\text{NIR}}-\rho_{\text{red}}\) and \(\Sigma=\rho_{\text{NIR}}+\rho_{\text{red}}\). Both are linear in f: \(\Delta_{\text{pix}}=f\Delta_v+(1-f)\Delta_s\), \(\Sigma_{\text{pix}}=f\Sigma_v+(1-f)\Sigma_s\).</li>
+            <li>\(\text{NDVI}_{\text{pix}}=\Delta_{\text{pix}}/\Sigma_{\text{pix}}\). Insert \(\Delta_v=\text{NDVI}_v\Sigma_v\) and \(\Delta_s=\text{NDVI}_s\Sigma_s\): \(\text{NDVI}_{\text{pix}}=\dfrac{f\Sigma_v\text{NDVI}_v+(1-f)\Sigma_s\text{NDVI}_s}{f\Sigma_v+(1-f)\Sigma_s}\) ✓.</li>
+            <li>Worked number (Sentinel-2, defaults): canopy red 0.0197, NIR 0.560, NDVI 0.932; soil red 0.234, NIR 0.300, NDVI 0.124. For \(f=0.5\): \(w=0.290/(0.290+0.267)=0.520\) and \(\text{NDVI}_{\text{pix}}=0.520\times0.932+0.480\times0.124=0.545\), not the area mean 0.528.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Each photon interacts with only one surface type. Multiple scattering between plants and soil (strongest in the NIR) makes real mixtures slightly non-linear. The endmember “vegetation” here is the modelled canopy at the chosen LAI.</p></details>
+        <div class="eq-units">All terms are ratios of reflectances — dimensionless ✓</div>
+        <div class="mini-calc" data-fn="ssMix" data-output="NDVI of the mixed pixel" data-digits="3" data-plot="f" data-ymin="0" data-ymax="1">
+          <div data-var="f" data-label="Vegetation fraction f" data-min="0" data-max="1" data-step="0.01" data-value="0.5"></div>
+          <div data-var="rv" data-label="Vegetation red ρ<sub>v,red</sub>" data-min="0.01" data-max="0.2" data-step="0.001" data-value="0.02"></div>
+          <div data-var="nv" data-label="Vegetation NIR ρ<sub>v,NIR</sub>" data-min="0.2" data-max="0.7" data-step="0.005" data-value="0.56"></div>
+          <div data-var="rs" data-label="Soil red ρ<sub>s,red</sub>" data-min="0.03" data-max="0.4" data-step="0.005" data-value="0.234"></div>
+          <div data-var="ns" data-label="Soil NIR ρ<sub>s,NIR</sub>" data-min="0.04" data-max="0.5" data-step="0.005" data-value="0.30"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ss-band">
+        <div class="eq-head"><span class="eq-label">Band-averaged reflectance</span><span class="eq-num">(S5)</span></div>
+        <div class="eq-main">\[ \rho_b=\frac{\int \rho(\lambda)\,S_b(\lambda)\,\mathrm{d}\lambda}{\int S_b(\lambda)\,\mathrm{d}\lambda}\approx\frac{\sum_i \rho(\lambda_i)\,S_b(\lambda_i)}{\sum_i S_b(\lambda_i)} \]</div>
+        <p class="eq-read">the reflectance a sensor records in band b is the average of the spectrum weighted by the band's spectral response function.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(S_b(\lambda)\)</td><td>relative spectral response of band b (top-hat of the stated width, or Gaussian with the stated FWHM for the RGB camera)</td><td>–</td></tr>
+          <tr><td>\(\lambda_i\)</td><td>wavelengths of the 5 nm grid</td><td>nm</td></tr>
+          <tr><td>\(\rho_b\)</td><td>band-averaged reflectance</td><td>–</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>Real responses are not rectangular (ESA publishes the measured Sentinel-2 responses), and strictly the average should also be weighted by the solar irradiance at the surface. For the narrow VNIR bands the error is below 1 % reflectance; for broad bands that straddle absorption features (Sentinel-2 B12, OLI B7) it can be larger. Wide bands blur narrow features: compare the 118 nm-wide Sentinel-2 B8 with the 20 nm-wide B8A on the red-edge shoulder.</p></details>
+        <div class="eq-units">a weighted mean of dimensionless reflectances — dimensionless ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-ss-nd">
+        <div class="eq-head"><span class="eq-label">NDVI and the normalised-difference family</span><span class="eq-num">(S6)</span></div>
+        <div class="eq-main">\[ \text{ND}(i,j)=\frac{\rho_i-\rho_j}{\rho_i+\rho_j} \] \[ \text{NDVI}=\text{ND}(\text{NIR},\text{red}),\quad \text{NDRE}=\text{ND}(\text{NIR},\text{RE}) \] \[ \text{GNDVI}=\text{ND}(\text{NIR},\text{green}),\quad \text{NDWI}=\text{ND}(\text{NIR},\text{SWIR}) \]</div>
+        <p class="eq-read">each index is the difference between two band reflectances divided by their sum; the choice of the pair decides what the index is sensitive to.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\rho_i, \rho_j\)</td><td>band-averaged reflectances (Eq. S5)</td><td>–</td></tr>
+          <tr><td>ND</td><td>normalised difference, between −1 and +1</td><td>–</td></tr>
+        </table>
+        <details><summary>Why normalise, and why these pairs?</summary>
+          <ol class="steps">
+            <li>A common multiplicative factor k (uneven illumination, sensor gain) cancels: \((k\rho_i-k\rho_j)/(k\rho_i+k\rho_j)=\text{ND}(i,j)\).</li>
+            <li>NDVI pairs the strongest chlorophyll absorption (red) with the strongest scattering (NIR): maximal contrast between vegetation and soil.</li>
+            <li>NDRE replaces the red by a red-edge band where chlorophyll absorbs less, so light penetrates deeper and the index keeps responding to chlorophyll at high LAI. GNDVI does the same with green.</li>
+            <li>NDWI (Gao, 1996) pairs two bands that are both scattered by the canopy structure but of which only the SWIR one (≈ 1610 nm) is absorbed by water — so it tracks canopy water content.</li>
+          </ol>
+        </details>
+        <div class="eq-units">ratio of reflectance differences — dimensionless ✓</div>
+        <div class="mini-calc" data-formula="(nir-red)/(nir+red)" data-output="NDVI" data-digits="3" data-plot="red" data-ymin="-0.2" data-ymax="1">
+          <div data-var="red" data-label="Red reflectance" data-min="0.005" data-max="0.4" data-step="0.001" data-value="0.02"></div>
+          <div data-var="nir" data-label="NIR reflectance" data-min="0.01" data-max="0.7" data-step="0.005" data-value="0.56"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ss-evi">
+        <div class="eq-head"><span class="eq-label">Soil-adjusted and enhanced vegetation indices</span><span class="eq-num">(S7)</span></div>
+        <div class="eq-main">\[ \text{SAVI}=(1+L)\frac{\rho_{\text{NIR}}-\rho_{\text{red}}}{\rho_{\text{NIR}}+\rho_{\text{red}}+L},\qquad \text{EVI}=2.5\,\frac{\rho_{\text{NIR}}-\rho_{\text{red}}}{\rho_{\text{NIR}}+6\rho_{\text{red}}-7.5\rho_{\text{blue}}+1} \]</div>
+        <p class="eq-read">SAVI shifts the origin of the NDVI isolines by the soil factor L so that canopies over bright and dark soils read more alike; EVI adds a blue-band correction for aerosols and a background term so that it keeps rising in dense canopies.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Value</th></tr>
+          <tr><td>\(L\)</td><td>soil-adjustment factor (SAVI)</td><td>0.5</td></tr>
+          <tr><td>2.5, 6, 7.5, 1</td><td>EVI gain, aerosol coefficients (red, blue) and background term</td><td>MODIS values (Huete et al., 2002)</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>The EVI coefficients were tuned for MODIS bands and atmospherically corrected reflectance; they are widely used with Sentinel-2 and Landsat but not exact for them. Sensors without a blue band (Mavic 3M) cannot compute EVI — a two-band version, EVI2, exists (Jiang et al., 2008). Derivations of both indices are in Lesson 11.2.</p></details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-formula="2.5*(nir-red)/(nir+6*red-7.5*blue+1)" data-output="EVI" data-digits="3" data-plot="nir" data-ymin="0" data-ymax="1.2">
+          <div data-var="red" data-label="Red reflectance" data-min="0.005" data-max="0.3" data-step="0.001" data-value="0.02"></div>
+          <div data-var="nir" data-label="NIR reflectance" data-min="0.05" data-max="0.7" data-step="0.005" data-value="0.56"></div>
+          <div data-var="blue" data-label="Blue reflectance" data-min="0.005" data-max="0.2" data-step="0.001" data-value="0.021"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ss-snow">
+        <div class="eq-head"><span class="eq-label">Spectral albedo of clean snow</span><span class="eq-num">(S8)</span></div>
+        <div class="eq-main">\[ A(\lambda)=\exp\!\left(-\sqrt{\gamma(\lambda)\,a_{\text{opt}}}\right),\qquad \gamma=\frac{4\pi\chi(\lambda)}{\lambda} \] \[ a_{\text{opt}}=P^2a_{\text{ef}},\qquad r(\mu_0)=A^{\frac{3}{7}(1+2\mu_0)} \]</div>
+        <p class="eq-read">the albedo of a deep layer of clean snow falls exponentially with the square root of the product of the absorption coefficient of ice and an optical grain size; the plane albedo for a sun at zenith angle θ₀ (µ₀ = cos θ₀) is the spherical albedo raised to a geometry factor.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(\chi(\lambda)\)</td><td>imaginary part of the refractive index of ice (Warren &amp; Brandt, 2008)</td><td>–</td><td>2.3 × 10⁻⁶ at 1030 nm</td></tr>
+          <tr><td>\(\gamma\)</td><td>absorption coefficient of bulk ice</td><td>m⁻¹</td><td>28 at 1030 nm</td></tr>
+          <tr><td>\(a_{\text{ef}}\)</td><td>effective grain radius</td><td>m (µm)</td><td>50–1500 µm</td></tr>
+          <tr><td>\(P\)</td><td>shape factor (6.3 for spheres)</td><td>–</td><td>6.3</td></tr>
+          <tr><td>\(A\), \(r\)</td><td>spherical and plane albedo</td><td>–</td><td>0.66 at 1030 nm, 150 µm</td></tr>
+        </table>
+        <details><summary>Where it comes from</summary>
+          <ol class="steps">
+            <li>Snow is a weakly absorbing, strongly scattering medium. In asymptotic radiative-transfer theory the albedo can be written as an average over the number of scattering events m of the survival probability \(e^{-\beta m}\), where β is the probability of absorption per event.</li>
+            <li>Random-walk theory gives the distribution of m, and the average evaluates to \(A=\exp(-\text{const}\sqrt{\beta})\) (Kokhanovsky, 2013).</li>
+            <li>For large ice grains, β is proportional to the absorption coefficient of ice times the grain size: bigger grains mean longer paths through ice between scattering events, so \(\beta\propto\gamma a_{\text{ef}}\) and \(A=\exp(-\sqrt{\gamma P^2 a_{\text{ef}}})\).</li>
+            <li>Worked number at 1030 nm, \(a_{\text{ef}}=150\) µm: \(\gamma=4\pi\times2.33\times10^{-6}/1.03\times10^{-6}=28.4\) m⁻¹, \(a_{\text{opt}}=6.3^2\times150\times10^{-6}=5.95\times10^{-3}\) m, \(A=\exp(-\sqrt{0.169})=0.66\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Clean, deep, dry snow; impurities (soot, dust, algae) that darken snow in the visible are ignored; the snow's angular reflection pattern is replaced by the plane albedo for a 45° sun.</p></details>
+        <div class="eq-units">\(\gamma a_{\text{opt}}\): \(\text{m}^{-1}\times\text{m}=1\) ✓</div>
+        <div class="mini-calc" data-fn="ssSnow" data-output="Spherical albedo A" data-digits="3" data-plot="a" data-ymin="0" data-ymax="1">
+          <div data-var="chi" data-label="Ice χ at λ" data-min="1e-9" data-max="1e-3" data-scale="log" data-value="2.33e-6"></div>
+          <div data-var="lam" data-label="Wavelength λ" data-min="400" data-max="2500" data-step="5" data-value="1030" data-unit="nm"></div>
+          <div data-var="a" data-label="Grain radius a<sub>ef</sub>" data-min="20" data-max="2000" data-step="5" data-value="150" data-unit="µm"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-ss-water">
+        <div class="eq-head"><span class="eq-label">Reflectance of optically deep water (approximation)</span><span class="eq-num">(S9)</span></div>
+        <div class="eq-main">\[ \rho_w(\lambda)\approx\rho_{\text{surf}}+t_s\,f\,\frac{b_b}{a+b_b} \] \[ a=a_w(\lambda)+a_g(440)\,e^{-0.014(\lambda-440)},\qquad b_b=b_{bw}(\lambda)+b_{bp}(550)\frac{550}{\lambda} \]</div>
+        <p class="eq-read">water reflects a little at its surface and returns from below a fraction of light that grows with backscattering and falls with absorption; absorption is the sum of pure water and coloured dissolved organic matter, backscattering the sum of water molecules and suspended particles.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\rho_{\text{surf}}\)</td><td>reflection of skylight by the surface (off the sun glint)</td><td>–</td><td>0.02</td></tr>
+          <tr><td>\(f\)</td><td>proportionality between sub-surface reflectance and \(b_b/(a+b_b)\) (Morel &amp; Prieur, 1977)</td><td>–</td><td>0.33</td></tr>
+          <tr><td>\(t_s\)</td><td>approximate loss crossing the water–air interface</td><td>–</td><td>0.5</td></tr>
+          <tr><td>\(a_w\)</td><td>absorption of pure water (PROSPECT water coefficient × 100)</td><td>m⁻¹</td><td>0.06 at 550, 4.6 at 865 nm</td></tr>
+          <tr><td>\(a_g(440)\)</td><td>CDOM absorption at 440 nm; spectral slope 0.014 nm⁻¹ (Bricaud et al., 1981)</td><td>m⁻¹</td><td>0.1–8</td></tr>
+          <tr><td>\(b_{bw}, b_{bp}\)</td><td>backscattering by water molecules (≈ 0.0015 m⁻¹ at 500 nm, ∝ λ<sup>−4.32</sup>) and by particles</td><td>m⁻¹</td><td>0.001–1</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary><p>This is a deliberately simple parametric approximation, not a full radiative-transfer model: the bottom is invisible (deep water), phytoplankton absorption is not included separately, and the interface factor t<sub>s</sub> lumps together refraction and internal reflection (literature values 0.4–0.55). It is good enough to show why water is dark in the NIR, why humic lakes look brown and why turbid rivers are bright in the red — not for water-quality retrievals.</p></details>
+        <div class="eq-units">\(b_b/(a+b_b)\): m⁻¹/m⁻¹ = 1 ✓</div>
+        <div class="mini-calc" data-formula="0.02+0.5*0.33*bb/(a+bb)" data-output="Water reflectance" data-digits="4" data-plot="bb" data-ymin="0">
+          <div data-var="a" data-label="Absorption a" data-min="0.01" data-max="10" data-scale="log" data-value="0.15" data-unit="m⁻¹"></div>
+          <div data-var="bb" data-label="Backscattering b<sub>b</sub>" data-min="0.001" data-max="1" data-scale="log" data-value="0.011" data-unit="m⁻¹"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Record numbers with <em>Save investigation</em> and download spectra with <em>Download spectra (CSV)</em> if you want to plot them yourself.</p>
+      <ol class="task-list">
+        <li><h4>Anatomy of a spectrum and the red edge</h4><p>Hover over the healthy canopy and list the wavelengths of the blue and red chlorophyll minima, the green peak, the red-edge inflection point and the four water-absorption troughs. Then vary C<sub>ab</sub> from 10 to 80 µg cm⁻² in steps of 10 and tabulate the red-edge inflection point. Plot it against C<sub>ab</sub>: is the relation linear? Why is the red edge a better chlorophyll indicator than the red band at high chlorophyll?</p></li>
+        <li><h4>Saturation and the choice of index</h4><p>With Sentinel-2, read from the first chart the LAI at which NDVI reaches 95 % of its value at LAI 8. Do the same for NDRE and EVI. A winter-wheat crop reaches LAI 4–6 at flag-leaf emergence, when the last nitrogen dose is decided: which index would you use, and why do tractor-mounted N sensors use red-edge wavelengths?</p></li>
+        <li><h4>Detecting drought before wilting</h4><p>Start from <em>Wheat at canopy closure</em> and reduce C<sub>w</sub> step by step from 0.016 to 0.004 cm. Record NDVI, NDWI and the B11 reflectance. Which index detects the water loss? Which of the five sensors could deliver that index, and at what spatial resolution? Connect your answer to irrigation scheduling (<a href="/laboratories/irrigation-scheduling/">Irrigation scheduling lab</a>).</p></li>
+        <li><h4>The soil background</h4><p>Set LAI to 0.6 (an emerging crop). Compare NDVI and SAVI for a dry soil (moisture 0) and a wet soil (moisture 1). By how much does each index change for the <em>same</em> crop? Repeat at LAI 3. Explain with Figure 2 why the soil matters at low LAI and why SAVI helps.</p></li>
+        <li><h4>Mixed pixels at 10 m</h4><p>A Sentinel-2 pixel of 10 m × 10 m over a tramline contains 20 % bare soil. Use the mixing slider to find the pixel NDVI, and compare it with the area-weighted mean of the two NDVIs (readout note). Derive the difference with Eq. S4 and state which way the error goes. When would unmixing (estimating f from the spectrum) be more useful than an index?</p></li>
+        <li><h4>Same crop, different sensors</h4><p>For the default canopy, record NDVI and NDRE from Sentinel-2, Landsat OLI, RedEdge-MX and Mavic 3M. Explain the differences from the band positions in Table 3. What does this imply if you combine drone and satellite NDVI maps of the same field, or compare this year's drone map with last year's from another camera?</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-spectral-signatures">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Reload the page defaults (Sentinel-2, healthy canopy, LAI 3, C<sub>ab</sub> 45 µg cm⁻², soil moisture 0.3). What NDVI does the laboratory report for the healthy canopy?","answer":0.932,"abstol":0.005,"unit":"","hint":"Read the NDVI readout below the stage (it refers to the analysed spectrum, the healthy canopy by default).","explain":"<p>The band averages are red (B4) ≈ 0.020 and NIR (B8) ≈ 0.560, so NDVI = (0.560 − 0.020)/(0.560 + 0.020) ≈ 0.932.</p>"},
+          {"type":"mcq","q":"Keep LAI 3 and lower the healthy leaf's chlorophyll from 45 to 20 µg cm⁻² (Sentinel-2). Which index changes the most?","options":["NDVI","NDRE","NDWI","SAVI"],"answer":1,"feedback":["NDVI only falls from 0.932 to about 0.885: the red band is already saturated by absorption.","","NDWI responds to water, not chlorophyll: it does not change.","SAVI moves little more than NDVI, because it uses the same red band."],"hint":"Compare the readouts before and after, or use Eq. S6 and think about where chlorophyll absorbs less strongly.","explain":"<p>NDRE falls from ≈ 0.70 to ≈ 0.50. At 705 nm chlorophyll absorption is weaker, so reflectance there keeps responding to chlorophyll after the red band has saturated.</p>"},
+          {"type":"numeric","q":"With the defaults, set the vegetation fraction of the mixed pixel to f = 0.5. What is the NDVI of the mixed pixel?","answer":0.545,"abstol":0.008,"unit":"","hint":"Readout “NDVI of the mixed pixel”, or Eq. S4 with red/NIR = 0.020/0.560 (canopy) and 0.234/0.300 (soil).","explain":"<p>The mixed pixel has red 0.127 and NIR 0.430, so NDVI = 0.303/0.557 = 0.545. The area-weighted mean of the two NDVIs would be 0.5 × 0.932 + 0.5 × 0.124 = 0.528: NDVI is weighted towards the component with the larger NIR + red sum (Eq. S4).</p>"},
+          {"type":"tf","q":"Reducing the leaf water content C<sub>w</sub> from 0.015 to 0.004 cm lowers the canopy NDVI noticeably.","answer":false,"explain":"<p>NDVI stays at 0.932: water absorbs in the SWIR (and weakly around 970 nm), not in the red or at 830 nm. NDWI (NIR–SWIR) falls from ≈ 0.38 to ≈ 0.17 — which is why water status needs SWIR bands.</p>"},
+          {"type":"multi","q":"Which of the sensors in the laboratory can compute NDRE? (Select all that apply.)","options":["Sentinel-2 MSI","Landsat 8/9 OLI","MicaSense RedEdge-MX","DJI Mavic 3M multispectral","Consumer RGB camera"],"answer":[0,2,3],"explain":"<p>NDRE needs a red-edge band between ≈ 700 and 740 nm: Sentinel-2 B5, RedEdge-MX RE (717 nm) and Mavic 3M RE (730 nm). Landsat OLI has no red-edge band and an RGB camera has no NIR band at all.</p>"},
+          {"type":"mcq","q":"Why does fresh snow have a high NDVI-like contrast between the green and the SWIR (≈ 1610 nm) but a slightly negative NDVI?","options":["Ice absorbs strongly at 1610 nm but hardly at all in the visible, and the NIR is a little darker than the red","Snow contains chlorophyll from snow algae","Snow is transparent in the NIR, so the soil below shows through","The atmosphere absorbs all SWIR light over snow"],"answer":0,"shuffle":false,"feedback":["","Clean snow has no chlorophyll; algae are ignored in the model.","A deep snowpack is optically thick; nothing from below is seen.","Sentinel-2 B11 sits in an atmospheric window."],"explain":"<p>Ice absorption rises by orders of magnitude from the visible to the SWIR (χ ≈ 3 × 10⁻⁹ at 560 nm, 2.7 × 10⁻⁴ at 1610 nm). With 150 µm grains the model gives B3 ≈ 0.98 and B11 ≈ 0.03 — a normalised snow index (green − SWIR)/(green + SWIR) of ≈ 0.95 — while NDVI ≈ −0.04 because B8 is slightly darker than B4.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Leaves</strong> are computed with PROSPECT-D using the published refractive index and specific absorption coefficients (Féret et al., 2017), sampled every 5 nm. The leaf is laterally uniform and has no specular surface reflection.</li>
+        <li><strong>Canopies</strong> are horizontal-leaf, turbid-medium canopies under diffuse light (Kubelka–Munk two-stream; Allen &amp; Richardson, 1968). Leaf angles, clumping in rows, stems and ears, shadows, the hot-spot and the sun–view geometry are ignored; the NIR plateau is therefore 10–30 % brighter than in many field measurements.</li>
+        <li><strong>Stressed and senescent canopies</strong> share the healthy canopy's LAI and soil and differ only in leaf traits (Table 2); in reality stress also reduces LAI.</li>
+        <li><strong>Soils</strong> are the two measured reference spectra of the PROSAIL distribution mixed linearly with a moisture parameter and scaled by a brightness factor; other mineralogies or organic contents are not represented.</li>
+        <li><strong>Water</strong> is a parametric approximation for optically deep water (Eq. S9) based on the absorption of pure water, CDOM and particle backscattering; phytoplankton pigments and the bottom are ignored.</li>
+        <li><strong>Snow</strong> is clean, deep and dry (Eq. S8); impurities and liquid water are ignored.</li>
+        <li><strong>Sensors</strong> are represented by top-hat responses of the stated width (Gaussian for the illustrative RGB camera) without solar-irradiance weighting; spectra are surface reflectances (no atmosphere). Indices therefore correspond to atmospherically corrected (Level-2A) data.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Allen, W. A., &amp; Richardson, A. J. (1968). Interaction of light with a plant canopy. <em>Journal of the Optical Society of America</em>, 58(8), 1023–1028. <a href="https://doi.org/10.1364/JOSA.58.001023" target="_blank" rel="noopener">doi:10.1364/JOSA.58.001023</a></li>
+        <li>Allen, W. A. (1973). Transmission of isotropic light across a dielectric surface in two and three dimensions. <em>Journal of the Optical Society of America</em>, 63(6), 664–666. <a href="https://doi.org/10.1364/JOSA.63.000664" target="_blank" rel="noopener">doi:10.1364/JOSA.63.000664</a></li>
+        <li>Kubelka, P. (1948). New contributions to the optics of intensely light-scattering materials. Part I. <em>Journal of the Optical Society of America</em>, 38(5), 448–457. <a href="https://doi.org/10.1364/JOSA.38.000448" target="_blank" rel="noopener">doi:10.1364/JOSA.38.000448</a></li>
+        <li>Stern, F. (1964). Transmission of isotropic radiation across an interface between two dielectrics. <em>Applied Optics</em>, 3(1), 111–113. <a href="https://doi.org/10.1364/AO.3.000111" target="_blank" rel="noopener">doi:10.1364/AO.3.000111</a></li>
+        <li>Stokes, G. G. (1862). On the intensity of the light reflected from or transmitted through a pile of plates. <em>Proceedings of the Royal Society of London</em>, 11, 545–556. <a href="https://doi.org/10.1098/rspl.1860.0119" target="_blank" rel="noopener">doi:10.1098/rspl.1860.0119</a></li>
+        <li>Féret, J.-B., Gitelson, A. A., Noble, S. D., &amp; Jacquemoud, S. (2017). PROSPECT-D: Towards modeling leaf optical properties through a complete lifecycle. <em>Remote Sensing of Environment</em>, 193, 204–215. <a href="https://doi.org/10.1016/j.rse.2017.03.004" target="_blank" rel="noopener">doi:10.1016/j.rse.2017.03.004</a></li>
+        <li>Jacquemoud, S., &amp; Baret, F. (1990). PROSPECT: A model of leaf optical properties spectra. <em>Remote Sensing of Environment</em>, 34(2), 75–91. <a href="https://doi.org/10.1016/0034-4257(90)90100-Z" target="_blank" rel="noopener">doi:10.1016/0034-4257(90)90100-Z</a></li>
+        <li>Jacquemoud, S., Verhoef, W., Baret, F., Bacour, C., Zarco-Tejada, P. J., Asner, G. P., François, C., &amp; Ustin, S. L. (2009). PROSPECT+SAIL models: A review of use for vegetation characterization. <em>Remote Sensing of Environment</em>, 113, S56–S66. <a href="https://doi.org/10.1016/j.rse.2008.01.026" target="_blank" rel="noopener">doi:10.1016/j.rse.2008.01.026</a></li>
+        <li>Knipling, E. B. (1970). Physical and physiological basis for the reflectance of visible and near-infrared radiation from vegetation. <em>Remote Sensing of Environment</em>, 1(3), 155–159. <a href="https://doi.org/10.1016/S0034-4257(70)80021-9" target="_blank" rel="noopener">doi:10.1016/S0034-4257(70)80021-9</a></li>
+        <li>Gates, D. M., Keegan, H. J., Schleter, J. C., &amp; Weidner, V. R. (1965). Spectral properties of plants. <em>Applied Optics</em>, 4(1), 11–20. <a href="https://doi.org/10.1364/AO.4.000011" target="_blank" rel="noopener">doi:10.1364/AO.4.000011</a></li>
+        <li>Horler, D. N. H., Dockray, M., &amp; Barber, J. (1983). The red edge of plant leaf reflectance. <em>International Journal of Remote Sensing</em>, 4(2), 273–288. <a href="https://doi.org/10.1080/01431168308948546" target="_blank" rel="noopener">doi:10.1080/01431168308948546</a></li>
+        <li>Baret, F., &amp; Guyot, G. (1991). Potentials and limits of vegetation indices for LAI and APAR assessment. <em>Remote Sensing of Environment</em>, 35(2–3), 161–173. <a href="https://doi.org/10.1016/0034-4257(91)90009-U" target="_blank" rel="noopener">doi:10.1016/0034-4257(91)90009-U</a></li>
+        <li>Carlson, T. N., &amp; Ripley, D. A. (1997). On the relation between NDVI, fractional vegetation cover, and leaf area index. <em>Remote Sensing of Environment</em>, 62(3), 241–252. <a href="https://doi.org/10.1016/S0034-4257(97)00104-1" target="_blank" rel="noopener">doi:10.1016/S0034-4257(97)00104-1</a></li>
+        <li>Rouse, J. W., Haas, R. H., Schell, J. A., &amp; Deering, D. W. (1974). Monitoring vegetation systems in the Great Plains with ERTS. In <em>Third Earth Resources Technology Satellite-1 Symposium</em> (NASA SP-351, Vol. 1, pp. 309–317). NASA.</li>
+        <li>Tucker, C. J. (1979). Red and photographic infrared linear combinations for monitoring vegetation. <em>Remote Sensing of Environment</em>, 8(2), 127–150. <a href="https://doi.org/10.1016/0034-4257(79)90013-0" target="_blank" rel="noopener">doi:10.1016/0034-4257(79)90013-0</a></li>
+        <li>Huete, A. R. (1988). A soil-adjusted vegetation index (SAVI). <em>Remote Sensing of Environment</em>, 25(3), 295–309. <a href="https://doi.org/10.1016/0034-4257(88)90106-X" target="_blank" rel="noopener">doi:10.1016/0034-4257(88)90106-X</a></li>
+        <li>Huete, A., Didan, K., Miura, T., Rodriguez, E. P., Gao, X., &amp; Ferreira, L. G. (2002). Overview of the radiometric and biophysical performance of the MODIS vegetation indices. <em>Remote Sensing of Environment</em>, 83(1–2), 195–213. <a href="https://doi.org/10.1016/S0034-4257(02)00096-2" target="_blank" rel="noopener">doi:10.1016/S0034-4257(02)00096-2</a></li>
+        <li>Jiang, Z., Huete, A. R., Didan, K., &amp; Miura, T. (2008). Development of a two-band enhanced vegetation index without a blue band. <em>Remote Sensing of Environment</em>, 112(10), 3833–3845. <a href="https://doi.org/10.1016/j.rse.2008.06.006" target="_blank" rel="noopener">doi:10.1016/j.rse.2008.06.006</a></li>
+        <li>Gitelson, A. A., Kaufman, Y. J., &amp; Merzlyak, M. N. (1996). Use of a green channel in remote sensing of global vegetation from EOS-MODIS. <em>Remote Sensing of Environment</em>, 58(3), 289–298. <a href="https://doi.org/10.1016/S0034-4257(96)00072-7" target="_blank" rel="noopener">doi:10.1016/S0034-4257(96)00072-7</a></li>
+        <li>Gao, B.-C. (1996). NDWI — A normalized difference water index for remote sensing of vegetation liquid water from space. <em>Remote Sensing of Environment</em>, 58(3), 257–266. <a href="https://doi.org/10.1016/S0034-4257(96)00067-3" target="_blank" rel="noopener">doi:10.1016/S0034-4257(96)00067-3</a></li>
+        <li>Barnes, E. M., Clarke, T. R., Richards, S. E., Colaizzi, P. D., Haberland, J., Kostrzewski, M., Waller, P., Choi, C., Riley, E., Thompson, T., Lascano, R. J., Li, H., &amp; Moran, M. S. (2000). Coincident detection of crop water stress, nitrogen status and canopy density using ground-based multispectral data. In P. C. Robert, R. H. Rust, &amp; W. E. Larson (Eds.), <em>Proceedings of the Fifth International Conference on Precision Agriculture</em>. ASA–CSSA–SSSA.</li>
+        <li>Kokhanovsky, A. (2013). Spectral reflectance of solar light from dirty snow: a simple theoretical model and its validation. <em>The Cryosphere</em>, 7, 1325–1331. <a href="https://doi.org/10.5194/tc-7-1325-2013" target="_blank" rel="noopener">doi:10.5194/tc-7-1325-2013</a></li>
+        <li>Warren, S. G., &amp; Brandt, R. E. (2008). Optical constants of ice from the ultraviolet to the microwave: A revised compilation. <em>Journal of Geophysical Research: Atmospheres</em>, 113, D14220. <a href="https://doi.org/10.1029/2007JD009744" target="_blank" rel="noopener">doi:10.1029/2007JD009744</a></li>
+        <li>Morel, A., &amp; Prieur, L. (1977). Analysis of variations in ocean color. <em>Limnology and Oceanography</em>, 22(4), 709–722. <a href="https://doi.org/10.4319/lo.1977.22.4.0709" target="_blank" rel="noopener">doi:10.4319/lo.1977.22.4.0709</a></li>
+        <li>Bricaud, A., Morel, A., &amp; Prieur, L. (1981). Absorption by dissolved organic matter of the sea (yellow substance) in the UV and visible domains. <em>Limnology and Oceanography</em>, 26(1), 43–53. <a href="https://doi.org/10.4319/lo.1981.26.1.0043" target="_blank" rel="noopener">doi:10.4319/lo.1981.26.1.0043</a></li>
+        <li>Drusch, M., Del Bello, U., Carlier, S., Colin, O., Fernandez, V., Gascon, F., Hoersch, B., Isola, C., Laberinti, P., Martimort, P., Meygret, A., Spoto, F., Sy, O., Marchese, F., &amp; Bargellini, P. (2012). Sentinel-2: ESA's optical high-resolution mission for GMES operational services. <em>Remote Sensing of Environment</em>, 120, 25–36. <a href="https://doi.org/10.1016/j.rse.2011.11.026" target="_blank" rel="noopener">doi:10.1016/j.rse.2011.11.026</a></li>
+        <li>European Space Agency. (2026). <em>S2 Mission — spectral information and SNR per band (Tables 3–4)</em>. SentiWiki. <a href="https://sentiwiki.copernicus.eu/web/s2-mission" target="_blank" rel="noopener">sentiwiki.copernicus.eu/web/s2-mission</a></li>
+        <li>U.S. Geological Survey. (2026). <em>What are the band designations for the Landsat satellites?</em> <a href="https://www.usgs.gov/faqs/what-are-band-designations-landsat-satellites" target="_blank" rel="noopener">usgs.gov</a>; MicaSense. (2026). <em>What is the center wavelength and bandwidth of each filter for MicaSense sensors?</em> <a href="https://support.micasense.com/hc/en-us/articles/214878778" target="_blank" rel="noopener">support.micasense.com</a>; DJI. (2026). <em>DJI Mavic 3M specifications</em>. <a href="https://ag.dji.com/mavic-3-m/specs" target="_blank" rel="noopener">ag.dji.com</a></li>
+      </ol>
+      <p class="muted">PROSPECT-D coefficients and the reference soil spectra were taken from the open-source <em>prosail</em> Python package (J. Gómez-Dans), which redistributes the original PROSPECT-D/PROSAIL data files.</p>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

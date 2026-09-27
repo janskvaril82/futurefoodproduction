@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NFT channel simulator · Future Food Production</title>
+<meta name="description" content="A 3D nutrient-film-technique installation driven by a physical model: falling-film hydraulics, oxygen, nitrate, potassium and heat balances along the gully, and lettuce growth by position.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* dynamic viscosity of water, Pa s (same Vogel-type fit as the simulator) */
+FFP_CALC.nftMu = function (T) { return 2.414e-5 * Math.pow(10, 247.8 / (T + 133.15)); };
+/* Nusselt film thickness, mm: Q L/min, slope %, W cm, T C */
+FFP_CALC.nftFilm = function (v) { var s = v.S / 100, q = v.Q / 60000 / (v.W / 100); return Math.cbrt(3 * FFP_CALC.nftMu(v.T) * q / (998 * 9.81 * s / Math.sqrt(1 + s * s))) * 1000; };
+/* residence time, s: L m, Q L/min, slope %, W cm, T C */
+FFP_CALC.nftRes = function (v) { var h = FFP_CALC.nftFilm(v) / 1000, q = v.Q / 60000 / (v.W / 100); return v.L / (q / h); };
+/* Higbie K_L, 1e-5 m/s: us m/s, ell m, T C */
+FFP_CALC.nftKL = function (v) { var mu = FFP_CALC.nftMu(v.T), D = 2e-9 * ((v.T + 273.15) / 293.15) * (FFP_CALC.nftMu(20) / mu); return 2 * Math.sqrt(D * v.us / (Math.PI * v.ell)) * 1e5; };
+/* outlet DO, mg/L, constant-coefficient solution of Eq. N4 (W = 0.10 m) */
+FFP_CALC.nftDO = function (v) { var Q = v.Q / 60000, KLW = v.KL * 1e-5 * 0.10, rp = v.ppm * v.R / 3.6e6; if (KLW <= 0) return Math.max(0, v.Cin - rp * v.L / Q); var lam = Q / KLW, Ceq = v.Cs - rp / KLW; return Math.max(0, Ceq + (v.Cin - Ceq) * Math.exp(-v.L / lam)); };
+/* root O2 demand, mg/h per plant: mass m g, factor f, temperature T, DO C */
+FFP_CALC.nftRO2 = function (v) { var G = 0.218 * v.f * v.m * (1 - v.m / 250) * 0.047; return (10.5 * G + 0.10 * v.m * 0.047) * Math.pow(2, (v.T - 20) / 10) * v.C / (0.3 + v.C); };
+/* outlet solution temperature, C: Eq. N8 with constant coefficients */
+FFP_CALC.nftT = function (v) { var Q = v.Q / 60000, UP = v.U * 0.30, lam = 998 * 4186 * Q / UP, Teq = v.Ta + 0.3 * v.G * 0.108 * (1 - 0.8 * v.c) / UP; return Teq + (v.Tin - Teq) * Math.exp(-v.L / lam); };
+/* head mass after t days at constant stress factor f (Eq. N9) */
+FFP_CALC.nftMass = function (v) { var K = 250, m0 = 2; return K / (1 + (K / m0 - 1) * Math.exp(-0.218 * v.f * v.t)); };
+/* nitrate drop along a gully, mg/L */
+FFP_CALC.nftN = function (v) { return v.np * v.U / (v.Q * 60) ; };
+</script>
+<style>
+  .nft-two { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+</head>
+<body data-page="lab" data-slug="nft-system">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>NFT channel simulator</h1>
+    <p class="lead">A greenhouse nutrient-film-technique (NFT) installation in which every drop of solution is accounted for. A pump lifts solution from an aerated reservoir to a manifold; it runs down sloping gullies as a film only millimetres deep, past a row of lettuces whose roots take up oxygen, nitrate, potassium and water; sun and air warm it on the way; and a gutter returns it to the reservoir. Change the slope, flow, gully length, spacing and climate, grow the crop from transplanting to harvest, and watch the plants at the far end of the gully respond to what the plants upstream have left them.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Oxygen and nutrients along the gully</h3>
+      <div class="chart-sub">Dissolved O₂ (left axis) against distance from the inlet in the worst-fed gully on the selected day, with the saturation concentration C*(T) and the 4 mg L⁻¹ guideline. Nitrate-N and potassium are shown as % of the inlet value (right axis) — compare how little they change.</div>
+      <div class="chart" id="chart-profile"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Temperature and growth factor along the gully</h3>
+      <div class="chart-sub">Solution temperature (left) warms towards the air temperature and absorbs sunlight on the gully; the shaded band is the optimum root-zone range. The step line (right axis) is each plant's growth factor f (1 = no stress).</div>
+      <div class="chart" id="chart-temp"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Film thickness versus flow</h3>
+      <div class="chart-sub">Nusselt film thickness (Eq. N1) against flow per gully for three slopes and the current one; the dashed magenta curve is the mean velocity at the current slope (right axis). The point is your setting.</div>
+      <div class="chart" id="chart-film"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Predicted head mass by position</h3>
+      <div class="chart-sub">Fresh mass of every plant in the worst-fed gully on the selected day, coloured by the factor that limits its growth, compared with an unstressed plant and the 150 g market size.</div>
+      <div class="chart" id="chart-mass"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>What to look at first</h2>
+      <ol>
+        <li><strong>Follow the water.</strong> Press <em>Inlet</em> and <em>Outlet</em> under Display. Blue particles show the solution leaving the submersible pump, climbing the riser to the feed manifold, dropping through one small tube (with its own valve) into each gully, running down the gully as a film, spilling into the collector gutter and falling back into the reservoir, where an air stone re-aerates it. The particles in the gully move at the real surface velocity of the film.</li>
+        <li><strong>Look inside a gully.</strong> Press <em>Cut-away</em>. The front gully has its front wall removed: the film on the black floor is coloured by dissolved oxygen, and the root mats of the lettuces lie in it, spreading downstream. Roots turn from cream to brown where the solution is short of oxygen or too warm. Click anywhere on a gully to insert a virtual probe that reads the local oxygen, temperature, nitrate, potassium, film thickness and plant growth factor.</li>
+        <li><strong>Grow the crop.</strong> Press <em>▶ Grow the crop</em>. For the first two weeks the plants are small, use little oxygen and the film is almost uniformly green. In the last ten days the heads grow by 10–13 g a day, their roots respire hard, and oxygen falls along the gully — the colour gradient appears.</li>
+        <li><strong>Choose the <em>Low flow</em> preset.</strong> The film becomes thinner and slower, the same oxygen demand is shared by less water, and the far half of the gully drops below 2 mg L⁻¹. The plants there stay small and pale and the mass chart shows a steep fall from inlet to outlet — while nitrate and potassium hardly change.</li>
+        <li><strong>Choose <em>Hot summer</em>.</strong> Now the limiting factor is temperature: the solution enters at 26 °C and warms further along the gully, and the whole crop is smaller. Switch the film colouring to <em>Temperature</em> and to <em>Growth factor f</em>.</li>
+        <li><strong>Switch to <em>Film map</em>.</strong> The lids and plants disappear and all gullies show their film colour from above — try the <em>Unbalanced manifold</em> preset to see why growers measure the flow of every gully with a jug and a stopwatch.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>An NFT gully is a <strong>plug-flow reactor</strong>. Solution enters with a certain oxygen, nutrient and heat content; each plant it passes changes that content a little; the last plant receives what is left. Whether the last plant is as good as the first depends on a race between <em>supply</em> (flow × concentration, plus oxygen dissolving through the film surface) and <em>demand</em> (plants per metre × uptake per plant). Oxygen and temperature, not nutrients, usually lose that race first.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>A film a millimetre deep</h2>
+      <p>The nutrient film technique, developed by Allen Cooper at the Glasshouse Crops Research Institute in the late 1960s and 1970s (Cooper, 1979; Graves, 1983), grows plants with their roots lying in a shallow, sloping gully through which a thin film of solution flows continuously. Because the film is thin, the upper part of the root mat is in humid air and oxygen has only a short distance to diffuse. The film thickness is set by a balance of two forces: gravity pulls the solution down the slope, and viscous friction against the gully floor holds it back. For a smooth laminar film this balance gives Nusselt's classic result (Eq. N1; Nusselt, 1916; Bird et al., 2002), derived step by step in <a href="/lessons/hydraulic-design/#film">Lesson 5.4</a>.</p>
+      <figure class="figure wide"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 760 300" role="img" aria-label="Cross-section of an NFT gully with lid, net pot, root mat, nutrient film and air space, and a side view of the gully with inlet and outlet conditions">
+          <defs>
+            <marker id="nft-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--water)"/></marker>
+            <marker id="nft-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--magenta)"/></marker>
+            <marker id="nft-a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          </defs>
+          <text x="16" y="22" style="font-weight:700">A · Cross-section (to scale ×4)</text>
+          <!-- gully walls -->
+          <path d="M40 90 V250 H280 V90" class="stroke" stroke-width="3" fill="none"/>
+          <rect x="34" y="84" width="252" height="8" class="fill-sunk" stroke="currentColor" stroke-width="1.2"/>
+          <!-- net pot -->
+          <path d="M140 84 L146 170 H174 L180 84" class="stroke-muted" stroke-width="1.6" fill="none" stroke-dasharray="4 3"/>
+          <rect x="146" y="96" width="28" height="30" class="fill-amber-soft" stroke="currentColor" stroke-width="1"/>
+          <path d="M160 84 C130 60 110 50 92 56 M160 84 C190 58 214 50 232 58 M160 84 C150 50 158 34 164 28" class="stroke-accent" stroke-width="5" fill="none" stroke-linecap="round"/>
+          <!-- film and root mat -->
+          <rect x="43" y="236" width="234" height="12" class="fill-water"/>
+          <path d="M150 170 C140 210 120 228 60 236 M158 170 C156 212 150 228 110 238 M166 170 C170 214 190 230 240 236 M172 170 C184 210 220 226 272 234" class="stroke-muted" stroke-width="2" fill="none"/>
+          <path d="M60 238 H270" class="stroke-muted" stroke-width="5" opacity=".5"/>
+          <text x="292" y="246" class="t-small" style="fill:var(--water)">film h ≈ 1–3 mm</text>
+          <text x="292" y="228" class="t-small t-muted">root mat</text>
+          <text x="292" y="170" class="t-small t-muted">humid air: O₂ reaches</text>
+          <text x="292" y="184" class="t-small t-muted">the upper root mat</text>
+          <line x1="92" y1="150" x2="92" y2="230" stroke="var(--water)" stroke-width="1.8" marker-end="url(#nft-a1)"/>
+          <text x="58" y="146" class="t-small" style="fill:var(--water)">K_L (C* − C)</text>
+          <line x1="226" y1="240" x2="226" y2="196" stroke="var(--magenta)" stroke-width="1.8" marker-end="url(#nft-a2)"/>
+          <text x="232" y="200" class="t-small" style="fill:var(--magenta)">root uptake</text>
+          <text x="40" y="276" class="t-small">floor width W = 10 cm · black inside against algae</text>
+          <!-- side view -->
+          <text x="420" y="22" style="font-weight:700">B · Side view (slope exaggerated)</text>
+          <path d="M430 90 L740 150 L740 160 L430 100 Z" class="fill-bg" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M432 97 L738 156 L738 159 L432 100 Z" class="fill-water"/>
+          <g class="fill-accent"><ellipse cx="470" cy="88" rx="16" ry="8"/><ellipse cx="540" cy="101" rx="16" ry="8"/><ellipse cx="610" cy="115" rx="14" ry="7" opacity=".8"/><ellipse cx="680" cy="128" rx="11" ry="6" opacity=".7"/></g>
+          <line x1="440" y1="120" x2="520" y2="136" stroke="var(--water)" stroke-width="2" marker-end="url(#nft-a1)"/>
+          <text x="430" y="200" class="t-small">inlet: Q, C_in, N_in, K_in, T_in</text>
+          <text x="600" y="186" class="t-small">outlet: C(L), N(L), T(L)</text>
+          <text x="460" y="232" class="t-small t-muted">each plant removes O₂, NO₃⁻, K⁺ and water;</text>
+          <text x="460" y="248" class="t-small t-muted">O₂ dissolves back through the film surface;</text>
+          <text x="460" y="264" class="t-small t-muted">air and sun add heat → far plants see warmer,</text>
+          <text x="460" y="280" class="t-small t-muted">oxygen-poorer solution</text>
+          <path d="M600 170 L700 170 L700 158" class="stroke-muted" stroke-width="1" fill="none"/>
+          <text x="630" y="166" class="t-small t-muted">1 : 40</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> (A) Inside an NFT gully: the net pot sits in the lid, the roots form a mat in a film of solution a few millimetres deep, and the space above the film holds humid air. Oxygen enters the film through its surface (flux \(K_L(C^*-C)\) per unit area) and is consumed by the roots. (B) Along the gully the solution is modified by every plant it passes, so conditions at the outlet differ from those at the inlet.</figcaption>
+      </figure>
+      <h3>Why the film is so thin — and why that matters</h3>
+      <p>Eq. N1 says that the thickness grows only with the <em>cube root</em> of the flow: doubling the flow deepens the film by 26 % and speeds it up by 59 %. For the default design (1.5 L min⁻¹ in a 10 cm gully at 1:40, 22 °C) the film is 1.43 mm deep and flows at a mean 0.17 m s⁻¹, so a parcel of solution crosses a 10 m gully in about a minute. The film Reynolds number is about 1000: laminar, but rippled. Commercial guidance of about 1 L min⁻¹ per gully (no more than about 2) and slopes of 1:30 to 1:100 (Graves, 1983) keeps the film in the 1–3 mm range where roots are both wet and aerated. The film chart shows the trade-off: a steeper slope gives a thinner, faster film.</p>
+      <h3>Oxygen: the substance that runs out first</h3>
+      <p>A lettuce close to harvest adds about 0.6 g of dry matter a day; its roots respire about 7 mg O₂ h⁻¹ at 20 °C, and 62 % more at 27 °C (<a href="/lessons/root-zone/">Lesson 5.3</a>). At 20 cm spacing a gully carries five such plants per metre, i.e. about 40 mg O₂ h⁻¹ per metre. One litre per minute of solution at 8 mg L⁻¹ brings in only 480 mg O₂ h⁻¹ — enough for 12 m of gully if nothing else happened. What else happens is <strong>re-aeration</strong>: as the concentration falls below saturation, oxygen dissolves back through the film surface at a rate \(K_LW(C^*-C)\) per metre (Eq. N4). The two effects balance at an <em>equilibrium concentration</em> \(C_{eq}=C^*-r'/(K_LW)\) that the solution approaches exponentially over a relaxation length \(\lambda=Q/(K_LW)\) of several metres. Long gullies therefore do not run out of oxygen completely, but their far end settles at a concentration set only by demand and re-aeration — about 3–4 mg L⁻¹ for a mature lettuce crop at 1 L min⁻¹ in this model, below the 4 mg L⁻¹ that the Cornell lettuce handbook gives as the level above which lettuce grows satisfactorily (Brechner &amp; Both, 2013).</p>
+      <p>Measurements confirm that such gradients are real. In NFT channels with cucumbers, Gislerød and Kempton (1983) found dissolved oxygen falling from 6.2 mg L⁻¹ near the inlet to 2.9 mg L⁻¹ at the last plant, and with tomatoes from 8.3 to 7.5 mg L⁻¹; in a tomato NFT system studied by Suhl et al. (2019), oxygen fell every day as radiation and solution temperature rose, and consumption during the day was up to 2.8 times that at night. These observations explain the practical rule that growth is depressed in gullies longer than about 12 m (Jones, 2014) and the classic remedies: more flow, shorter gullies, a second feed point part-way along, cooler solution and a well-aerated reservoir.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"The far plants are small because the nutrients are used up." Run the <em>Low flow</em> preset and read the outlet nitrate: at 0.25 L min⁻¹ the sixty plants of a 12 m gully take up about 60 mg of nitrogen an hour from 15 L of solution — a change of a few mg L⁻¹ out of 125. Roots absorb these ions with high-affinity transporters whose half-saturation concentration is about 18 µmol L⁻¹ for K⁺ (Epstein et al., 1963) and that saturate below 1 mmol L⁻¹ for NO₃⁻ (Siddiqi et al., 1990) — far below the 8.9 mmol N L⁻¹ and 5.5 mmol K L⁻¹ of a lettuce solution — so the uptake rate does not fall until the solution is almost empty. Oxygen, which dissolves only to about 9 mg L⁻¹, is exhausted long before.</p></div>
+      <h3>Heat: a thin film has no thermal inertia</h3>
+      <p>A millimetre-thick film holds almost no heat, so its temperature follows its surroundings: it exchanges heat with the air through the gully walls and absorbs sunlight falling on the gully (Eq. N8). Once the heads cover the gully they shade it, which is why young crops in bright greenhouses are the most exposed. Warm solution is doubly harmful: it holds less oxygen (8.7 mg L⁻¹ at 22 °C but 7.8 at 28 °C) while the roots respire faster (Q₁₀ ≈ 2), and above about 25 °C lettuce growth itself declines — Thompson et al. (1998) obtained the largest lettuce dry mass at a pond temperature of 24 °C and much less at 31 °C, and the Cornell system cools its solution above 26 °C (Brechner &amp; Both, 2013).</p>
+      <table>
+        <caption>Table 1. What limits an NFT gully, and what the simulator uses (default design at harvest).</caption>
+        <thead><tr><th>Process</th><th>Scale</th><th>Consequence along a 10 m gully</th></tr></thead>
+        <tbody>
+          <tr><td>Film hydraulics (N1–N2)</td><td>h ≈ 1.4 mm, ū ≈ 0.17 m s⁻¹</td><td>residence time ≈ 1 min</td></tr>
+          <tr><td>Oxygen (N3–N5)</td><td>≈ 40 mg O₂ h⁻¹ m⁻¹ demand</td><td>8.0 → ≈ 5.7 mg L⁻¹</td></tr>
+          <tr><td>Nitrate and potassium (N6)</td><td>≈ 5 mg N h⁻¹ m⁻¹ demand</td><td>≈ 0.5 % change (slight <em>rise</em> as water is removed faster)</td></tr>
+          <tr><td>Water (N7)</td><td>≈ 0.45 L d⁻¹ per head</td><td>≈ 1 % of the flow</td></tr>
+          <tr><td>Heat (N8)</td><td>relaxation length ≈ 40 m</td><td>+0.6 °C (more with strong sun on a young crop)</td></tr>
+        </tbody>
+      </table>
+      <div class="callout note"><div class="callout-title">How the simulator runs the crop</div><p>The solution crosses a gully in seconds to minutes, whereas the plants change over days. The simulator therefore solves the steady along-gully balances once per simulated day with that day's plant sizes, lets every plant grow for one day at a rate reduced by the conditions at its own position, and repeats for 24 days after transplanting. The displayed profiles are daytime conditions held constant, so a preset such as <em>Hot summer</em> represents a sustained heat wave rather than a single hot afternoon.</p></div>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulation</h2>
+      <p>The model has nine equations. N1–N3 describe the film, N4–N8 are steady-state balances along the gully (distance \(x\) from the inlet) for oxygen, nutrients, water and heat, and N9 is the growth of each plant. The balances are integrated numerically (second-order Runge–Kutta, four steps per plant spacing); the boxed analytical solutions are exact when the coefficients are constant and are useful for checking.</p>
+
+      <div class="eq-box" id="eq-nft-film">
+        <div class="eq-head"><span class="eq-label">Laminar falling film on a slope (Nusselt)</span><span class="eq-num">(N1)</span></div>
+        <div class="eq-main">\[ \begin{gathered} h = \left(\frac{3\,\mu\,q}{\rho\,g\,\sin\theta}\right)^{1/3},\qquad q=\frac{Q}{W} \\[6pt] \bar u=\frac{q}{h},\qquad u_s=\tfrac32\,\bar u,\qquad Re_f=\frac{4q}{\nu} \end{gathered} \]</div>
+        <p class="eq-read">the film thickness is the cube root of three times the viscosity times the flow per unit width, divided by density times gravity times the sine of the slope angle; the mean velocity is the flow per width divided by the thickness, the surface velocity is one and a half times the mean, and the film Reynolds number is four times the flow per width divided by the kinematic viscosity.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(h\)</td><td>film thickness</td><td>m</td><td>1.43 × 10⁻³</td></tr>
+          <tr><td>\(Q,\ W,\ q\)</td><td>flow per gully; floor width; flow per unit width</td><td>m³ s⁻¹; m; m² s⁻¹</td><td>2.5 × 10⁻⁵ (1.5 L min⁻¹); 0.10; 2.5 × 10⁻⁴</td></tr>
+          <tr><td>\(\mu,\ \nu\)</td><td>dynamic and kinematic viscosity of the solution</td><td>Pa s; m² s⁻¹</td><td>0.95 × 10⁻³ at 22 °C</td></tr>
+          <tr><td>\(\rho,\ g\)</td><td>density; gravitational acceleration</td><td>kg m⁻³; m s⁻²</td><td>998; 9.81</td></tr>
+          <tr><td>\(\theta\)</td><td>slope angle; slope \(s=\tan\theta\), \(\sin\theta = s/\sqrt{1+s^2}\)</td><td>rad</td><td>1:40 → sin θ = 0.025</td></tr>
+          <tr><td>\(\bar u,\ u_s\)</td><td>mean and surface velocity</td><td>m s⁻¹</td><td>0.175; 0.262</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Take \(x\) down the slope and \(y\) perpendicular to the floor. For steady, fully developed laminar flow, the weight component of the fluid between \(y\) and the free surface, \(\rho g\sin\theta\,(h-y)\), is balanced by the shear stress below it: \(\tau(y)=\rho g\sin\theta\,(h-y)\).</li>
+            <li>With Newton's law of viscosity, \(\tau=\mu\,\mathrm{d}u/\mathrm{d}y\), and no slip at the floor, integration gives the half-parabola \(u(y)=(\rho g\sin\theta/\mu)(hy-y^2/2)\).</li>
+            <li>The flow per unit width is \(q=\int_0^h u\,\mathrm{d}y=\rho g\sin\theta\,h^3/(3\mu)\); inverting gives \(h\). The surface value of the parabola is \(1.5\,\bar u\).</li>
+            <li>The full derivation, with the flow regimes of films, is in <a href="/lessons/hydraulic-design/#eq-hd-film">Lesson 5.4, Eq. 5.4.2</a>. The simulator evaluates \(\mu(T)\) with the same Vogel-type fit as the lesson.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A flat, clean floor much wider than the film. A mature root mat acts as a porous dam: solution then flows through and under it, deeper and slower than Eq. N1 predicts. At very small flows surface tension breaks the film into rivulets that leave parts of the floor dry. The regime is smooth laminar for \(Re_f\) below about 20 and laminar with ripples up to about 1500 (Bird et al., 2002).</p></details>
+        <div class="eq-units">\(\left(\dfrac{\text{Pa s}\cdot \text{m}^2\text{s}^{-1}}{\text{kg m}^{-3}\,\text{m s}^{-2}}\right)^{1/3}=(\text{m}^3)^{1/3}=\text{m}\) ✓</div>
+        <div class="mini-calc" data-fn="nftFilm" data-output="Film thickness h" data-unit="mm" data-digits="2" data-plot="Q" data-ymin="0">
+          <div data-var="Q" data-label="Flow per gully Q" data-min="0.1" data-max="4" data-step="0.05" data-value="1.5" data-unit="L min⁻¹"></div>
+          <div data-var="S" data-label="Slope" data-min="0.5" data-max="5" data-step="0.1" data-value="2.5" data-unit="%"></div>
+          <div data-var="W" data-label="Floor width W" data-min="6" data-max="20" data-step="0.5" data-value="10" data-unit="cm"></div>
+          <div data-var="T" data-label="Temperature" data-min="10" data-max="32" data-step="0.5" data-value="22" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nft-residence">
+        <div class="eq-head"><span class="eq-label">Residence time of the solution in a gully</span><span class="eq-num">(N2)</span></div>
+        <div class="eq-main">\[ t_{\text{res}}=\frac{L}{\bar u}=\frac{L\,W\,h}{Q} \]</div>
+        <p class="eq-read">the time a parcel of solution spends in the gully is the gully length divided by the mean film velocity — equivalently, the volume of the film divided by the flow.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(t_{\text{res}}\)</td><td>residence time</td><td>s</td></tr>
+          <tr><td>\(L\)</td><td>gully length</td><td>m</td></tr>
+          <tr><td>\(LWh\)</td><td>volume of solution held as film (drains back to the reservoir when the pump stops)</td><td>m³</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>A parcel moving at the mean velocity needs \(L/\bar u\) to pass. With \(\bar u=q/h=Q/(Wh)\), \(t_{\text{res}}=LWh/Q\).</li><li>Because \(h\propto Q^{1/3}\), \(t_{\text{res}}\propto Q^{-2/3}\): halving the flow lengthens the residence time by 59 %, and the plants downstream see solution that has been depleted for longer.</li></ol></details>
+        <div class="eq-units">m ÷ (m s⁻¹) = s ✓; m³ ÷ (m³ s⁻¹) = s ✓</div>
+        <div class="mini-calc" data-fn="nftRes" data-output="Residence time" data-unit="s" data-digits="0" data-plot="Q" data-ymin="0">
+          <div data-var="L" data-label="Gully length L" data-min="2" data-max="30" data-step="0.5" data-value="10" data-unit="m"></div>
+          <div data-var="Q" data-label="Flow per gully Q" data-min="0.1" data-max="4" data-step="0.05" data-value="1.5" data-unit="L min⁻¹"></div>
+          <div data-var="S" data-label="Slope" data-min="0.5" data-max="5" data-step="0.1" data-value="2.5" data-unit="%"></div>
+          <div data-var="W" data-label="Floor width W" data-min="6" data-max="20" data-step="0.5" data-value="10" data-unit="cm"></div>
+          <div data-var="T" data-label="Temperature" data-min="10" data-max="32" data-step="0.5" data-value="22" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nft-kl">
+        <div class="eq-head"><span class="eq-label">Oxygen transfer through the film surface (penetration theory)</span><span class="eq-num">(N3)</span></div>
+        <div class="eq-main">\[ K_L = 2\sqrt{\frac{D_{O_2}\,u_s}{\pi\,\ell}},\qquad k_La=\frac{K_L\,W\,\mathrm{d}x}{W\,h\,\mathrm{d}x}=\frac{K_L}{h} \]</div>
+        <p class="eq-read">the liquid-side transfer coefficient equals twice the square root of the oxygen diffusivity times the surface velocity divided by pi times the distance over which the surface is renewed; per unit volume of film, the volumetric coefficient is that coefficient divided by the film thickness.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(K_L\)</td><td>liquid-film mass-transfer coefficient</td><td>m s⁻¹</td><td>≈ 2.7 × 10⁻⁵</td></tr>
+          <tr><td>\(D_{O_2}\)</td><td>diffusivity of O₂ in water, \(2.0\times10^{-9}\) at 20 °C, scaled with \(T/\mu\)</td><td>m² s⁻¹</td><td>2.1 × 10⁻⁹</td></tr>
+          <tr><td>\(\ell\)</td><td>surface-renewal length (distance between ripples, plants, inlets that mix the surface)</td><td>m</td><td>1.0</td></tr>
+          <tr><td>\(k_La\)</td><td>volumetric transfer coefficient of the film</td><td>s⁻¹</td><td>≈ 0.019</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Higbie (1935) pictured a liquid surface element that is exposed to the gas for a time \(t_e\) and then replaced. During the exposure O₂ diffuses into it as into a semi-infinite liquid, and the mean flux over the exposure is \(2\sqrt{D/(\pi t_e)}\,(C^*-C)\).</li>
+            <li>A surface element moving at \(u_s\) is renewed after a distance \(\ell\), so \(t_e=\ell/u_s\) and \(K_L=2\sqrt{Du_s/(\pi\ell)}\).</li>
+            <li>With \(u_s\) = 0.18 m s⁻¹ and \(\ell\) = 1 m, \(K_L\approx2\times10^{-5}\) m s⁻¹; ripples every 5 cm raise it to about \(10^{-4}\) m s⁻¹ — the order-of-magnitude range given in <a href="/lessons/hydraulic-design/#eq-hd-depletion">Lesson 5.4</a>.</li>
+            <li>The interfacial area per unit film volume is \(W\,\mathrm{d}x/(Wh\,\mathrm{d}x)=1/h\), hence \(k_La=K_L/h\): a thinner film is re-aerated faster per litre.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>\(\ell\) is the least certain parameter of the model: ripples, falling water at the inlet and gaps between plants shorten it; a root mat that covers the film surface effectively lengthens it. Oxygen reaching the upper root mat directly from the humid air — the main route in mature NFT — is not modelled, so absolute oxygen levels are conservative. Use the slider to test the sensitivity.</p></details>
+        <div class="eq-units">\(\sqrt{\text{m}^2\text{s}^{-1}\cdot\text{m s}^{-1}/\text{m}}=\sqrt{\text{m}^2\text{s}^{-2}}=\text{m s}^{-1}\) ✓</div>
+        <div class="mini-calc" data-fn="nftKL" data-output="K<sub>L</sub>" data-unit="× 10⁻⁵ m s⁻¹" data-digits="2" data-plot="ell" data-ymin="0">
+          <div data-var="us" data-label="Surface velocity u<sub>s</sub>" data-min="0.02" data-max="0.5" data-step="0.01" data-value="0.26" data-unit="m s⁻¹"></div>
+          <div data-var="ell" data-label="Renewal length ℓ" data-min="0.05" data-max="3" data-step="0.05" data-value="1" data-unit="m"></div>
+          <div data-var="T" data-label="Temperature" data-min="10" data-max="32" data-step="0.5" data-value="22" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nft-do">
+        <div class="eq-head"><span class="eq-label">Dissolved-oxygen balance along the gully</span><span class="eq-num">(N4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} Q\,\frac{\mathrm{d}C}{\mathrm{d}x}=K_L\,W\,\big(C^{*}(T)-C\big)-\frac{R_{O_2}}{s} \\[6pt] C(x)=C_{eq}+\big(C_{in}-C_{eq}\big)\,e^{-x/\lambda},\qquad \lambda=\frac{Q}{K_LW},\qquad C_{eq}=C^*-\frac{r'}{K_LW} \end{gathered} \]</div>
+        <p class="eq-read">the change of the oxygen carried by the flow per metre of gully equals oxygen dissolving through the film surface minus oxygen taken up by the roots per metre (uptake per plant divided by the plant spacing). With constant coefficients the concentration relaxes exponentially from the inlet value towards an equilibrium below saturation.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(C,\ C_{in}\)</td><td>dissolved O₂ at \(x\); at the inlet</td><td>g m⁻³ = mg L⁻¹</td><td>8.0 at the inlet</td></tr>
+          <tr><td>\(C^*(T)\)</td><td>air saturation at the local temperature (Benson &amp; Krause, 1984)</td><td>mg L⁻¹</td><td>8.74 at 22 °C</td></tr>
+          <tr><td>\(R_{O_2},\ s\)</td><td>root O₂ uptake per plant (Eq. N5); plant spacing</td><td>g s⁻¹; m</td><td>≈ 8 mg h⁻¹; 0.20</td></tr>
+          <tr><td>\(r'\)</td><td>uptake per metre of gully, \(R_{O_2}/s\)</td><td>g m⁻¹ s⁻¹</td><td>≈ 1.1 × 10⁻⁵</td></tr>
+          <tr><td>\(\lambda,\ C_{eq}\)</td><td>relaxation length; long-gully equilibrium</td><td>m; mg L⁻¹</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Control volume: the film between \(x\) and \(x+\mathrm{d}x\). In steady state, O₂ in with the flow + O₂ dissolving through the surface = O₂ out with the flow + O₂ consumed: \(QC(x)+K_LW\,\mathrm{d}x\,(C^*-C)=QC(x+\mathrm{d}x)+r'\,\mathrm{d}x\).</li>
+            <li>Divide by \(\mathrm{d}x\): \(Q\,\mathrm{d}C/\mathrm{d}x=K_LW(C^*-C)-r'\).</li>
+            <li>Set \(\mathrm{d}C/\mathrm{d}x=0\) to find the equilibrium \(C_{eq}\); with \(y=C-C_{eq}\) the equation becomes \(\mathrm{d}y/\mathrm{d}x=-y/\lambda\), an exponential.</li>
+            <li>Without re-aeration (\(K_L\to0\)) it reduces to the linear whole-gully balance \(C(L)=C_{in}-r'L/Q\) of <a href="/lessons/hydraulic-design/#eq-hd-flow">Lesson 5.4, Eq. 5.4.1</a>.</li>
+            <li>In the simulator \(T\), \(C^*\), \(K_L\), \(Q\) and \(R_{O_2}\) all change along the gully, so the equation is integrated numerically.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Plug flow (no mixing along the gully), uptake spread uniformly over each plant's spacing, and oxygen consumption by microorganisms in the solution and biofilms neglected — Suhl et al. (2019) show that it can matter in solutions made with fish-farm water.</p></details>
+        <div class="eq-units">\(K_LW(C^*-C)\): m s⁻¹ × m × g m⁻³ = g m⁻¹ s⁻¹; \(Q\,\mathrm{d}C/\mathrm{d}x\): m³ s⁻¹ × g m⁻³ m⁻¹ = g m⁻¹ s⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="nftDO" data-output="Outlet dissolved O₂" data-unit="mg L⁻¹" data-digits="2" data-plot="L" data-ymin="0">
+          <div data-var="L" data-label="Gully length L" data-min="1" data-max="30" data-step="0.5" data-value="12" data-unit="m"></div>
+          <div data-var="Q" data-label="Flow Q" data-min="0.1" data-max="3" data-step="0.05" data-value="1" data-unit="L min⁻¹"></div>
+          <div data-var="ppm" data-label="Plants per metre" data-min="2" data-max="8" data-step="0.5" data-value="5"></div>
+          <div data-var="R" data-label="O₂ uptake per plant" data-min="1" data-max="15" data-step="0.1" data-value="8" data-unit="mg h⁻¹"></div>
+          <div data-var="KL" data-label="K<sub>L</sub> (× 10⁻⁵ m s⁻¹)" data-min="0" data-max="10" data-step="0.1" data-value="2.2"></div>
+          <div data-var="Cin" data-label="Inlet DO" data-min="4" data-max="12" data-step="0.1" data-value="8" data-unit="mg L⁻¹"></div>
+          <div data-var="Cs" data-label="Saturation C*" data-min="6.5" data-max="11" data-step="0.01" data-value="8.74" data-unit="mg L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">Design check of the textbook gully</span></div>
+        <div class="we-problem"><p>A 10 m gully with a 10 cm floor at a slope of 1:40 carries 1.5 L min⁻¹ of solution at 22 °C (\(\mu\) = 0.955 × 10⁻³ Pa s, \(\rho\) = 998 kg m⁻³, \(C^*\) = 8.74 mg L⁻¹, \(D_{O_2}\) = 2.11 × 10⁻⁹ m² s⁻¹) that enters at 8.0 mg O₂ L⁻¹. Near harvest, heads of 150 g at 20 cm spacing each respire 8.2 mg O₂ h⁻¹ (Eq. N5 at 22 °C). Assume the film surface is renewed every metre. Estimate the film thickness, the residence time, \(K_L\), the relaxation length, the equilibrium DO and the DO reaching the last plant.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Flow per width and slope:</strong> \(q = 1.5/60\,000/0.10 = 2.50\times10^{-4}\) m² s⁻¹; \(\sin\theta = 0.025/\sqrt{1+0.025^2} = 0.0250\).</li>
+            <li><strong>Film (N1):</strong> \(h = \big(3\times0.955\times10^{-3}\times2.50\times10^{-4}/(998\times9.81\times0.0250)\big)^{1/3} = (2.93\times10^{-9})^{1/3} = 1.43\times10^{-3}\) m; \(\bar u = q/h = 0.175\) m s⁻¹; \(u_s = 1.5\,\bar u = 0.262\) m s⁻¹.</li>
+            <li><strong>Residence time (N2):</strong> \(t_{\text{res}} = 10/0.175 = 57\) s.</li>
+            <li><strong>Surface transfer (N3):</strong> \(K_L = 2\sqrt{2.11\times10^{-9}\times0.262/(\pi\times1)} = 2.66\times10^{-5}\) m s⁻¹, so \(K_LW = 2.66\times10^{-6}\) m² s⁻¹.</li>
+            <li><strong>Uptake per metre:</strong> five plants per metre × 8.22 mg h⁻¹ = 41.1 mg h⁻¹ m⁻¹ = \(1.14\times10^{-5}\) g s⁻¹ m⁻¹.</li>
+            <li><strong>Oxygen profile (N4):</strong> \(\lambda = Q/(K_LW) = 2.50\times10^{-5}/2.66\times10^{-6} = 9.4\) m; \(C_{eq} = 8.74 - 1.14\times10^{-5}/2.66\times10^{-6} = 8.74 - 4.30 = 4.44\) mg L⁻¹; \(C(10) = 4.44 + (8.0-4.44)\,e^{-10/9.4} = 4.44 + 3.56\times0.345 = 5.67\) mg L⁻¹.</li>
+            <li><strong>Check with the simulator.</strong> Apply <em>Textbook design</em> at day 24: the outlet reads 5.7 mg L⁻¹. The small difference comes from the 0.6 °C warming along the gully, which the simulator includes.</li>
+          </ol>
+          <span class="answer">h ≈ 1.43 mm; t<sub>res</sub> ≈ 57 s; λ ≈ 9.4 m; C<sub>eq</sub> ≈ 4.4 mg L⁻¹; C(10 m) ≈ 5.7 mg L⁻¹ — the last plant grows as well as the first</span>
+        </div></details>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Why the low-flow gully fails</span></div>
+        <div class="we-problem"><p>The same gully is lengthened to 12 m and the flow is cut to 0.25 L min⁻¹ (the <em>Low flow</em> preset). Repeat the estimate of Worked example 1. Why does the simulator show 149 g heads at the inlet but only 93 g at the outlet?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Film:</strong> the flow is 6 times smaller, so \(h = 1.43\times6^{-1/3} = 0.79\) mm and \(\bar u = 0.175\times6^{-2/3} = 0.053\) m s⁻¹; \(t_{\text{res}} = 12/0.053 = 227\) s ≈ 3.8 min.</li>
+            <li><strong>Surface transfer:</strong> \(u_s = 0.079\) m s⁻¹, so \(K_L = 2.66\times10^{-5}\sqrt{0.079/0.262} = 1.46\times10^{-5}\) m s⁻¹. Note that \(k_La = K_L/h\) = 0.019 s⁻¹ is exactly the same as at 1.5 L min⁻¹: at a fixed slope both \(K_L\) and \(h\) scale with \(Q^{1/3}\), so each litre of film is re-aerated just as fast.</li>
+            <li><strong>Oxygen profile:</strong> \(\lambda = 4.17\times10^{-6}/1.46\times10^{-6} = 2.9\) m and \(C_{eq} = 8.74 - 1.14\times10^{-5}/1.46\times10^{-6} = 0.9\) mg L⁻¹. After 12 m (≈ 4λ) the solution has reached \(C_{eq}\): the far half of the gully is almost anoxic.</li>
+            <li><strong>What the simulator adds:</strong> respiration slows at such low DO (factor \(C/(K_O+C)\) in N5), so the outlet settles at 1.4 mg L⁻¹ rather than 0.9. The plants beyond ≈ 4 m spend the last week with \(f_{O_2}\) falling to between 0.7 and 0.36, and reach only 130 g down to 93 g (N9).</li>
+            <li><strong>Interpretation.</strong> The failure is caused by the <em>flow</em>: six times less water carries six times less oxygen past the same demand, while re-aeration per litre is unchanged. Nitrate rises slightly (to 128.5 mg L⁻¹), because the plants remove water faster than nitrogen.</li>
+          </ol>
+          <span class="answer">h ≈ 0.79 mm; t<sub>res</sub> ≈ 3.8 min; λ ≈ 2.9 m; C<sub>eq</sub> ≈ 0.9 mg L⁻¹ — the far end becomes hypoxic in the last week</span>
+        </div></details>
+      </div>
+
+      <div class="eq-box" id="eq-nft-ro2">
+        <div class="eq-head"><span class="eq-label">Root oxygen demand of a growing lettuce</span><span class="eq-num">(N5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} R_{O_2}=\big(c_g\,G_{DW}+c_m\,W_{DW}\big)\;Q_{10}^{(T-20)/10}\;\frac{C}{K_O+C} \\[6pt] G_{DW}=\phi_{DW}\,\frac{\mathrm{d}m}{\mathrm{d}t},\qquad W_{DW}=\phi_{DW}\,m \end{gathered} \]</div>
+        <p class="eq-read">the root oxygen uptake of a plant is a growth term proportional to its dry-matter growth rate plus a maintenance term proportional to its dry mass, scaled for temperature with the Q10 rule, and reduced when the oxygen concentration itself becomes low.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(c_g\)</td><td>growth-linked coefficient (carbon budget of <a href="/lessons/root-zone/#eq-rz-respiration">Lesson 5.3</a>)</td><td>mg O₂ h⁻¹ per g DW d⁻¹</td><td>10.5</td></tr>
+          <tr><td>\(c_m\)</td><td>maintenance coefficient (≈ 10 % of the demand near harvest; assumed)</td><td>mg O₂ h⁻¹ g⁻¹ DW</td><td>0.10</td></tr>
+          <tr><td>\(G_{DW},\ W_{DW}\)</td><td>dry-matter growth rate at the temperature-limited rate; dry mass</td><td>g DW d⁻¹; g DW</td><td>0.61; 7 near harvest</td></tr>
+          <tr><td>\(\phi_{DW}\)</td><td>dry-matter fraction (150 g FW ≈ 7 g DW; Brechner &amp; Both, 2013)</td><td>–</td><td>0.047</td></tr>
+          <tr><td>\(Q_{10}\)</td><td>temperature coefficient of respiration (Atkin &amp; Tjoelker, 2003)</td><td>–</td><td>2</td></tr>
+          <tr><td>\(K_O\)</td><td>apparent half-saturation of root uptake with respect to bulk DO (assumed)</td><td>mg L⁻¹</td><td>0.3</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><a href="/lessons/root-zone/">Lesson 5.3</a> (Worked example 1) estimates root respiration from the carbon budget: a lettuce adding 0.6 g DW d⁻¹ respires about 7 mg O₂ h⁻¹ in its roots, i.e. 11.7 mg O₂ h⁻¹ per g DW d⁻¹ of growth.</li>
+            <li>Splitting respiration into growth and maintenance components is the standard crop-physiology approach; here 90 % of the lesson's coefficient is attributed to growth (\(c_g\) = 10.5) and the remainder to maintenance of existing tissue (\(c_m W_{DW}\)), so that a plant that stops growing still respires. At 150 g FW: \(10.5\times0.61+0.10\times7.0=7.1\) mg O₂ h⁻¹ at 20 °C.</li>
+            <li>The Q₁₀ rule (Eq. 5.3.2) scales the rate to the local temperature: +15 % at 22 °C, +62 % at 27 °C.</li>
+            <li>The factor \(C/(K_O+C)\) makes respiration fall only when the bulk concentration approaches zero; it prevents negative concentrations and has little effect above 3 mg L⁻¹.</li>
+          </ol>
+        </details>
+        <div class="eq-units">(mg O₂ h⁻¹ per g DW d⁻¹) × (g DW d⁻¹) = mg O₂ h⁻¹ ✓; the Q₁₀ and Michaelis–Menten factors are dimensionless.</div>
+        <div class="mini-calc" data-fn="nftRO2" data-output="Root O₂ uptake per plant" data-unit="mg h⁻¹" data-digits="2" data-plot="m" data-ymin="0">
+          <div data-var="m" data-label="Head fresh mass m" data-min="2" data-max="240" data-step="1" data-value="150" data-unit="g"></div>
+          <div data-var="f" data-label="Growth factor" data-min="0" data-max="1" data-step="0.01" data-value="1"></div>
+          <div data-var="T" data-label="Temperature" data-min="10" data-max="32" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="C" data-label="Local DO" data-min="0" data-max="10" data-step="0.1" data-value="6" data-unit="mg L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nft-nutrients">
+        <div class="eq-head"><span class="eq-label">Nitrate and potassium along the gully (Michaelis–Menten uptake)</span><span class="eq-num">(N6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} Q\,\frac{\mathrm{d}N}{\mathrm{d}x}=-\frac{U_N}{s}+N\,\frac{E}{s} \\[6pt] U_N=U_{N,\max}\,\frac{N}{K_{m,N}+N},\qquad U_{N,\max}=n_N\,G_{DW} \end{gathered} \]</div>
+        <p class="eq-read">the flow times the change in nitrate-N concentration per metre equals minus the uptake per metre plus a concentration effect as the plants withdraw water; each plant's uptake follows Michaelis–Menten kinetics, with a maximum set by the nitrogen needed for its growth. Potassium obeys the same equation with its own constants.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(N,\ K\)</td><td>NO₃-N and K concentrations</td><td>mg L⁻¹</td><td>inlet 125 and 215 (Cornell solution; Brechner &amp; Both, 2013)</td></tr>
+          <tr><td>\(n_N,\ n_K\)</td><td>N and K content of new dry matter (adequate ranges 3.5–4.5 % N and 5.0–6.0 % K in the oldest undamaged leaves of romaine lettuce at maturity; Hochmuth et al., 2012)</td><td>g g⁻¹ DW</td><td>0.040; 0.055</td></tr>
+          <tr><td>\(K_{m,N},\ K_{m,K}\)</td><td>half-saturation constants of high-affinity uptake: 18 µM K⁺ (mechanism 1 of barley roots; Epstein et al., 1963); 25 µM NO₃⁻, a representative value for a high-affinity system that saturates below 1 mM (Siddiqi et al., 1990)</td><td>mg L⁻¹</td><td>0.35; 0.70</td></tr>
+          <tr><td>\(E\)</td><td>water uptake per plant (Eq. N7)</td><td>m³ s⁻¹</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Mass balance of nitrogen on a slice \(\mathrm{d}x\): \(\mathrm{d}(QN)/\mathrm{d}x=-U_N/s\). Water is also withdrawn: \(\mathrm{d}Q/\mathrm{d}x=-E/s\) (Eq. N7).</li>
+            <li>Expanding the product, \(Q\,\mathrm{d}N/\mathrm{d}x+N\,\mathrm{d}Q/\mathrm{d}x=-U_N/s\), which gives the boxed form. If the plants take up water in a larger proportion than nitrogen, the second term makes the solution slightly <em>more</em> concentrated downstream.</li>
+            <li>Uptake follows Michaelis–Menten kinetics (<a href="/lessons/mineral-nutrition/">Lesson 2.3</a>): the maximum \(U_{N,\max}\) is the demand of a plant growing at the rate allowed by temperature; the transporter saturates when \(N\gg K_m\).</li>
+            <li>At 125 mg N L⁻¹, \(N/(K_m+N)=0.997\): uptake is independent of concentration unless the solution is almost exhausted — the reason nutrients rarely limit gully length.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Whole-plant kinetics with the constants of the high-affinity systems of barley roots; the low-affinity systems that operate at millimolar concentrations would only add capacity. Uptake of ions other than nitrate and potassium, pH changes and ion interactions are not modelled (see <a href="/lessons/nutrient-solution-chemistry/">Lesson 5.2</a>).</p></details>
+        <div class="eq-units">m³ s⁻¹ × g m⁻³ m⁻¹ = g m⁻¹ s⁻¹; \(U_N/s\): g s⁻¹ ÷ m ✓</div>
+        <div class="mini-calc" data-fn="nftN" data-output="Drop in NO₃-N along the gully" data-unit="mg L⁻¹" data-digits="2" data-plot="Q" data-ymin="0">
+          <div data-var="np" data-label="Plants per gully" data-min="10" data-max="150" data-step="1" data-value="50"></div>
+          <div data-var="U" data-label="N uptake per plant" data-min="0.1" data-max="2" data-step="0.05" data-value="1.0" data-unit="mg h⁻¹"></div>
+          <div data-var="Q" data-label="Flow Q" data-min="0.1" data-max="3" data-step="0.05" data-value="1" data-unit="L min⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-nft-water">
+        <div class="eq-head"><span class="eq-label">Water uptake and the flow along the gully</span><span class="eq-num">(N7)</span></div>
+        <div class="eq-main">\[ \frac{\mathrm{d}Q}{\mathrm{d}x}=-\frac{E}{s},\qquad E=e_w\,m \]</div>
+        <p class="eq-read">the flow decreases along the gully by each plant's water uptake divided by the plant spacing; a plant's water uptake is a crop water-use coefficient times its fresh mass.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(E\)</td><td>water uptake (transpiration) per plant</td><td>L d⁻¹</td><td>≈ 0.45 at 150 g</td></tr>
+          <tr><td>\(e_w\)</td><td>water use per kg of fresh mass per day</td><td>L kg⁻¹ d⁻¹</td><td>3 (1–6 with climate)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Transpiration scales with leaf area, which for a lettuce head scales roughly with its fresh mass.</li><li>Integrating \(E=e_wm\) over the logistic growth curve of Eq. N9 from 2 to 150 g gives about 1.0 kg·d of "mass-days", so \(e_w\) = 3 L kg⁻¹ d⁻¹ corresponds to about 3 L per head, i.e. 20 L per kg — the water use reported for greenhouse hydroponic lettuce by Barbosa et al. (2015) and within the 3–6 L per head measured by Kratky (2009).</li></ol></details>
+        <div class="eq-units">(L kg⁻¹ d⁻¹) × kg = L d⁻¹ ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-nft-heat">
+        <div class="eq-head"><span class="eq-label">Heat balance of the flowing film</span><span class="eq-num">(N8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \rho\,c_p\,Q\,\frac{\mathrm{d}T}{\mathrm{d}x}=U\,P\,(T_{air}-T)+\alpha_s\,G_{sun}\,W\,(1-0.8\,c) \\[6pt] T(x)=T_{eq}+(T_{in}-T_{eq})\,e^{-x/\lambda_T},\qquad \lambda_T=\frac{\rho\,c_p\,Q}{U\,P} \end{gathered} \]</div>
+        <p class="eq-read">the heat carried by the flow changes along the gully by heat exchanged with the air through the gully walls plus the part of the sunlight falling on the gully that is absorbed, reduced where the plants shade the gully. With constant coefficients the temperature relaxes towards an equilibrium over a thermal length.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\rho c_p\)</td><td>volumetric heat capacity of water</td><td>J m⁻³ K⁻¹</td><td>4.18 × 10⁶</td></tr>
+          <tr><td>\(U\)</td><td>overall heat-transfer coefficient air → solution (free convection + long-wave radiation; assumed from typical ranges, Incropera et al., 2007)</td><td>W m⁻² K⁻¹</td><td>8</td></tr>
+          <tr><td>\(P\)</td><td>perimeter of the gully, \(2(W+H)\)</td><td>m</td><td>0.30</td></tr>
+          <tr><td>\(\alpha_s\)</td><td>fraction of solar radiation on the (white) gully that heats the solution (assumed)</td><td>–</td><td>0.3</td></tr>
+          <tr><td>\(G_{sun},\ c\)</td><td>solar irradiance on the gully; canopy cover of the gully (0–1)</td><td>W m⁻²; –</td><td>300; grows with the heads</td></tr>
+          <tr><td>\(\lambda_T,\ T_{eq}\)</td><td>thermal relaxation length; equilibrium temperature \(T_{air}+\alpha_sG_{sun}W(1-0.8c)/(UP)\)</td><td>m; °C</td><td>≈ 44 m at 1.5 L min⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Energy balance of a slice: enthalpy in with the flow + heat gained = enthalpy out: \(\rho c_pQ\,T(x)+[UP(T_{air}-T)+q_{sun}]\,\mathrm{d}x=\rho c_pQ\,T(x+\mathrm{d}x)\).</li><li>Dividing by \(\mathrm{d}x\) gives the boxed equation; it has exactly the same mathematical form as the oxygen balance N4, with \(T_{air}\) playing the role of \(C^*\) and the solar gain that of a negative uptake.</li><li>Evaporation from the film under the lid, heat from the pump (which warms the reservoir, <a href="/lessons/hydraulic-design/#eq-hd-pump">Lesson 5.4</a>) and cooling of leaves by transpiration are not included.</li></ol></details>
+        <div class="eq-units">J m⁻³ K⁻¹ × m³ s⁻¹ × K m⁻¹ = W m⁻¹; W m⁻² K⁻¹ × m × K = W m⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="nftT" data-output="Outlet temperature" data-unit="°C" data-digits="2" data-plot="L">
+          <div data-var="L" data-label="Gully length" data-min="1" data-max="30" data-step="0.5" data-value="10" data-unit="m"></div>
+          <div data-var="Q" data-label="Flow" data-min="0.1" data-max="3" data-step="0.05" data-value="1.5" data-unit="L min⁻¹"></div>
+          <div data-var="Tin" data-label="Inlet temperature" data-min="10" data-max="32" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="Ta" data-label="Air temperature" data-min="10" data-max="38" data-step="0.5" data-value="30" data-unit="°C"></div>
+          <div data-var="G" data-label="Solar radiation on gully" data-min="0" data-max="900" data-step="10" data-value="600" data-unit="W m⁻²"></div>
+          <div data-var="c" data-label="Canopy cover c" data-min="0" data-max="1" data-step="0.05" data-value="0"></div>
+          <div data-var="U" data-label="U" data-min="2" data-max="20" data-step="0.5" data-value="8" data-unit="W m⁻² K⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">A hot afternoon in the gully</span></div>
+        <div class="we-problem"><p>In the <em>Hot summer</em> preset, solution enters at 26 °C, the air is 33 °C and 700 W m⁻² falls on the gullies; the flow is 1.5 L min⁻¹ in 10 m gullies. With \(U\) = 8 W m⁻² K⁻¹, \(P\) = 0.30 m, \(\alpha_s\) = 0.3 and a 0.108 m wide gully top, estimate the outlet temperature (a) just after transplanting, when the heads cover hardly any of the gully (\(c\) ≈ 0), and (b) near harvest (\(c\) = 1). What does it mean for the last plant?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Thermal length:</strong> \(\rho c_pQ = 998\times4186\times2.5\times10^{-5} = 104\) W K⁻¹; \(UP = 8\times0.30 = 2.4\) W m⁻¹ K⁻¹; \(\lambda_T = 104/2.4 = 43.5\) m — much longer than the gully, so the solution only starts to approach its equilibrium.</li>
+            <li><strong>(a) Bare gully:</strong> absorbed sunlight \(0.3\times700\times0.108 = 22.7\) W m⁻¹; \(T_{eq} = 33 + 22.7/2.4 = 42.5\) °C; \(T(10) = 42.5 + (26-42.5)\,e^{-10/43.5} = 42.5 - 16.5\times0.795 = 29.4\) °C. (The simulator gives 28.9 °C on day 0 because even the small seedlings shade part of the gully.)</li>
+            <li><strong>(b) Covered gully:</strong> only 20 % of the gain remains, 4.5 W m⁻¹; \(T_{eq} = 33 + 1.9 = 34.9\) °C; \(T(10) = 34.9 - 8.9\times0.795 = 27.8\) °C — exactly the simulator's outlet at day 24.</li>
+            <li><strong>Consequences:</strong> at 27.8 °C the temperature factor is \(f_T\) = 0.83, the saturation concentration falls to 7.8 mg L⁻¹ and respiration rises by \(2^{0.78}\) = 1.7 relative to 20 °C. The simulator's heads reach 126 g at the inlet and 82 g at the outlet.</li>
+            <li><strong>Design lesson.</strong> A thin film has almost no thermal inertia: more flow only lengthens \(\lambda_T\) in proportion to \(Q\). Cooling the reservoir, white or insulated gullies (smaller \(\alpha_s\) and \(U\)) and shading young crops attack the cause.</li>
+          </ol>
+          <span class="answer">(a) ≈ 29 °C; (b) ≈ 27.8 °C at the outlet — the last plants are temperature-limited (f<sub>T</sub> ≈ 0.83)</span>
+        </div></details>
+      </div>
+
+      <div class="eq-box" id="eq-nft-growth">
+        <div class="eq-head"><span class="eq-label">Growth of each plant from the conditions at its position</span><span class="eq-num">(N9)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \frac{\mathrm{d}m}{\mathrm{d}t}=r\,f\,m\left(1-\frac{m}{K}\right) \\[6pt] f=f_T(T)\cdot\min\!\Big(f_{O_2}(C),\ \frac{N}{K_{m,N}+N},\ \frac{K}{K_{m,K}+K}\Big) \end{gathered} \]</div>
+        <p class="eq-read">each head grows logistically at a relative rate reduced by a stress factor: the product of a temperature response and the most limiting of the oxygen, nitrate and potassium responses at the plant's own position.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(m,\ K\)</td><td>head fresh mass; asymptote</td><td>g</td><td>2 at transplanting; 250</td></tr>
+          <tr><td>\(r\)</td><td>maximum relative growth rate, chosen so that an unstressed head reaches 150 g at 24 days after transplanting (35 days after seeding, the Cornell schedule; Brechner &amp; Both, 2013)</td><td>d⁻¹</td><td>0.218</td></tr>
+          <tr><td>\(f_T\)</td><td>temperature response: 1 at 21–24 °C, 0.93 at 26, 0.82 at 28, 0.60 at 31, 0.86 at 17 °C (illustrative, after Thompson et al., 1998)</td><td>–</td><td>–</td></tr>
+          <tr><td>\(f_{O_2}\)</td><td>oxygen response: 1 above 4 mg L⁻¹, 0.8 at 3, 0.5 at 2, 0.25 at 1 (illustrative, after the Cornell guidance: no inhibition above 4, visible stress at 3 mg L⁻¹; Brechner &amp; Both, 2013)</td><td>–</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Logistic growth: the relative growth rate \(\frac{1}{m}\frac{\mathrm{d}m}{\mathrm{d}t}\) starts at \(r\) and declines as the head approaches its asymptote.</li>
+            <li>For constant \(f\) over a day the exact solution is \(m(t+1)=K/\big[1+(K/m(t)-1)\,e^{-rf}\big]\), which the simulator uses day by day.</li>
+            <li>Because growth compounds, a modest reduction of \(f\) has a large effect on the final mass: with \(f\) = 0.9 for 24 days the head reaches 118 g instead of 150 g; with \(f\) = 0.8, 87 g.</li>
+            <li>The stresses are combined with Liebig's law of the minimum for the root-zone supplies and multiplicatively for temperature, a common structure in crop models.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The response functions are illustrative shapes anchored on published thresholds, not fitted to a data set; the relative ranking of scenarios is more reliable than the exact masses. Light, CO₂, air humidity and tipburn are assumed identical for all plants.</p></details>
+        <div class="eq-units">d⁻¹ × g = g d⁻¹ ✓ (\(f\) and \(m/K\) are dimensionless)</div>
+        <div class="mini-calc" data-fn="nftMass" data-output="Head fresh mass" data-unit="g" data-digits="0" data-plot="f" data-ymin="0">
+          <div data-var="f" data-label="Constant growth factor f" data-min="0.3" data-max="1" data-step="0.01" data-value="0.9"></div>
+          <div data-var="t" data-label="Days after transplanting" data-min="0" data-max="35" data-step="1" data-value="24" data-unit="d"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator to answer. Record the settings with <em>Save investigation</em> — the link stores all parameters so that you can compare scenarios in your notebook.</p>
+      <ol class="task-list">
+        <li><h4>The cube-root law</h4><p>With the <em>Textbook design</em>, read the film thickness at 0.5, 1, 2 and 4 L min⁻¹ from the film chart. Plot \(\log h\) against \(\log Q\) in your notebook and determine the slope. Which flow gives a 1.0 mm film at 1:40, and which at 1:100? Explain why growers who see dry roots should check the gully floor before doubling the pump.</p></li>
+        <li><h4>How long may a gully be?</h4><p>Set 1 L min⁻¹ and increase the gully length in steps of 2 m. Find the length at which the outlet DO at harvest falls below 4 mg L⁻¹, and the length beyond which it no longer falls. Explain the plateau with \(C_{eq}\) and \(\lambda\) from Eq. N4, and compare your answer with the practical limit of about 12 m (Jones, 2014). Then test two remedies: doubling the flow and halving the plant density.</p></li>
+        <li><h4>Anatomy of a low-flow failure</h4><p>Apply <em>Low flow</em> and play the crop from day 0. On which day does the last plant first fall below 4 mg L⁻¹? Which factor limits it, and what happens to nitrate and potassium? Use the probe to record DO, temperature and plant mass every 2 m, and find the lowest flow for which the last plant reaches at least 90 % of the first.</p></li>
+        <li><h4>Hot summer: oxygen or temperature?</h4><p>Apply <em>Hot summer</em>. Identify the limiting factor along the gully. Compare three remedies of similar cost: cooling the inlet solution to 22 °C, raising the flow to 3 L min⁻¹, and shading the gullies (radiation 250 W m⁻²). Which gives the largest mean head mass, and why? Discuss how a thin film "forgets" the inlet temperature (Eq. N8).</p></li>
+        <li><h4>The unbalanced manifold</h4><p>Apply <em>Unbalanced manifold</em>. How much lower is the mean head mass of the worst gully than that of the best? Estimate the yield loss of the whole installation in kg per crop. Describe how you would measure and balance the four gully flows in your project system with a jug, a stopwatch and the ball valves.</p></li>
+        <li><h4>Sensitivity to the least-known parameter</h4><p>Repeat task 2 with surface-renewal lengths of 0.2, 1 and 3 m. How much do your conclusions depend on \(\ell\)? Propose an experiment with a DO meter at the inlet and outlet of a real gully that would estimate \(K_L\) (hint: Eq. N4 with measured flow and plant uptake).</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-nft-system">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"A gully 12 cm wide carries 2 L min⁻¹ of solution at 20 °C (μ = 1.00 × 10⁻³ Pa s, ρ = 998 kg m⁻³) on a slope of 1 %. What is the film thickness (Eq. N1)?","answer":2.04,"tol":0.03,"unit":"mm","hint":"q = Q/W = (2/60000)/0.12 m² s⁻¹ and sin θ ≈ 0.01.","explain":"<p>\\(q = 2.78\\times10^{-4}\\) m² s⁻¹; \\(h = (3\\times1.0\\times10^{-3}\\times2.78\\times10^{-4}/(998\\times9.81\\times0.01))^{1/3} = (8.5\\times10^{-9})^{1/3} = 2.04\\times10^{-3}\\) m.</p>"},
+          {"type":"mcq","q":"You double the flow in a gully without changing anything else. The film thickness and the mean velocity change by factors of about…","options":["2 and 1","1.26 and 1.59","1.41 and 1.41","1 and 2"],"answer":1,"feedback":["That would be true if the velocity were fixed; in a falling film both change.","","A square-root law would apply to turbulent flow in some channels, not to a laminar film.","The depth does change: more flow needs a deeper film to carry it."],"explain":"<p>\\(h\\propto Q^{1/3}\\) gives \\(2^{1/3}=1.26\\); \\(\\bar u = q/h \\propto Q^{2/3}\\) gives \\(2^{2/3}=1.59\\).</p>"},
+          {"type":"numeric","q":"Near harvest a gully carries 5 lettuces per metre, each consuming 8 mg O₂ h⁻¹. The film surface has K_L = 2 × 10⁻⁵ m s⁻¹ over a width of 0.10 m and C* = 8.7 mg L⁻¹. What is the long-gully equilibrium DO, C_eq (Eq. N4)?","answer":3.14,"tol":0.03,"unit":"mg L⁻¹","hint":"Convert r′ = 40 mg h⁻¹ m⁻¹ to g s⁻¹ m⁻¹ and divide by K_L W.","explain":"<p>\\(r' = 40/3.6\\times10^{6} = 1.11\\times10^{-5}\\) g s⁻¹ m⁻¹; \\(K_LW = 2\\times10^{-6}\\) m² s⁻¹; \\(C_{eq} = 8.7 - 5.56 = 3.14\\) mg L⁻¹ — below the 4 mg L⁻¹ guideline, whatever the inlet concentration.</p>"},
+          {"type":"multi","q":"Which of these changes raise the DO reaching the last plant of a long gully at harvest? (Select all that apply — check each in the simulator.)","options":["Increasing the flow per gully","Cooling the inlet solution from 26 to 20 °C","Increasing the inlet nitrate concentration","Increasing the plant spacing from 20 to 30 cm","Making the gully longer"],"answer":[0,1,3],"explain":"<p>More flow brings in more oxygen and lengthens \\(\\lambda\\); cooler solution holds more oxygen and lowers root respiration (Q₁₀); wider spacing lowers the uptake per metre \\(r'\\). Nitrate does not affect oxygen, and a longer gully can only lower the outlet DO.</p>"},
+          {"type":"tf","q":"In the Low flow preset the far plants are small mainly because nitrate and potassium have been used up by the plants upstream.","answer":false,"explain":"<p>Outlet nitrate and potassium stay within a few per cent of the inlet (they even rise slightly as water is removed). The plants are oxygen-limited: DO falls to about 1.5 mg L⁻¹. High-affinity transporters keep nutrient uptake at its maximum down to concentrations below 1 mg L⁻¹.</p>"},
+          {"type":"numeric","q":"Use Eq. N9: a lettuce grows for 24 days after transplanting with a constant stress factor f = 0.8 (r = 0.218 d⁻¹, K = 250 g, m₀ = 2 g). What is its fresh mass?","answer":86.6,"tol":0.03,"unit":"g","hint":"m = K / (1 + (K/m₀ − 1) e^(−r f t)).","explain":"<p>\\(m = 250/(1 + 124\\,e^{-0.218\\times0.8\\times24}) = 250/(1+124\\times0.0152) = 86.6\\) g — a 20 % lower growth rate costs 42 % of the harvest, because growth compounds.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Hydraulics.</strong> Laminar Nusselt film on a flat, clean floor of the stated width; the thickening and slowing of the flow by a mature root mat, rivulet formation at very low flows and local ponding in sagging gullies are not modelled. Flow per gully is set directly (the pump and manifold are not solved); the imbalance control distributes a given mean flow linearly between gullies.</li>
+        <li><strong>Plug flow and quasi-steady state.</strong> No mixing along the gully; the balances are solved at steady state once per simulated day with that day's plant sizes, and the daytime climate is held constant over the crop cycle.</li>
+        <li><strong>Oxygen.</strong> Transfer only through the film surface by penetration theory with a single surface-renewal length \(\ell\); direct uptake of oxygen from the humid air by the upper root mat and consumption by microorganisms are neglected. Saturation follows Benson &amp; Krause (1984) for fresh water at sea-level pressure (the small salting-out effect of a nutrient solution is ignored). The inlet DO is a control: re-aeration in the reservoir is not modelled.</li>
+        <li><strong>Plants.</strong> Every head starts at 2 g and follows a logistic curve calibrated to the Cornell schedule (150 g at 24 days after transplanting); root respiration is linked to growth (Lesson 5.3) with Q₁₀ = 2. The temperature and oxygen response curves are illustrative functions anchored on published thresholds, not fitted models. Light, CO₂ and air humidity are uniform, and tipburn and disease are ignored — even though warm, oxygen-poor solution favours <em>Pythium</em> in reality.</li>
+        <li><strong>Nutrients.</strong> Only nitrate-N and potassium are tracked, with whole-plant Michaelis–Menten kinetics using high-affinity constants measured in barley; the reservoir concentrations are assumed to be kept constant by the grower.</li>
+        <li><strong>Heat.</strong> One overall coefficient (U = 8 W m⁻² K⁻¹) couples the solution to the air, 30 % of the sunlight falling on the (white) gully heats the solution, and the canopy shades up to 80 % of it. Evaporation from the film and pump heat are neglected.</li>
+        <li><strong>3D scene.</strong> Plant sizes, root colour, film thickness, flow speeds and the film colour map are driven by the model; the greenhouse, stands, pump and plumbing are illustrative hardware at realistic scale.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Atkin, O. K., &amp; Tjoelker, M. G. (2003). Thermal acclimation and the dynamic response of plant respiration to temperature. <em>Trends in Plant Science</em>, 8(7), 343–351. <a href="https://doi.org/10.1016/S1360-1385(03)00136-5" target="_blank" rel="noopener">doi:10.1016/S1360-1385(03)00136-5</a></li>
+        <li>Barbosa, G. L., Gadelha, F. D. A., Kublik, N., Proctor, A., Reichelm, L., Weissinger, E., Wohlleb, G. M., &amp; Halden, R. U. (2015). Comparison of land, water, and energy requirements of lettuce grown using hydroponic vs. conventional agricultural methods. <em>International Journal of Environmental Research and Public Health</em>, 12(6), 6879–6891. <a href="https://doi.org/10.3390/ijerph120606879" target="_blank" rel="noopener">doi:10.3390/ijerph120606879</a></li>
+        <li>Benson, B. B., &amp; Krause, D. (1984). The concentration and isotopic fractionation of oxygen dissolved in freshwater and seawater in equilibrium with the atmosphere. <em>Limnology and Oceanography</em>, 29(3), 620–632. <a href="https://doi.org/10.4319/lo.1984.29.3.0620" target="_blank" rel="noopener">doi:10.4319/lo.1984.29.3.0620</a></li>
+        <li>Bird, R. B., Stewart, W. E., &amp; Lightfoot, E. N. (2002). <em>Transport Phenomena</em> (2nd ed.). John Wiley &amp; Sons, New York.</li>
+        <li>Brechner, M., &amp; Both, A. J. (2013). <em>Hydroponic Lettuce Handbook</em>. Cornell University Controlled Environment Agriculture (CEA) Program, Ithaca, NY.</li>
+        <li>Cooper, A. J. (1979). <em>The ABC of NFT: Nutrient Film Technique</em>. Grower Books, London.</li>
+        <li>Epstein, E., Rains, D. W., &amp; Elzam, O. E. (1963). Resolution of dual mechanisms of potassium absorption by barley roots. <em>Proceedings of the National Academy of Sciences of the USA</em>, 49(5), 684–692. <a href="https://doi.org/10.1073/pnas.49.5.684" target="_blank" rel="noopener">doi:10.1073/pnas.49.5.684</a></li>
+        <li>Gislerød, H. R., &amp; Kempton, R. J. (1983). The oxygen content of flowing nutrient solutions used for cucumber and tomato culture. <em>Scientia Horticulturae</em>, 20(1), 23–33. <a href="https://doi.org/10.1016/0304-4238(83)90108-5" target="_blank" rel="noopener">doi:10.1016/0304-4238(83)90108-5</a></li>
+        <li>Graves, C. J. (1983). The nutrient film technique. <em>Horticultural Reviews</em>, 5, 1–44. <a href="https://doi.org/10.1002/9781118060728.ch1" target="_blank" rel="noopener">doi:10.1002/9781118060728.ch1</a></li>
+        <li>Higbie, R. (1935). The rate of absorption of a pure gas into a still liquid during short periods of exposure. <em>Transactions of the American Institute of Chemical Engineers</em>, 31, 365–389.</li>
+        <li>Hochmuth, G., Maynard, D., Vavrina, C., Hanlon, E., &amp; Simonne, E. (2012). <em>Plant Tissue Analysis and Interpretation for Vegetable Crops in Florida</em> (HS964, revised). University of Florida IFAS Extension. <a href="https://ask.ifas.ufl.edu/publication/EP081" target="_blank" rel="noopener">ask.ifas.ufl.edu/publication/EP081</a></li>
+        <li>Incropera, F. P., DeWitt, D. P., Bergman, T. L., &amp; Lavine, A. S. (2007). <em>Fundamentals of Heat and Mass Transfer</em> (6th ed.). John Wiley &amp; Sons, Hoboken, NJ.</li>
+        <li>Jones, J. B., Jr. (2014). <em>Complete Guide for Growing Plants Hydroponically</em>. CRC Press, Boca Raton.</li>
+        <li>Kratky, B. A. (2009). Three non-circulating hydroponic methods for growing lettuce. <em>Acta Horticulturae</em>, 843, 65–72. <a href="https://doi.org/10.17660/ActaHortic.2009.843.6" target="_blank" rel="noopener">doi:10.17660/ActaHortic.2009.843.6</a></li>
+        <li>Nusselt, W. (1916). Die Oberflächenkondensation des Wasserdampfes. <em>Zeitschrift des Vereines Deutscher Ingenieure</em>, 60, 541–546 and 569–575.</li>
+        <li>Siddiqi, M. Y., Glass, A. D. M., Ruth, T. J., &amp; Rufty, T. W. (1990). Studies of the uptake of nitrate in barley: I. Kinetics of ¹³NO₃⁻ influx. <em>Plant Physiology</em>, 93(4), 1426–1432. <a href="https://doi.org/10.1104/pp.93.4.1426" target="_blank" rel="noopener">doi:10.1104/pp.93.4.1426</a></li>
+        <li>Suhl, J., Oppedijk, B., Baganz, D., Kloas, W., Schmidt, U., &amp; van Duijn, B. (2019). Oxygen consumption in recirculating nutrient film technique in aquaponics. <em>Scientia Horticulturae</em>, 255, 281–291. <a href="https://doi.org/10.1016/j.scienta.2019.05.033" target="_blank" rel="noopener">doi:10.1016/j.scienta.2019.05.033</a></li>
+        <li>Thompson, H. C., Langhans, R. W., Both, A. J., &amp; Albright, L. D. (1998). Shoot and root temperature effects on lettuce growth in a floating hydroponic system. <em>Journal of the American Society for Horticultural Science</em>, 123(3), 361–364. <a href="https://doi.org/10.21273/JASHS.123.3.361" target="_blank" rel="noopener">doi:10.21273/JASHS.123.3.361</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

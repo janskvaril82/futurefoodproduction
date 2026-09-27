@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Statistics workbench · Future Food Production</title>
+<meta name="description" content="Paste your own growth data and get descriptive statistics, t-tests, ANOVA with Tukey HSD, block designs, regression, correlation, χ² and power analysis — with APA-style report sentences and assumption checks.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* live calculators in the Derive tab: Student t quantile by Simpson integration + bisection */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  function lg(z) { var c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5], x = z, y = z, t = x + 5.5; t -= (x + 0.5) * Math.log(t); var s = 1.000000000190015; for (var j = 0; j < 6; j++) s += c[j] / ++y; return -t + Math.log(2.5066282746310005 * s / x); }
+  function tpdf(t, v) { return Math.exp(lg((v + 1) / 2) - lg(v / 2)) / Math.sqrt(v * Math.PI) * Math.pow(1 + t * t / v, -(v + 1) / 2); }
+  function tcdf(t, v) { var n = 400, h = t / n, s = tpdf(0, v) + tpdf(t, v); for (var i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * tpdf(i * h, v); return 0.5 + s * h / 3; }
+  function tinv(p, v) { var lo = 0, hi = 80; for (var i = 0; i < 60; i++) { var m = (lo + hi) / 2; if (tcdf(m, v) < p) lo = m; else hi = m; } return (lo + hi) / 2; }
+  FFP_CALC.wbCI = function (o) { var n = Math.round(o.n); return tinv(0.975, n - 1) * o.s / Math.sqrt(n); };
+  FFP_CALC.wbPI = function (o) { var n = Math.round(o.n); return tinv(0.975, n - 2) * o.s * Math.sqrt(1 + 1 / n + Math.pow(o.x - o.xbar, 2) / o.sxx); };
+})();
+</script>
+<style>
+.wb-stage-plot { position: absolute; inset: 0; padding: 58px 12px 30px; }
+.stage.light-stage .stage-hud { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 110px); }
+.wb-legend { position: absolute; left: 14px; bottom: 8px; z-index: 4; display: flex; flex-wrap: wrap; gap: 4px 14px; font: 500 .74rem var(--font-sans); color: var(--muted); align-items: center; }
+.wb-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.wb-lg-box { width: 14px; height: 10px; border: 1.5px solid var(--ink-2); border-radius: 2px; display: inline-block; }
+.wb-lg-dia { width: 8px; height: 8px; background: var(--ink); transform: rotate(45deg); display: inline-block; }
+.wb-lg-line { width: 16px; height: 2px; background: var(--muted); display: inline-block; }
+.wb-cbar { width: 120px; height: 9px; border-radius: 3px; display: inline-block; }
+.stage.light-stage .stage-hud .hud-chip { background: color-mix(in srgb, var(--bg-elev) 88%, transparent); color: var(--ink); border-color: var(--line); }
+.stage.light-stage .stage-hud .hud-chip b { color: var(--accent); }
+.stage.light-stage .stage-toolbar button { background: var(--bg-sunk); color: var(--ink-2); border-color: var(--line); }
+.wb-panel { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px 18px; margin: 16px 0; box-shadow: var(--shadow-1); }
+.wb-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.wb-head h2 { font-size: 1.25rem; margin: 0; }
+.wb-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
+.wb-actions select { flex: 1 1 250px; width: auto; min-width: 0; max-width: 100%; }
+.wb-data-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 18px; }
+@media (max-width: 900px) { .wb-data-grid { grid-template-columns: 1fr; } }
+#wb-text { min-height: 250px; tab-size: 14; white-space: pre; }
+.wb-note { font-size: .84rem; margin-top: 8px; color: var(--ink-2); display: flex; flex-direction: column; gap: 3px; }
+.wb-warn { color: var(--warn); font-weight: 600; }
+.wb-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 14px; margin-bottom: 12px; }
+.wb-sel { display: flex; flex-direction: column; gap: 3px; font-size: .8rem; color: var(--muted); font-weight: 550; }
+.wb-sel select { font-size: .86rem; padding: 6px 8px; }
+.wb-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); margin: 10px 0; }
+.wb-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.wb-table caption { caption-side: top; text-align: left; font-size: .8rem; color: var(--muted); padding: 8px 10px 6px; background: var(--bg-sunk); }
+.wb-table th, .wb-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.wb-table th { background: var(--bg-sunk); font-weight: 650; font-size: .78rem; }
+.wb-table th small { display: block; font: 500 .66rem var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.wb-table .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: .8rem; }
+.wb-table tr:last-child td { border-bottom: 0; }
+.wb-prev td { font-family: var(--font-mono); font-size: .78rem; }
+.wb-apa { background: var(--accent-soft); border-radius: 12px; padding: 14px 18px; font-family: var(--font-serif); font-size: 1.04rem; line-height: 1.6; position: relative; }
+.wb-apa p { margin: 0; }
+.wb-apa::before { content: 'Report sentence (APA 7) — edit before use'; display: block; font: 700 .66rem var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+.wb-res-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 20px; margin-top: 8px; }
+@media (max-width: 980px) { .wb-res-grid { grid-template-columns: minmax(0, 1fr); } }
+#wb-checks h3 { font: 700 .72rem var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 14px 0 8px; }
+.wb-checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.wb-checks li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: .86rem; }
+.wb-checks li p { margin: 2px 0 0; color: var(--ink-2); line-height: 1.5; }
+.wb-ic { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 700 .8rem var(--font-mono); background: var(--bg-sunk); color: var(--muted); }
+.wb-checks li.ok .wb-ic { background: var(--accent-soft); color: var(--ok); }
+.wb-checks li.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.wb-checks li.warn .wb-ic { background: var(--amber-soft); color: var(--warn); }
+.wb-checks li.bad { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); }
+.wb-checks li.bad .wb-ic { background: var(--danger-soft); color: var(--danger); }
+.wb-checks li.info .wb-ic { background: var(--water-soft); color: var(--water); }
+.wb-ok { color: var(--ok); font-weight: 650; }
+.wb-bad { color: var(--danger); font-weight: 650; }
+#wb-gl-bar { display: flex; gap: 10px; align-items: center; font-size: .84rem; color: var(--ink-2); margin-top: 8px; }
+#wb-gl-bar select { width: auto; }
+#wb-gl-bar[hidden] { display: none; }
+</style>
+</head>
+<body data-page="lab" data-slug="statistics-workbench">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Statistics workbench</h1>
+    <p class="lead">A robust analysis tool for the data from your own growing experiment. Paste a table from Excel or Google Sheets (decimal commas are fine), load your grow log, or start from an example. Choose an analysis and the workbench draws the right plot, runs the test, checks its assumptions in plain language — and writes the results sentence for your laboratory report.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <section class="wb-panel" id="wb-data" aria-label="Your data">
+    <div class="wb-head"><h2>Your data</h2>
+      <div class="wb-actions"><select id="wb-example" aria-label="Example datasets"></select><button class="btn btn-sm" id="wb-growlog" type="button">Load my grow log</button><button class="btn btn-sm" id="wb-download" type="button">Download CSV</button></div>
+    </div>
+    <div class="wb-data-grid">
+      <div>
+        <label for="wb-text" class="muted" style="font-size:.82rem">Paste a table: one row per experimental unit, a header row with column names. Long format (<code>treatment, fw_g</code>) or wide format (one column per group) both work.</label>
+        <textarea id="wb-text" spellcheck="false" aria-label="Data table"></textarea>
+        <div id="wb-gl-bar" hidden><span>Grow-log rows:</span><select id="wb-gl-rows" aria-label="Grow log rows"><option value="final">Final (harvest) row of each plant — one value per plant</option><option value="all">All rows — repeated measurements (not independent!)</option></select></div>
+        <div class="ctl-buttons" style="justify-content:flex-start"><button id="wb-analyse" class="btn btn-sm btn-primary" type="button" style="flex:0 0 auto">Analyse pasted data</button><button id="wb-clear" class="btn btn-sm" type="button" style="flex:0 0 auto">Clear</button></div>
+      </div>
+      <div>
+        <div class="wb-map" id="wb-map"></div>
+        <div class="wb-note" id="wb-note"></div>
+        <div id="wb-preview"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wb-panel" id="wb-results" aria-label="Results">
+    <div class="wb-head"><h2 id="wb-res-title">Results</h2><button class="btn btn-sm" id="wb-copy" type="button">Copy report sentence</button></div>
+    <div class="wb-apa" id="wb-apa"></div>
+    <div class="wb-res-grid"><div id="wb-tables"></div><div id="wb-checks"></div></div>
+  </section>
+
+  <div class="charts">
+    <div class="chart-card" id="wb-c1"><h3>Distribution</h3><div class="chart-sub"></div><div class="chart"></div></div>
+    <div class="chart-card" id="wb-c2"><h3>QQ plot</h3><div class="chart-sub"></div><div class="chart"></div></div>
+    <div class="chart-card" id="wb-c3"><h3>Estimates</h3><div class="chart-sub"></div><div class="chart"></div></div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour in six steps</h2>
+      <ol>
+        <li><strong>LED spectra (one-way ANOVA).</strong> The page opens with fresh weights of lettuce under three spectra. Each dot is one independent hydroponic unit; the box shows the quartiles, the black diamond the mean with its 95&nbsp;% confidence interval. Read the report sentence: the spectra differ, F(2, 21) = 14.25, p &lt; .001. The letters above the groups summarise Tukey's HSD: groups that share a letter do not differ significantly.</li>
+        <li><strong>Switch to a t-test</strong> (Analysis → t-test, Welch) and compare <em>Red–blue</em> with <em>White + far-red</em>. The third chart shows the estimated difference (≈ 42&nbsp;g) with its confidence interval — far from zero. Now compare <em>Red–blue</em> with <em>White</em>: this single t-test gives p = .027, yet Tukey's HSD after the ANOVA gave p = .089 for the same pair. Tukey accounts for the fact that three pairs were compared; picking the one pair that “worked” after looking at the data is exactly the multiple-testing trap it protects you from.</li>
+        <li><strong>Transform the response</strong> with ln(y). The test statistic hardly changes because these data are close to normal with similar spreads — transformations matter for skewed data such as the fresh weights of very uneven crops.</li>
+        <li><strong>Regression</strong>: choose the <em>EC regression</em> example. The line looks convincing (R² = .87), but the residuals form an arch — positive in the middle, negative at both ends — and the pure-error lack-of-fit test flags it (p = .039): growth levels off at high EC. A straight line is a description over this range only, not a law of nature.</li>
+        <li><strong>Blocks help</strong>: load the <em>Tasting panel</em>. Each panellist rated all three samples, so panellists are blocks. The checklist shows that a one-way ANOVA ignoring blocks gives F = 8.35, but the block design gives F = 46.0 — blocking made the experiment about five times as efficient.</li>
+        <li><strong>Plan your own experiment</strong>: choose <em>Plan: n for Δ = 20 g</em>. With a between-plant SD of 22&nbsp;g, you need 21 plants per treatment for 80&nbsp;% power. With 6 per treatment — a typical student project — power is only about 30&nbsp;%.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A statistical result has three parts that belong together: an <strong>estimate</strong> (how big is the difference?), its <strong>uncertainty</strong> (the confidence interval) and a <strong>test</strong> (how surprising would this be if there were no effect?). Report all three — and the assumption checks that justify them.</p></div>
+      <div class="callout note"><div class="callout-title">Your own data</div><p>Record your project measurements in the <a href="/project/grow-log/">grow log</a>, then press <em>Load my grow log</em>. The workbench keeps one row per plant (the harvest row) because repeated measurements of the same plant are not independent. For the full workflow, see <a href="/project/data-analysis/">Analysing your growth data</a>.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Choosing the right analysis</h2>
+      <p>The analysis follows from two questions: <em>what kind of variables do you have</em> (a number such as fresh weight, or a category such as “tipburn yes/no”), and <em>how was the experiment designed</em> (independent groups, the same units measured twice, or blocks)?</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 720 330" role="img" aria-label="Decision tree for choosing a statistical test">
+          <defs><marker id="wbar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <rect x="250" y="10" width="220" height="40" rx="10" class="fill-sunk" stroke="currentColor"/><text x="360" y="35" text-anchor="middle">What is the response?</text>
+          <line x1="300" y1="50" x2="150" y2="92" stroke="currentColor" marker-end="url(#wbar)"/><line x1="420" y1="50" x2="590" y2="92" stroke="currentColor" marker-end="url(#wbar)"/>
+          <rect x="40" y="95" width="220" height="38" rx="9" class="fill-accent-soft"/><text x="150" y="119" text-anchor="middle">A measurement (g, cm², …)</text>
+          <rect x="480" y="95" width="220" height="38" rx="9" class="fill-magenta-soft"/><text x="590" y="119" text-anchor="middle">Counts in categories</text>
+          <line x1="590" y1="133" x2="590" y2="178" stroke="currentColor" marker-end="url(#wbar)"/>
+          <rect x="490" y="181" width="200" height="54" rx="9" class="fill-bg" stroke="currentColor"/><text x="590" y="203" text-anchor="middle">χ² test of independence</text><text x="590" y="222" text-anchor="middle" class="t-small t-muted">Fisher's exact if expected &lt; 5</text>
+          <line x1="110" y1="133" x2="60" y2="178" stroke="currentColor" marker-end="url(#wbar)"/><line x1="150" y1="133" x2="190" y2="178" stroke="currentColor" marker-end="url(#wbar)"/><line x1="220" y1="133" x2="345" y2="178" stroke="currentColor" marker-end="url(#wbar)"/>
+          <text x="40" y="170" class="t-small t-muted">vs a number x</text><text x="160" y="164" class="t-small t-muted">groups</text><text x="290" y="150" class="t-small t-muted">same units twice / blocks</text>
+          <rect x="4" y="181" width="120" height="54" rx="9" class="fill-bg" stroke="currentColor"/><text x="64" y="203" text-anchor="middle">Regression</text><text x="64" y="222" text-anchor="middle" class="t-small t-muted">or correlation</text>
+          <rect x="136" y="181" width="140" height="54" rx="9" class="fill-bg" stroke="currentColor"/><text x="206" y="203" text-anchor="middle">2 groups: Welch t</text><text x="206" y="222" text-anchor="middle" class="t-small t-muted">≥ 3: ANOVA + Tukey</text>
+          <rect x="290" y="181" width="160" height="54" rx="9" class="fill-bg" stroke="currentColor"/><text x="370" y="203" text-anchor="middle">Paired t (2 times)</text><text x="370" y="222" text-anchor="middle" class="t-small t-muted">RCBD ANOVA (blocks)</text>
+          <rect x="60" y="262" width="600" height="52" rx="10" class="fill-amber-soft"/><text x="360" y="284" text-anchor="middle">Assumptions badly violated? Try ln(y) — or the rank-based alternative:</text><text x="360" y="304" text-anchor="middle" class="t-small">Mann–Whitney · Wilcoxon signed-rank · Kruskal–Wallis · Friedman · Spearman</text>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> Choosing an analysis for a plant-growth experiment. Every test in the workbench reports its rank-based alternative in the assumption checklist.</figcaption>
+      </figure>
+
+      <h3>What a p-value is — and is not</h3>
+      <p>A p-value is the probability of obtaining a result at least as extreme as yours <em>if the null hypothesis were true</em> (for example, if all three spectra gave the same mean fresh weight). A small p means your data would be surprising under the null hypothesis. It is <strong>not</strong> the probability that the null hypothesis is true, and it says nothing about how large or important the effect is (Wasserstein &amp; Lazar, 2016). That is why the workbench always reports an effect size and a confidence interval with every test. Watch p-values “dance” from one replication to the next in the <a href="/laboratories/sampling-distributions/">Sampling distributions laboratory</a>.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“p = .20, so the treatment has no effect.” A non-significant result only means the data are compatible with no effect — and usually also with a sizeable effect. Look at the confidence interval: with six plants per treatment it is often ±30&nbsp;g wide. <em>Absence of evidence is not evidence of absence.</em></p></div>
+
+      <h3>The experimental unit decides the n</h3>
+      <p>The single most common error in student growth experiments is counting plants as replicates when the treatment was applied to a whole tray, reservoir or light compartment. The plants in one tray share the same solution, the same position and the same accidents — they are subsamples, not replicates (Hurlbert, 1984). Average them first, then analyse one value per experimental unit. The same applies to repeated measurements over time in your grow log: the plant, not the measurement day, is the unit. The <a href="/laboratories/experiment-designer/">Experiment designer</a> shows what goes wrong otherwise.</p>
+
+      <h3>Assumptions, in plain language</h3>
+      <table><caption>What each check in the checklist means</caption>
+        <tr><th>Assumption</th><th>What it means</th><th>How the workbench checks it</th><th>If it fails</th></tr>
+        <tr><td>Independence</td><td>One value per experimental unit; units do not influence each other</td><td>Cannot be checked from data — it is a property of your design</td><td>Average subsamples; use blocks or repeated-measures methods</td></tr>
+        <tr><td>Normality</td><td>Residuals (value − group mean) scatter symmetrically, like a bell curve</td><td>Shapiro–Wilk test and QQ plot</td><td>ln(y) for right skew; rank-based test</td></tr>
+        <tr><td>Equal variances</td><td>Groups have similar spread</td><td>Brown–Forsythe test; largest/smallest variance ratio</td><td>Welch's t or Welch's ANOVA</td></tr>
+        <tr><td>Linearity</td><td>The mean of y changes in a straight line with x</td><td>Residual plot; pure-error lack-of-fit test</td><td>Transform, or fit a curve (<a href="/laboratories/model-fitting/">Model fitting</a>)</td></tr>
+        <tr><td>No undue influence</td><td>No single point decides the result</td><td>Tukey fences; Cook's distance</td><td>Check records; report with and without</td></tr>
+      </table>
+      <p>Formal tests of assumptions have little power in small samples and too much power in large ones. Use them together with the plots, and remember that t-tests and ANOVA are fairly robust to mild non-normality when groups have similar sizes (Quinn &amp; Keough, 2002).</p>
+
+      <h3>Effect sizes</h3>
+      <p>Cohen's d expresses a difference in units of the standard deviation (0.2 is conventionally “small”, 0.5 “medium”, 0.8 “large”; Cohen, 1988). η² is the share of the total variation explained by the treatments; ω² is its less biased cousin. For block designs the workbench reports partial η², which leaves the block variation out of the denominator. Effect sizes allow comparison between studies and are needed for power analysis and meta-analysis (Lakens, 2013).</p>
+
+      <h3>Writing it up</h3>
+      <p>The workbench writes sentences following APA 7 conventions: italic test symbols, degrees of freedom in brackets, two decimals for test statistics, exact p-values to three decimals (p &lt; .001 below that) without a leading zero, and an effect size with its confidence interval. Treat the sentence as a draft: add the biological meaning (“far-red supplementation increased fresh weight by about a quarter”) and cite the figure. See the lesson <a href="/lessons/scientific-reporting/">Writing the laboratory report</a>.</p>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the workbench</h2>
+      <p>Notation: \(y_{ij}\) is observation \(j\) in group \(i\); \(\bar y_i\), \(s_i\) and \(n_i\) are the group mean, standard deviation and size; \(k\) groups and \(N\) observations in total.</p>
+
+      <div class="eq-box" id="eq-wb-ci">
+        <div class="eq-head"><span class="eq-label">Standard error and confidence interval of a mean</span><span class="eq-num">(W1)</span></div>
+        <div class="eq-main">\[ \mathrm{SE} = \frac{s}{\sqrt n}, \qquad \bar y \pm t_{1-\alpha/2,\;n-1}\,\frac{s}{\sqrt n} \]</div>
+        <p class="eq-read">the standard error of a mean is the standard deviation divided by the square root of the sample size; the confidence interval extends a t-quantile number of standard errors on either side of the mean.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(s\)</td><td>sample standard deviation, \(\sqrt{\sum(y-\bar y)^2/(n-1)}\)</td><td>as y (e.g. g)</td></tr>
+          <tr><td>\(t_{1-\alpha/2,\,n-1}\)</td><td>quantile of Student's t with \(n-1\) degrees of freedom (2.57 for n = 6, 1.96 as n → ∞)</td><td>–</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>For independent observations with variance \(\sigma^2\), \(\operatorname{Var}(\bar y) = \operatorname{Var}(\tfrac1n\sum y_j) = \tfrac{1}{n^2}\,n\sigma^2 = \sigma^2/n\).</li>
+          <li>If the \(y\) are normal, \((\bar y-\mu)/(s/\sqrt n)\) follows Student's t with \(n-1\) degrees of freedom (Student, 1908) — s is estimated, which makes the tails heavier than the normal.</li>
+          <li>So \(P(-t_c \le (\bar y-\mu)/(s/\sqrt n) \le t_c) = 1-\alpha\); rearranging for \(\mu\) gives the interval.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Independent observations; normality of \(\bar y\) (exact for normal data, approximately true for n ≳ 15–30 by the central limit theorem unless the data are very skewed). With n = 3 the multiplier is 4.30 — small samples give wide intervals.</p></details>
+        <div class="eq-units">\(\mathrm{SE}\) has the unit of y: \(\text{g}/\sqrt{1} = \text{g}\). ✓</div>
+        <div class="mini-calc" data-fn="wbCI" data-output="95 % CI half-width" data-unit="g" data-digits="1" data-plot="n">
+          <div data-var="s" data-label="SD between plants s" data-min="5" data-max="60" data-step="1" data-value="20" data-unit="g"></div>
+          <div data-var="n" data-label="Sample size n" data-min="2" data-max="40" data-step="1" data-value="6"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-welch">
+        <div class="eq-head"><span class="eq-label">Welch's t-test and the Welch–Satterthwaite degrees of freedom</span><span class="eq-num">(W2)</span></div>
+        <div class="eq-main">\[ t = \frac{\bar y_2 - \bar y_1}{\sqrt{\dfrac{s_1^2}{n_1}+\dfrac{s_2^2}{n_2}}}, \qquad \nu = \frac{\left(\dfrac{s_1^2}{n_1}+\dfrac{s_2^2}{n_2}\right)^2}{\dfrac{(s_1^2/n_1)^2}{n_1-1}+\dfrac{(s_2^2/n_2)^2}{n_2-1}} \]</div>
+        <p class="eq-read">the difference between two means divided by its standard error, where each group contributes its own variance; the degrees of freedom are reduced when the variances or sample sizes differ.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(s_1^2, s_2^2\)</td><td>sample variances of the two groups</td><td>g²</td></tr>
+          <tr><td>\(\nu\)</td><td>approximate degrees of freedom (between \(\min(n_i)-1\) and \(n_1+n_2-2\))</td><td>–</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>\(\operatorname{Var}(\bar y_2-\bar y_1) = \sigma_1^2/n_1 + \sigma_2^2/n_2\) for independent groups — no need to assume \(\sigma_1=\sigma_2\).</li>
+          <li>The estimated variance \(V = s_1^2/n_1 + s_2^2/n_2\) is a weighted sum of scaled χ² variables. Satterthwaite matched its mean and variance to a single scaled χ² with \(\nu\) degrees of freedom: \(\nu = 2E(V)^2/\operatorname{Var}(V)\), which gives the formula (Welch, 1947).</li>
+          <li>\(t\) is then compared with Student's t with \(\nu\) (usually non-integer) degrees of freedom.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Independent units, approximately normal groups. Welch's test keeps its false-positive rate close to α when variances differ, and loses almost nothing when they are equal — which is why it is the default in R and in this workbench.</p></details>
+        <div class="eq-units">\(t = \text{g}/\sqrt{\text{g}^2} \) is dimensionless. ✓</div>
+        <div class="mini-calc" data-formula="pow(s1*s1/n1+s2*s2/n2,2)/(pow(s1*s1/n1,2)/(n1-1)+pow(s2*s2/n2,2)/(n2-1))" data-output="Welch degrees of freedom ν" data-digits="1" data-plot="s2">
+          <div data-var="s1" data-label="SD group 1" data-min="2" data-max="60" data-step="1" data-value="15" data-unit="g"></div>
+          <div data-var="n1" data-label="n group 1" data-min="2" data-max="30" data-step="1" data-value="8"></div>
+          <div data-var="s2" data-label="SD group 2" data-min="2" data-max="60" data-step="1" data-value="18" data-unit="g"></div>
+          <div data-var="n2" data-label="n group 2" data-min="2" data-max="30" data-step="1" data-value="8"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-pooled">
+        <div class="eq-head"><span class="eq-label">Pooled-variance and paired t-tests</span><span class="eq-num">(W3)</span></div>
+        <div class="eq-main">\[ t = \frac{\bar y_2-\bar y_1}{s_p\sqrt{\tfrac1{n_1}+\tfrac1{n_2}}},\;\; s_p^2=\frac{(n_1-1)s_1^2+(n_2-1)s_2^2}{n_1+n_2-2}; \qquad t_{\text{paired}} = \frac{\bar d}{s_d/\sqrt n} \]</div>
+        <p class="eq-read">Student's two-sample test uses one pooled variance with \(n_1+n_2-2\) degrees of freedom; the paired test is a one-sample test on the differences \(d = y_{\text{after}} - y_{\text{before}}\) with \(n-1\) degrees of freedom.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(s_p\)</td><td>pooled standard deviation</td><td>as y</td></tr>
+          <tr><td>\(\bar d, s_d\)</td><td>mean and SD of the within-unit differences</td><td>as y</td></tr></table>
+        <details><summary>Why pairing helps</summary><ol class="steps">
+          <li>\(\operatorname{Var}(d) = \sigma_A^2 + \sigma_B^2 - 2\rho\sigma_A\sigma_B\).</li>
+          <li>When the two measurements on the same plant are positively correlated (\(\rho>0\)) — big plants stay big — the variance of the difference is much smaller than the variance of either measurement.</li>
+          <li>In the nitrate example ρ ≈ 0.9: the paired t is 13.4, the (wrong) independent-groups Welch t on the same numbers only 4.7.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Pooled test: equal variances in both groups (check the variance ratio). Paired test: differences approximately normal; pairs independent of each other.</p></details>
+        <div class="eq-units">Both statistics are ratios of g to g: dimensionless. ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-cohen">
+        <div class="eq-head"><span class="eq-label">Standardised effect size (Cohen's d, Hedges' g)</span><span class="eq-num">(W4)</span></div>
+        <div class="eq-main">\[ d = \frac{\bar y_2-\bar y_1}{s_p}, \qquad g = d\left(1-\frac{3}{4(n_1+n_2-2)-1}\right), \qquad \mathrm{SE}(d)\approx\sqrt{\frac{n_1+n_2}{n_1n_2}+\frac{d^2}{2(n_1+n_2)}} \]</div>
+        <p class="eq-read">the difference in means measured in pooled standard deviations; Hedges' correction removes the small-sample upward bias; the standard error gives an approximate confidence interval.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(d, g\)</td><td>standardised mean difference</td><td>–</td></tr></table>
+        <details><summary>Assumptions and validity</summary><p>The CI uses a large-sample normal approximation (Hedges &amp; Olkin, 1985); it is approximate for n below about 10 per group. For paired data the workbench reports \(d_z = \bar d/s_d\).</p></details>
+        <div class="eq-units">g divided by g — dimensionless, which is what makes d comparable across studies and variables. ✓</div>
+        <div class="mini-calc" data-formula="delta/sp" data-output="Cohen's d" data-digits="2" data-plot="delta">
+          <div data-var="delta" data-label="Difference in means" data-min="0" data-max="80" data-step="1" data-value="25" data-unit="g"></div>
+          <div data-var="sp" data-label="Pooled SD" data-min="5" data-max="60" data-step="1" data-value="20" data-unit="g"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-anova">
+        <div class="eq-head"><span class="eq-label">One-way ANOVA: partitioning the variation</span><span class="eq-num">(W5)</span></div>
+        <div class="eq-main">\[ \underbrace{\sum_{i,j}(y_{ij}-\bar y)^2}_{SS_T} = \underbrace{\sum_i n_i(\bar y_i-\bar y)^2}_{SS_B} + \underbrace{\sum_{i,j}(y_{ij}-\bar y_i)^2}_{SS_W}, \qquad F = \frac{SS_B/(k-1)}{SS_W/(N-k)}, \quad \eta^2 = \frac{SS_B}{SS_T} \]</div>
+        <p class="eq-read">the total variation splits exactly into variation between group means and variation within groups; F compares the between-group mean square with the within-group (error) mean square.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(SS_B, SS_W\)</td><td>between- and within-group sums of squares</td><td>g²</td></tr>
+          <tr><td>\(MS_W = SS_W/(N-k)\)</td><td>error mean square = pooled variance</td><td>g²</td></tr>
+          <tr><td>\(F\)</td><td>compared with the F distribution with \(k-1\) and \(N-k\) df</td><td>–</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Write \(y_{ij}-\bar y = (\bar y_i-\bar y) + (y_{ij}-\bar y_i)\) and square. The cross-term \(2\sum_i(\bar y_i-\bar y)\sum_j(y_{ij}-\bar y_i)\) vanishes because deviations from a group mean sum to zero.</li>
+          <li>Under H₀ (equal means) both \(MS_B\) and \(MS_W\) estimate σ², so F ≈ 1. Real differences inflate \(MS_B\): \(E(MS_B) = \sigma^2 + \sum n_i\tau_i^2/(k-1)\).</li>
+          <li>With normal errors, \(SS_W/\sigma^2 \sim \chi^2_{N-k}\) and, under H₀, \(SS_B/\sigma^2 \sim \chi^2_{k-1}\), independent — their scaled ratio is F-distributed (Fisher's analysis of variance).</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Independent units, normal residuals, equal variances. ω² = (SS_B − (k−1)MS_W)/(SS_T + MS_W) corrects η² for its upward bias in small samples.</p></details>
+        <div class="eq-units">\(F = \text{g}^2/\text{g}^2\): dimensionless. ✓</div>
+        <div class="mini-calc" data-formula="(ssb/(k-1))/(ssw/(N-k))" data-output="F ratio" data-digits="2" data-plot="ssb">
+          <div data-var="ssb" data-label="SS between" data-min="0" data-max="15000" data-step="50" data-value="7112" data-unit="g²"></div>
+          <div data-var="ssw" data-label="SS within" data-min="500" data-max="15000" data-step="50" data-value="5239" data-unit="g²"></div>
+          <div data-var="k" data-label="Groups k" data-min="2" data-max="8" data-step="1" data-value="3"></div>
+          <div data-var="N" data-label="Total N" data-min="6" data-max="80" data-step="1" data-value="24"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-tukey">
+        <div class="eq-head"><span class="eq-label">Tukey's honestly significant difference</span><span class="eq-num">(W6)</span></div>
+        <div class="eq-main">\[ q = \frac{|\bar y_i-\bar y_j|}{\sqrt{\dfrac{MS_W}{2}\left(\dfrac1{n_i}+\dfrac1{n_j}\right)}}, \qquad (\bar y_j-\bar y_i) \pm q_{1-\alpha;\,k,\,N-k}\sqrt{\frac{MS_W}{2}\left(\frac1{n_i}+\frac1{n_j}\right)} \]</div>
+        <p class="eq-read">each pairwise difference is divided by its standard error and compared with the studentised range distribution, which accounts for the fact that the largest of many differences is being tested.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(q_{1-\alpha;k,\nu}\)</td><td>quantile of the studentised range for k means and ν error df (3.56 for k = 3, ν = 21)</td><td>–</td></tr></table>
+        <details><summary>Why not several t-tests?</summary><ol class="steps"><li>With k = 4 groups there are 6 pairs. If each t-test has α = 0.05, the chance of at least one false positive can reach 1 − 0.95⁶ ≈ 0.26.</li><li>The studentised range \(Q = (\max\bar y - \min\bar y)/\sqrt{MS_W/n}\) has a known distribution under H₀; using its quantile keeps the <em>family-wise</em> error rate at α for all pairs together (Tukey, 1949; Kramer's extension for unequal n).</li><li>The workbench evaluates the studentised range distribution by numerical integration (stats.js) and checks it against published tables.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Same as ANOVA. With unequal n the Tukey–Kramer intervals are slightly conservative.</p></details>
+        <div class="eq-units">q is a ratio of g to g — dimensionless; the interval has the unit of y. ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-bf">
+        <div class="eq-head"><span class="eq-label">Brown–Forsythe test of equal variances</span><span class="eq-num">(W7)</span></div>
+        <div class="eq-main">\[ z_{ij} = \left|y_{ij} - \tilde y_i\right|, \qquad F_{BF} = \text{one-way ANOVA } F \text{ computed on the } z_{ij} \]</div>
+        <p class="eq-read">replace every observation by its absolute distance from its group median, then test whether these distances have the same mean in all groups.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(\tilde y_i\)</td><td>median of group i</td><td>as y</td></tr></table>
+        <details><summary>Assumptions and validity</summary><p>Using the median (instead of the mean in Levene's original test) makes the test robust to skewed data (Brown &amp; Forsythe, 1974). If it rejects, use Welch's ANOVA: \(F^* = \frac{\sum w_i(\bar y_i-\hat\mu)^2/(k-1)}{1+\frac{2(k-2)}{k^2-1}\sum\frac{(1-w_i/\sum w)^2}{n_i-1}}\) with \(w_i=n_i/s_i^2\) (Welch, 1951).</p></details>
+        <div class="eq-units">F on distances measured in g: dimensionless. ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-rcbd">
+        <div class="eq-head"><span class="eq-label">Randomised complete block design</span><span class="eq-num">(W8)</span></div>
+        <div class="eq-main">\[ y_{ij} = \mu + \tau_i + \beta_j + \varepsilon_{ij}, \qquad SS_T = SS_{\text{trt}} + SS_{\text{block}} + SS_E, \qquad F = \frac{SS_{\text{trt}}/(t-1)}{SS_E/\big((t-1)(b-1)\big)} \]</div>
+        <p class="eq-read">each observation is the overall mean plus a treatment effect plus a block effect plus error; the block sum of squares is removed from the error before testing treatments.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\tau_i\)</td><td>effect of treatment i (t treatments)</td><td>as y</td></tr>
+          <tr><td>\(\beta_j\)</td><td>effect of block j (b blocks: shelves, panellists, days)</td><td>as y</td></tr>
+          <tr><td>\(SS_{\text{block}} = t\sum_j(\bar y_{\cdot j}-\bar y)^2\)</td><td>variation between blocks</td><td>g²</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Least squares gives \(\hat\tau_i = \bar y_{i\cdot}-\bar y\), \(\hat\beta_j = \bar y_{\cdot j}-\bar y\), residual \(e_{ij} = y_{ij}-\bar y_{i\cdot}-\bar y_{\cdot j}+\bar y\).</li>
+          <li>Orthogonality of the complete, balanced layout makes the three sums of squares add up exactly.</li>
+          <li>Relative efficiency versus a completely randomised design: \(RE = \frac{(b-1)MS_{\text{block}} + b(t-1)MS_E}{(bt-1)MS_E}\). RE = 5 means blocking saved the equivalent of four out of five replicates.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Additivity: the treatment effect is the same in every block (checked with Tukey's one-degree-of-freedom test for non-additivity). Complete blocks: every treatment once per block — incomplete blocks are dropped. Randomisation within blocks.</p></details>
+        <div class="eq-units">All sums of squares in g², F dimensionless. ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-regression">
+        <div class="eq-head"><span class="eq-label">Least-squares line, confidence and prediction bands</span><span class="eq-num">(W9)</span></div>
+        <div class="eq-main">\[ b=\frac{\sum(x-\bar x)(y-\bar y)}{\sum(x-\bar x)^2},\;\; a=\bar y-b\bar x,\;\; \hat y_0 \pm t_{n-2}\,s\sqrt{\underbrace{1}_{\text{PI only}}+\frac1n+\frac{(x_0-\bar x)^2}{S_{xx}}} \]</div>
+        <p class="eq-read">the slope is the covariance of x and y divided by the variance of x; the confidence band for the mean line widens away from the mean of x, and the prediction band for a single new plant adds the scatter of individual plants.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(b\)</td><td>slope</td><td>unit y per unit x (g per mS cm⁻¹)</td></tr>
+          <tr><td>\(s = \sqrt{SSE/(n-2)}\)</td><td>residual standard error</td><td>as y</td></tr>
+          <tr><td>\(S_{xx}=\sum(x-\bar x)^2\)</td><td>spread of the predictor</td><td>unit x²</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>Minimise \(SSE=\sum(y-a-bx)^2\): setting \(\partial SSE/\partial a = 0\) and \(\partial SSE/\partial b=0\) gives the two normal equations, solved by the formulas above.</li>
+          <li>\(\operatorname{Var}(b)=\sigma^2/S_{xx}\): spreading the x values (a wide EC range) makes the slope more precise.</li>
+          <li>\(\operatorname{Var}(\hat y_0)=\sigma^2(1/n + (x_0-\bar x)^2/S_{xx})\); a new observation adds its own σ², hence the “1+”.</li>
+          <li>Lack of fit (with replicated x): split SSE into pure error \(\sum\sum(y-\bar y_x)^2\) and lack of fit; \(F=\frac{SS_{LOF}/(m-2)}{SS_{PE}/(n-m)}\) for m distinct x values (Kutner et al., 2005).</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Linear mean, independent residuals, constant variance (Koenker–Breusch–Pagan test), normal residuals for exact CIs. Cook's distance \(D_i = \frac{e_i^2}{2s^2}\frac{h_i}{(1-h_i)^2}\) flags influential points (Cook, 1977).</p></details>
+        <div class="eq-units">\(b\): g ÷ (mS cm⁻¹); the bands have the unit of y. ✓</div>
+        <div class="mini-calc" data-fn="wbPI" data-output="95 % prediction half-width" data-unit="g" data-digits="1" data-plot="x">
+          <div data-var="s" data-label="Residual SE s" data-min="2" data-max="40" data-step="0.5" data-value="7.4" data-unit="g"></div>
+          <div data-var="n" data-label="n" data-min="4" data-max="40" data-step="1" data-value="16"></div>
+          <div data-var="xbar" data-label="Mean EC x̄" data-min="0.5" data-max="3" data-step="0.05" data-value="1.65" data-unit="mS cm⁻¹"></div>
+          <div data-var="sxx" data-label="S<sub>xx</sub>" data-min="0.5" data-max="20" data-step="0.1" data-value="7.56"></div>
+          <div data-var="x" data-label="Predict at x₀" data-min="0" data-max="4" data-step="0.05" data-value="2" data-unit="mS cm⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-pearson">
+        <div class="eq-head"><span class="eq-label">Correlation and its confidence interval</span><span class="eq-num">(W10)</span></div>
+        <div class="eq-main">\[ r = \frac{\sum(x-\bar x)(y-\bar y)}{\sqrt{\sum(x-\bar x)^2\sum(y-\bar y)^2}},\quad t=r\sqrt{\frac{n-2}{1-r^2}},\quad \tanh\!\left(\operatorname{artanh} r \pm \frac{z_{1-\alpha/2}}{\sqrt{n-3}}\right) \]</div>
+        <p class="eq-read">Pearson's r is the standardised covariance; it is tested with a t statistic on n − 2 df, and its confidence interval is built on Fisher's z scale, where the sampling distribution is nearly normal.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(r\)</td><td>correlation (−1 to 1); Spearman's ρ is r of the ranks</td><td>–</td></tr></table>
+        <details><summary>Assumptions and validity</summary><p>Pearson: linear relationship, roughly bivariate normal, no dominant outlier. Spearman: any monotonic relationship. r² equals the R² of the simple regression.</p></details>
+        <div class="eq-units">Units of x and y cancel: r is dimensionless. ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-chisq">
+        <div class="eq-head"><span class="eq-label">χ² test of independence and Cramér's V</span><span class="eq-num">(W11)</span></div>
+        <div class="eq-main">\[ E_{ij}=\frac{R_iC_j}{N},\qquad \chi^2=\sum_{i,j}\frac{(O_{ij}-E_{ij})^2}{E_{ij}},\;\; df=(r-1)(c-1),\qquad V=\sqrt{\frac{\chi^2}{N(\min(r,c)-1)}} \]</div>
+        <p class="eq-read">expected counts follow from the row and column totals if the variables are independent; χ² adds up the squared, scaled deviations of observed from expected counts; Cramér's V rescales χ² to a 0–1 effect size.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr><tr><td>\(O_{ij}, E_{ij}\)</td><td>observed and expected counts</td><td>counts</td></tr><tr><td>\(R_i, C_j, N\)</td><td>row totals, column totals, grand total</td><td>counts</td></tr></table>
+        <details><summary>Assumptions and validity</summary><p>Each individual counted once; expected counts ≥ 5 in at least 80 % of cells and none below 1 (Cochran's rule). The adjusted residual \((O-E)/\sqrt{E(1-R_i/N)(1-C_j/N)}\) is approximately standard normal and shows where the association lies.</p></details>
+        <div class="eq-units">counts²/counts summed → dimensionless χ². ✓</div>
+        <div class="mini-calc" data-formula="sqrt(chi2/(N*(m-1)))" data-output="Cramér's V" data-digits="3" data-plot="chi2">
+          <div data-var="chi2" data-label="χ²" data-min="0" data-max="40" data-step="0.1" data-value="3.82"></div>
+          <div data-var="N" data-label="N" data-min="20" data-max="500" data-step="1" data-value="180"></div>
+          <div data-var="m" data-label="min(rows, columns)" data-min="2" data-max="5" data-step="1" data-value="2"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-wb-power">
+        <div class="eq-head"><span class="eq-label">Power of the two-sample t-test</span><span class="eq-num">(W12)</span></div>
+        <div class="eq-main">\[ 1-\beta = P\big(|T'| > t_{1-\alpha/2,\,2n-2}\big),\quad T'\sim t'_{2n-2}(\delta),\;\; \delta = \frac{\Delta}{\sigma}\sqrt{\frac n2}; \qquad n \approx 2\left(\frac{z_{1-\alpha/2}+z_{1-\beta}}{\Delta/\sigma}\right)^2 \]</div>
+        <p class="eq-read">power is the probability that the test statistic, which follows a noncentral t distribution when the true difference is Δ, falls beyond the critical value; the right-hand formula is the normal approximation for the n per group.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\Delta\)</td><td>smallest difference worth detecting</td><td>as y</td></tr>
+          <tr><td>\(\delta\)</td><td>noncentrality parameter</td><td>–</td></tr>
+          <tr><td>\(1-\beta\)</td><td>power; β = probability of missing a real effect (type II error)</td><td>–</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps">
+          <li>If the true difference is Δ, then \(T = (\bar y_2-\bar y_1)/(s_p\sqrt{2/n})\) has a noncentral t distribution with noncentrality \(\delta=\Delta/(\sigma\sqrt{2/n})\).</li>
+          <li>The workbench integrates this distribution exactly (Lenth, 1989). The normal approximation replaces t′ by N(δ, 1) and solves \(\delta = z_{1-\alpha/2}+z_{1-\beta}\) for n.</li>
+          <li>Example: Δ = 20 g, σ = 22 g, α = .05, power .80: the approximation gives n ≈ 19.0; the exact answer is 21 per group — small samples need more than the normal formula suggests.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>σ must be the SD between experimental units, from a pilot study or earlier data. For k groups the workbench uses Cohen's f = (Δ/σ)√(1/(2k)) (two extreme means Δ apart, others in the middle) with the noncentral F distribution.</p></details>
+        <div class="eq-units">Δ/σ is dimensionless; n is a count. ✓</div>
+        <div class="mini-calc" data-formula="2*pow(2.8016/(delta/sd),2)" data-output="n per group (normal approx., α = .05, power .80)" data-digits="1" data-plot="delta" data-ymax="200">
+          <div data-var="delta" data-label="Difference Δ" data-min="5" data-max="80" data-step="1" data-value="20" data-unit="g"></div>
+          <div data-var="sd" data-label="SD σ" data-min="5" data-max="60" data-step="1" data-value="22" data-unit="g"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the workbench to answer. Tick each task when done, and use <em>Save investigation</em> to copy the analysis and report sentence into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Trust, but verify</h4><p>Load <em>PlantGrowth (textbook check)</em>. Compare F, p and the Tukey adjusted p-values with the textbook values in the dataset note and with the self-test table in <em>Assumptions &amp; sources</em>. If you use R or Python, run the same analysis and confirm the numbers agree to three decimals.</p></li>
+        <li><h4>The price of pseudo-replication</h4><p>Load the <em>Grow-log demo</em>. Analyse leaf area with <em>Final row of each plant</em>, then switch to <em>All rows</em>. Write down n, the error df and p for both. Which analysis is honest, and why is the other one wrong even though it “uses more data”?</p></li>
+        <li><h4>Blocking pays</h4><p>Load the <em>Tasting panel</em>. Record F for samples with the block ANOVA and with a one-way ANOVA (switch the analysis). Explain in two sentences where the variation that blocking removed went, and relate it to the relative efficiency.</p></li>
+        <li><h4>Fragile regression</h4><p>With the <em>EC regression</em> example, delete the four points at EC ≥ 2.4 mS cm⁻¹ from the table. How do the slope, R² and the lack-of-fit test change? What does this tell you about extrapolating a straight line?</p></li>
+        <li><h4>Plan your project</h4><p>Use <em>Power &amp; sample size</em> with your own system's expected SD (or the pooled SD of the LED example, via <em>Use the SD of the loaded data</em>). How many plants per treatment would you need to detect a 15&nbsp;% difference in fresh weight with 80&nbsp;% power? How many can you actually grow — and what is your real power?</p></li>
+        <li><h4>Your data, your paragraph</h4><p>Paste your own project data (or your grow log). Run the analysis that matches your design, go through every item in the checklist, and write a results paragraph of 3–5 sentences that includes an estimate, a confidence interval, a test and an effect size.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-statistics-workbench">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the workbench","questions":[
+          {"type":"numeric","q":"Load the LED spectra example (one-way ANOVA). What is the F statistic?","answer":14.25,"tol":0.01,"hint":"Read the ANOVA table or the report sentence.","explain":"<p>F(2, 21) = 14.25, p &lt; .001, η² = .58: 58 % of the variation in fresh weight is explained by the spectrum.</p>"},
+          {"type":"mcq","q":"In the LED example (α = .05), Red–blue and White both carry the Tukey letter <b>b</b>, White + far-red the letter <b>a</b>. What does it mean that Red–blue and White share a letter?","options":["Their means are identical","They did not differ significantly in Tukey's test","Both differ significantly from all other groups","They have the same variance"],"answer":1,"feedback":["Sharing a letter never means identical means — only that the data cannot distinguish them.","","It is the opposite: groups that share a letter are not separated by the test.","Letters say nothing about variances."],"explain":"<p>A compact letter display groups means that are not significantly different. In the LED data Red–blue and White overlap at α = .05 (p = .089), while White + far-red differs from both.</p>"},
+          {"type":"numeric","q":"Power: you want to detect a 20 g difference in fresh weight between two treatments, the SD between plants is 22 g, α = .05, two-sided. How many plants per treatment are needed for 80 % power (exact calculation)?","answer":21,"abstol":0.5,"unit":"plants per treatment","hint":"Use the preset “Plan: n for Δ = 20 g”.","explain":"<p>d = 20/22 = 0.91; the noncentral t gives n = 21 per group (the normal approximation says 19). With 6 plants per treatment, power is only about 30 %.</p>"},
+          {"type":"tf","q":"With n = 5 plants per group, a non-significant Shapiro–Wilk test (p = .40) shows that the data are normally distributed.","answer":false,"explain":"<p>With five values the test has almost no power: even clearly skewed populations usually give p &gt; .05. A non-significant result is weak reassurance, not proof — use your knowledge of the variable and the QQ plot.</p>"},
+          {"type":"mcq","q":"Your grow log has weekly leaf-area measurements of 5 plants per treatment over 4 weeks (20 rows per treatment). You compare final leaf area between treatments. What is the correct n per treatment?","options":["20 — every row is a measurement","5 — one value per plant","4 — one per week","It depends on the p-value you want"],"answer":1,"feedback":["Repeated measurements of the same plant are not independent replicates; treating them as such is pseudo-replication.","","Weeks are measurement occasions, not replicates of the treatment.","The design, not the desired result, determines n."],"explain":"<p>The experimental unit is the plant (or the tray/reservoir if plants share one). Use the final row per plant, or summarise each plant's growth curve (e.g. a growth rate) before comparing treatments.</p>"},
+          {"type":"numeric","q":"Load the Tasting panel. In the randomised complete block ANOVA, what is the relative efficiency of blocking by panellist (the value in the readouts)?","answer":5.25,"tol":0.02,"hint":"Readout “Relative efficiency”.","explain":"<p>RE = 5.25: without blocks you would need about five times as many panellists for the same precision, because panellists differ greatly in how much they like lettuce in general.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>How the workbench computes</h2>
+      <ul>
+        <li><strong>Distributions.</strong> t, F and χ² probabilities come from the regularised incomplete beta and gamma functions (continued fractions); the studentised range (Tukey) from numerical integration; all in the course library <code>stats.js</code>.</li>
+        <li><strong>Normality.</strong> Shapiro–Wilk W with Royston's (1995) approximation of the coefficients and p-value — the algorithm used by R's <code>shapiro.test</code>, valid for 3 ≤ n ≤ 5000.</li>
+        <li><strong>Rank tests</strong> follow R's conventions: exact distributions for Mann–Whitney and Wilcoxon signed-rank when n &lt; 50 and there are no ties; otherwise a normal approximation with tie and continuity corrections. Kruskal–Wallis and Friedman use tie-corrected χ² approximations.</li>
+        <li><strong>Power</strong> uses the exact noncentral t (Lenth, 1989) and noncentral F (Poisson mixture) distributions. The shared library's <code>powerTwoSample</code> uses a shifted central-t approximation that underestimates power by up to 8 percentage points at n ≤ 5, so it is not used here.</li>
+        <li><strong>Parsing.</strong> Tab, semicolon, comma or space separated; decimal commas converted when the separator is not a comma; quoted fields; NA, blank, “-” and “.” as missing values. Check the preview table: a column read as text instead of numbers usually contains a typing error.</li>
+        <li><strong>Limitations.</strong> Only one-way and randomised-block designs; no factorial ANOVA, repeated-measures models or mixed models (use R's <code>lme4</code> for tray-within-treatment designs). Tests are two-sided. The report sentence is a draft — you are responsible for its content.</li>
+      </ul>
+      <h3>Self-test against published reference values</h3>
+      <div id="wb-selftest"><p class="muted">Computing…</p></div>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>American Psychological Association. (2020). <em>Publication manual of the American Psychological Association</em> (7th ed.). APA.</li>
+        <li>Brown, M. B., &amp; Forsythe, A. B. (1974). Robust tests for the equality of variances. <em>Journal of the American Statistical Association</em>, 69(346), 364–367. <a href="https://doi.org/10.1080/01621459.1974.10482955" target="_blank" rel="noopener">doi:10.1080/01621459.1974.10482955</a></li>
+        <li>Cohen, J. (1988). <em>Statistical power analysis for the behavioral sciences</em> (2nd ed.). Lawrence Erlbaum.</li>
+        <li>Cook, R. D. (1977). Detection of influential observation in linear regression. <em>Technometrics</em>, 19(1), 15–18. <a href="https://doi.org/10.1080/00401706.1977.10489493" target="_blank" rel="noopener">doi:10.1080/00401706.1977.10489493</a></li>
+        <li>Dobson, A. J. (1983). <em>An introduction to statistical modelling</em>. Chapman and Hall. (Source of the PlantGrowth data.)</li>
+        <li>Hedges, L. V., &amp; Olkin, I. (1985). <em>Statistical methods for meta-analysis</em>. Academic Press.</li>
+        <li>Hoenig, J. M., &amp; Heisey, D. M. (2001). The abuse of power: the pervasive fallacy of power calculations for data analysis. <em>The American Statistician</em>, 55(1), 19–24. <a href="https://doi.org/10.1198/000313001300339897" target="_blank" rel="noopener">doi:10.1198/000313001300339897</a></li>
+        <li>Hurlbert, S. H. (1984). Pseudoreplication and the design of ecological field experiments. <em>Ecological Monographs</em>, 54(2), 187–211. <a href="https://doi.org/10.2307/1942661" target="_blank" rel="noopener">doi:10.2307/1942661</a></li>
+        <li>Kutner, M. H., Nachtsheim, C. J., Neter, J., &amp; Li, W. (2005). <em>Applied linear statistical models</em> (5th ed.). McGraw-Hill/Irwin.</li>
+        <li>Lakens, D. (2013). Calculating and reporting effect sizes to facilitate cumulative science: a practical primer for t-tests and ANOVAs. <em>Frontiers in Psychology</em>, 4, 863. <a href="https://doi.org/10.3389/fpsyg.2013.00863" target="_blank" rel="noopener">doi:10.3389/fpsyg.2013.00863</a></li>
+        <li>Lenth, R. V. (1989). Algorithm AS 243: Cumulative distribution function of the non-central t distribution. <em>Applied Statistics</em>, 38(1), 185–189. <a href="https://doi.org/10.2307/2347693" target="_blank" rel="noopener">doi:10.2307/2347693</a></li>
+        <li>Quinn, G. P., &amp; Keough, M. J. (2002). <em>Experimental design and data analysis for biologists</em>. Cambridge University Press. <a href="https://doi.org/10.1017/CBO9780511806384" target="_blank" rel="noopener">doi:10.1017/CBO9780511806384</a></li>
+        <li>Royston, P. (1995). Remark AS R94: A remark on algorithm AS 181: The W-test for normality. <em>Applied Statistics</em>, 44(4), 547–551. <a href="https://doi.org/10.2307/2986146" target="_blank" rel="noopener">doi:10.2307/2986146</a></li>
+        <li>Shapiro, S. S., &amp; Wilk, M. B. (1965). An analysis of variance test for normality (complete samples). <em>Biometrika</em>, 52(3–4), 591–611. <a href="https://doi.org/10.1093/biomet/52.3-4.591" target="_blank" rel="noopener">doi:10.1093/biomet/52.3-4.591</a></li>
+        <li>Student. (1908). The probable error of a mean. <em>Biometrika</em>, 6(1), 1–25. <a href="https://doi.org/10.1093/biomet/6.1.1" target="_blank" rel="noopener">doi:10.1093/biomet/6.1.1</a></li>
+        <li>Tukey, J. W. (1949). Comparing individual means in the analysis of variance. <em>Biometrics</em>, 5(2), 99–114. <a href="https://doi.org/10.2307/3001913" target="_blank" rel="noopener">doi:10.2307/3001913</a></li>
+        <li>Wasserstein, R. L., &amp; Lazar, N. A. (2016). The ASA statement on p-values: context, process, and purpose. <em>The American Statistician</em>, 70(2), 129–133. <a href="https://doi.org/10.1080/00031305.2016.1154108" target="_blank" rel="noopener">doi:10.1080/00031305.2016.1154108</a></li>
+        <li>Welch, B. L. (1947). The generalization of “Student's” problem when several different population variances are involved. <em>Biometrika</em>, 34(1–2), 28–35. <a href="https://doi.org/10.1093/biomet/34.1-2.28" target="_blank" rel="noopener">doi:10.1093/biomet/34.1-2.28</a></li>
+        <li>Welch, B. L. (1951). On the comparison of several mean values: an alternative approach. <em>Biometrika</em>, 38(3–4), 330–336. <a href="https://doi.org/10.1093/biomet/38.3-4.330" target="_blank" rel="noopener">doi:10.1093/biomet/38.3-4.330</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

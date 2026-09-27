@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Growth-curve model fitting · Future Food Production</title>
+<meta name="description" content="Fit linear, exponential, logistic, Gompertz, Richards and expolinear growth curves to your own lettuce data; compare them with R², AICc, Akaike weights and cross-validation, and forecast your harvest day with a bootstrap uncertainty band.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* live calculators of the Derive tab */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  function lg(z) { var c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5], x = z, y = z, t = x + 5.5; t -= (x + 0.5) * Math.log(t); var s = 1.000000000190015; for (var j = 0; j < 6; j++) s += c[j] / ++y; return -t + Math.log(2.5066282746310005 * s / x); }
+  function tpdf(t, v) { return Math.exp(lg((v + 1) / 2) - lg(v / 2)) / Math.sqrt(v * Math.PI) * Math.pow(1 + t * t / v, -(v + 1) / 2); }
+  function tcdf(t, v) { var n = 400, h = t / n, s = tpdf(0, v) + tpdf(t, v); for (var i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * tpdf(i * h, v); return 0.5 + s * h / 3; }
+  function tinv(p, v) { var lo = 0, hi = 80; for (var i = 0; i < 60; i++) { var m = (lo + hi) / 2; if (tcdf(m, v) < p) lo = m; else hi = m; } return (lo + hi) / 2; }
+  FFP_CALC.mfCI = function (o) { var df = Math.max(1, Math.round(o.n) - Math.round(o.p)); return tinv(0.975, df) * o.se; };
+  FFP_CALC.mfRichards = function (o) { return o.nu < 1e-6 ? Math.exp(-1) : Math.pow(1 + o.nu, -1 / o.nu); };
+  FFP_CALC.mfExpolin = function (o) { var x = o.rm * (o.t - o.tb); return o.cm / o.rm * (x > 35 ? x : Math.log(1 + Math.exp(x))); };
+  FFP_CALC.mfAICc = function (o) { var K = Math.round(o.p) + 1, n = Math.round(o.n); return n * Math.log(o.sse / n) + 2 * K + 2 * K * (K + 1) / Math.max(1e-9, n - K - 1); };
+})();
+</script>
+<style>
+.mf-plot { position: absolute; inset: 0; padding: 56px 12px 6px 6px; }
+.stage.light-stage .stage-hud { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 70px); }
+.stage.light-stage .stage-hud .hud-chip { background: color-mix(in srgb, var(--bg-elev) 90%, transparent); color: var(--ink); border-color: var(--line); }
+.stage.light-stage .stage-hud .hud-chip b { color: var(--accent); }
+.stage.light-stage .stage-toolbar button { background: var(--bg-sunk); color: var(--ink-2); border-color: var(--line); }
+.mf-panel { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px 18px; margin: 16px 0; box-shadow: var(--shadow-1); }
+.mf-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.mf-head h2 { font-size: 1.2rem; margin: 0; }
+.mf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mf-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; }
+@media (max-width: 900px) { .mf-grid { grid-template-columns: 1fr; } }
+#mf-text { width: 100%; min-height: 220px; font: 500 .8rem/1.45 var(--font-mono); white-space: pre; tab-size: 12; }
+#mf-map { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; margin-bottom: 10px; }
+#mf-map label, #mf-gl-bar label { display: flex; flex-direction: column; gap: 3px; font-size: .78rem; color: var(--muted); font-weight: 600; }
+#mf-map select, #mf-gl-bar select { font-size: .84rem; padding: 5px 7px; }
+#mf-gl-bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); }
+#mf-gl-bar[hidden] { display: none; }
+#mf-note { font-size: .86rem; color: var(--ink-2); line-height: 1.55; }
+.mf-warn { color: var(--warn); font-weight: 650; }
+.mf-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); margin: 10px 0 14px; }
+.mf-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.mf-table caption { caption-side: top; text-align: left; font-size: .8rem; color: var(--muted); padding: 8px 10px 6px; background: var(--bg-sunk); line-height: 1.45; }
+.mf-table th, .mf-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.mf-table th { background: var(--bg-sunk); font-weight: 650; font-size: .78rem; white-space: nowrap; }
+.mf-table .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: .8rem; white-space: nowrap; }
+.mf-table tr:last-child td { border-bottom: 0; }
+#mf-table tr[data-k] { cursor: pointer; }
+#mf-table tr[data-k]:hover { background: var(--bg-sunk); }
+.mf-table tr.mf-focus { background: var(--accent-soft) !important; }
+.mf-table tr.mf-focus td:first-child { font-weight: 700; }
+.mf-table tr.mf-na td { color: var(--muted); }
+.mf-table tr.mf-derived td { color: var(--ink-2); font-size: .8rem; background: color-mix(in srgb, var(--bg-sunk) 50%, transparent); }
+.mf-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; vertical-align: -1px; }
+.mf-flag { font: 700 .62rem var(--font-mono); letter-spacing: .06em; text-transform: uppercase; padding: 2px 5px; border-radius: 5px; background: var(--amber-soft); color: var(--warn); margin-left: 4px; }
+.mf-flag.ok { background: var(--accent-soft); color: var(--ok); }
+.mf-manual { background: var(--bg-elev); border: 1px solid var(--magenta); border-radius: var(--radius); padding: 12px 16px; margin-top: 12px; box-shadow: var(--shadow-1); }
+.mf-manual[hidden] { display: none; }
+.mf-man-head { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; margin-bottom: 8px; font-size: .92rem; }
+.mf-man-head .muted { font-family: var(--font-mono); font-size: .8rem; }
+.mf-man-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 4px 18px; }
+.mf-man-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-top: 6px; }
+.mf-man-ro { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .84rem; font-family: var(--font-mono); }
+.mf-man-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.mf-ok { color: var(--ok); } .mf-warnc { color: var(--warn); } .mf-bad { color: var(--danger); }
+#mf-warn2 { color: var(--warn); font-weight: 650; font-size: .86rem; }
+.fig-6 text { font-size: 12px; }
+</style>
+</head>
+<body data-page="lab" data-slug="model-fitting">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Growth-curve model fitting</h1>
+    <p class="lead">Turn a column of plant sizes into biology. Fit six classic growth functions to simulated lettuce data, to your own grow log or to anything you paste — then do what professional growth analysts do: read the parameters as biological quantities, look for patterns in the residuals, rank the models with AICc and cross-validation, and forecast the day your crop reaches harvest size with an honest uncertainty band. Everything runs in your browser; your data never leave your computer.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage light-stage" id="stage"><div class="mf-plot" id="mf-main"></div></div>
+      <div class="mf-manual" id="mf-manual" hidden></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <section class="mf-panel" id="mf-data" aria-label="Your data">
+    <div class="mf-head"><h2>Data</h2>
+      <div class="mf-actions">
+        <button class="btn btn-sm btn-primary" id="mf-fit" type="button">Fit pasted data</button>
+        <button class="btn btn-sm" id="mf-growlog" type="button">Load my grow log</button>
+        <button class="btn btn-sm btn-ghost" id="mf-demo" type="button">Try a demo grow log</button>
+        <button class="btn btn-sm btn-ghost" id="mf-dl-data" type="button">Download data + fitted values (CSV)</button>
+      </div>
+    </div>
+    <div class="mf-grid">
+      <div>
+        <label for="mf-text" class="muted" style="font-size:.82rem">Paste a table from a spreadsheet — columns <code>time, value[, group]</code>, with a header row. Time in days (or ISO dates, converted to days); comma, tab or semicolon separated; decimal commas are fine with semicolons.</label>
+        <textarea id="mf-text" spellcheck="false" aria-label="Data table"></textarea>
+      </div>
+      <div>
+        <div id="mf-map" aria-label="Column mapping"></div>
+        <div id="mf-gl-bar" hidden>
+          <label>Variable<select id="mf-gl-var"><option value="fw_g">Fresh mass fw_g (g)</option><option value="area_cm2">Projected leaf area area_cm2 (cm²)</option><option value="height_cm">Height height_cm (cm)</option><option value="leaves">Leaf number leaves</option></select></label>
+          <label>Treatment<select id="mf-gl-trt"><option value="">All treatments</option></select></label>
+          <label>Group by<select id="mf-gl-by"><option value="plant">Plant</option><option value="treatment">Treatment</option><option value="none">None</option></select></label>
+        </div>
+        <p id="mf-note"></p>
+        <p id="mf-warn2" aria-live="polite"></p>
+        <p class="muted" style="font-size:.8rem">Grow-log data are read from this browser only (key <code>ffp-growlog-v1</code>, written by the <a href="/project/grow-log/">Grow log tool</a>). Nothing is uploaded.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="mf-panel" id="mf-results" aria-label="Results">
+    <div class="mf-head"><h2>Results</h2><div class="mf-actions"><button class="btn btn-sm btn-ghost" id="mf-dl-table" type="button">Download model table (CSV)</button></div></div>
+    <div class="mf-scroll"><table class="mf-table" id="mf-table"></table></div>
+    <div class="mf-scroll"><table class="mf-table" id="mf-params"></table></div>
+    <div id="mf-groups-wrap" hidden><div class="mf-scroll"><table class="mf-table" id="mf-groups"></table></div></div>
+  </section>
+
+  <div class="charts">
+    <div class="chart-card"><h3>Residuals of the focus model</h3><div class="chart-sub" id="ch-resid-sub">Observed minus fitted, in time order.</div><div class="chart" id="ch-resid"></div></div>
+    <div class="chart-card"><h3>Fit versus prediction</h3><div class="chart-sub" id="ch-cv-sub">Training RMSE and cross-validated RMSE for each model.</div><div class="chart" id="ch-cv"></div></div>
+    <div class="chart-card"><h3>Akaike weights</h3><div class="chart-sub">Relative support for each model given the data (AICc, Eq. MF10). Weights add up to 100 %.</div><div class="chart" id="ch-aic"></div></div>
+    <div class="chart-card"><h3>Over-fitting with polynomials</h3><div class="chart-sub" id="ch-poly-sub">Training versus cross-validated error as the polynomial degree grows.</div><div class="chart" id="ch-poly"></div></div>
+    <div class="chart-card"><h3>When will the target be reached?</h3><div class="chart-sub" id="ch-hist-sub">Distribution of the forecast day from the parametric bootstrap.</div><div class="chart" id="ch-hist"></div></div>
+    <div class="chart-card"><h3>Relative growth rate against size</h3><div class="chart-sub">Points: RGR between consecutive dates, \(\ln(W_2/W_1)/(t_2-t_1)\). Lines: the RGR implied by the fitted curves. Logistic growth predicts a straight, falling line.</div><div class="chart" id="ch-rgr"></div></div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <!-- ================================================================ OBSERVE -->
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour in six steps</h2>
+      <ol>
+        <li><strong>Look before you fit.</strong> The default data are five simulated lettuces weighed twice a week. All six curves pass through the cloud and every R² in the results table is above 0.85 — yet the Akaike weights differ enormously. Click the <em>Linear</em> row in the table: its residuals form a U (positive, negative, positive), and the runs test turns red. A straight line has the wrong <em>shape</em>, however high its R².</li>
+        <li><strong>Log the y axis</strong> (Models → Logarithmic y axis). On a log scale exponential growth is a straight line: you can see that the relative growth rate is highest in the first week and falls steadily afterwards. The <em>Relative growth rate against size</em> chart shows the same thing directly.</li>
+        <li><strong>Change the error model to <em>Proportional</em>.</strong> With plants of 3 g and 300 g in one data set, an error of 10 g means very different things. Fitting \(\ln W\) weights every point by its <em>relative</em> error. Watch the ranking and the parameters change — and note that AICc values of the two error models cannot be compared with each other.</li>
+        <li><strong>Choose “First two weeks only”</strong> (or the preset <em>Only the first two weeks</em>). Put the logistic in focus. Its asymptote \(K\) is now about 90 g with a standard error of the same order of magnitude, and the 250 g target is never reached — although the full data set passes 250 g around day 30. The bootstrap histogram shows how little two weeks of data say about the harvest. A forecast is only as good as the phase of growth you have observed.</li>
+        <li><strong>Fit by eye.</strong> Tick <em>Fit the focus model by hand</em>. Drag the sliders until the magenta curve hugs the points; the pale squares are the squared residuals whose total (SSE) you are minimising. Then press <em>Let Levenberg–Marquardt finish</em> and watch the optimiser take over, iteration by iteration.</li>
+        <li><strong>Over-fit on purpose.</strong> Move the polynomial degree to 8 and draw it on the main chart. It hugs the data — and does something absurd beyond the last date. The U-shaped curve in <em>Over-fitting with polynomials</em> is the bias–variance trade-off of <a href="/lessons/data-to-models/">Lesson 10.1</a>, measured on your data.</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A good growth model is not the one with the highest \(R^2\). It is the simplest model whose residuals show no pattern, whose parameters are well determined and biologically sensible, and which predicts data it has not seen — later dates, other plants — as well as the data it was fitted to.</p></div>
+      <div class="callout note"><div class="callout-title">Your own project data</div><p>Press <em>Load my grow log</em> to analyse the fresh mass, projected leaf area, height or leaf number you recorded in the <a href="/project/grow-log/">Grow log</a>. Choose <em>Group by: Plant</em> and look at the per-plant table: fitting each plant separately and then comparing the parameters between treatments is the statistically sound way to test a treatment effect on growth. Non-destructive leaf-area data from photographs come from the <a href="/laboratories/plant-vision/">Plant vision lab</a>.</p></div>
+    </section>
+
+    <!-- ================================================================ EXPLAIN -->
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>Why fit a growth function at all?</h2>
+      <p>A column of plant masses is hard to compare, to test and to extrapolate. A fitted growth function compresses it into two to four numbers that each answer a biological question: <em>how fast does a small plant grow</em> (the relative growth rate \(r\)), <em>how large does it get</em> (the asymptote \(K\)), <em>when is it growing fastest</em> (the inflection time \(t_i\)), <em>what is its top speed</em> (the maximum absolute growth rate). These numbers can be compared between treatments with ordinary statistics, and the curve can be extrapolated — carefully — to forecast the harvest (Hunt, 1982; Paine et al., 2012).</p>
+      <figure class="figure wide fig-6"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 690 330" role="img" aria-label="Six growth functions sketched on identical axes: linear, exponential, logistic, Gompertz, Richards and expolinear, with inflection points and asymptotes marked">
+          <defs><marker id="mf-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+          <g transform="translate(40,30)">
+            <text x="0" y="-10" font-weight="650">Linear</text>
+            <line x1="0" y1="100" x2="175" y2="100" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/><line x1="0" y1="100" x2="0" y2="0" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/>
+            <path d="M14.2 99.1 L28.3 91.3 L42.5 83.5 L56.7 75.7 L70.8 67.8 L85 60 L99.2 52.2 L113.3 44.3 L127.5 36.5 L141.7 28.7 L155.8 20.9 L170 13" fill="none" class="stroke-accent" stroke-width="2.4"/>
+            <text x="80" y="118" class="t-small t-muted">constant absolute rate b</text>
+          </g>
+          <g transform="translate(260,30)">
+            <text x="0" y="-10" font-weight="650">Exponential</text>
+            <line x1="0" y1="100" x2="175" y2="100" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/><line x1="0" y1="100" x2="0" y2="0" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/>
+            <path d="M0 97.4 L17 96.3 L34 94.8 L51 92.7 L68 89.6 L85 85.4 L99.2 80.5 L113.3 74 L127.5 65.3 L141.7 53.8 L150.2 45.1 L158.7 34.7 L164.3 26.8 L170 17.8" fill="none" class="stroke-accent" stroke-width="2.4"/>
+            <text x="40" y="118" class="t-small t-muted">constant relative rate r — no limit</text>
+          </g>
+          <g transform="translate(480,30)">
+            <text x="0" y="-10" font-weight="650">Logistic</text>
+            <line x1="0" y1="100" x2="175" y2="100" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/><line x1="0" y1="100" x2="0" y2="0" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/>
+            <line x1="0" y1="13" x2="170" y2="13" class="stroke-muted" stroke-dasharray="4 3"/><text x="150" y="9" class="t-small t-muted">K</text>
+            <path d="M0 99.5 L17 98.7 L34 96.4 L45.3 93.1 L56.7 87.1 L65.2 80.3 L73.7 71.1 L79.3 64.1 L85 56.5 L90.7 49 L96.3 41.9 L104.8 32.8 L113.3 25.9 L124.7 20 L136 16.6 L150.2 14.6 L170 13.5" fill="none" class="stroke-accent" stroke-width="2.4"/>
+            <circle cx="85" cy="56.5" r="4.5" class="fill-magenta"/><text x="92" y="66" class="t-small" style="fill:var(--magenta)">tᵢ, K/2</text>
+            <text x="30" y="118" class="t-small t-muted">symmetric; fastest at half size</text>
+          </g>
+          <g transform="translate(40,190)">
+            <text x="0" y="-10" font-weight="650">Gompertz</text>
+            <line x1="0" y1="100" x2="175" y2="100" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/><line x1="0" y1="100" x2="0" y2="0" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/>
+            <line x1="0" y1="13" x2="170" y2="13" class="stroke-muted" stroke-dasharray="4 3"/><text x="150" y="9" class="t-small t-muted">K</text>
+            <path d="M0 100 L17 99.4 L28.3 96.9 L36.8 92.6 L45.3 85.9 L53.8 77.5 L62.3 68 L70.8 58.5 L79.3 49.8 L87.8 42.1 L99.2 33.8 L110.5 27.6 L124.7 22.2 L141.7 18.2 L158.7 15.9 L170 15" fill="none" class="stroke-accent" stroke-width="2.4"/>
+            <circle cx="62.3" cy="68" r="4.5" class="fill-magenta"/><text x="69" y="80" class="t-small" style="fill:var(--magenta)">tᵢ, K/e</text>
+            <text x="20" y="118" class="t-small t-muted">fast start, long slow approach</text>
+          </g>
+          <g transform="translate(260,190)">
+            <text x="0" y="-10" font-weight="650">Richards (here ν = 3)</text>
+            <line x1="0" y1="100" x2="175" y2="100" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/><line x1="0" y1="100" x2="0" y2="0" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/>
+            <line x1="0" y1="13" x2="170" y2="13" class="stroke-muted" stroke-dasharray="4 3"/><text x="150" y="9" class="t-small t-muted">K</text>
+            <path d="M0 95.3 L17 92.6 L34 88.4 L51 81.9 L62.3 75.7 L73.7 67.5 L82.2 60 L90.7 51.3 L96.3 45.2 L104.8 36.2 L113.3 28.2 L121.8 22.2 L133.2 17.3 L147.3 14.5 L170 13.3" fill="none" class="stroke-accent" stroke-width="2.4"/>
+            <circle cx="96.3" cy="45.2" r="4.5" class="fill-magenta"/><text x="103" y="55" class="t-small" style="fill:var(--magenta)">K(1+ν)^(−1/ν)</text>
+            <text x="10" y="118" class="t-small t-muted">shape ν moves the inflection</text>
+          </g>
+          <g transform="translate(480,190)">
+            <text x="0" y="-10" font-weight="650">Expolinear</text>
+            <line x1="0" y1="100" x2="175" y2="100" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/><line x1="0" y1="100" x2="0" y2="0" class="stroke" stroke-width="1" marker-end="url(#mf-ar)"/>
+            <line x1="56.7" y1="100" x2="170" y2="21.7" class="stroke-muted" stroke-dasharray="4 3"/>
+            <path d="M0 99.7 L17 99.1 L34 97.5 L45.3 95.5 L56.7 92.3 L68 87.7 L79.3 81.9 L90.7 75.2 L102 68 L113.3 60.5 L124.7 52.9 L136 45.1 L147.3 37.4 L158.7 29.5 L170 21.7" fill="none" class="stroke-accent" stroke-width="2.4"/>
+            <circle cx="56.7" cy="100" r="3.5" class="fill-magenta"/><text x="44" y="92" class="t-small" style="fill:var(--magenta)">t_b</text>
+            <text x="112" y="46" class="t-small t-muted">slope c_m</text>
+            <text x="10" y="118" class="t-small t-muted">exponential, then linear (canopy closed)</text>
+          </g>
+        </svg></div>
+        <figcaption><b>Figure 1.</b> The six growth functions of this lab on identical axes (time → size). Magenta dots mark the inflection — the moment of fastest absolute growth. Only the three sigmoid curves have an upper asymptote \(K\); the expolinear curve becomes a straight line whose slope \(c_m\) is the crop growth rate of a closed canopy (Goudriaan &amp; Monteith, 1990).</figcaption>
+      </figure>
+
+      <h3>How the optimiser finds the parameters</h3>
+      <p>“Best” means the parameters that make the sum of squared vertical distances between the data and the curve (SSE) as small as possible — least squares. For a straight line this minimum can be written down; for the sigmoid curves the parameters sit inside exponentials and the minimum must be found by <strong>iteration</strong>. This lab uses the Levenberg–Marquardt algorithm (Levenberg, 1944; Marquardt, 1963) implemented in the course library (<code>fitLM</code>): at each step it linearises the model around the current guess (the Jacobian matrix of partial derivatives), solves a small linear least-squares problem for the correction, and blends this Gauss–Newton step with a cautious gradient-descent step whenever the linearisation is not trustworthy.</p>
+      <p>Iterative optimisers need a <strong>starting guess</strong>. Bad starts end in the wrong valley or not at all. The lab therefore uses <em>self-starting</em> rules taken from the shape of the data: for the logistic, for example, it tries several trial asymptotes \(K_0\) slightly above the largest observation, transforms the data to \(\ln[W/(K_0-W)]\) — a straight line in time for logistic growth — and reads \(r\) and \(t_i\) from a linear regression. It then runs Levenberg–Marquardt from every start and keeps the lowest SSE. Parameters are kept inside sensible <em>bounds</em> (positive rates, asymptotes above zero). When a parameter ends up on its bound — the Richards shape parameter \(\nu\) collapsing towards zero is the common case — the table flags it: the model has effectively turned into a simpler one (here the Gompertz) and its standard errors mean little.</p>
+
+      <h3>Judging one fit: residuals, not \(R^2\)</h3>
+      <p>\(R^2\) measures how much of the variation <em>around the mean</em> the curve explains. Growth data vary hugely over time, so almost any increasing curve scores above 0.9. The residuals are far more informative. Random scatter around zero means the shape is right; long runs of positive and negative residuals mean it is wrong — a straight line through accelerating growth data gives positive residuals at both ends and negative ones in the middle. The <strong>runs test</strong> counts those runs and asks whether there are fewer than chance would produce (Eq. MF13). Two other checks: a funnel (spread growing with size) calls for the proportional error model, and parameters with standard errors as large as themselves are not determined by your data.</p>
+
+      <h3>Choosing between models: parsimony and prediction</h3>
+      <p>Adding a parameter never increases the SSE, so in-sample fit always favours the most complex model. Two families of tools correct for this. <strong>Information criteria</strong> (AIC, AICc, BIC) add a penalty for every estimated parameter; Akaike weights turn the differences into the relative support for each model (Burnham &amp; Anderson, 2002). <strong>Cross-validation</strong> estimates prediction error directly: refit the model without some of the data and predict what was left out. How you leave data out matters. Random folds let the model interpolate between neighbouring dates, which is easy. Leaving out the <em>last 30 % of dates</em> tests forecasting, and leaving out <em>whole plants</em> tests whether the curve generalises to a plant it has never seen — the questions a grower actually asks (Roberts et al., 2017).</p>
+      <figure class="figure"><div class="fig-body">
+        <svg class="dg" viewBox="0 0 660 250" role="img" aria-label="Three ways of splitting grow-log data for cross-validation: random folds, leaving out the future, and leaving out whole plants">
+          <g font-size="12">
+            <text x="10" y="22" font-weight="650">Random 5-fold</text><text x="230" y="22" font-weight="650">Leave the future out</text><text x="450" y="22" font-weight="650">Leave one plant out</text>
+          </g>
+          <g stroke="currentColor" stroke-width=".6">
+            <!-- random -->
+            <rect x="10" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="36" y="34" width="24" height="18" class="fill-magenta"/><rect x="62" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="88" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="114" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="140" y="34" width="24" height="18" class="fill-magenta"/><rect x="166" y="34" width="24" height="18" class="fill-accent-soft"/>
+            <rect x="10" y="56" width="24" height="18" class="fill-magenta"/><rect x="36" y="56" width="24" height="18" class="fill-accent-soft"/><rect x="62" y="56" width="24" height="18" class="fill-accent-soft"/><rect x="88" y="56" width="24" height="18" class="fill-accent-soft"/><rect x="114" y="56" width="24" height="18" class="fill-magenta"/><rect x="140" y="56" width="24" height="18" class="fill-accent-soft"/><rect x="166" y="56" width="24" height="18" class="fill-accent-soft"/>
+            <rect x="10" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="36" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="62" y="78" width="24" height="18" class="fill-magenta"/><rect x="88" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="114" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="140" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="166" y="78" width="24" height="18" class="fill-magenta"/>
+            <rect x="10" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="36" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="62" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="88" y="100" width="24" height="18" class="fill-magenta"/><rect x="114" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="140" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="166" y="100" width="24" height="18" class="fill-accent-soft"/>
+            <!-- future -->
+            <rect x="230" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="256" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="282" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="308" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="334" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="360" y="34" width="24" height="18" class="fill-magenta"/><rect x="386" y="34" width="24" height="18" class="fill-magenta"/>
+            <rect x="230" y="56" width="24" height="18" class="fill-accent-soft"/><rect x="256" y="56" width="24" height="18" class="fill-accent-soft"/><rect x="282" y="56" width="24" height="18" class="fill-accent-soft"/><rect x="308" y="56" width="24" height="18" class="fill-accent-soft"/><rect x="334" y="56" width="24" height="18" class="fill-accent-soft"/><rect x="360" y="56" width="24" height="18" class="fill-magenta"/><rect x="386" y="56" width="24" height="18" class="fill-magenta"/>
+            <rect x="230" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="256" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="282" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="308" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="334" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="360" y="78" width="24" height="18" class="fill-magenta"/><rect x="386" y="78" width="24" height="18" class="fill-magenta"/>
+            <rect x="230" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="256" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="282" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="308" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="334" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="360" y="100" width="24" height="18" class="fill-magenta"/><rect x="386" y="100" width="24" height="18" class="fill-magenta"/>
+            <!-- plant -->
+            <rect x="450" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="476" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="502" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="528" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="554" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="580" y="34" width="24" height="18" class="fill-accent-soft"/><rect x="606" y="34" width="24" height="18" class="fill-accent-soft"/>
+            <rect x="450" y="56" width="24" height="18" class="fill-magenta"/><rect x="476" y="56" width="24" height="18" class="fill-magenta"/><rect x="502" y="56" width="24" height="18" class="fill-magenta"/><rect x="528" y="56" width="24" height="18" class="fill-magenta"/><rect x="554" y="56" width="24" height="18" class="fill-magenta"/><rect x="580" y="56" width="24" height="18" class="fill-magenta"/><rect x="606" y="56" width="24" height="18" class="fill-magenta"/>
+            <rect x="450" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="476" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="502" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="528" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="554" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="580" y="78" width="24" height="18" class="fill-accent-soft"/><rect x="606" y="78" width="24" height="18" class="fill-accent-soft"/>
+            <rect x="450" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="476" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="502" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="528" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="554" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="580" y="100" width="24" height="18" class="fill-accent-soft"/><rect x="606" y="100" width="24" height="18" class="fill-accent-soft"/>
+          </g>
+          <g class="t-small t-muted"><text x="10" y="136">dates →   (rows = plants)</text><text x="230" y="136">fit to early dates, predict the last</text><text x="450" y="136">fit to other plants, predict this one</text></g>
+          <rect x="10" y="156" width="14" height="12" class="fill-accent-soft" stroke="currentColor" stroke-width=".6"/><text x="30" y="166" class="t-small">used for fitting</text>
+          <rect x="150" y="156" width="14" height="12" class="fill-magenta" stroke="currentColor" stroke-width=".6"/><text x="170" y="166" class="t-small">predicted (held out)</text>
+          <text x="10" y="196" class="t-small">Random folds: neighbours of each held-out point stay in the fit → optimistic error (interpolation).</text>
+          <text x="10" y="214" class="t-small">Future: the model must extrapolate — the honest test of a harvest forecast.</text>
+          <text x="10" y="232" class="t-small">By plant: tests whether the curve transfers to a new plant (between-plant variation included).</text>
+        </svg></div>
+        <figcaption><b>Figure 2.</b> Cross-validation schemes in this lab for a grow log with four plants and seven dates. The same model can look excellent under random folds and poor when it must forecast.</figcaption>
+      </figure>
+
+      <h3>From a fitted curve to a harvest forecast</h3>
+      <p>Solving the fitted curve for the day on which it reaches a target size \(W^*\) gives a point forecast (Eq. MF14). Its uncertainty comes from the uncertainty of the parameters, which are correlated and enter non-linearly. The lab uses a <strong>parametric bootstrap</strong> (Efron &amp; Tibshirani, 1994): it simulates hundreds of new data sets from the fitted curve plus noise with the fitted residual standard deviation, refits the model to each, and reads the forecast day from every refitted curve. The spread of those days is the forecast uncertainty; the pointwise 2.5–97.5 % range of the refitted curves is the darker band on the main chart. The lighter band adds the scatter of individual plants: it is where 95 % of <em>single new plants</em> should fall.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“The asymptote \(K\) is the final size of my lettuce.” Only if your data include the saturation phase. Commercial lettuce is harvested while still growing almost linearly, so \(K\) is usually far above the last observation and very poorly determined — look at its standard error and bootstrap SE. Forecasts that rely on \(K\) (targets close to the asymptote) are correspondingly fragile.</p></div>
+
+      <h3>Additive or proportional errors?</h3>
+      <p>Least squares on \(W\) assumes that every observation has the same scatter in grams. Plant-to-plant variation is usually <em>proportional</em> to size — a 10 % difference is 0.3 g on day 0 and 30 g on day 35 — so the late, large plants dominate the SSE and the early data hardly influence the fit. Fitting \(\ln W\) instead (the <em>Proportional</em> error model) gives every point equal weight in relative terms and is often the better choice for growth data (Paine et al., 2012). Because the two error models fit different responses, their SSE, AICc and RMSE are on different scales and must not be compared with each other.</p>
+
+      <h3>From this lab to your report</h3>
+      <p>Report the chosen model with its equation, the parameter estimates with standard errors (or confidence intervals) and their biological meaning, \(n\), RMSE, the residual check, the model-comparison evidence (ΔAICc or Akaike weights and a cross-validated error) and a forecast interval with the data it was based on. The <a href="/lessons/data-to-models/">Lesson 10.1</a> protocol explains why each element is there.</p>
+    </section>
+
+    <!-- ================================================================ DERIVE -->
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the lab</h2>
+      <p>Notation: \(W\) is the size variable (fresh mass, projected area, height…) in its own unit, \(t\) time in days, \(n\) the number of observations and \(p\) the number of curve parameters. The growth functions use the same parameterisation as <a href="/lessons/data-to-models/">Lesson 10.1</a> (Eqs. 10.1.4–10.1.6).</p>
+
+      <div class="eq-box" id="eq-mf-linear">
+        <div class="eq-head"><span class="eq-label">Linear growth</span><span class="eq-num">(MF1)</span></div>
+        <div class="eq-main">\[ W(t) = a + b\,t, \qquad \frac{\mathrm dW}{\mathrm dt} = b \]</div>
+        <p class="eq-read">size increases by the same amount every day: the absolute growth rate is the constant \(b\), and \(a\) is the size the line predicts at day zero.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(a\)</td><td>intercept: size at \(t=0\)</td><td>unit of \(W\)</td></tr>
+          <tr><td>\(b\)</td><td>absolute growth rate (AGR)</td><td>unit of \(W\) d⁻¹</td></tr></table>
+        <details><summary>Where does it come from?</summary><ol class="steps"><li>Assume the growth rate does not depend on size: \(\mathrm dW/\mathrm dt = b\).</li><li>Integrate: \(W = a + bt\). Least squares has the closed-form solution \(b = S_{tW}/S_{tt}\), \(a = \bar W - b\bar t\) (Lesson 10.1, Eq. 10.1.2); <code>fitLM</code> reproduces it in one iteration.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Plausible only for a closed canopy that intercepts a constant amount of light each day (the late phase of the expolinear curve). Over a whole crop cycle it predicts negative sizes at the start — a sure sign of the wrong model.</p></details>
+        <div class="eq-units">\([b\,t] = (\text{unit d}^{-1})(\text{d}) = \text{unit}\) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-exp">
+        <div class="eq-head"><span class="eq-label">Exponential growth, relative growth rate and doubling time</span><span class="eq-num">(MF2)</span></div>
+        <div class="eq-main">\[ W(t) = W_0\,e^{r t}, \qquad \text{RGR} = \frac{1}{W}\frac{\mathrm dW}{\mathrm dt} = r, \qquad t_d = \frac{\ln 2}{r} \]</div>
+        <p class="eq-read">every unit of plant produces new plant at the same relative rate \(r\), so the size doubles every \(\ln 2/r\) days.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Lettuce seedlings</th></tr>
+          <tr><td>\(W_0\)</td><td>size at \(t=0\)</td><td>unit of \(W\)</td><td>–</td></tr>
+          <tr><td>\(r\)</td><td>relative growth rate</td><td>d⁻¹</td><td>≈ 0.15–0.3</td></tr>
+          <tr><td>\(t_d\)</td><td>doubling time</td><td>d</td><td>≈ 2.5–5</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>\(\mathrm dW/\mathrm dt = rW\) ⇒ \(\mathrm dW/W = r\,\mathrm dt\) ⇒ \(\ln W = \ln W_0 + rt\).</li><li>On a logarithmic y axis the curve is a straight line with slope \(r\) — tick <em>Logarithmic y axis</em> to see where the data leave that line.</li><li>\(2W_0 = W_0e^{rt_d}\) ⇒ \(t_d = \ln 2 / r\).</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Valid for young, unshaded plants only. RGR declines even in seedlings as a growing share of biomass is structural rather than photosynthetic (Paine et al., 2012). The RGR chart below the main chart shows this decline directly.</p></details>
+        <div class="eq-units">\([rt] = \text{d}^{-1}\cdot\text{d} = 1\) — an exponent must be dimensionless ✓; \([t_d] = 1/\text{d}^{-1} = \text{d}\) ✓</div>
+        <div class="mini-calc" data-formula="log(2)/r" data-output="Doubling time" data-unit="d" data-digits="2" data-plot="r" data-title="Try it">
+          <div data-var="r" data-label="Relative growth rate r" data-min="0.02" data-max="0.5" data-step="0.005" data-value="0.167" data-unit="d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-logistic">
+        <div class="eq-head"><span class="eq-label">Logistic growth</span><span class="eq-num">(MF3)</span></div>
+        <div class="eq-main">\[ W(t) = \frac{K}{1+e^{-r(t-t_i)}}, \qquad \text{RGR} = r\Bigl(1-\frac{W}{K}\Bigr), \qquad \Bigl(\frac{\mathrm dW}{\mathrm dt}\Bigr)_{\max} = \frac{rK}{4} \]</div>
+        <p class="eq-read">the relative growth rate falls in a straight line from \(r\) (tiny plant) to zero (at the asymptote \(K\)); growth is fastest at the inflection time \(t_i\), when the plant is half its final size.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(K\)</td><td>asymptote (final size)</td><td>unit of \(W\)</td></tr>
+          <tr><td>\(r\)</td><td>intrinsic rate = RGR of a very small plant</td><td>d⁻¹</td></tr>
+          <tr><td>\(t_i\)</td><td>inflection time (\(W = K/2\))</td><td>d</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Start from \(\mathrm dW/\mathrm dt = rW(1-W/K)\) and separate: \(\dfrac{\mathrm dW}{W(1-W/K)} = r\,\mathrm dt\).</li><li>Partial fractions and integration give \(\ln\dfrac{W}{K-W} = r(t-t_i)\): the <em>logit</em> of \(W/K\) is linear in time — the lab uses exactly this to find starting values.</li><li>Solving for \(W\) gives the curve. The growth rate \(rW - rW^2/K\) is maximal where its derivative \(r-2rW/K\) vanishes: \(W = K/2\), \(\mathrm dW/\mathrm dt = rK/4\).</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Symmetric around \(t_i\): the approach to \(K\) mirrors the start. \(K\) is only determined if the data show the slowing down; with early data only it is almost unconstrained (the “first two weeks” data set).</p></details>
+        <div class="eq-units">\(r(t-t_i)\): d⁻¹ × d = 1 ✓; \(rK/4\): d⁻¹ × g = g d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="W<K ? ti - log(K/W - 1)/r : NaN" data-output="Day the target is reached t*" data-unit="d" data-digits="1" data-plot="K" data-title="Try it — how the forecast depends on K">
+          <div data-var="W" data-label="Target W*" data-min="50" data-max="500" data-step="5" data-value="420" data-unit="cm²"></div>
+          <div data-var="K" data-label="Asymptote K" data-min="430" data-max="900" data-step="5" data-value="519" data-unit="cm²"></div>
+          <div data-var="r" data-label="Rate r" data-min="0.05" data-max="0.5" data-step="0.005" data-value="0.195" data-unit="d⁻¹"></div>
+          <div data-var="ti" data-label="Inflection tᵢ" data-min="5" data-max="30" data-step="0.1" data-value="18.2" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-gompertz">
+        <div class="eq-head"><span class="eq-label">Gompertz growth</span><span class="eq-num">(MF4)</span></div>
+        <div class="eq-main">\[ W(t) = K\exp\!\bigl[-e^{-r(t-t_i)}\bigr], \qquad \text{RGR} = r\,e^{-r(t-t_i)} = r\ln\frac{K}{W}, \qquad \Bigl(\frac{\mathrm dW}{\mathrm dt}\Bigr)_{\max} = \frac{rK}{e} \]</div>
+        <p class="eq-read">the relative growth rate decays exponentially with time; growth is fastest at \(t_i\), when the plant has reached only \(K/e\) ≈ 37 % of its final size, and the curve then creeps slowly towards \(K\).</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(K, r, t_i\)</td><td>asymptote, rate constant of RGR decay, inflection time</td><td>unit of \(W\), d⁻¹, d</td></tr>
+          <tr><td>\(\lambda = t_i - 1/r\)</td><td>lag time (Zwietering form): where the tangent at the inflection crosses \(W=0\)</td><td>d</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Let the RGR decay: \(\dfrac{\mathrm d\ln W}{\mathrm dt} = r\,e^{-r(t-t_i)}\).</li><li>Integrate: \(\ln W = \ln K - e^{-r(t-t_i)}\) ⇒ the formula. Therefore \(-\ln(-\ln(W/K)) = r(t-t_i)\) is linear in time (used for starting values).</li><li>At \(t=t_i\): \(W = K/e\) and \(\mathrm dW/\mathrm dt = W\cdot\text{RGR} = (K/e)\,r\).</li><li>Zwietering et al. (1990) rewrite the same curve with \(\mu_m = rK/e\) and \(\lambda = t_i - 1/r\) so that each parameter answers a practical question.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Asymmetric: often better than the logistic for leafy crops whose growth slows gradually. Like every sigmoid, \(K\) needs the saturation phase in the data.</p></details>
+        <div class="eq-units">\(e^{-r(t-t_i)}\) is dimensionless, so \(W\) has the unit of \(K\) ✓</div>
+        <div class="mini-calc" data-formula="W<K ? ti - log(-log(W/K))/r : NaN" data-output="Day the target is reached t*" data-unit="d" data-digits="1" data-plot="W" data-title="Try it — Gompertz forecast">
+          <div data-var="W" data-label="Target W*" data-min="10" data-max="600" data-step="5" data-value="250" data-unit="g"></div>
+          <div data-var="K" data-label="Asymptote K" data-min="300" data-max="2500" data-step="10" data-value="1800" data-unit="g"></div>
+          <div data-var="r" data-label="Rate r" data-min="0.02" data-max="0.3" data-step="0.001" data-value="0.0375" data-unit="d⁻¹"></div>
+          <div data-var="ti" data-label="Inflection tᵢ" data-min="5" data-max="60" data-step="0.5" data-value="47" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-richards">
+        <div class="eq-head"><span class="eq-label">Richards growth</span><span class="eq-num">(MF5)</span></div>
+        <div class="eq-main">\[ W(t) = K\bigl[1+\nu\,e^{-r(t-t_i)}\bigr]^{-1/\nu}, \qquad W(t_i) = K(1+\nu)^{-1/\nu}, \qquad \Bigl(\frac{\mathrm dW}{\mathrm dt}\Bigr)_{\max} = rK(1+\nu)^{-(1+\nu)/\nu} \]</div>
+        <p class="eq-read">a fourth parameter \(\nu\) sets where the inflection lies: \(\nu = 1\) gives the logistic (inflection at \(K/2\)), \(\nu \to 0\) the Gompertz (\(K/e\)), large \(\nu\) a late, sharp inflection.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\nu\)</td><td>shape parameter (bounded to 0.005–25 in this lab)</td><td>–</td></tr>
+          <tr><td>\(K, r, t_i\)</td><td>as in MF3</td><td>unit of \(W\), d⁻¹, d</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>With \(E = e^{-r(t-t_i)}\): \(\mathrm dW/\mathrm dt = rKE(1+\nu E)^{-1/\nu-1}\).</li><li>Setting the second derivative to zero gives \(E = 1\), i.e. \(t = t_i\), so \(t_i\) is exactly the inflection time and \(W(t_i) = K(1+\nu)^{-1/\nu}\).</li><li>\(\nu = 1\): \(K/2\). \(\nu\to0\): \((1+\nu E)^{-1/\nu}\to e^{-E}\), the Gompertz curve (Richards, 1959; Tjørve &amp; Tjørve, 2010).</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>\(\nu\) is strongly correlated with \(r\) and \(t_i\) and is poorly determined unless many dates span the whole curve. When the lab flags “bound” for \(\nu\), the data prefer a Gompertz shape and the extra parameter is wasted — AICc then penalises it.</p></details>
+        <div class="eq-units">\((1+\nu E)\) is dimensionless, so \(W\) has the unit of \(K\) ✓</div>
+        <div class="mini-calc" data-fn="mfRichards" data-output="Inflection as a fraction of K" data-unit="" data-digits="3" data-plot="nu" data-ymin="0" data-ymax="1" data-title="Try it — where is the inflection?">
+          <div data-var="nu" data-label="Shape ν" data-min="0.005" data-max="10" data-step="0.005" data-value="1"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-expolinear">
+        <div class="eq-head"><span class="eq-label">Expolinear growth (Goudriaan &amp; Monteith)</span><span class="eq-num">(MF6)</span></div>
+        <div class="eq-main">\[ W(t) = \frac{c_m}{r_m}\ln\!\bigl[1+e^{\,r_m(t-t_b)}\bigr] \;\xrightarrow{\;t\ll t_b\;}\; \frac{c_m}{r_m}e^{\,r_m(t-t_b)}, \qquad \xrightarrow{\;t\gg t_b\;}\; c_m\,(t-t_b) \]</div>
+        <p class="eq-read">growth starts exponentially with relative rate \(r_m\) while leaves are still far apart, and becomes linear with slope \(c_m\) once the canopy closes and intercepts almost all light; the linear asymptote crosses zero at the “lost time” \(t_b\).</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(c_m\)</td><td>maximum absolute growth rate (crop growth rate of a closed canopy, per plant)</td><td>unit of \(W\) d⁻¹</td></tr>
+          <tr><td>\(r_m\)</td><td>maximum relative growth rate (early)</td><td>d⁻¹</td></tr>
+          <tr><td>\(t_b\)</td><td>lost time</td><td>d</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Goudriaan and Monteith (1990) let the crop growth rate be proportional to intercepted light: exponential while leaf area is small, saturating at \(c_m\) when the canopy is closed. Integration gives the log-of-one-plus-exponential (“softplus”) form.</li><li>For \(x = r_m(t-t_b) \ll 0\): \(\ln(1+e^x) \approx e^x\) ⇒ exponential phase with RGR \(r_m\).</li><li>For \(x \gg 0\): \(\ln(1+e^x) \approx x\) ⇒ \(W \approx c_m(t-t_b)\).</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>No asymptote: it describes growth up to commercial harvest, not senescence. That is exactly the situation of most lettuce crops, which is why the expolinear curve often wins on grow-log data.</p></details>
+        <div class="eq-units">\([c_m/r_m] = (\text{g d}^{-1})/(\text{d}^{-1}) = \text{g}\) ✓</div>
+        <div class="mini-calc" data-fn="mfExpolin" data-output="Expolinear W(t)" data-unit="g" data-digits="1" data-plot="t" data-title="Try it">
+          <div data-var="t" data-label="Time t" data-min="0" data-max="45" data-step="0.5" data-value="28" data-unit="d"></div>
+          <div data-var="cm" data-label="Linear rate c<sub>m</sub>" data-min="1" data-max="40" data-step="0.5" data-value="22.5" data-unit="g d⁻¹"></div>
+          <div data-var="rm" data-label="Early RGR r<sub>m</sub>" data-min="0.05" data-max="0.6" data-step="0.005" data-value="0.156" data-unit="d⁻¹"></div>
+          <div data-var="tb" data-label="Lost time t<sub>b</sub>" data-min="0" data-max="30" data-step="0.5" data-value="19" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-lm">
+        <div class="eq-head"><span class="eq-label">Least squares and the Levenberg–Marquardt step</span><span class="eq-num">(MF7)</span></div>
+        <div class="eq-main">\[ \text{SSE}(\boldsymbol\theta) = \sum_{i=1}^{n}\bigl[y_i - f(t_i;\boldsymbol\theta)\bigr]^2, \qquad \bigl(\mathbf J^{\mathsf T}\mathbf J + \lambda\,\operatorname{diag}\mathbf J^{\mathsf T}\mathbf J\bigr)\,\Delta\boldsymbol\theta = \mathbf J^{\mathsf T}\mathbf e \]</div>
+        <p class="eq-read">the best parameters minimise the sum of squared residuals; each iteration solves a small linear system for the correction \(\Delta\boldsymbol\theta\), built from the Jacobian (how the curve changes with each parameter at every data point) and the current residuals, with a damping \(\lambda\) that is decreased after a successful step and increased after a failed one.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\boldsymbol\theta\)</td><td>parameter vector (e.g. \(K, r, t_i\))</td><td>mixed</td></tr>
+          <tr><td>\(J_{ij} = \partial f(t_i)/\partial\theta_j\)</td><td>Jacobian (computed by central differences in <code>fitLM</code>)</td><td>unit of \(y\) / unit of \(\theta_j\)</td></tr>
+          <tr><td>\(\mathbf e\)</td><td>residual vector \(y_i - f(t_i;\boldsymbol\theta)\)</td><td>unit of \(y\)</td></tr>
+          <tr><td>\(\lambda\)</td><td>damping (starts at 10⁻³)</td><td>–</td></tr></table>
+        <details><summary>Follow the derivation</summary><ol class="steps"><li>Linearise around the current guess: \(f(t_i;\boldsymbol\theta+\Delta) \approx f(t_i;\boldsymbol\theta) + \sum_j J_{ij}\Delta_j\).</li><li>The SSE becomes \(\lVert\mathbf e - \mathbf J\Delta\rVert^2\), a quadratic in \(\Delta\); setting its gradient to zero gives the Gauss–Newton normal equations \(\mathbf J^{\mathsf T}\mathbf J\Delta = \mathbf J^{\mathsf T}\mathbf e\).</li><li>Far from the minimum the linearisation fails. Adding \(\lambda\operatorname{diag}(\mathbf J^{\mathsf T}\mathbf J)\) shortens the step and turns it towards steepest descent (large \(\lambda\)); Marquardt's diagonal scaling makes this independent of the parameter units.</li><li>A step is accepted only if SSE falls; the iteration stops when the relative improvement is below 10⁻¹⁰ or after the iteration limit (flagged “slow”).</li></ol></details>
+        <details><summary>Additive versus proportional errors</summary><p>Least squares is maximum likelihood for independent Gaussian errors of constant variance. For errors proportional to size (log-normal), the same holds for \(\ln y_i - \ln f(t_i;\boldsymbol\theta)\), which is what the <em>Proportional</em> error model minimises. Back-transformed curves then describe the <em>median</em> plant rather than the mean.</p></details>
+        <div class="eq-units">SSE has the unit of \(y^2\) (g², or dimensionless on the ln scale); \(\mathbf J^{\mathsf T}\mathbf J\,\Delta\) and \(\mathbf J^{\mathsf T}\mathbf e\) both have units of \(y^2/\theta\) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-se">
+        <div class="eq-head"><span class="eq-label">Standard errors and confidence intervals of the parameters</span><span class="eq-num">(MF8)</span></div>
+        <div class="eq-main">\[ s^2 = \frac{\text{SSE}}{n-p}, \qquad \operatorname{Cov}(\hat{\boldsymbol\theta}) \approx s^2\bigl(\mathbf J^{\mathsf T}\mathbf J\bigr)^{-1}, \qquad \hat\theta_j \pm t_{0.975,\,n-p}\;\text{SE}(\hat\theta_j) \]</div>
+        <p class="eq-read">the residual variance is the SSE divided by the degrees of freedom; the parameter covariance matrix is that variance times the inverse of \(\mathbf J^{\mathsf T}\mathbf J\) at the optimum; square roots of its diagonal are the standard errors, and a 95 % confidence interval extends a t-quantile times the SE either side of the estimate.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(s\)</td><td>residual standard deviation</td><td>unit of \(y\)</td></tr>
+          <tr><td>\(\text{SE}(\hat\theta_j)\)</td><td>standard error of parameter \(j\)</td><td>unit of \(\theta_j\)</td></tr>
+          <tr><td>\(t_{0.975,n-p}\)</td><td>Student-t quantile</td><td>–</td></tr></table>
+        <details><summary>Why this works — and when it does not</summary><p>Near the optimum the model is approximately linear in its parameters, and for a linear model \(\operatorname{Cov}(\hat{\boldsymbol\theta}) = \sigma^2(\mathbf X^{\mathsf T}\mathbf X)^{-1}\) exactly, with \(\mathbf J\) in the role of \(\mathbf X\). When the curvature of the model is strong over the range of plausible parameters — typically \(K\) when the asymptote is not observed — the linear approximation fails and the SE understates the uncertainty. Compare the bootstrap SE column in the parameter table: large disagreement is the warning sign.</p></details>
+        <div class="eq-units">\(s^2(\mathbf J^{\mathsf T}\mathbf J)^{-1}\): \(y^2 \cdot (\theta/y)^2 = \theta^2\) ✓</div>
+        <div class="mini-calc" data-fn="mfCI" data-output="Half-width of the 95 % CI" data-unit="(unit of θ)" data-digits="3" data-plot="n" data-title="Try it — few data, wide intervals">
+          <div data-var="se" data-label="Standard error SE" data-min="0.1" data-max="10" data-step="0.1" data-value="1"></div>
+          <div data-var="n" data-label="Observations n" data-min="5" data-max="60" data-step="1" data-value="13"></div>
+          <div data-var="p" data-label="Parameters p" data-min="2" data-max="4" data-step="1" data-value="3"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-r2">
+        <div class="eq-head"><span class="eq-label">Coefficient of determination and RMSE</span><span class="eq-num">(MF9)</span></div>
+        <div class="eq-main">\[ R^2 = 1-\frac{\text{SSE}}{\text{SST}} = 1-\frac{\sum_i(y_i-\hat y_i)^2}{\sum_i(y_i-\bar y)^2}, \qquad \text{RMSE} = \sqrt{\frac{\text{SSE}}{n}} \]</div>
+        <p class="eq-read">\(R^2\) is the fraction of the variation around the mean that the curve accounts for; the root-mean-square error is the typical size of a residual, in the units of the data.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>SST</td><td>total sum of squares around the mean \(\bar y\)</td><td>unit of \(y\)²</td></tr>
+          <tr><td>RMSE</td><td>root-mean-square error</td><td>unit of \(y\)</td></tr></table>
+        <details><summary>Why a high \(R^2\) is cheap for growth data</summary><p>SST is enormous for data that span two orders of magnitude, so even a poorly shaped curve leaves an SSE that is small <em>relative to SST</em>. Compare models with RMSE, AICc and cross-validation, and check the residual pattern. RMSE computed on the training data is optimistic; the cross-validated RMSE is the honest version (MF11).</p></details>
+        <div class="eq-units">SSE/SST is dimensionless ✓; \(\sqrt{\text{unit}^2} = \text{unit}\) ✓</div>
+        <div class="mini-calc" data-formula="1 - sse/sst" data-output="R²" data-unit="" data-digits="4" data-plot="sse" data-ymin="0" data-ymax="1" data-title="Try it">
+          <div data-var="sse" data-label="SSE" data-min="100" data-max="120000" data-step="100" data-value="50000" data-unit="g²"></div>
+          <div data-var="sst" data-label="SST" data-min="100000" data-max="2000000" data-step="10000" data-value="834000" data-unit="g²"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-aic">
+        <div class="eq-head"><span class="eq-label">AIC, AICc, BIC and Akaike weights</span><span class="eq-num">(MF10)</span></div>
+        <div class="eq-main">\[ \text{AIC} = n\ln\frac{\text{SSE}}{n} + 2K, \quad \text{AIC}_c = \text{AIC} + \frac{2K(K+1)}{n-K-1}, \quad \text{BIC} = n\ln\frac{\text{SSE}}{n} + K\ln n, \quad w_m = \frac{e^{-\Delta_m/2}}{\sum_j e^{-\Delta_j/2}} \]</div>
+        <p class="eq-read">each criterion adds a penalty for the number of estimated quantities \(K = p+1\) (the curve parameters plus the residual variance) to the lack of fit; the model with the lowest AICc is preferred, \(\Delta_m\) is each model's distance from it, and the Akaike weight \(w_m\) is the relative support for model \(m\) within the candidate set.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(K = p + 1\)</td><td>estimated parameters including \(\sigma^2\)</td><td>–</td></tr>
+          <tr><td>\(\Delta_m\)</td><td>\(\text{AIC}_{c,m} - \min_j\text{AIC}_{c,j}\)</td><td>–</td></tr>
+          <tr><td>\(w_m\)</td><td>Akaike weight</td><td>–</td></tr></table>
+        <details><summary>Follow the reasoning</summary><ol class="steps"><li>For Gaussian errors, \(-2\ln\hat L = n\ln(\text{SSE}/n)\) + a constant that is equal for all models fitted to the same data.</li><li>Akaike (1974) showed that the in-sample \(-2\ln\hat L\) underestimates its expected value on new data by about \(2K\); adding \(2K\) corrects that optimism.</li><li>Hurvich and Tsai (1989) derived the small-sample correction of AICc; use it whenever \(n/K &lt; 40\) (Burnham &amp; Anderson, 2002) — always, for grow-log data.</li><li>BIC (Schwarz, 1978) penalises \(\ln n\) per parameter instead of 2, so with more than seven observations it prefers simpler models than AIC does.</li><li>Rules of thumb: \(\Delta &lt; 2\) substantial support, 4–7 considerably less, &gt; 10 essentially none.</li></ol></details>
+        <details><summary>Assumptions and validity</summary><p>Only differences between models fitted to exactly the same response and observations are meaningful — never compare the additive and proportional error models, or different “Fit to” selections. AICc ranks the models you supplied; if all are poor, it still picks one: check the residuals.</p></details>
+        <div class="eq-units">\(\ln(\text{SSE}/n)\) of a dimensional quantity adds a constant \(n\ln(\text{unit})\) that cancels in every \(\Delta\) ✓</div>
+        <div class="mini-calc" data-formula="1/(1 + exp(-d/2))" data-output="Weight of the better of two models" data-unit="" data-digits="3" data-plot="d" data-ymin="0.5" data-ymax="1" data-title="Try it — what a ΔAICc means">
+          <div data-var="d" data-label="ΔAICc of the other model" data-min="0" data-max="12" data-step="0.1" data-value="2"></div>
+        </div>
+        <div class="mini-calc" data-fn="mfAICc" data-output="AICc" data-unit="" data-digits="2" data-plot="p" data-title="Try it — the price of a parameter">
+          <div data-var="n" data-label="Observations n" data-min="6" data-max="80" data-step="1" data-value="13"></div>
+          <div data-var="sse" data-label="SSE" data-min="1" data-max="2000" data-step="1" data-value="21"></div>
+          <div data-var="p" data-label="Curve parameters p" data-min="1" data-max="6" data-step="1" data-value="3"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-cv">
+        <div class="eq-head"><span class="eq-label">Cross-validated prediction error</span><span class="eq-num">(MF11)</span></div>
+        <div class="eq-main">\[ \text{RMSE}_{\text{CV}} = \sqrt{\frac{1}{n}\sum_{j=1}^{k}\;\sum_{i\in F_j}\bigl[y_i - \hat f^{(-j)}(t_i)\bigr]^2} \]</div>
+        <p class="eq-read">split the observations into folds \(F_1\ldots F_k\); for each fold, refit the model without it (\(\hat f^{(-j)}\)) and predict the left-out points; the cross-validated RMSE is the root of the mean squared prediction error over all points.</p>
+        <table class="symbols"><tr><th>Scheme in the lab</th><th>Folds</th><th>Question it answers</th></tr>
+          <tr><td>5-fold</td><td>5 random folds (<code>crossValidate</code> in <code>stats.js</code>)</td><td>How well does the curve interpolate?</td></tr>
+          <tr><td>Leave-one-out</td><td>\(k = n\)</td><td>Same, nearly unbiased for small \(n\)</td></tr>
+          <tr><td>Future 30 %</td><td>train on the first 70 % of dates, test on the rest</td><td>How well does it forecast?</td></tr>
+          <tr><td>By plant</td><td>one group left out at a time</td><td>Does it transfer to a new plant?</td></tr></table>
+        <details><summary>Why cross-validation and AICc usually agree — and when they do not</summary><p>For large samples leave-one-out CV and AIC are asymptotically equivalent ways of estimating the same out-of-sample error (Stone, 1977). They disagree when the data are structured: random folds ignore that the dates of one plant are correlated and that the future is not like the past. That is why the lab also offers the future and by-plant schemes (Roberts et al., 2017).</p></details>
+        <div class="eq-units">A root of a mean of squared residuals has the unit of \(y\) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-poly">
+        <div class="eq-head"><span class="eq-label">Polynomial regression and over-fitting</span><span class="eq-num">(MF12)</span></div>
+        <div class="eq-main">\[ \hat W(t) = \sum_{m=0}^{d}\beta_m P_m(x), \qquad x = \frac{2(t-t_{\min})}{t_{\max}-t_{\min}}-1, \qquad p = d+1 \]</div>
+        <p class="eq-read">a polynomial of degree \(d\) is a weighted sum of \(d+1\) basis functions; the lab uses Legendre polynomials of the rescaled time \(x\) because they are nearly orthogonal on [−1, 1], which keeps the least-squares problem well conditioned up to degree 10.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(d\)</td><td>degree</td><td>–</td></tr>
+          <tr><td>\(P_m\)</td><td>Legendre polynomial: \(P_0=1,\ P_1=x,\ (m+1)P_{m+1} = (2m+1)xP_m - mP_{m-1}\)</td><td>–</td></tr>
+          <tr><td>\(\beta_m\)</td><td>coefficients (ordinary least squares, <code>ols</code>)</td><td>unit of \(W\)</td></tr></table>
+        <details><summary>The bias–variance trade-off in one sentence</summary><p>Low degrees are biased (too stiff to follow the S-shape), high degrees have high variance (they follow the noise, and a different sample of plants would give a different wiggle); the expected prediction error, estimated by the cross-validated RMSE, is lowest in between (James et al., 2021). A three-parameter growth function has a built-in, biologically motivated shape — which is why it usually predicts better than any polynomial and extrapolates without exploding.</p></details>
+        <div class="eq-units">Basis functions are dimensionless, so \(\beta_m\) carry the unit of \(W\) ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-runs">
+        <div class="eq-head"><span class="eq-label">Runs test for residual patterns</span><span class="eq-num">(MF13)</span></div>
+        <div class="eq-main">\[ E[R] = \frac{2n_+n_-}{n}+1, \qquad \operatorname{Var}[R] = \frac{2n_+n_-(2n_+n_- - n)}{n^2(n-1)}, \qquad z = \frac{R-E[R]}{\sqrt{\operatorname{Var}[R]}} \]</div>
+        <p class="eq-read">count the runs \(R\) — unbroken sequences of residuals with the same sign, in time order; if the signs were random, \(R\) would be close to its expected value; far too few runs (a large negative \(z\)) mean the curve is systematically too high in one period and too low in another.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(n_+, n_-\)</td><td>numbers of positive and negative residuals, \(n = n_+ + n_-\)</td><td>–</td></tr>
+          <tr><td>\(R\)</td><td>observed number of runs</td><td>–</td></tr>
+          <tr><td>\(p\)</td><td>two-sided p-value from the normal approximation, \(2[1-\Phi(|z|)]\)</td><td>–</td></tr></table>
+        <details><summary>Assumptions and validity</summary><p>This is the Wald–Wolfowitz runs test with its normal approximation, reasonable when \(n_+\) and \(n_-\) are both above about 10. With repeated measurements at each date the order within a date is arbitrary; the test is then a rough indicator — trust your eyes on the residual chart as well.</p></details>
+        <div class="eq-units">Counts are dimensionless, and so is \(z\) ✓</div>
+        <div class="mini-calc" data-formula="2*a*b/(a+b) + 1" data-output="Expected number of runs" data-unit="" data-digits="1" data-plot="a" data-title="Try it">
+          <div data-var="a" data-label="Positive residuals n₊" data-min="2" data-max="40" data-step="1" data-value="17"></div>
+          <div data-var="b" data-label="Negative residuals n₋" data-min="2" data-max="40" data-step="1" data-value="38"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-mf-forecast">
+        <div class="eq-head"><span class="eq-label">Harvest forecast and its parametric-bootstrap interval</span><span class="eq-num">(MF14)</span></div>
+        <div class="eq-main">\[ t^{*} = \min\{t : f(t;\hat{\boldsymbol\theta}) \ge W^{*}\}, \qquad y_i^{(b)} = f(t_i;\hat{\boldsymbol\theta}) + s\,\varepsilon_i^{(b)},\ \ \varepsilon\sim\mathcal N(0,1), \qquad \bigl[t^*_{(2.5\,\%)},\ t^*_{(97.5\,\%)}\bigr] \]</div>
+        <p class="eq-read">the forecast day is the first time the fitted curve reaches the target; to find its uncertainty, simulate \(B\) new data sets from the fitted curve plus Gaussian noise with the residual SD, refit each one, compute its forecast day, and report the 2.5th and 97.5th percentiles of those days.</p>
+        <table class="symbols"><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(W^*\)</td><td>target (harvest) size</td><td>unit of \(W\)</td></tr>
+          <tr><td>\(t^*\)</td><td>forecast day</td><td>d</td></tr>
+          <tr><td>\(B\)</td><td>number of bootstrap refits (100–1000)</td><td>–</td></tr>
+          <tr><td>\(s\)</td><td>residual SD of the original fit (on the ln scale for proportional errors: \(y^{(b)} = \hat f e^{s\varepsilon}\))</td><td>unit of \(y\)</td></tr></table>
+        <details><summary>Closed forms and the sensitivity to \(K\)</summary><ol class="steps"><li>Logistic: \(t^* = t_i - \ln(K/W^*-1)/r\). Gompertz: \(t^* = t_i - \ln[-\ln(W^*/K)]/r\). Exponential: \(t^* = \ln(W^*/W_0)/r\). The lab solves every model numerically by bisection, which works for all six.</li><li>For the logistic, \(\partial t^*/\partial K = -1/[r(K-W^*)]\): when the target approaches the asymptote a small error in \(K\) moves the forecast by days — visible as a skewed bootstrap histogram.</li><li>The bootstrap needs no derivatives and captures parameter correlations and non-linearity automatically (Efron &amp; Tibshirani, 1994); it inherits the assumptions of the fitted model, including its shape.</li></ol></details>
+        <details><summary>Confidence band versus prediction band</summary><p>The darker band shows where the <em>mean curve</em> may lie (uncertainty of the parameters). The lighter band adds the residual scatter and shows where a <em>single new plant</em> may lie. A grower planning a harvest of many plants cares about the first; a quality inspector about the second.</p></details>
+        <div class="eq-units">\([t^*] = \text{d}\) because it is a value on the time axis ✓</div>
+      </div>
+    </section>
+
+    <!-- ================================================================ INVESTIGATE -->
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the lab to answer. Tick each task when done; <em>Save investigation</em> copies your settings and readouts into your notebook.</p>
+      <ol class="task-list">
+        <li><h4>Anatomy of a good fit</h4><p>With the default data (five plants, additive errors), rank the six models by AICc and by 5-fold cross-validated RMSE. Do the two rankings agree? Put each model in focus in turn and record the runs-test p-value. Which models can you reject on the residuals alone, although their R² exceeds 0.9?</p></li>
+        <li><h4>How much data does a forecast need?</h4><p>Compare the “First two weeks only” data with the full five-plant data. For the logistic and the expolinear model, write down the parameter estimates, their standard and bootstrap standard errors, and the forecast day for 250 g with its 95 % interval. Explain, with Eq. MF14, why early data constrain \(r\) well but \(K\) hardly at all. How many more weeks of measurements would you need for a useful forecast?</p></li>
+        <li><h4>Additive or proportional?</h4><p>Load “8 plants per date (simulated)”. Fit with both error models and compare the residual charts. Which error model gives residuals of constant spread? Does the choice change which model is best, the value of \(r\), and the forecast day? Why is it wrong to compare AICc values across the two error models?</p></li>
+        <li><h4>Beat the optimiser</h4><p>Switch on <em>Fit the focus model by hand</em> for the logistic on the leaf-area data. Get your SSE within 5 % of the optimum and write down your parameters. Then start from a very poor guess (e.g. \(t_i\) far beyond the last date) and let Levenberg–Marquardt finish. Does it always reach the same minimum? What does this teach you about starting values?</p></li>
+        <li><h4>Over-fitting and extrapolation</h4><p>For the leaf-area data, find the polynomial degree with the lowest leave-one-out RMSE and compare that error with the logistic's. Then select <em>Future 30 %</em> validation and repeat. Draw the best polynomial on the main chart and describe what it predicts one week after the last date. What does this tell you about using empirical curves for forecasts?</p></li>
+        <li><h4>Your own crop</h4><p>Load your grow log (or the demo). Fit the model of your choice to <em>each plant</em> of each treatment and copy the per-plant table into the <a href="/laboratories/statistics-workbench/">Statistics workbench</a>. Is there a significant treatment effect on \(r\), on the maximum growth rate or on the forecast harvest day? Report the model, parameters ± SE, n, RMSE, ΔAICc and a forecast interval as in the “From this lab to your report” paragraph of the Explain tab.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-model-fitting">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the lab and the equations","questions":[
+          {"type":"numeric","q":"Load the leaf-area data (Lesson 10.1), additive errors, and put the logistic in focus. Using its fitted K and r, what is the maximum absolute growth rate (Eq. MF3)?","answer":25.3,"tol":0.03,"unit":"cm² d⁻¹","hint":"The parameter table gives K ≈ 519 cm² and r ≈ 0.195 d⁻¹; the derived rows show the same quantity.","explain":"<p>\\(rK/4 = 0.1951\\times519.1/4 \\approx 25.3\\) cm² d⁻¹, reached at \\(t_i \\approx 18.2\\) d when the plant is half its final area.</p>"},
+          {"type":"numeric","q":"Same data and model: on which day does the logistic curve reach a target of 420 cm²?","answer":25.6,"abstol":0.3,"unit":"d","hint":"Set the target to 420 and read the readout, or use t* = tᵢ − ln(K/W* − 1)/r.","explain":"<p>\\(t^* = 18.22 - \\ln(519.1/420-1)/0.1951 = 18.22 + 7.40 = 25.6\\) d — close to the 25.2 d of Worked example 4 of Lesson 10.1, which used rounded parameters.</p>"},
+          {"type":"numeric","q":"Load “First two weeks only”, additive errors, and put the exponential model in focus. What doubling time does its relative growth rate imply?","answer":4.15,"tol":0.04,"unit":"d","hint":"t_d = ln 2 / r; the parameter table also lists it as a derived quantity.","explain":"<p>The fitted RGR is \\(r \\approx 0.167\\) d⁻¹, so \\(t_d = 0.693/0.167 \\approx 4.15\\) d. With two weeks of data this is the best-supported model — the data cannot yet show the slowing down.</p>"},
+          {"type":"mcq","q":"With “First two weeks only” and the logistic in focus, the lab says the 250 g target is never reached. What is the best explanation?","options":["The fitted asymptote K (≈ 90 g) lies below the target, because two weeks of data contain no information about the final size","The logistic model cannot describe lettuce growth","The optimiser failed to converge","The target must be expressed on the ln scale"],"answer":0,"feedback":["","The logistic describes the full data set reasonably well; the problem is the data, not the model family.","It converged — look at the table; but a converged fit can still be uninformative.","The target is always in the units of the data."],"explain":"<p>Early growth is nearly exponential; any asymptote above the last observation fits almost equally well, so \\(K\\) has an enormous standard error. The real plants pass 250 g around day 30. Forecasts need data from around and after the inflection.</p>"},
+          {"type":"tf","q":"For the five simulated plants (additive errors), the Gompertz, expolinear and logistic models all have ΔAICc below 2, so the data cannot clearly distinguish between them.","answer":true,"explain":"<p>The Gompertz has the lowest AICc, but the expolinear (Δ ≈ 0.5) and logistic (Δ ≈ 1.6) are within 2 units: all three have substantial support. The linear model (Δ ≈ 46) is decisively rejected. Report such a result honestly — and check whether the forecasts of the supported models differ.</p>"},
+          {"type":"mcq","q":"On the leaf-area data, the degree-6 polynomial has a lower training RMSE than the logistic, yet the logistic is preferable. Why?","options":["The logistic has only three parameters with a biological meaning, a comparable or lower cross-validated error, and it extrapolates sensibly, whereas the polynomial explodes beyond the data","Polynomials cannot be fitted by least squares","The logistic has the higher R² by definition","AICc cannot be computed for polynomials"],"answer":0,"feedback":["","They can — the lab fits them with ordinary least squares.","A more flexible model always has an equal or higher in-sample R².","It can; the lab simply compares them by cross-validation."],"explain":"<p>Training error always favours flexibility. Predictive performance, parsimony and interpretability favour the growth function — and the future-30 % validation shows the polynomial's extrapolation failure dramatically.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <!-- ================================================================ SOURCES -->
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model and method assumptions</h2>
+      <ul>
+        <li><strong>Growth functions</strong> are empirical descriptions of size against time; only the expolinear curve is derived from a (simple) physiological mechanism. None of them contains climate: a change in light or temperature during the experiment shows up as a misfit.</li>
+        <li><strong>Least squares</strong> assumes independent errors of constant variance (additive model) or constant coefficient of variation (proportional model). Repeated measurements of the same plants are correlated, so pooled fits understate the uncertainty; per-plant fits followed by a comparison of parameters are the sound alternative.</li>
+        <li><strong>Standard errors</strong> come from the linearisation at the optimum (MF8) and can be far too small for poorly determined parameters; the bootstrap SE is shown for comparison. Parameters on a bound are flagged and their SEs are not meaningful.</li>
+        <li><strong>Starting values and bounds</strong>: the self-starting rules and bounds are described in the Explain tab (see also <code>models.js</code>). A fit that stops at the iteration limit is flagged “slow”. Rarely, a different start may find a lower SSE — try <em>Fit by eye</em> followed by Levenberg–Marquardt.</li>
+        <li><strong>Cross-validation</strong>: 5-fold uses a fixed random seed, so results are reproducible; leave-one-out is replaced by 5-fold for more than 60 observations to keep the page responsive. Failed refits during cross-validation predict the mean of the training data (a heavy but honest penalty).</li>
+        <li><strong>Bootstrap</strong>: parametric, Gaussian noise with the fitted residual SD (log-normal for proportional errors), refitting from the original estimates; it assumes that the chosen model is correct.</li>
+        <li><strong>Example data</strong> are either illustrative (leaf area, identical to Lesson 10.1) or <em>simulated</em> with a light-use-efficiency lettuce model: canopy photosynthesis of Van Henten (1994) at 20 °C, a cardinal-temperature factor (Yan &amp; Hunt, 1999), interception by the projected leaf area via the illustrative calibration of <a href="/lessons/computer-vision/">Lesson 10.3</a>, maintenance respiration, an RUE calibration factor of 1.3, 10–15 % plant-to-plant variation and 5–6 % measurement noise. They are realistic in shape and order of magnitude but are not measurements.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Akaike, H. (1974). A new look at the statistical model identification. <em>IEEE Transactions on Automatic Control</em>, 19(6), 716–723. <a href="https://doi.org/10.1109/TAC.1974.1100705" target="_blank" rel="noopener">doi:10.1109/TAC.1974.1100705</a></li>
+        <li>Burnham, K. P., &amp; Anderson, D. R. (2002). <em>Model Selection and Multimodel Inference: A Practical Information-Theoretic Approach</em> (2nd ed.). Springer. <a href="https://doi.org/10.1007/b97636" target="_blank" rel="noopener">doi:10.1007/b97636</a></li>
+        <li>Efron, B., &amp; Tibshirani, R. J. (1994). <em>An Introduction to the Bootstrap</em>. Chapman &amp; Hall/CRC. <a href="https://doi.org/10.1201/9780429246593" target="_blank" rel="noopener">doi:10.1201/9780429246593</a></li>
+        <li>Goudriaan, J., &amp; Monteith, J. L. (1990). A mathematical function for crop growth based on light interception and leaf area expansion. <em>Annals of Botany</em>, 66(6), 695–701. <a href="https://doi.org/10.1093/oxfordjournals.aob.a088084" target="_blank" rel="noopener">doi:10.1093/oxfordjournals.aob.a088084</a></li>
+        <li>Hunt, R. (1982). <em>Plant Growth Curves: The Functional Approach to Plant Growth Analysis</em>. Edward Arnold.</li>
+        <li>Hurvich, C. M., &amp; Tsai, C.-L. (1989). Regression and time series model selection in small samples. <em>Biometrika</em>, 76(2), 297–307. <a href="https://doi.org/10.1093/biomet/76.2.297" target="_blank" rel="noopener">doi:10.1093/biomet/76.2.297</a></li>
+        <li>James, G., Witten, D., Hastie, T., &amp; Tibshirani, R. (2021). <em>An Introduction to Statistical Learning with Applications in R</em> (2nd ed.). Springer. <a href="https://doi.org/10.1007/978-1-0716-1418-1" target="_blank" rel="noopener">doi:10.1007/978-1-0716-1418-1</a></li>
+        <li>Levenberg, K. (1944). A method for the solution of certain non-linear problems in least squares. <em>Quarterly of Applied Mathematics</em>, 2(2), 164–168. <a href="https://doi.org/10.1090/qam/10666" target="_blank" rel="noopener">doi:10.1090/qam/10666</a></li>
+        <li>Marquardt, D. W. (1963). An algorithm for least-squares estimation of nonlinear parameters. <em>Journal of the Society for Industrial and Applied Mathematics</em>, 11(2), 431–441. <a href="https://doi.org/10.1137/0111030" target="_blank" rel="noopener">doi:10.1137/0111030</a></li>
+        <li>Paine, C. E. T., Marthews, T. R., Vogt, D. R., Purves, D., Rees, M., Hector, A., &amp; Turnbull, L. A. (2012). How to fit nonlinear plant growth models and calculate growth rates: an update for ecologists. <em>Methods in Ecology and Evolution</em>, 3(2), 245–256. <a href="https://doi.org/10.1111/j.2041-210X.2011.00155.x" target="_blank" rel="noopener">doi:10.1111/j.2041-210X.2011.00155.x</a></li>
+        <li>Richards, F. J. (1959). A flexible growth function for empirical use. <em>Journal of Experimental Botany</em>, 10(2), 290–301. <a href="https://doi.org/10.1093/jxb/10.2.290" target="_blank" rel="noopener">doi:10.1093/jxb/10.2.290</a></li>
+        <li>Roberts, D. R., Bahn, V., Ciuti, S., Boyce, M. S., Elith, J., Guillera-Arroita, G., Hauenstein, S., Lahoz-Monfort, J. J., Schröder, B., Thuiller, W., Warton, D. I., Wintle, B. A., Hartig, F., &amp; Dormann, C. F. (2017). Cross-validation strategies for data with temporal, spatial, hierarchical, or phylogenetic structure. <em>Ecography</em>, 40(8), 913–929. <a href="https://doi.org/10.1111/ecog.02881" target="_blank" rel="noopener">doi:10.1111/ecog.02881</a></li>
+        <li>Schwarz, G. (1978). Estimating the dimension of a model. <em>The Annals of Statistics</em>, 6(2), 461–464. <a href="https://doi.org/10.1214/aos/1176344136" target="_blank" rel="noopener">doi:10.1214/aos/1176344136</a></li>
+        <li>Stone, M. (1977). An asymptotic equivalence of choice of model by cross-validation and Akaike's criterion. <em>Journal of the Royal Statistical Society: Series B (Methodological)</em>, 39(1), 44–47. <a href="https://doi.org/10.1111/j.2517-6161.1977.tb01603.x" target="_blank" rel="noopener">doi:10.1111/j.2517-6161.1977.tb01603.x</a></li>
+        <li>Tjørve, E., &amp; Tjørve, K. M. C. (2010). A unified approach to the Richards-model family for use in growth analyses: why we need only two model forms. <em>Journal of Theoretical Biology</em>, 267(3), 417–425. <a href="https://doi.org/10.1016/j.jtbi.2010.09.008" target="_blank" rel="noopener">doi:10.1016/j.jtbi.2010.09.008</a></li>
+        <li>Van Henten, E. J. (1994). Validation of a dynamic lettuce growth model for greenhouse climate control. <em>Agricultural Systems</em>, 45(1), 55–72. <a href="https://doi.org/10.1016/S0308-521X(94)90280-1" target="_blank" rel="noopener">doi:10.1016/S0308-521X(94)90280-1</a></li>
+        <li>Yan, W., &amp; Hunt, L. A. (1999). An equation for modelling the temperature response of plants using only the cardinal temperatures. <em>Annals of Botany</em>, 84(5), 607–614. <a href="https://doi.org/10.1006/anbo.1999.0955" target="_blank" rel="noopener">doi:10.1006/anbo.1999.0955</a></li>
+        <li>Zwietering, M. H., Jongenburger, I., Rombouts, F. M., &amp; van 't Riet, K. (1990). Modeling of the bacterial growth curve. <em>Applied and Environmental Microbiology</em>, 56(6), 1875–1881. <a href="https://doi.org/10.1128/aem.56.6.1875-1881.1990" target="_blank" rel="noopener">doi:10.1128/aem.56.6.1875-1881.1990</a></li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>

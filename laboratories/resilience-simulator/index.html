@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Food-system resilience simulator · Future Food Production</title>
+<meta name="description" content="Hit a regional vegetable-supply network for a Swedish city with droughts, energy-price spikes, trade disruptions, labour shortages, cyber-attacks and power cuts; test diversification, buffer stocks, local controlled-environment agriculture and backup power with the resilience triangle, Shannon diversity and self-sufficiency.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Eq. R6 — share of controlled-environment farms still producing at energy-price multiplier m (farm break-even multipliers ~ Normal(F, 0.25 F)) */
+FFP_CALC.resEconShare = v => { const z = (v.m - v.F) / (0.25 * v.F) / Math.SQRT2; const t = 1 / (1 + 0.3275911 * Math.abs(z)); const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z); const erf = z >= 0 ? y : -y; return 100 * (1 - 0.5 * (1 + erf)); };
+/* Eq. R9 — Shannon index of three sources (the third takes the remainder) */
+FFP_CALC.resShannon3 = v => { const p = [v.p1 / 100, v.p2 / 100, Math.max(0, 1 - v.p1 / 100 - v.p2 / 100)]; return -p.reduce((s, x) => s + (x > 0 ? x * Math.log(x) : 0), 0); };
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module" src="./main.js"></script>
+<style>
+  #stage { aspect-ratio: 16 / 10.5; min-height: 480px; cursor: default; }
+  .rs-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 8px; }
+  .rs-item { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 9px; padding: 6px 8px; background: var(--bg); font-size: .78rem; color: var(--ink-2); line-height: 1.35; }
+  .rs-item .rs-sw { width: 10px; height: 26px; border-radius: 4px; background: var(--c); }
+  .rs-item button { border: 1px solid var(--line); background: var(--bg-elev); color: var(--muted); border-radius: 7px; width: 26px; height: 26px; cursor: pointer; font: 600 .9rem var(--font-sans); }
+  .rs-item button:hover { color: var(--danger); border-color: var(--danger); }
+  .rs-add { border: 1px dashed var(--line-strong); border-radius: 10px; padding: 6px 10px; margin-top: 6px; }
+  .rs-add summary { cursor: pointer; font: 600 .82rem var(--font-sans); color: var(--accent); }
+  #shock-ui select { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 500 .84rem var(--font-sans); margin-top: 3px; }
+  .chart-card.full { grid-column: 1 / -1; }
+</style>
+</head>
+<body data-page="lab" data-slug="resilience-simulator">
+<div data-site-header></div>
+
+<main id="main" class="lab-page container">
+  <header class="lab-head" data-lab-head>
+    <h1>Food-system resilience simulator</h1>
+    <p class="lead">A Swedish city eats fresh vegetables every week of the year: from Swedish fields in summer, from cold stores in winter, from greenhouses and vertical farms, and — above all — from importers in Spain, the Netherlands, Poland and beyond. Hit this network with droughts, energy crises, blocked trade routes, a pandemic, a cyber-attack or a storm, watch how deep and how long the shortfall becomes, and find out which strategy — diversity, stocks, local controlled-environment farms or backup power — actually buys resilience.</p>
+  </header>
+
+  <div class="lab-main">
+    <div>
+      <div class="stage" id="stage"></div>
+      <div class="readouts" id="readouts"></div>
+    </div>
+    <aside class="controls" id="controls" aria-label="Laboratory controls"></aside>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card full">
+      <h3>Where the city's vegetables come from, week by week</h3>
+      <div class="chart-sub">Stacked supply by source (% of normal demand) over two years, starting in the first week of January. The black line is what reaches consumers (Q); shaded columns mark the shocks. Hover to read every source.</div>
+      <div class="chart" id="ch-supply" style="height:320px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Shortfall and the resilience triangle</h3>
+      <div class="chart-sub">Shortfall 100 − Q (red) and its running integral, the resilience loss L (amber, right axis; Eq. R8). Depth and duration together make the area.</div>
+      <div class="chart" id="ch-short" style="height:300px"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Strategy comparison under the same shocks</h3>
+      <div class="chart-sub">Resilience loss L of the current shock scenario for a lean baseline, each single strategy, all strategies combined and your own settings. Shorter bars are more resilient.</div>
+      <div class="chart" id="ch-strat" style="height:300px"></div>
+    </div>
+    <div class="chart-card full">
+      <h3>Diversity and self-sufficiency through the year</h3>
+      <div class="chart-sub">Effective number of equally important sources e^H (blue, Eq. R9) and the share of supply produced in Sweden (green, right axis). Summer is diverse and domestic; winter depends on a few importers.</div>
+      <div class="chart" id="ch-div" style="height:280px"></div>
+    </div>
+  </div>
+
+  <div class="tabs" data-tabs>
+    <section data-panel="observe" data-title="Observe" class="prose">
+      <h2 data-nonum>A guided tour of the network</h2>
+      <p>The stage is the city's vegetable-supply network. On the left, four import origins feed the ports and border crossings; in the middle, Swedish fields, cold stores, greenhouses and vertical farms; on the right, the wholesale and distribution centres and the city. Node size follows the current flow, moving dots are the flows themselves, and the hexagons along the top are the <em>drivers</em> — weather, labour, energy and IT — on which production depends. When a shock strikes, its driver flashes red and the dependent nodes glow. The strip at the bottom is the two-year timeline: drag the white cursor to scrub through time, or drag a coloured shock bar to move the shock.</p>
+      <ol>
+        <li><strong>Watch a normal year first.</strong> Choose the scenario <em>No shocks</em> and press <em>Play</em>. From late June the Swedish field node swells until it supplies more than half of the city's vegetables, and imports shrink to about 40 %. In September and October storage crops — roots, cabbage, onions — flow into the cold stores and are drawn down until June. In January about a quarter of supply is Swedish, almost all of it from cold stores, and the rest depends on a handful of importers — look at the diversity chart.</li>
+        <li><strong>Load the <em>Perfect storm</em>.</strong> A 2018-type summer drought halves the harvest in Sweden and northern Europe, then an energy crisis makes heating and lighting unprofitable, and in the second winter a blocked route cuts imports from Spain and Italy. Which shock produces the deepest triangle? Why does the drought, although severe, cost so little supply?</li>
+        <li><strong>Read the strategy chart.</strong> The bars rerun the same shocks with a lean baseline, with each strategy alone and with all combined. Diversification and a buffer stock cut the trade shock; backup power and non-fossil heat protect the greenhouses and vertical farms; more local production helps in summer but can <em>add</em> exposure to energy shocks.</li>
+        <li><strong>Push local CEA.</strong> Choose the strategy preset <em>Local CEA push</em> (30 % of demand from greenhouses and vertical farms, gas heating) and the scenario <em>Energy crisis</em>. The farms switch off within a week when the energy price passes their break-even, importers cannot re-source fast enough and the city loses supply. Now add backup and biofuel heat, or raise the energy-price headroom p*/p₀.</li>
+        <li><strong>Try the cyber-attack and the power cut.</strong> Vertical farms depend on climate-control software and on electricity every hour. A two-week IT outage or a three-day power cut destroys a crop that takes a cycle to regrow — watch the “run %” of the farms in the network. With the lean baseline the lost crop is so small that importers replace it within the week; with the <em>Local CEA push</em> preset the same shocks open short gaps. Which strategies help against these shocks — and which (diversified imports?) do not?</li>
+      </ol>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Resilience is the capacity to keep supplying the city — not the survival of any one component. Every source fails for a different reason: fields to weather, greenhouses and vertical farms to energy prices and IT, imports to trade routes. The most resilient network is not the most local one but the one whose sources fail for <em>different</em> reasons, with a buffer that bridges the time until the others adapt.</p></div>
+    </section>
+
+    <section data-panel="explain" data-title="Explain" class="prose">
+      <h2 data-nonum>What the simulator represents</h2>
+      <p>The model follows the weekly supply of fresh vegetables to a Swedish city for two years, in percent of normal weekly demand. It is a <strong>stylised</strong> network: the shares, capacities and response times are chosen to reproduce the typical Swedish pattern — high self-sufficiency in summer, heavy dependence on imported fruit and vegetables in winter (Livsmedelsverket &amp; Jordbruksverket, 2025) — not to describe a particular city.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="Causal structure of the simulator: shocks act on drivers, drivers on sources, sources feed wholesale and the city; responses are storage release, import re-sourcing and switching off or restarting controlled-environment farms.">
+            <defs><marker id="rs-lab-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g class="t-small">
+              <rect x="14" y="20" width="150" height="260" rx="12" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="89" y="42" text-anchor="middle" style="font-weight:700">Shocks</text>
+              <text x="89" y="70" text-anchor="middle">drought</text><text x="89" y="96" text-anchor="middle">energy-price spike</text><text x="89" y="122" text-anchor="middle">trade disruption</text><text x="89" y="148" text-anchor="middle">labour shortage</text><text x="89" y="174" text-anchor="middle">cyber-attack</text><text x="89" y="200" text-anchor="middle">power cut</text>
+              <text x="89" y="240" text-anchor="middle" class="t-muted">start · duration</text><text x="89" y="256" text-anchor="middle" class="t-muted">severity</text>
+              <rect x="206" y="20" width="160" height="260" rx="12" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="286" y="42" text-anchor="middle" style="font-weight:700">Sources</text>
+              <text x="286" y="70" text-anchor="middle">Swedish field (R1)</text><text x="286" y="96" text-anchor="middle">cold storage (R2)</text><text x="286" y="122" text-anchor="middle">greenhouses (R6–R7)</text><text x="286" y="148" text-anchor="middle">vertical farms (R6–R7)</text><text x="286" y="174" text-anchor="middle">imports, 4 origins (R4–R5)</text><text x="286" y="200" text-anchor="middle">emergency stock (R3)</text>
+              <rect x="408" y="20" width="140" height="260" rx="12" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/><text x="478" y="42" text-anchor="middle" style="font-weight:700">Responses</text>
+              <text x="478" y="70" text-anchor="middle">release stocks</text><text x="478" y="96" text-anchor="middle">re-source imports</text><text x="478" y="122" text-anchor="middle">switch farms off</text><text x="478" y="148" text-anchor="middle">regrow crops</text><text x="478" y="174" text-anchor="middle">refill buffers</text>
+              <rect x="590" y="100" width="118" height="100" rx="14" class="fill-bg" stroke="currentColor" stroke-width="1.3"/><text x="649" y="132" text-anchor="middle" style="font-weight:700">City</text><text x="649" y="150" text-anchor="middle">supply Q(t)</text><text x="649" y="168" text-anchor="middle" class="t-muted">L, Φ, e^H, SSR</text>
+            </g>
+            <g stroke="currentColor" stroke-width="1.3" marker-end="url(#rs-lab-ar)"><line x1="164" y1="150" x2="204" y2="150"/><line x1="366" y1="150" x2="406" y2="150"/><line x1="548" y1="150" x2="588" y2="150"/></g>
+            <path d="M478 282 C478 296 286 296 286 282" fill="none" class="stroke-muted" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#rs-lab-ar)"/>
+            <text x="382" y="296" text-anchor="middle" class="t-small t-muted">feedback: responses change next week's sources</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The causal chain of the simulator. Shocks act on the drivers of each source; the network responds with stocks, re-sourcing and production decisions; the city's supply Q(t) is scored with the indicators of Lesson 15.2.</figcaption>
+      </figure>
+      <h3>Six sources with different vulnerabilities</h3>
+      <table>
+        <caption>Table 1. Sources in the network, their normal role and their main vulnerability.</caption>
+        <thead><tr><th>Source</th><th>Normal role</th><th>Fails through</th><th>Recovers through</th></tr></thead>
+        <tbody>
+          <tr><td>Swedish field</td><td>fresh vegetables, up to 55 % of demand in July–September, nothing in winter</td><td>drought (the season's yield is lost), harvest labour</td><td>next season only — a “rectangle”, not a triangle</td></tr>
+          <tr><td>Cold storage</td><td>storage crops (roots, cabbage, onions) harvested in September–October supply 20 % of demand from November to early June</td><td>a poor harvest leaves less to store — the summer drought returns as a winter gap</td><td>next autumn</td></tr>
+          <tr><td>Greenhouses</td><td>part of the local CEA share, less in the dark months</td><td>energy prices (heating, lighting), labour, IT</td><td>restart and regrow: about one crop cycle</td></tr>
+          <tr><td>Vertical farms</td><td>constant supply all year</td><td>electricity price, power cuts, IT and software</td><td>restart and regrow: about one crop cycle</td></tr>
+          <tr><td>Imports</td><td>the balancing supplier: about 40 % of demand in summer and three quarters in winter</td><td>blocked routes, export bans, droughts in exporting regions, logistics labour</td><td>re-sourcing to other origins, limited by spare capacity and contracting speed</td></tr>
+          <tr><td>Emergency stock</td><td>none unless you build it</td><td>—</td><td>refilled from spare import capacity after the crisis</td></tr>
+        </tbody>
+      </table>
+      <h3>Three kinds of response, three kinds of capacity</h3>
+      <p>The model contains the three resilience capacities of Béné (2020). <strong>Absorptive</strong> capacity is the stock: seasonal cold storage and an optional emergency buffer, released when supply falls short. <strong>Adaptive</strong> capacity is re-sourcing: importers can buy more from other origins, but only up to their spare capacity and only as fast as new contracts and logistics can be arranged — the <em>re-sourcing speed</em> slider. The <strong>production decisions</strong> of controlled-environment farms are adaptive too, but in the other direction: when the energy price exceeds a farm's break-even price (Eq. 15.2.7 of Lesson 15.2) the farm stops lighting and heating, and restarting takes a crop cycle. <em>Transformative</em> capacity — changing the system itself — is what you do with the strategy controls.</p>
+      <div class="callout note"><div class="callout-title">Why energy crises hit indoor farms twice</div><p>An energy-price spike raises a vertical farm's costs in proportion to its electricity cost share. Zhuang et al. (2022) found that a 30 % fall in yield or in the price of lettuce could bankrupt plant factories; Lesson 15.2 showed that a farm with an energy safety factor of 3.4 falls to 1.1 after a 30 % price fall. In the simulator each farm has its own break-even price, spread around the mean p*/p₀ with a coefficient of variation of 25 %; the share of farms still producing is the probability that a farm's break-even exceeds the current price.</p></div>
+      <h3>Diversity is not the same as independence</h3>
+      <p>The Shannon index counts shares, not risks (Lesson 15.2, Worked example 2). In the simulator, the <em>correlated</em> 2018-type drought hits Swedish fields and northern European exporters at once, and a blocked route through southern Europe takes out one origin that the concentrated import strategy relies on for 70 % of its imports. Diversification helps exactly when the origins fail for different reasons.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“More local production always means more resilience.” Local controlled-environment farms remove the trade risk but add energy, electricity-grid and IT risk — and they cannot scale up quickly when imports fail. In the simulator, a large local CEA share with fossil heat and no backup power makes the city <em>more</em> vulnerable to an energy crisis than a lean import-based system.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier · as of 2026</div><p>Sweden is rebuilding emergency food stocks: state-owned rotation stocks of grain in the four northernmost counties were in place from June 2026, and a law on emergency stocks in the food chain applies from 1 July 2026 (Jordbruksverket, 2026). Fresh vegetables cannot be stored for long, which is why their resilience depends on diversity, flexible trade and — for the storable part — cold stores.</p></div>
+      <a class="lab-link" data-lab="lca-comparator" data-why="The same vertical farm, greenhouse and import chain, assessed for their climate, energy, water and land footprints."></a>
+    </section>
+
+    <section data-panel="derive" data-title="Derive" class="prose">
+      <h2 data-nonum>The equations behind the simulator</h2>
+      <p>Time runs in weeks, \(t = 0, 1, \dots, 103\); \(w = t \bmod 52\) is the week of the year (0 = first week of January). All flows are in percent of normal weekly demand \(D = 100\).</p>
+
+      <div class="eq-box" id="eq-res-lab-field">
+        <div class="eq-head"><span class="eq-label">Seasonal field supply</span><span class="eq-num">(R1)</span></div>
+        <div class="eq-main">\[ F(t) = F_{\text{pk}}\,h(w)\,\big(1-\delta_{\text{dr}}\big)\big(1-0.8\,\lambda\big), \qquad h(w) = \sin^2\!\left(\pi\,\frac{w-23}{21}\right)\ \text{for } 24 \le w \le 43,\ \text{else } 0 \]</div>
+        <p class="eq-read">field supply equals its summer peak share times the harvest profile of the week, reduced by the drought severity for the rest of the season and by the labour shortage, of which 80 % is felt in the harvest.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(F_{\text{pk}}\)</td><td>field supply at the summer peak</td><td>% of demand</td><td>55</td></tr>
+          <tr><td>\(h(w)\)</td><td>harvest profile, 0 outside weeks 24–43, 1 at the peak (week 34)</td><td>–</td><td>–</td></tr>
+          <tr><td>\(\delta_{\text{dr}}\)</td><td>drought severity, applied from the start of the drought to the end of the season</td><td>–</td><td>0–1</td></tr>
+          <tr><td>\(\lambda\)</td><td>labour-shortage severity</td><td>–</td><td>0–1</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Swedish field vegetables are harvested from late June to mid-October; a smooth bump \(\sin^2\) that rises from zero and returns to zero reproduces this season.</li>
+            <li>A drought damages the crop that is in the field: the lost yield is not recovered later in the same season, so the reduction applies until the season ends. The loss is a rectangle over the season, as in Lesson 15.2, Worked example 1.</li>
+            <li>Harvest is labour-intensive (seasonal workers), so 80 % of a labour shortage reduces the harvest; greenhouses (40 %), vertical farms (20 %) and import logistics (15 %) are less exposed.</li>
+          </ol>
+        </details>
+        <div class="eq-units">(% of demand) × (–) × (–) × (–) = % of demand ✓</div>
+        <div class="mini-calc" data-formula="f*pow(sin(PI*min(max(w-23,0),21)/21),2)*(1-d/100)" data-output="Field supply F" data-unit="% of demand" data-digits="1" data-plot="w" data-title="Try it — the harvest season">
+          <div data-var="w" data-label="Week of the year w" data-min="0" data-max="51" data-step="1" data-value="30"></div>
+          <div data-var="f" data-label="Peak share F<sub>pk</sub>" data-min="20" data-max="80" data-step="1" data-value="55" data-unit="%"></div>
+          <div data-var="d" data-label="Drought severity" data-min="0" data-max="100" data-step="5" data-value="0" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-res-lab-store">
+        <div class="eq-head"><span class="eq-label">Seasonal cold store: a mass balance</span><span class="eq-num">(R2)</span></div>
+        <div class="eq-main">\[ S(t+1) = S(t) + H_s(t) - r(t), \qquad H_s = \sigma\,\frac{n_{\text{rel}}}{n_{\text{harv}}}\,(1-\delta_{\text{dr}})(1-0.8\,\lambda), \qquad r(t) = \frac{S(t)}{n_{\text{left}}(w)} \]</div>
+        <p class="eq-read">the stock next week is this week's stock plus the storage-crop harvest minus the release; the harvest is sized to supply the share σ of demand through the release season and is cut by drought and labour shortage like the fresh harvest; the planned release spreads the remaining stock evenly over the weeks left until early June.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(S\)</td><td>stock in cold stores</td><td>% of demand × week</td><td>–</td></tr>
+          <tr><td>\(\sigma\)</td><td>share of demand met from Swedish cold stores during the release season</td><td>% of demand</td><td>20</td></tr>
+          <tr><td>\(n_{\text{rel}}, n_{\text{harv}}\)</td><td>release weeks (44–21) and harvest weeks (36–43)</td><td>weeks</td><td>30; 8</td></tr>
+          <tr><td>\(r\)</td><td>planned release</td><td>% of demand</td><td>–</td></tr>
+          <tr><td>\(n_{\text{left}}\)</td><td>weeks remaining until week 22</td><td>weeks</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Conservation of mass: stock changes by what goes in minus what goes out, \(\mathrm{d}S/\mathrm{d}t = H_s - r\).</li>
+            <li>To supply \(\sigma\) for \(n_{\text{rel}}\) weeks, \(\sigma n_{\text{rel}}\) %·weeks must be harvested in \(n_{\text{harv}}\) weeks: \(20\times30/8 = 75\) % of weekly demand per harvest week.</li>
+            <li>A store manager who wants the stock to last until the new harvest divides the remaining stock by the remaining weeks. After a poor harvest this rule stretches the smaller stock thinner — and the summer drought reappears in winter as extra import need.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>No spoilage in store; stored vegetables substitute for fresh ones one-to-one in the supply count. In reality nutrition and consumer acceptance of stored roots differ from fresh leafy greens, and the seasonal store is not used as an emergency reserve in the model.</p></details>
+        <div class="eq-units">% of demand × week per week = % of demand ✓</div>
+        <div class="mini-calc" data-formula="s*nr/8" data-output="Storage harvest per week H<sub>s</sub>" data-unit="% of weekly demand" data-digits="0" data-plot="s" data-title="Try it — how big must the autumn harvest be?">
+          <div data-var="s" data-label="Winter share from stores σ" data-min="0" data-max="40" data-step="1" data-value="20" data-unit="%"></div>
+          <div data-var="nr" data-label="Release weeks n<sub>rel</sub>" data-min="10" data-max="40" data-step="1" data-value="30"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-res-lab-buffer">
+        <div class="eq-head"><span class="eq-label">Emergency buffer stock</span><span class="eq-num">(R3)</span></div>
+        <div class="eq-main">\[ e(t) = \min\!\big(g(t),\,B(t),\,e_{\max}\big), \qquad B(t+1) = B(t) - e(t), \qquad \tau = \frac{B_0}{g} \]</div>
+        <p class="eq-read">the emergency release is the smallest of the supply gap, the remaining buffer and the maximum release rate; the buffer shrinks by what is released, so a buffer of B₀ lasts B₀ divided by the gap.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(g(t)\)</td><td>gap between demand and all other supply</td><td>% of demand</td><td>–</td></tr>
+          <tr><td>\(B_0\)</td><td>emergency stock held (weeks of demand × 100)</td><td>% of demand × week</td><td>0–600</td></tr>
+          <tr><td>\(e_{\max}\)</td><td>maximum release rate (distribution capacity)</td><td>% of demand</td><td>25</td></tr>
+          <tr><td>\(\tau\)</td><td>time until the buffer is empty (Lesson 15.2, Eq. 15.2.6)</td><td>weeks</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The buffer is a stock drained at the rate of the deficit it covers, the mass balance of Lesson 15.2: \(\mathrm{d}B/\mathrm{d}t = -g\).</li>
+            <li>With a constant gap, \(\tau = B_0/g\): a 4-week stock (400 %·weeks) bridges a 40 % gap for 10 weeks.</li>
+            <li>After the crisis, spare import capacity refills the buffer at up to 5 % of demand per week.</li>
+          </ol>
+        </details>
+        <div class="eq-units">(% × week)/(%) = week ✓</div>
+        <div class="mini-calc" data-formula="b*100/g" data-output="Buffer lasts τ" data-unit="weeks" data-digits="1" data-plot="g" data-title="Try it — how long does the buffer last?">
+          <div data-var="b" data-label="Buffer B₀" data-min="0.5" data-max="6" data-step="0.5" data-value="4" data-unit="weeks of demand"></div>
+          <div data-var="g" data-label="Supply gap g" data-min="5" data-max="80" data-step="1" data-value="40" data-unit="% of demand"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-res-lab-capacity">
+        <div class="eq-head"><span class="eq-label">Import capacity of the origins</span><span class="eq-num">(R4)</span></div>
+        <div class="eq-main">\[ C_M(t) = \sum_{j=1}^{4} \pi_j\,M_{\max}\,\big(1-\delta_j(t)\big), \qquad M_{\max} = (1+h)\,\max_t M_{\text{sched}}(t) \]</div>
+        <p class="eq-read">import capacity is the sum over the four origins of each origin's share of the maximum import volume, reduced by the disruption hitting that origin; the maximum volume is the normal peak import need plus a headroom fraction.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(\pi_j\)</td><td>share of imports from origin \(j\) (strategy)</td><td>–</td><td>0.70/0.20/0.05/0.05</td></tr>
+          <tr><td>\(\delta_j(t)\)</td><td>disruption of origin \(j\) (trade shock; drought in northern Europe)</td><td>–</td><td>0–1</td></tr>
+          <tr><td>\(h\)</td><td>spare capacity above the normal peak</td><td>–</td><td>0.15</td></tr>
+          <tr><td>\(M_{\text{sched}}(t)\)</td><td>contracted imports: the import need of the same network without shocks</td><td>% of demand</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Each origin can deliver at most its share of the network's maximum import volume.</li>
+            <li>A shock removes a fraction \(\delta_j\) of that origin's capacity; the first-order loss of imports is \(\sum_j\pi_j\delta_j\) — the exposure of Lesson 15.2, Eq. 15.2.9.</li>
+            <li>Example: concentrated imports (70 % from Spain &amp; Italy) and an 80 % blockade of that route remove \(0.7\times0.8 = 56\) % of import capacity; with diversified imports (30 %) only 24 %.</li>
+          </ol>
+        </details>
+        <div class="eq-units">(–) × (% of demand) × (–) = % of demand ✓</div>
+        <div class="mini-calc" data-formula="100*p/100*s/100" data-output="Import capacity lost" data-unit="% of imports" data-digits="0" data-plot="p" data-title="Try it — exposure to one blocked origin">
+          <div data-var="p" data-label="Share of imports from the origin π" data-min="0" data-max="100" data-step="1" data-value="70" data-unit="%"></div>
+          <div data-var="s" data-label="Disruption δ" data-min="0" data-max="100" data-step="5" data-value="80" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-res-lab-resourcing">
+        <div class="eq-head"><span class="eq-label">Re-sourcing: how fast imports adapt</span><span class="eq-num">(R5)</span></div>
+        <div class="eq-main">\[ M(t) = \min\!\Big(C_M(t),\; M_{\text{sched}}(t) + X(t)\Big), \qquad X(t) = \min\!\big(N(t) - M_{\text{sched}}(t),\; X(t-1) + \rho\big) \]</div>
+        <p class="eq-read">imports equal the smaller of the capacity and the contracted volume plus any extra purchases; the extra purchases can grow by at most the re-sourcing speed ρ each week, up to the extra need.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(N(t)\)</td><td>import need: demand minus domestic supply</td><td>% of demand</td><td>–</td></tr>
+          <tr><td>\(X(t)\)</td><td>extra imports above the contracted volume</td><td>% of demand</td><td>–</td></tr>
+          <tr><td>\(\rho\)</td><td>re-sourcing speed (adaptive capacity)</td><td>% of demand per week</td><td>10</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>In normal times importers deliver the contracted, seasonally planned volume \(M_{\text{sched}}\).</li>
+            <li>When domestic supply falls unexpectedly, extra volume must be found, contracted and transported. A rate limit \(\rho\) makes the shortfall decay linearly — the rising edge of a resilience triangle (Lesson 15.2, Eq. 15.2.2) with recovery time \(\Delta Q/\rho\).</li>
+            <li>No amount of re-sourcing can exceed the remaining capacity \(C_M\): if the gap is larger than the spare capacity, the shortfall persists until the shock ends.</li>
+          </ol>
+        </details>
+        <div class="eq-units">% of demand + (% of demand per week) × week = % of demand ✓</div>
+      </div>
+
+      <div class="eq-box" id="eq-res-lab-energy">
+        <div class="eq-head"><span class="eq-label">Energy prices and the production decision of CEA farms</span><span class="eq-num">(R6)</span></div>
+        <div class="eq-main">\[ u^{*}(t) = 1 - \Phi\!\left(\frac{m(t) - \bar F}{0.25\,\bar F}\right), \qquad m_{\text{VF}} = 1 + (m-1)(1-0.3\,b), \qquad m_{\text{GH}} = \begin{cases} m & \text{gas heat}\\ 1 + 0.4\,(m-1) & \text{bio heat}\end{cases} \]</div>
+        <p class="eq-read">the target share of farms that keep producing equals the probability that a farm's break-even energy-price multiplier exceeds the current multiplier, when break-even multipliers are normally distributed around their mean with a coefficient of variation of 25 %; vertical farms with on-site generation and greenhouses with non-fossil heat feel a smaller multiplier.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Default</th></tr>
+          <tr><td>\(m(t)\)</td><td>energy-price multiplier, \(1 + 4\times\) shock severity</td><td>–</td><td>1</td></tr>
+          <tr><td>\(\bar F\)</td><td>mean energy-price headroom \(p^{*}/p_0\) of the farms (Lesson 15.2, Eq. 15.2.7)</td><td>–</td><td>2.5</td></tr>
+          <tr><td>\(\Phi\)</td><td>standard normal cumulative distribution function</td><td>–</td><td>–</td></tr>
+          <tr><td>\(b\)</td><td>share of CEA with backup power and on-site generation</td><td>–</td><td>0</td></tr>
+          <tr><td>\(u^{*}\)</td><td>target operating level (share of capacity in production)</td><td>–</td><td>0–1</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A farm makes a loss on every kilogram when the energy price exceeds its break-even \(p^{*} = (P_{\text{sale}} - C_0)/e_{\text{el}}\) (Lesson 15.2). In multiples of the normal price, the condition is \(m &gt; F_i = p^{*}_i/p_0\).</li>
+            <li>Farms differ in contracts, efficiency and margins. If \(F_i\sim N(\bar F, (0.25\bar F)^2)\), the share with \(F_i &gt; m\) is \(1-\Phi((m-\bar F)/(0.25\bar F))\).</li>
+            <li>Example: \(\bar F = 2.5\) and a price tripling (\(m = 3\)): \(z = 0.5/0.625 = 0.8\), \(u^{*} = 1-\Phi(0.8) = 0.21\) — four in five farms stop.</li>
+            <li>On-site generation fixes the price of 30 % of a vertical farm's electricity; a biofuel-heated greenhouse is exposed only through its electricity, about 40 % of its energy bill (model assumption).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Short-run decision: farms with a loss switch off rather than go bankrupt, and restart when prices fall. In reality long crises also cause bankruptcies, after which capacity does not return — a transformation, not a recovery.</p></details>
+        <div class="eq-units">\(m\) and \(\bar F\) are ratios of prices: dimensionless ✓</div>
+        <div class="mini-calc" data-fn="resEconShare" data-output="Farms still producing u*" data-unit="%" data-digits="0" data-plot="m" data-ymin="0" data-ymax="100" data-title="Try it — when do the lights go off?">
+          <div data-var="m" data-label="Energy-price multiplier m" data-min="1" data-max="5" data-step="0.1" data-value="3"></div>
+          <div data-var="F" data-label="Mean headroom p*/p₀" data-min="1.2" data-max="5" data-step="0.1" data-value="2.5"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-res-lab-regrow">
+        <div class="eq-head"><span class="eq-label">Switching off fast, regrowing slowly</span><span class="eq-num">(R7)</span></div>
+        <div class="eq-main">\[ u(t+1) = u(t) + \big(u^{*}(t) - u(t)\big)\left(1 - e^{-\Delta t/\tau}\right), \qquad \tau = \begin{cases} 1\ \text{week} & u^{*} &lt; u\\ 5\ \text{weeks} & u^{*} \ge u \end{cases} \]</div>
+        <p class="eq-read">the operating level of the farms moves toward its target each week by a fraction set by a time constant: one week when farms switch off, five weeks — about one lettuce crop cycle — when they restart.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(u(t)\)</td><td>operating level of greenhouses or vertical farms</td><td>–</td></tr>
+          <tr><td>\(u^{*}(t)\)</td><td>target from Eq. R6, reduced by cyber-attacks (vertical farms fully, greenhouses by half)</td><td>–</td></tr>
+          <tr><td>\(\tau\)</td><td>time constant</td><td>weeks</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>First-order relaxation \(\mathrm{d}u/\mathrm{d}t = (u^{*}-u)/\tau\) has the exact weekly solution above.</li>
+            <li>Lights can be switched off in a day, but a crop that was lost must be sown and grown again: lettuce takes four to six weeks, hence \(\tau = 5\) weeks for recovery.</li>
+            <li>A power cut of two days or more without backup kills the standing crop: \(u\) drops at once by the affected share and then regrows with \(\tau = 5\) weeks.</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(\Delta t/\tau\) is weeks per week: dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*(1-(1-u0/100)*exp(-n/tau))" data-output="Operating level after n weeks" data-unit="%" data-digits="0" data-plot="n" data-ymin="0" data-ymax="100" data-title="Try it — regrowth after a lost crop">
+          <div data-var="n" data-label="Weeks since restart n" data-min="0" data-max="20" data-step="1" data-value="5"></div>
+          <div data-var="u0" data-label="Level at restart u₀" data-min="0" data-max="100" data-step="5" data-value="20" data-unit="%"></div>
+          <div data-var="tau" data-label="Time constant τ" data-min="1" data-max="12" data-step="0.5" data-value="5" data-unit="weeks"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-res-lab-loss">
+        <div class="eq-head"><span class="eq-label">Supply, shortfall and the resilience triangle</span><span class="eq-num">(R8)</span></div>
+        <div class="eq-main">\[ Q(t) = \min\!\Big(100,\ F + r + G + V + M + e\Big), \qquad L = \sum_{t=0}^{T-1}\big(100 - Q(t)\big)\Delta t, \qquad \Phi = 1 - \frac{L}{100\,T} \]</div>
+        <p class="eq-read">supply to consumers is the sum of all sources, capped at normal demand; the resilience loss is the summed shortfall over the two years; the resilience index is one minus that loss divided by the largest possible loss.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(F, r, G, V, M, e\)</td><td>fresh field supply, store release, greenhouses, vertical farms, imports, emergency stock</td><td>% of demand</td></tr>
+          <tr><td>\(L\)</td><td>resilience loss (Lesson 15.2, Eq. 15.2.1a)</td><td>%·weeks</td></tr>
+          <tr><td>\(\Phi\)</td><td>resilience index over \(T = 104\) weeks (Eq. 15.2.1b)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Weekly steps turn the integral \(\int(100-Q)\,\mathrm{d}t\) into a sum with \(\Delta t = 1\) week.</li>
+            <li>A drop of \(\Delta Q\) that is closed linearly by re-sourcing at speed \(\rho\) lasts \(T_r = \Delta Q/\rho\) weeks and costs \(L = \tfrac12\Delta Q\,T_r = \Delta Q^2/(2\rho)\): halving the depth quarters the loss, doubling the re-sourcing speed halves it.</li>
+            <li>The readout “longest shortfall episode” is the longest run of consecutive weeks with a shortfall above 0.5 %.</li>
+          </ol>
+        </details>
+        <div class="eq-units">% × week = %·week; \(\Phi\) dimensionless ✓</div>
+        <div class="mini-calc" data-formula="1 - 0.5*dq*dq/rho/(100*104)" data-output="Resilience index Φ (one triangle)" data-unit="" data-digits="4" data-plot="rho" data-ymin="0.9" data-ymax="1" data-title="Try it — depth versus re-sourcing speed">
+          <div data-var="dq" data-label="Drop ΔQ" data-min="5" data-max="60" data-step="1" data-value="30" data-unit="%"></div>
+          <div data-var="rho" data-label="Re-sourcing speed ρ" data-min="2" data-max="30" data-step="1" data-value="10" data-unit="% per week"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-res-lab-diversity">
+        <div class="eq-head"><span class="eq-label">Diversity, concentration and self-sufficiency</span><span class="eq-num">(R9)</span></div>
+        <div class="eq-main">\[ H = -\sum_{i} p_i \ln p_i, \quad D_1 = e^{H}, \quad \text{HHI} = \sum_i p_i^2, \quad \text{SSR} = \frac{F + r + G + V}{\sum \text{supply}}\times 100\,\% \]</div>
+        <p class="eq-read">the Shannon index is minus the sum of each source's share times its logarithm, and e to its power is the effective number of equally important sources; the Herfindahl–Hirschman index is the sum of squared shares; self-sufficiency is the domestic share of what consumers receive.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(p_i\)</td><td>share of source \(i\) (field, store, greenhouses, vertical farms, emergency stock, four import origins) in supply</td><td>–</td></tr>
+          <tr><td>\(D_1\), HHI</td><td>effective number of sources; concentration (Lesson 15.2, Eqs. 15.2.3–15.2.4)</td><td>sources; –</td></tr>
+          <tr><td>SSR</td><td>self-sufficiency ratio of consumption (no exports in this model; Eq. 15.2.5)</td><td>%</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Shares are computed from the sources' totals over the two years (readouts) or week by week (diversity chart).</li>
+            <li>With concentrated imports the Spanish-Italian origin alone supplies about half of all vegetables over the year, so the HHI is high even though nine sources exist.</li>
+            <li>SSR rises with the local CEA share, but the diversity index shows whether the local sources fail for different reasons than the imports — the index itself cannot.</li>
+          </ol>
+        </details>
+        <div class="eq-units">shares and logarithms are dimensionless ✓</div>
+        <div class="mini-calc" data-fn="resShannon3" data-output="Shannon index H" data-unit="nats" data-digits="3" data-plot="p1" data-ymin="0" data-ymax="1.2" data-title="Try it — three sources (the third takes the rest)">
+          <div data-var="p1" data-label="Share of source 1" data-min="0" data-max="100" data-step="1" data-value="70" data-unit="%"></div>
+          <div data-var="p2" data-label="Share of source 2" data-min="0" data-max="100" data-step="1" data-value="20" data-unit="%"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="investigate" data-title="Investigate" class="prose">
+      <h2 data-nonum>Investigation tasks</h2>
+      <p>Use the simulator; save each configuration with <em>Save investigation</em> (the page link also stores your shocks).</p>
+      <ol class="task-list">
+        <li><h4>The shape of a shock</h4><p>Run each single-shock scenario (drought, energy crisis, blocked route, pandemic, cyber-attack, power cut) with the lean baseline. For each, note the depth ΔQ, the longest shortfall episode and L. Which shocks make triangles, which rectangles, and which do almost nothing? Explain each shape with the equations R1–R7.</p></li>
+        <li><h4>What does a buffer buy?</h4><p>With the scenario <em>Blocked trade route</em>, increase the emergency buffer from 0 to 6 weeks in steps of one. Plot L against buffer size. Where do the returns diminish, and why (Eq. R3: think of the release rate and the length of the disruption)?</p></li>
+        <li><h4>Local production and energy risk</h4><p>For the scenario <em>Energy crisis</em>, vary the local CEA share from 0 to 40 % with gas heating, then with biofuel heat and 100 % backup. Is there a CEA share above which the network becomes less resilient? How does the energy-price headroom p*/p₀ change your answer?</p></li>
+        <li><h4>Diversity versus correlation</h4><p>Compare concentrated and diversified imports for the <em>Blocked trade route</em> (Spain &amp; Italy) and for a trade disruption of <em>all origins</em> (add it yourself). Compute the first-order exposure Σπⱼδⱼ for both cases (Eq. R4) and compare it with the simulated depth. When does diversification not help?</p></li>
+        <li><h4>Design a resilient city</h4><p>Under the <em>Perfect storm</em>, find the cheapest combination of strategies (fewest weeks of buffer, lowest CEA share) that keeps supply above 90 % in every week. Record SSR, e^H and HHI of your design and argue whether it would also be robust to a shock you did not test.</p></li>
+        <li><h4>Your own shock</h4><p>Build a scenario from a real event — the 2021 Suez blockage (six days), the 2026 Strait of Hormuz fertiliser shock, or a winter storm cutting power to the Mälardalen region. Justify the start, duration and severity you chose and report which strategy helped most.</p></li>
+      </ol>
+      <div class="quiz" data-quiz="lab-resilience-simulator">
+        <script type="application/json">
+        {"title":"Lab check","kicker":"Use the simulator and the equations","questions":[
+          {"type":"numeric","q":"Choose the scenario <em>No shocks</em> and the strategy preset <em>Lean baseline</em>. What is the self-sufficiency ratio over the two years (readout)?","answer":27.6,"tol":0.05,"unit":"%","hint":"Read the self-sufficiency readout; it is the domestic share of all supply (Eq. R9).","explain":"<p>About 28 %: Swedish fields supply up to 55 % in summer and storage and CEA a little in winter, but imports supply most of the year's vegetables.</p>"},
+          {"type":"numeric","q":"Scenario <em>Blocked trade route</em> (Spain &amp; Italy, 80 %, 6 weeks) with the <em>Lean baseline</em>: what is the resilience loss L?","answer":181,"tol":0.08,"unit":"%·weeks","hint":"Read the readout ‘Resilience loss L’ or the amber curve of the shortfall chart.","explain":"<p>About 180 %·weeks: with 70 % of imports from the blocked origin, most of the winter supply disappears and re-sourcing is capped by the small spare capacity of the other origins.</p>"},
+          {"type":"mcq","q":"With the <em>Blocked trade route</em> scenario, which single strategy in the strategy chart reduces L the most?","options":["Diversified imports","A 4-week buffer stock","Local CEA 25 %","Backup power and biofuel heat"],"answer":0,"feedback":["","","",""],"explain":"<p>Diversified imports remove the loss completely (L = 0): the blocked origin now supplies only 30 % of imports, and the other origins have enough spare capacity. A 4-week buffer cuts L to about 18 %·weeks, a 25 % local CEA share to about 130, and backup power does nothing, because the shock is not about energy.</p>"},
+          {"type":"mcq","q":"Choose <em>Energy crisis</em> and compare the preset <em>Lean baseline</em> with <em>Local CEA push</em>. What happens?","options":["The local CEA push has the larger resilience loss, because farms switch off when the energy price exceeds their break-even and importers cannot replace 30 % of demand quickly","The local CEA push is more resilient because local production is always safer","Both have the same loss because energy prices do not affect supply","The lean baseline suffers more because imports are energy-intensive"],"answer":0,"feedback":["","Local production removes trade risk but adds energy risk.","Energy prices act through the production decisions of greenhouses and vertical farms (Eq. R6).","Import transport costs rise, but supply is not interrupted in the model."],"explain":"<p>L rises from 0 to about 50 %·weeks. Backup power with on-site generation and biofuel heat, or a larger energy-price headroom, bring it back down.</p>"},
+          {"type":"numeric","q":"A shock cuts supply by ΔQ = 30 percentage points and importers close the gap linearly at ρ = 10 % of demand per week. Using Eq. R8, what is the resilience index Φ over 104 weeks?","answer":0.99567,"abstol":0.0003,"unit":"","hint":"T_r = ΔQ/ρ; L = ½ ΔQ T_r; Φ = 1 − L/(100 T).","explain":"<p>\\(T_r = 3\\) weeks, \\(L = 0.5\\times30\\times3 = 45\\) %·weeks, \\(\\Phi = 1 - 45/10\\,400 = 0.9957\\).</p>"},
+          {"type":"tf","q":"Diversifying imports across four origins protects the city against a cyber-attack on the IT of local vertical farms.","answer":false,"explain":"<p>Diversification protects against shocks to individual origins. A cyber-attack hits local controlled-environment farms; what helps is re-sourcing capacity, a buffer stock and resourcefulness in the farms (offline control, backups) — not the shares of the import origins.</p>"}
+        ]}
+        </script>
+      </div>
+    </section>
+
+    <section data-panel="sources" data-title="Assumptions &amp; sources" class="prose">
+      <h2 data-nonum>Model assumptions</h2>
+      <ul>
+        <li><strong>Stylised network.</strong> Demand is constant at 100 % of a normal week. Default shares are chosen to reproduce the Swedish pattern of high summer and low winter self-sufficiency in fresh vegetables (Livsmedelsverket &amp; Jordbruksverket, 2025); they are not calibrated to a particular city. Fresh, stored, greenhouse, vertical-farm and imported vegetables substitute for each other one-to-one.</li>
+        <li><strong>Field and cold stores:</strong> fresh harvest in weeks 24–43 with a sin² profile; storage crops harvested in weeks 36–43 and released evenly until week 22. A drought cuts both from its start until the end of that year's season; a correlated drought also reduces the northern-European origin by half its severity for its duration plus four weeks.</li>
+        <li><strong>Greenhouses</strong> produce 60 % of their summer output in midwinter (light-limited) with an annual mean equal to their share; <strong>vertical farms</strong> produce constantly.</li>
+        <li><strong>Energy response:</strong> price multiplier 1 + 4 × severity; break-even multipliers of farms normally distributed (mean p*/p₀, CV 25 %); switching off with a 1-week and regrowth with a 5-week time constant. On-site generation fixes 30 % of the electricity price for farms with backup; biofuel-heated greenhouses are exposed only through electricity (40 % of their energy bill).</li>
+        <li><strong>Cyber-attack:</strong> vertical farms lose operating capacity equal to the severity, greenhouses half of it; recovery through regrowth. <strong>Power cut:</strong> 2 days or more without backup kills the standing crop in the affected share of vertical farms (and 60 % of it in greenhouses).</li>
+        <li><strong>Imports:</strong> origin shares from the diversification setting; capacity = (1 + spare) × the normal peak import need; contracted volumes follow the no-shock run; extra volumes grow by at most the re-sourcing speed per week. Trade disruptions recover linearly over three weeks after they end; labour shortages reduce import logistics by 15 % of their severity.</li>
+        <li><strong>Emergency stock:</strong> released at up to 25 % of demand per week; refilled at up to 5 % per week from spare import capacity.</li>
+        <li><strong>Not modelled:</strong> prices and affordability (who can still buy food — Lesson 15.3), nutrition and acceptance of substitutes, spoilage, bankruptcies and permanent loss of capacity, and feedbacks from the city's demand to prices.</li>
+      </ul>
+      <h2 data-nonum>Sources and further reading</h2>
+      <ol class="references">
+        <li>Bailey, R., &amp; Wellesley, L. (2017). <em>Chokepoints and vulnerabilities in global food trade</em> (Chatham House Report). The Royal Institute of International Affairs. <a href="https://www.chathamhouse.org/2017/06/chokepoints-and-vulnerabilities-global-food-trade" target="_blank" rel="noopener">chathamhouse.org</a></li>
+        <li>Béné, C. (2020). Resilience of local food systems and links to food security – A review of some important concepts in the context of COVID-19 and other shocks. <em>Food Security</em>, 12(4), 805–822. <a href="https://doi.org/10.1007/s12571-020-01076-1" target="_blank" rel="noopener">doi:10.1007/s12571-020-01076-1</a></li>
+        <li>Bruneau, M., Chang, S. E., Eguchi, R. T., Lee, G. C., O'Rourke, T. D., Reinhorn, A. M., Shinozuka, M., Tierney, K., Wallace, W. A., &amp; von Winterfeldt, D. (2003). A framework to quantitatively assess and enhance the seismic resilience of communities. <em>Earthquake Spectra</em>, 19(4), 733–752. <a href="https://doi.org/10.1193/1.1623497" target="_blank" rel="noopener">doi:10.1193/1.1623497</a></li>
+        <li>Cimellaro, G. P., Reinhorn, A. M., &amp; Bruneau, M. (2010). Framework for analytical quantification of disaster resilience. <em>Engineering Structures</em>, 32(11), 3639–3649. <a href="https://doi.org/10.1016/j.engstruct.2010.08.008" target="_blank" rel="noopener">doi:10.1016/j.engstruct.2010.08.008</a></li>
+        <li>Jordbruksverket. (2026). <em>Beredskapslager av spannmål och insatsvaror</em> [Emergency stocks of grain and inputs]. Swedish Board of Agriculture. <a href="https://jordbruksverket.se/beredskapslager" target="_blank" rel="noopener">jordbruksverket.se</a></li>
+        <li>Jost, L. (2006). Entropy and diversity. <em>Oikos</em>, 113(2), 363–375. <a href="https://doi.org/10.1111/j.2006.0030-1299.14714.x" target="_blank" rel="noopener">doi:10.1111/j.2006.0030-1299.14714.x</a></li>
+        <li>Kummu, M., Kinnunen, P., Lehikoinen, E., Porkka, M., Queiroz, C., Röös, E., Troell, M., &amp; Weil, C. (2020). Interplay of trade and food system resilience: Gains on supply diversity over time at the cost of trade independency. <em>Global Food Security</em>, 24, 100360. <a href="https://doi.org/10.1016/j.gfs.2020.100360" target="_blank" rel="noopener">doi:10.1016/j.gfs.2020.100360</a></li>
+        <li>Livsmedelsverket &amp; Jordbruksverket. (2025). <em>Livsmedelsförsörjningen i siffror. Nyckeltal och indikatorer (NIL 2025)</em>. Uppsala &amp; Jönköping. <a href="https://www.livsmedelsverket.se/globalassets/publikationsdatabas/rapporter/2025/2025---livsmedelsforsorjningen-i-siffror.pdf" target="_blank" rel="noopener">livsmedelsverket.se</a></li>
+        <li>Puma, M. J., Bose, S., Chon, S. Y., &amp; Cook, B. I. (2015). Assessing the evolving fragility of the global food system. <em>Environmental Research Letters</em>, 10(2), 024007. <a href="https://doi.org/10.1088/1748-9326/10/2/024007" target="_blank" rel="noopener">doi:10.1088/1748-9326/10/2/024007</a></li>
+        <li>Shannon, C. E. (1948). A mathematical theory of communication. <em>Bell System Technical Journal</em>, 27(3), 379–423. <a href="https://doi.org/10.1002/j.1538-7305.1948.tb01338.x" target="_blank" rel="noopener">doi:10.1002/j.1538-7305.1948.tb01338.x</a></li>
+        <li>Tendall, D. M., Joerin, J., Kopainsky, B., Edwards, P., Shreck, A., Le, Q. B., Kruetli, P., Grant, M., &amp; Six, J. (2015). Food system resilience: Defining the concept. <em>Global Food Security</em>, 6, 17–23. <a href="https://doi.org/10.1016/j.gfs.2015.08.001" target="_blank" rel="noopener">doi:10.1016/j.gfs.2015.08.001</a></li>
+        <li>van Delden, S. H., SharathKumar, M., Butturini, M., Graamans, L. J. A., Heuvelink, E., Kacira, M., et al. (2021). Current status and future challenges in implementing and upscaling vertical farming systems. <em>Nature Food</em>, 2(12), 944–956. <a href="https://doi.org/10.1038/s43016-021-00402-w" target="_blank" rel="noopener">doi:10.1038/s43016-021-00402-w</a></li>
+        <li>Zhuang, Y., Lu, N., Shimamura, S., Maruyama, A., Kikuchi, M., &amp; Takagaki, M. (2022). Economies of scale in constructing plant factories with artificial lighting and the economic viability of crop production. <em>Frontiers in Plant Science</em>, 13, 992194. <a href="https://doi.org/10.3389/fpls.2022.992194" target="_blank" rel="noopener">doi:10.3389/fpls.2022.992194</a></li>
+      </ol>
+      <a class="lab-link" data-lab="mcda-studio" data-why="Turn resilience into one criterion among several and weigh it against climate, cost and acceptance."></a>
+    </section>
+  </div>
+</main>
+
+<div data-site-footer></div>
+</body>
+</html>
