@@ -1,0 +1,1190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How sensors work: from physical quantity to signal · Future Food Production</title>
+<meta name="description" content="The measurement chain, static and dynamic sensor characteristics, voltage dividers and ADCs, thermistors (β and Steinhart–Hart), RTDs, thermocouples, capacitive humidity, quantum PAR, NDIR CO₂, dielectric moisture sensing, load cells and cameras.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator helpers for this lesson (must exist before site.js builds the mini-calcs) */
+window.FFP_CALC = window.FFP_CALC || {};
+/* Steinhart–Hart with the three-point calibration of Worked example 2 (coefficients derived in the lesson) */
+FFP_CALC.shExample = v => 1 / (1.092739e-3 + 2.409652e-4 * Math.log(v.R) + 5.363408e-8 * Math.pow(Math.log(v.R), 3)) - 273.15;
+/* Topp et al. (1980) volumetric water content from apparent permittivity, in % */
+FFP_CALC.topp = v => 100 * (-5.3e-2 + 2.92e-2 * v.eps - 5.5e-4 * v.eps * v.eps + 4.3e-6 * Math.pow(v.eps, 3));
+</script>
+<style>
+  .fx-grid { display: block; }
+  .fx-grid > div:first-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); column-gap: 22px; margin-bottom: 6px; }
+  .fx-note { font-size: .82rem; color: var(--muted); margin: 6px 0 0; }
+  .fx-grid .readouts { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); margin: 12px 0 0; }
+</style>
+</head>
+<body data-page="lesson" data-slug="sensor-physics">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>How sensors work: from physical quantity to signal</h1>
+      <p class="lead">Every number on a greenhouse dashboard — 21.4 °C, 72 % RH, 850 ppm CO₂, 380 µmol m⁻² s⁻¹ — is the last link of a long chain of physics, electronics and assumptions. When the chain is sound, the number is a faithful image of the crop's environment; when one link is weak, an algorithm will happily optimise the climate around a fiction. This lesson opens the black box: how a physical quantity changes a resistance, a capacitance, a current or a light intensity, how that change becomes a voltage and then a number, and how you judge whether the number can be trusted.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Describe the measurement chain from measurand to recorded value, and classify sensors by their transduction principle (LO5).</li>
+        <li>Interpret the static (sensitivity, linearity, hysteresis, resolution, repeatability) and dynamic (time constant) characteristics on a data sheet, and derive and apply the first-order step response (LO4, LO5).</li>
+        <li>Design a voltage divider for a thermistor, calculate ADC resolution and convert raw ADC codes into temperature with the β and Steinhart–Hart equations (LO3, LO5).</li>
+        <li>Explain how RTDs, thermocouples, capacitive humidity sensors, quantum PAR sensors, NDIR CO₂ sensors, dielectric moisture sensors, load cells and cameras work and what limits their accuracy (LO5).</li>
+        <li>Apply pressure–temperature compensation to NDIR readings and the Topp equation to dielectric permittivity measurements (LO3, LO5).</li>
+        <li>Select and justify sensors for your own soilless growing project in terms of range, accuracy, response time, robustness and cost (LO4, LO5).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="why">Why measurement comes before intelligence</h2>
+      <p class="lede-drop">Artificial intelligence in food production is usually pictured as neural networks, digital twins and autonomous greenhouses. All of them stand on a humble foundation: sensors. A climate controller cannot keep the vapour pressure deficit at 0.8 kPa if the humidity sensor reads 5 percentage points high; a model predicting lettuce harvest date from light integrals inherits every error of the quantum sensor; a nutrient-dosing robot fed by a drifting pH electrode will dose acid into a solution that did not need it. The old engineering rule <em>"garbage in, garbage out"</em> has a sharper modern form: <strong>a data-driven system can be no more trustworthy than its least trustworthy sensor</strong>.</p>
+      <p>This matters directly for you. In the course project you will log water temperature, electrical conductivity (EC), pH, dissolved oxygen, light (PPFD) and air temperature and humidity — possibly with a home-built logger based on an ESP32 microcontroller. Each of those numbers is produced by a different physical principle with its own quirks. This lesson treats the physical sensors; <a href="/lessons/electrochemical-sensors/">Lesson 9.2</a> covers the electrochemical ones (pH, EC, oxygen); <a href="/lessons/measurement-uncertainty/">Lesson 9.3</a> teaches you to calibrate and to put an honest uncertainty on every value; and <a href="/lessons/iot-architectures/">Lesson 9.4</a> connects sensors to networks and the cloud.</p>
+      <div class="callout key"><div class="callout-title">Big idea</div><p>A sensor never measures what you want directly. It measures <em>some physical effect</em> — a change in resistance, capacitance, current, voltage or light — that depends on what you want <em>and</em> on other things. Understanding the physics tells you both how to convert the signal into the quantity of interest and which "other things" can fool you.</p></div>
+
+      <h2 id="chain">The measurement chain</h2>
+      <p>Metrologists call the quantity you intend to measure the <strong>measurand</strong> (JCGM, 2012). Between the measurand and the number in your database lies a chain of stages, and each stage can add error, delay and noise. Figure 1 follows a water-temperature measurement through the chain that you will build in your own logger.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 780 290" role="img" aria-label="Block diagram of the measurement chain from measurand to stored value, with a thermistor example">
+            <defs><marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <rect x="10" y="14" width="245" height="24" rx="6" class="fill-accent-soft"/><text x="132" y="31" text-anchor="middle" class="t-small">physical domain</text>
+            <rect x="265" y="14" width="245" height="24" rx="6" class="fill-water-soft"/><text x="387" y="31" text-anchor="middle" class="t-small">electrical domain</text>
+            <rect x="520" y="14" width="250" height="24" rx="6" class="fill-magenta-soft"/><text x="645" y="31" text-anchor="middle" class="t-small">digital domain</text>
+            <g>
+              <rect x="10" y="60" width="112" height="78" rx="10" class="fill-bg" stroke="currentColor" stroke-width="1.3"/>
+              <text x="66" y="86" text-anchor="middle" font-weight="600">Measurand</text><text x="66" y="104" text-anchor="middle" class="t-small t-muted">water</text><text x="66" y="118" text-anchor="middle" class="t-small t-muted">temperature</text>
+              <rect x="143" y="60" width="112" height="78" rx="10" class="fill-bg" stroke="currentColor" stroke-width="1.3"/>
+              <text x="199" y="86" text-anchor="middle" font-weight="600">Sensing</text><text x="199" y="102" text-anchor="middle" font-weight="600">element</text><text x="199" y="120" text-anchor="middle" class="t-small t-muted">NTC thermistor</text>
+              <rect x="276" y="60" width="112" height="78" rx="10" class="fill-bg" stroke="currentColor" stroke-width="1.3"/>
+              <text x="332" y="86" text-anchor="middle" font-weight="600">Signal</text><text x="332" y="102" text-anchor="middle" font-weight="600">conditioning</text><text x="332" y="120" text-anchor="middle" class="t-small t-muted">divider + RC filter</text>
+              <rect x="409" y="60" width="112" height="78" rx="10" class="fill-bg" stroke="currentColor" stroke-width="1.3"/>
+              <text x="465" y="86" text-anchor="middle" font-weight="600">A/D</text><text x="465" y="102" text-anchor="middle" font-weight="600">conversion</text><text x="465" y="120" text-anchor="middle" class="t-small t-muted">12 bit, 3.3 V</text>
+              <rect x="542" y="60" width="112" height="78" rx="10" class="fill-bg" stroke="currentColor" stroke-width="1.3"/>
+              <text x="598" y="86" text-anchor="middle" font-weight="600">Calibration</text><text x="598" y="102" text-anchor="middle" font-weight="600">&amp; conversion</text><text x="598" y="120" text-anchor="middle" class="t-small t-muted">β or Steinhart–Hart</text>
+              <rect x="675" y="60" width="95" height="78" rx="10" class="fill-accent-soft" stroke="currentColor" stroke-width="1.3"/>
+              <text x="722" y="86" text-anchor="middle" font-weight="600">Stored</text><text x="722" y="102" text-anchor="middle" font-weight="600">value</text><text x="722" y="120" text-anchor="middle" class="t-small t-muted">+ metadata</text>
+            </g>
+            <g class="stroke" stroke-width="1.6">
+              <line x1="122" y1="99" x2="141" y2="99" marker-end="url(#ar1)"/><line x1="255" y1="99" x2="274" y2="99" marker-end="url(#ar1)"/>
+              <line x1="388" y1="99" x2="407" y2="99" marker-end="url(#ar1)"/><line x1="521" y1="99" x2="540" y2="99" marker-end="url(#ar1)"/>
+              <line x1="654" y1="99" x2="673" y2="99" marker-end="url(#ar1)"/>
+            </g>
+            <g class="t-mono">
+              <text x="66" y="164" text-anchor="middle" class="t-small">T = 20.0 °C</text>
+              <text x="199" y="164" text-anchor="middle" class="t-small">R = 12.54 kΩ</text>
+              <text x="332" y="164" text-anchor="middle" class="t-small">V = 1.836 V</text>
+              <text x="465" y="164" text-anchor="middle" class="t-small">code = 2278</text>
+              <text x="598" y="164" text-anchor="middle" class="t-small">T = 20.0 °C</text>
+              <text x="722" y="158" text-anchor="middle" class="t-small">10:00Z, 20.0,</text><text x="722" y="172" text-anchor="middle" class="t-small">°C, flag=ok</text>
+            </g>
+            <text x="66" y="196" text-anchor="middle" class="t-small t-muted">what you want</text>
+            <text x="199" y="196" text-anchor="middle" class="t-small t-muted">transduction</text>
+            <text x="332" y="196" text-anchor="middle" class="t-small t-muted">R → V, filter noise</text>
+            <text x="465" y="196" text-anchor="middle" class="t-small t-muted">V → integer</text>
+            <text x="598" y="196" text-anchor="middle" class="t-small t-muted">integer → SI unit</text>
+            <text x="722" y="196" text-anchor="middle" class="t-small t-muted">traceable record</text>
+            <path d="M598 210 L598 240 L199 240 L199 210" class="stroke-magenta" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ar1)" style="color:var(--magenta)"/>
+            <text x="398" y="262" text-anchor="middle" class="t-small" style="fill:var(--magenta)">calibration against reference standards links the code back to the measurand (traceability)</text>
+            <text x="398" y="280" text-anchor="middle" class="t-small t-muted">errors enter at every stage: self-heating, lead resistance, noise, quantisation, nonlinearity, drift, wrong metadata</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The measurement chain of a thermistor-based water-temperature logger. Numbers under each stage follow one reading at 20.0 °C through the chain (10 kΩ NTC with β = 3950 K, 10 kΩ series resistor, 12-bit ADC, 3.3 V reference). The same structure applies to every sensor in this module.</figcaption>
+      </figure>
+      <p>The stages are:</p>
+      <ol>
+        <li><strong>Measurand</strong> — defined precisely: not "temperature" but "temperature of the nutrient solution at 10 cm depth in tank A, averaged over one minute". A vague definition is a source of uncertainty in its own right.</li>
+        <li><strong>Sensing element (transducer)</strong> — converts the measurand into another physical quantity. <em>Modulating</em> (passive) transducers change a property such as resistance or capacitance and need an external excitation (a thermistor, an RTD, a capacitive humidity sensor). <em>Self-generating</em> (active) transducers produce electrical energy themselves (a thermocouple, a photodiode in photovoltaic mode, a galvanic oxygen cell).</li>
+        <li><strong>Signal conditioning</strong> — excitation, amplification, filtering, linearisation, isolation. It turns the transducer output into a clean voltage in the range the converter accepts.</li>
+        <li><strong>Analogue-to-digital conversion</strong> — samples the voltage at discrete times and quantises it into an integer.</li>
+        <li><strong>Calibration and conversion</strong> — a mathematical model with calibrated coefficients turns the integer back into the measurand in SI units.</li>
+        <li><strong>Storage with metadata</strong> — time stamp (in UTC), unit, sensor identity, calibration version and a quality flag. Without metadata a number is not a measurement but a rumour.</li>
+      </ol>
+      <p>Table 1 classifies the sensors you meet in controlled-environment agriculture by transduction principle.</p>
+      <table>
+        <caption>Table 1. Transduction principles of common crop-environment sensors.</caption>
+        <thead><tr><th>Principle</th><th>Physical effect</th><th>Examples in CEA</th><th>Excitation needed?</th></tr></thead>
+        <tbody>
+          <tr><td>Resistive</td><td>resistance depends on T, strain or water content</td><td>NTC thermistor, Pt100/Pt1000 RTD, strain gauge (load cell)</td><td>yes (current or voltage)</td></tr>
+          <tr><td>Capacitive / dielectric</td><td>permittivity of a dielectric changes</td><td>polymer RH sensor, capacitance (FDR) substrate-moisture probe</td><td>yes (AC)</td></tr>
+          <tr><td>Thermoelectric</td><td>Seebeck voltage between dissimilar metals</td><td>thermocouple, thermopile detector in NDIR</td><td>no</td></tr>
+          <tr><td>Photonic</td><td>photons generate electron–hole pairs</td><td>quantum PAR sensor, pyranometer (Si type), camera</td><td>no (photovoltaic) or bias</td></tr>
+          <tr><td>Optical absorption</td><td>molecules absorb specific wavelengths</td><td>NDIR CO₂ sensor</td><td>yes (IR source)</td></tr>
+          <tr><td>Electromagnetic wave travel</td><td>wave speed depends on permittivity</td><td>TDR soil/substrate moisture</td><td>yes (pulse)</td></tr>
+          <tr><td>Electrochemical</td><td>electrode potential or current depends on ion activity or O₂</td><td>pH, ORP, EC, Clark and galvanic DO (Lesson 9.2)</td><td>varies</td></tr>
+          <tr><td>Luminescence</td><td>O₂ quenches a luminophore</td><td>optical DO sensor (Lesson 9.2)</td><td>yes (LED)</td></tr>
+        </tbody>
+      </table>
+      <p>Whatever the principle, the heart of the chain is the <strong>transfer function</strong>: the relationship between the measurand \(x\) and the sensor output \(y\).</p>
+      <div class="eq-box" id="eq-transfer-function">
+        <div class="eq-head"><span class="eq-label">Transfer function, sensitivity and linearity error</span><span class="eq-num">(9.1.1)</span></div>
+        <div class="eq-main">\[ y = f(x) \approx y_0 + S\,x + k\,x^{2}, \qquad S = \frac{\mathrm{d}y}{\mathrm{d}x}, \qquad e_{\text{lin}} = \frac{|k|\,x_{\text{FS}}^{2}/4}{y_{\text{FS}}-y_0}\times100\,\% \]</div>
+        <p class="eq-read">the sensor output equals an offset plus the sensitivity times the measurand plus a small curvature term; the sensitivity is the slope of the output with respect to the measurand; the linearity error is the largest gap between the curved characteristic and the straight line joining its end points, expressed as a percentage of the full-scale output span.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x\)</td><td>measurand (input), from 0 to full scale \(x_{\text{FS}}\)</td><td>e.g. °C, %RH, ppm</td></tr>
+          <tr><td>\(y\)</td><td>sensor output</td><td>V, Ω, pF, A, counts</td></tr>
+          <tr><td>\(y_0\)</td><td>offset (output at \(x = 0\))</td><td>unit of \(y\)</td></tr>
+          <tr><td>\(S\)</td><td>sensitivity (slope)</td><td>unit of \(y\) per unit of \(x\)</td></tr>
+          <tr><td>\(k\)</td><td>curvature (second-order) coefficient</td><td>unit of \(y\) per (unit of \(x\))²</td></tr>
+          <tr><td>\(e_{\text{lin}}\)</td><td>end-point linearity error</td><td>% of full-scale output</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the linearity error</summary>
+          <ol class="steps">
+            <li>Any smooth characteristic can be expanded in a Taylor series around \(x=0\): \(y = y_0 + S x + k x^2 + \dots\) For a well-designed sensor the quadratic term is small, and higher terms are smaller still.</li>
+            <li>The <em>end-point line</em> passes through \((0, y_0)\) and \((x_{\text{FS}}, y_{\text{FS}})\), where \(y_{\text{FS}} = y_0 + S x_{\text{FS}} + k x_{\text{FS}}^2\). Its slope is \(S + k x_{\text{FS}}\), so the line is \(y_{\text{line}} = y_0 + (S + k x_{\text{FS}})x\).</li>
+            <li>The deviation of the true curve from the line is \(d(x) = y - y_{\text{line}} = k x^2 - k x_{\text{FS}} x = k\,x\,(x - x_{\text{FS}})\).</li>
+            <li>Set \(\mathrm{d}d/\mathrm{d}x = k(2x - x_{\text{FS}}) = 0\): the largest deviation is at mid-scale, \(x = x_{\text{FS}}/2\), where \(|d| = |k|\,x_{\text{FS}}^2/4\).</li>
+            <li>Dividing by the output span \(y_{\text{FS}} - y_0\) and multiplying by 100 gives the linearity error in % of full scale (% FS), the form used on data sheets.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Data sheets may instead quote linearity relative to the <em>best-fit</em> straight line (least squares), which halves the number for a pure quadratic bow. Always check which definition a manufacturer uses. Offsets and sensitivities of real sensors also depend on influence quantities such as temperature and supply voltage; these are specified separately as "temperature coefficient of zero" and "temperature coefficient of span".</p>
+        </details>
+        <div class="eq-units">\(S\): [y]/[x]; \(e_{\text{lin}}\): \(\dfrac{[y]/[x]^2\cdot[x]^2}{[y]}\) = dimensionless, expressed in % ✓</div>
+        <div class="mini-calc" data-formula="abs(k)*xfs*xfs/4/(S*xfs + k*xfs*xfs)*100" data-output="End-point linearity error" data-unit="% FS" data-digits="2" data-plot="k" data-title="Try it — how much curvature is too much?">
+          <div data-var="S" data-label="Sensitivity S" data-min="5" data-max="50" data-step="1" data-value="20" data-unit="mV per unit"></div>
+          <div data-var="k" data-label="Curvature k" data-min="-0.2" data-max="0.2" data-step="0.005" data-value="0.05" data-unit="mV per unit²"></div>
+          <div data-var="xfs" data-label="Full scale x<sub>FS</sub>" data-min="10" data-max="100" data-step="1" data-value="50" data-unit="units"></div>
+        </div>
+      </div>
+      <a class="lab-link" data-lab="sensor-bench" data-why="Open up a thermistor, a capacitive humidity sensor, a quantum PAR sensor and an NDIR CO₂ cell in 3D and follow the physical signal through each stage of the measurement chain."></a>
+
+      <h2 id="static">Static characteristics: reading a data sheet</h2>
+      <p>The <em>static</em> characteristics describe how the output relates to a measurand that is not changing. They are the first page of every data sheet, and you should be able to translate each term into a concrete statement about your data. The definitions below follow the International Vocabulary of Metrology (JCGM, 2012) and standard texts (Fraden, 2016).</p>
+      <dl class="kv">
+        <dt>Range and span</dt><dd>The interval of measurand values the sensor is specified for (e.g., 0–100 %RH), and its width. Outside the range the output may saturate or the sensor may be damaged.</dd>
+        <dt>Sensitivity</dt><dd>The slope \(S\) of the transfer function (Eq. 9.1.1). A Pt100 RTD has \(S \approx 0.39\) Ω K⁻¹; a 10 kΩ thermistor around 20 °C about −550 Ω K⁻¹ — more than a thousand times larger.</dd>
+        <dt>Offset (zero error)</dt><dd>The output when the measurand is zero, or more generally a constant shift of the characteristic.</dd>
+        <dt>Linearity</dt><dd>Maximum deviation from a straight line, in % of full scale.</dd>
+        <dt>Hysteresis</dt><dd>The difference between readings at the same measurand value approached from below and from above. Polymer humidity sensors typically show about ±1 %RH hysteresis because water sorption and desorption are not perfectly reversible.</dd>
+        <dt>Resolution</dt><dd>The smallest change in the measurand that produces a detectable change in the output. For a digital sensor it is usually one least-significant bit (LSB). <strong>Resolution is not accuracy.</strong></dd>
+        <dt>Repeatability</dt><dd>Closeness of agreement between successive readings of the same measurand under the same conditions (same operator, sensor, place, short time). Reproducibility is the same under changed conditions.</dd>
+        <dt>Accuracy</dt><dd>Closeness of agreement between a measured value and the true value of the measurand. It combines all systematic and random errors; <a href="/lessons/measurement-uncertainty/">Lesson 9.3</a> replaces this qualitative term by the quantitative <em>uncertainty</em>.</dd>
+        <dt>Drift</dt><dd>Slow change of the characteristic with time (ageing, contamination). Apogee specifies less than 2 % per year for its SQ-500 quantum sensor (Apogee Instruments, n.d.).</dd>
+        <dt>Cross-sensitivity</dt><dd>Response to a quantity other than the measurand, e.g., a CO₂ sensor responding to pressure, or a capacitance moisture probe responding to salinity.</dd>
+      </dl>
+      <p>Explore these characteristics in Figure 2. The virtual sensor measures temperature over 0–50 °C; you can add an offset, a gain error, a quadratic bow, hysteresis and random noise, and reduce its resolution. Notice how quickly small, individually "acceptable" errors add up to a total error band much larger than any single specification.</p>
+
+      <figure class="figure" id="static-playground">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the static-characteristics playground</div>
+          <div class="fx-grid">
+            <div id="sp-ctl"></div>
+            <div><div id="sp-plot" style="height:300px"></div></div>
+          </div>
+          <div class="readouts" id="sp-ro"></div>
+        </div>
+        <figcaption><b>Figure 2.</b> Error (reading minus true value) of a virtual 0–50 °C temperature sensor. Dashed: an ideal sensor. Solid lines: rising (green) and falling (magenta) sweeps, which differ when hysteresis is present; the offset shifts them, the gain error tilts them and the nonlinearity bows them. Dots: individual noisy, quantised readings on the rising sweep. The shaded band is ±0.5 °C. The readouts give the worst-case deterministic error and the random ±2σ band, both as % of full scale (50 °C).</figcaption>
+      </figure>
+
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"My sensor displays 21.37 °C, so it is accurate to 0.01 °C." The number of displayed digits reflects the <em>resolution</em> of the converter, not the <em>accuracy</em> of the measurement. The DS18B20 digital thermometer, a favourite of hobby loggers, reports in steps of 0.0625 °C at 12-bit resolution but is specified as accurate only to ±0.5 °C between −10 and +85 °C (Analog Devices, n.d.). Sixteen of its displayed steps fit inside its accuracy band.</p></div>
+
+      <h2 id="dynamic">Dynamic characteristics: how fast does a sensor follow?</h2>
+      <p>A sensor cannot respond instantly. A temperature probe must itself warm up; a humidity sensor's polymer must absorb water vapour; an NDIR cell must fill with new air by diffusion. The simplest — and remarkably often adequate — description of this lag is the <strong>first-order system</strong>. It follows directly from an energy balance on the sensing element.</p>
+      <div class="eq-box" id="eq-first-order">
+        <div class="eq-head"><span class="eq-label">First-order sensor dynamics and step response</span><span class="eq-num">(9.1.2)</span></div>
+        <div class="eq-main">\[ \tau\,\frac{\mathrm{d}y}{\mathrm{d}t} + y = x(t), \qquad \tau = \frac{m\,c}{h\,A} \qquad\Rightarrow\qquad y(t) = x_1 + (x_0 - x_1)\,e^{-t/\tau} \]</div>
+        <p class="eq-read">the time constant times the rate of change of the reading plus the reading equals the true value; the time constant is the heat capacity of the sensing element divided by the heat-transfer conductance to its surroundings. After a sudden step from \(x_0\) to \(x_1\), the reading approaches the new value exponentially.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(y\)</td><td>sensor reading (here: temperature of the sensing element)</td><td>°C</td></tr>
+          <tr><td>\(x(t)\)</td><td>true value of the measurand (fluid temperature)</td><td>°C</td></tr>
+          <tr><td>\(\tau\)</td><td>time constant</td><td>s</td></tr>
+          <tr><td>\(m\), \(c\)</td><td>mass and specific heat capacity of the sensing element</td><td>kg, J kg⁻¹ K⁻¹</td></tr>
+          <tr><td>\(h\)</td><td>convective heat-transfer coefficient</td><td>W m⁻² K⁻¹</td></tr>
+          <tr><td>\(A\)</td><td>surface area of the element</td><td>m²</td></tr>
+          <tr><td>\(x_0, x_1\)</td><td>measurand before and after the step</td><td>°C</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Energy balance.</strong> A probe of mass \(m\) and specific heat \(c\) sits in a fluid at temperature \(x(t)\). Heat flows into it by convection at a rate \(hA\,(x - y)\), where \(y\) is the probe temperature. The rate of change of stored heat is \(mc\,\mathrm{d}y/\mathrm{d}t\).</li>
+            <li>Equate: \(mc\,\dfrac{\mathrm{d}y}{\mathrm{d}t} = hA\,(x - y)\). Divide by \(hA\) and rearrange: \(\dfrac{mc}{hA}\dfrac{\mathrm{d}y}{\mathrm{d}t} + y = x\). The group \(mc/(hA)\) has units of time: it is the time constant \(\tau\).</li>
+            <li><strong>Step input.</strong> For \(t > 0\) the fluid temperature is constant, \(x = x_1\). Substitute \(z = y - x_1\): \(\tau\,\mathrm{d}z/\mathrm{d}t = -z\), so \(\mathrm{d}z/z = -\mathrm{d}t/\tau\).</li>
+            <li>Integrate from 0 to \(t\): \(\ln[z(t)/z(0)] = -t/\tau\), i.e. \(z(t) = z(0)\,e^{-t/\tau}\).</li>
+            <li>With \(z(0) = x_0 - x_1\) (the probe starts at the old temperature): \(y(t) = x_1 + (x_0 - x_1)e^{-t/\tau}\).</li>
+            <li><strong>Milestones.</strong> After \(t=\tau\) the probe has covered \(1 - e^{-1} = 63.2\,\%\) of the step (this is how \(\tau\) is measured and why data sheets quote "τ₆₃"); after \(3\tau\), 95.0 %; after \(4.6\tau\), 99.0 %; after \(5\tau\), 99.3 %.</li>
+            <li><strong>Time to settle within a tolerance.</strong> Solving \(|x_0 - x_1|e^{-t/\tau} = \delta\) gives \(t = \tau\ln(|x_0 - x_1|/\delta)\).</li>
+          </ol>
+        </details>
+        <details><summary>Ramp and sinusoidal inputs</summary>
+          <p><strong>Ramp.</strong> If the true value rises at a constant rate \(r\) (e.g., a greenhouse warming at 2 °C h⁻¹ in the morning), the solution of Eq. 9.1.2 is \(y = x_0 + r\,[t - \tau(1 - e^{-t/\tau})]\). After a few time constants the reading lags the truth by a constant <em>dynamic error</em> \(r\,\tau\), and is delayed by exactly \(\tau\).</p>
+          <p><strong>Sine.</strong> If \(x = \bar x + a\sin\omega t\), the steady-state reading oscillates with a reduced amplitude \(a/\sqrt{1 + (\omega\tau)^2}\) and a phase lag \(\arctan(\omega\tau)\). Fast fluctuations are smoothed out: a slow sensor is a low-pass filter. This is sometimes useful (less noise) and sometimes dangerous (a short temperature spike that damages roots is never recorded).</p>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The element is assumed to have a uniform temperature (small Biot number), constant \(h\), and negligible heat conduction along its leads. A sensor inside a stainless-steel sheath with potting compound behaves like two or more first-order stages in series and its response starts with an S-shaped delay; the first-order model then still describes the later part of the response. \(h\) depends strongly on the fluid and its velocity: the same probe responds many times faster in stirred water than in still air, so a time constant is meaningless unless the medium and flow are stated.</p>
+        </details>
+        <div class="eq-units">\(\tau = \dfrac{\text{kg}\cdot\text{J kg}^{-1}\text{K}^{-1}}{\text{W m}^{-2}\text{K}^{-1}\cdot\text{m}^2} = \dfrac{\text{J K}^{-1}}{\text{J s}^{-1}\text{K}^{-1}} = \text{s}\) ✓</div>
+        <div class="mini-calc" data-formula="100*(1-exp(-t/tau))" data-output="Fraction of the step completed" data-unit="%" data-digits="1" data-plot="t" data-ymin="0" data-ymax="100">
+          <div data-var="t" data-label="Time since step t" data-min="0" data-max="300" data-step="1" data-value="60" data-unit="s"></div>
+          <div data-var="tau" data-label="Time constant τ" data-min="1" data-max="120" data-step="1" data-value="20" data-unit="s"></div>
+        </div>
+      </div>
+
+      <figure class="figure" id="dynamic-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — watch a sensor lag behind reality</div>
+          <div class="seg" id="dy-mode" role="group" aria-label="Input signal" style="margin-bottom:12px">
+            <button type="button" data-v="step" aria-pressed="true">Step</button>
+            <button type="button" data-v="ramp" aria-pressed="false">Ramp</button>
+            <button type="button" data-v="sine" aria-pressed="false">Oscillation</button>
+          </div>
+          <div class="fx-grid">
+            <div id="dy-ctl"></div>
+            <div><div id="dy-plot" style="height:290px"></div></div>
+          </div>
+          <div class="readouts" id="dy-ro"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> True temperature (dashed) and first-order sensor reading (solid) computed with the exact solutions of Eq. 9.1.2. <em>Step:</em> a probe moved from 18 °C to 22 °C water. <em>Ramp:</em> a greenhouse warming in the morning. <em>Oscillation:</em> an on/off heater or fogging cycle. Increase τ and watch the dynamic error grow and short events disappear.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">How long must you wait before you read?</span></div>
+        <div class="we-problem"><p>(a) A student moves a stainless-steel temperature probe from the 22.0 °C air of the lab into an 18.0 °C nutrient tank. The probe's time constant in gently stirred water is τ = 20 s. How long must she wait before the reading is within 0.1 °C of the true value? (b) The same probe hangs in the greenhouse air, where its time constant is τ = 5 min. On a sunny morning the air warms at 2.0 °C h⁻¹. How far does the reading lag behind the true air temperature?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Identify the model.</strong> A sudden immersion is a step input; Eq. 9.1.2 gives \(|y - x_1| = |x_0 - x_1|e^{-t/\tau}\).</li>
+              <li><strong>Solve for t.</strong> \(t = \tau\ln\!\left(\dfrac{|x_0 - x_1|}{\delta}\right) = 20\ \text{s}\times\ln\!\left(\dfrac{4.0}{0.1}\right) = 20\times3.689 = 73.8\ \text{s}\).</li>
+              <li><strong>Sanity check.</strong> 73.8 s is 3.7 τ, between the 95 % (3 τ) and 99 % (4.6 τ) milestones; a 0.1 °C tolerance on a 4 °C step is 97.5 % of the step. ✓</li>
+              <li><strong>Ramp.</strong> Convert the rate: \(r = 2.0\ ^{\circ}\text{C h}^{-1} = 2.0/3600 = 5.56\times10^{-4}\ ^{\circ}\text{C s}^{-1}\). With \(\tau = 300\) s the steady dynamic error is \(r\tau = 5.56\times10^{-4}\times300 = 0.17\ ^{\circ}\text{C}\): the sensor reads 0.17 °C too low, 5 minutes late.</li>
+            </ol>
+            <span class="answer">(a) ≈ 74 s (about 3.7 τ); (b) the reading lags by ≈ 0.17 °C</span>
+            <p style="margin-top:10px">Lesson: in manual measurements, wait at least 4–5 time constants in the right medium; in automatic logging, remember that a slow sensor both delays and smooths the signal — which matters for a feedback controller (<a href="/lessons/control-optimisation/">Lesson 10.4</a>).</p>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="electronics">From resistance to numbers: dividers, bridges and ADCs</h2>
+      <p>Microcontrollers measure <em>voltages</em>, not resistances. The simplest way to turn a resistance into a voltage is the <strong>voltage divider</strong> (Figure 4): the sensor and a fixed resistor in series across a supply, with the midpoint connected to the analogue-to-digital converter (ADC).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 300" role="img" aria-label="Circuit diagram: 3.3 V supply, fixed resistor, NTC thermistor to ground, RC filter and microcontroller ADC">
+            <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g class="stroke" stroke-width="1.6">
+              <line x1="30" y1="36" x2="470" y2="36"/>
+              <line x1="90" y1="36" x2="90" y2="64"/>
+              <rect x="80" y="64" width="20" height="58" class="fill-bg"/>
+              <line x1="90" y1="122" x2="90" y2="178"/>
+              <rect x="80" y="178" width="20" height="58" class="fill-bg"/>
+              <path d="M66 246 L76 236 L112 172 L122 172"/>
+              <line x1="90" y1="236" x2="90" y2="262"/>
+              <line x1="76" y1="262" x2="104" y2="262"/><line x1="81" y1="268" x2="99" y2="268"/><line x1="86" y1="274" x2="94" y2="274"/>
+              <line x1="90" y1="150" x2="200" y2="150"/>
+              <rect x="200" y="141" width="58" height="18" class="fill-bg"/>
+              <line x1="258" y1="150" x2="380" y2="150"/>
+              <line x1="310" y1="150" x2="310" y2="186"/>
+              <line x1="292" y1="186" x2="328" y2="186"/><line x1="292" y1="194" x2="328" y2="194"/>
+              <line x1="310" y1="194" x2="310" y2="236"/>
+              <line x1="296" y1="236" x2="324" y2="236"/><line x1="301" y1="242" x2="319" y2="242"/><line x1="306" y1="248" x2="314" y2="248"/>
+              <line x1="470" y1="36" x2="470" y2="70"/>
+            </g>
+            <circle cx="90" cy="150" r="3.5" fill="currentColor"/><circle cx="310" cy="150" r="3.5" fill="currentColor"/><circle cx="90" cy="36" r="3.5" fill="currentColor"/>
+            <text x="30" y="28" class="t-small">+3.3 V (V<tspan baseline-shift="sub" font-size="9">s</tspan>)</text>
+            <text x="108" y="90" class="t-small">R<tspan baseline-shift="sub" font-size="9">f</tspan> = 10 kΩ</text><text x="108" y="104" class="t-small t-muted">fixed, 0.1 %</text>
+            <text x="126" y="200" class="t-small">NTC R<tspan baseline-shift="sub" font-size="9">T</tspan></text><text x="126" y="214" class="t-small t-muted">10 kΩ at 25 °C</text><text x="126" y="228" class="t-small t-muted">β = 3950 K</text>
+            <text x="114" y="144" class="t-small" style="fill:var(--accent)">V<tspan baseline-shift="sub" font-size="9">out</tspan></text>
+            <text x="229" y="134" text-anchor="middle" class="t-small">1 kΩ</text>
+            <text x="336" y="194" class="t-small">100 nF</text>
+            <text x="200" y="182" class="t-small t-muted">RC low-pass</text><text x="200" y="196" class="t-small t-muted">f<tspan baseline-shift="sub" font-size="8">c</tspan> ≈ 1.6 kHz</text>
+            <rect x="380" y="70" width="290" height="200" rx="12" class="fill-sunk" stroke="currentColor" stroke-width="1.3"/>
+            <text x="525" y="94" text-anchor="middle" font-weight="600">Microcontroller (ESP32) or ADS1115</text>
+            <rect x="398" y="120" width="120" height="60" rx="8" class="fill-water-soft" stroke="currentColor"/>
+            <text x="458" y="145" text-anchor="middle" class="t-small" font-weight="600">SAR ADC</text><text x="458" y="163" text-anchor="middle" class="t-small">N = 12 bit</text>
+            <line x1="380" y1="150" x2="398" y2="150" class="stroke" stroke-width="1.6"/>
+            <line x1="470" y1="70" x2="470" y2="120" class="stroke" stroke-width="1.2" stroke-dasharray="3 3"/>
+            <text x="476" y="112" class="t-small t-muted">V<tspan baseline-shift="sub" font-size="8">ref</tspan> = V<tspan baseline-shift="sub" font-size="8">s</tspan></text>
+            <line x1="518" y1="150" x2="548" y2="150" class="stroke" stroke-width="1.4" marker-end="url(#ar2)"/>
+            <text x="554" y="146" class="t-small t-mono">code</text><text x="554" y="160" class="t-small t-mono">0…4095</text>
+            <text x="398" y="208" class="t-small">firmware: R<tspan baseline-shift="sub" font-size="8">T</tspan> = R<tspan baseline-shift="sub" font-size="8">f</tspan>·code / (2<tspan baseline-shift="super" font-size="8">N</tspan> − code)</text>
+            <text x="398" y="226" class="t-small">then T = f(R<tspan baseline-shift="sub" font-size="8">T</tspan>) by Eq. 9.1.5 or 9.1.6</text>
+            <text x="398" y="252" class="t-small t-muted">ratiometric: supply drift cancels</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 4.</b> A thermistor voltage divider feeding an ADC through an RC anti-noise filter. Because the ADC reference and the divider share the same supply, the code depends only on the resistance ratio (ratiometric measurement). Resistors are drawn as IEC rectangles; the diagonal bent line through the lower one is the symbol for a temperature-dependent resistor.</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-voltage-divider">
+        <div class="eq-head"><span class="eq-label">Voltage divider (sensor to ground)</span><span class="eq-num">(9.1.3)</span></div>
+        <div class="eq-main">\[ V_{\text{out}} = V_s\,\frac{R_T}{R_f + R_T} \qquad\Longleftrightarrow\qquad R_T = R_f\,\frac{V_{\text{out}}}{V_s - V_{\text{out}}} \]</div>
+        <p class="eq-read">the output voltage is the supply voltage multiplied by the fraction of the total resistance that the sensor represents; inverted, the sensor resistance equals the fixed resistance times the output voltage divided by the voltage across the fixed resistor.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(V_s\)</td><td>supply (excitation) voltage</td><td>V</td></tr>
+          <tr><td>\(V_{\text{out}}\)</td><td>voltage across the sensor (ADC input)</td><td>V</td></tr>
+          <tr><td>\(R_T\)</td><td>sensor (thermistor) resistance</td><td>Ω</td></tr>
+          <tr><td>\(R_f\)</td><td>fixed series resistor</td><td>Ω</td></tr>
+        </table>
+        <details><summary>Follow the derivation — and the best choice of R<sub>f</sub></summary>
+          <ol class="steps">
+            <li>The same current \(I\) flows through both resistors (the ADC input draws negligible current): \(I = V_s/(R_f + R_T)\) by Ohm's law.</li>
+            <li>The voltage across the sensor is \(V_{\text{out}} = I R_T = V_s R_T/(R_f + R_T)\).</li>
+            <li>Solve for \(R_T\): \(V_{\text{out}}(R_f + R_T) = V_s R_T \Rightarrow R_T(V_s - V_{\text{out}}) = V_{\text{out}} R_f\), which gives the inverse form.</li>
+            <li><strong>Sensitivity.</strong> \(\dfrac{\mathrm{d}V_{\text{out}}}{\mathrm{d}R_T} = V_s\dfrac{R_f}{(R_f + R_T)^2}\). For a given \(R_T\), this is largest when \(\dfrac{\mathrm{d}}{\mathrm{d}R_f}\dfrac{R_f}{(R_f + R_T)^2} = \dfrac{R_T - R_f}{(R_f+R_T)^3} = 0\), i.e. \(R_f = R_T\).</li>
+            <li><strong>Design rule:</strong> choose the fixed resistor equal to the sensor resistance at the centre of the temperature range you care about. For nutrient solutions around 20 °C and a 10 kΩ/β 3950 thermistor, \(R_T(20\ ^{\circ}\text{C}) = 12.5\) kΩ, so 12 kΩ is a better choice than 10 kΩ (though the difference is small).</li>
+            <li><strong>Ratiometric trick.</strong> If the ADC reference equals \(V_s\), the code is \(\text{code} = 2^N V_{\text{out}}/V_s = 2^N R_T/(R_f + R_T)\): the supply voltage cancels and \(R_T = R_f\,\text{code}/(2^N - \text{code})\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The ADC input impedance must be much larger than \(R_f \parallel R_T\), or the sampling capacitor of a SAR ADC must have time to charge — the 100 nF capacitor in Figure 4 acts as a charge reservoir. The current through the sensor heats it (<em>self-heating</em>): the power is \(P = V_{\text{out}}^2/R_T\), and the temperature rise is \(P/\delta\), where \(\delta\) is the dissipation constant (mW K⁻¹) on the thermistor data sheet. Keep \(P\) well below 0.1 δ for errors below 0.1 K, or power the divider only while measuring.</p>
+        </details>
+        <div class="eq-units">\(\text{V}\cdot\dfrac{\Omega}{\Omega} = \text{V}\) ✓ and \(\Omega\cdot\dfrac{\text{V}}{\text{V}} = \Omega\) ✓</div>
+        <div class="mini-calc" data-formula="Vs*RT/(Rf+RT)" data-output="V<sub>out</sub>" data-unit="V" data-digits="3" data-plot="RT">
+          <div data-var="RT" data-label="Sensor resistance R<sub>T</sub>" data-min="1000" data-max="100000" data-value="12535" data-scale="log" data-unit="Ω"></div>
+          <div data-var="Rf" data-label="Fixed resistor R<sub>f</sub>" data-min="1000" data-max="100000" data-value="10000" data-scale="log" data-unit="Ω"></div>
+          <div data-var="Vs" data-label="Supply V<sub>s</sub>" data-min="1.8" data-max="5" data-step="0.1" data-value="3.3" data-unit="V"></div>
+        </div>
+      </div>
+      <p>The ADC then turns the continuous voltage into an integer. A successive-approximation (SAR) converter with \(N\) bits divides its reference voltage into \(2^N\) equal steps.</p>
+      <div class="eq-box" id="eq-adc">
+        <div class="eq-head"><span class="eq-label">ADC resolution and quantisation error</span><span class="eq-num">(9.1.4)</span></div>
+        <div class="eq-main">\[ \text{LSB} = \frac{V_{\text{ref}}}{2^{N}}, \qquad \text{code} = \left\lfloor \frac{V_{\text{in}}}{V_{\text{ref}}}\,2^{N} \right\rfloor, \qquad u_q = \frac{\text{LSB}}{\sqrt{12}}, \qquad \Delta x_{\min} = \frac{\text{LSB}}{|S|} \]</div>
+        <p class="eq-read">one least-significant bit is the reference voltage divided by two to the power of the number of bits; the code is the input voltage as a fraction of the reference, scaled to the number of steps and rounded down; the quantisation error behaves like random noise with a standard deviation of one LSB divided by the square root of twelve; the smallest resolvable change of the measurand is one LSB divided by the sensor's sensitivity.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(N\)</td><td>number of bits of the converter</td><td>–</td></tr>
+          <tr><td>\(V_{\text{ref}}\)</td><td>reference (full-scale) voltage</td><td>V</td></tr>
+          <tr><td>LSB</td><td>voltage step of one code (least-significant bit)</td><td>V</td></tr>
+          <tr><td>\(u_q\)</td><td>standard uncertainty due to quantisation</td><td>V</td></tr>
+          <tr><td>\(S\)</td><td>sensitivity of the conditioned signal, \(\mathrm{d}V/\mathrm{d}x\)</td><td>V per unit of \(x\)</td></tr>
+          <tr><td>\(\Delta x_{\min}\)</td><td>resolution expressed in units of the measurand</td><td>e.g. K</td></tr>
+        </table>
+        <details><summary>Follow the derivation of LSB/√12</summary>
+          <ol class="steps">
+            <li>Within one code the true voltage can be anywhere in an interval one LSB wide, and — for a signal that varies over many codes — every position is equally likely. The quantisation error \(e\) is therefore <em>uniformly</em> distributed between \(-\text{LSB}/2\) and \(+\text{LSB}/2\) (after centring the code).</li>
+            <li>The variance of a uniform distribution of width \(w\) is \(\sigma^2 = \dfrac{1}{w}\displaystyle\int_{-w/2}^{w/2} e^2\,\mathrm{d}e = \dfrac{1}{w}\left[\dfrac{e^3}{3}\right]_{-w/2}^{w/2} = \dfrac{w^2}{12}\).</li>
+            <li>With \(w = \text{LSB}\), the standard deviation is \(\text{LSB}/\sqrt{12} = 0.289\ \text{LSB}\). The same result reappears as the "rectangular distribution" Type B uncertainty in <a href="/lessons/measurement-uncertainty/">Lesson 9.3</a>.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — resolution is not accuracy</summary>
+          <p>Eq. 9.1.4 describes an <em>ideal</em> converter. Real converters also have offset, gain error, differential nonlinearity (DNL, unequal step widths) and integral nonlinearity (INL, a bowed transfer curve). The ESP32 data sheet specifies DNL of ±7 LSB and INL of ±12 LSB for its 12-bit SAR ADCs, and warns that accuracy is worse above about 2450 mV at the highest attenuation setting (Espressif Systems, 2025). The nominally 12-bit converter is thus closer to 8–9 useful bits unless you calibrate it. A dedicated converter such as the 16-bit ADS1115 (programmable full scale from ±0.256 V to ±6.144 V, 8–860 samples per second, I²C interface) gives a 62.5 µV LSB on its ±2.048 V range and much better linearity (Texas Instruments, 2018).</p>
+        </details>
+        <div class="eq-units">LSB: V/1 = V; \(\Delta x_{\min}\): V ÷ (V K⁻¹) = K ✓</div>
+        <div class="mini-calc" data-formula="Vref/pow(2,N)*1000" data-output="One LSB" data-unit="mV" data-digits="4" data-plot="N">
+          <div data-var="N" data-label="Resolution N" data-min="8" data-max="24" data-step="1" data-value="12" data-unit="bit"></div>
+          <div data-var="Vref" data-label="Reference V<sub>ref</sub>" data-min="1" data-max="5" data-step="0.1" data-value="3.3" data-unit="V"></div>
+        </div>
+      </div>
+      <p>Bridges are the second classic conditioning circuit. When a sensor's resistance changes by only a fraction of a percent — a strain gauge, or a Pt100 RTD over a small temperature range — a divider would give a large constant voltage with a tiny variation on top. A <strong>Wheatstone bridge</strong> subtracts the constant part by comparing two dividers, leaving a small differential voltage centred on zero that can be amplified strongly. We return to bridges with load cells in the last section.</p>
+
+      <h2 id="temperature">Temperature sensors</h2>
+      <p>Temperature is the most frequently measured quantity in food production: air, leaf, nutrient solution, substrate, fish tank, cold store. Four sensor families dominate (Figure 5, Table 2).</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 780 300" role="img" aria-label="Construction of four temperature sensors: NTC thermistor bead, thin-film platinum RTD, thermocouple with reference junction, and digital sensor in a stainless probe">
+            <text x="95" y="20" text-anchor="middle" font-weight="600">(a) NTC thermistor</text>
+            <line x1="80" y1="150" x2="80" y2="270" class="stroke" stroke-width="2"/><line x1="110" y1="150" x2="110" y2="270" class="stroke" stroke-width="2"/>
+            <ellipse cx="95" cy="112" rx="42" ry="50" class="fill-amber-soft" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="80" y="98" width="30" height="26" rx="4" style="fill:var(--ink-2)"/>
+            <line x1="80" y1="124" x2="80" y2="152" class="stroke" stroke-width="2"/><line x1="110" y1="124" x2="110" y2="152" class="stroke" stroke-width="2"/>
+            <line x1="110" y1="104" x2="142" y2="70" class="stroke-muted"/><text x="144" y="62" class="t-small">oxide</text><text x="144" y="75" class="t-small">chip</text>
+            <line x1="132" y1="134" x2="142" y2="162" class="stroke-muted"/><text x="144" y="172" class="t-small">glass</text><text x="144" y="185" class="t-small">bead</text>
+            <text x="95" y="36" text-anchor="middle" class="t-small t-muted">(Mn–Ni–Co oxide)</text>
+            <text x="95" y="290" text-anchor="middle" class="t-small t-muted">R falls ≈ 4 % per K</text>
+
+            <text x="290" y="20" text-anchor="middle" font-weight="600">(b) Thin-film Pt RTD</text>
+            <rect x="215" y="50" width="150" height="120" rx="6" class="fill-sunk" stroke="currentColor" stroke-width="1.3"/>
+            <polyline points="232,70 348,70 348,82 232,82 232,94 348,94 348,106 232,106 232,118 348,118 348,130 232,130 232,142 348,142 348,154 250,154" fill="none" stroke="var(--amber)" stroke-width="2"/>
+            <rect x="225" y="60" width="130" height="102" rx="4" fill="none" stroke="var(--water)" stroke-width="1" stroke-dasharray="4 3"/>
+            <line x1="250" y1="154" x2="250" y2="190" class="stroke" stroke-width="2"/><line x1="330" y1="142" x2="348" y2="142" class="stroke" stroke-width="0"/>
+            <polyline points="348,154 348,166 330,166 330,190" fill="none" class="stroke" stroke-width="2"/>
+            <text x="290" y="212" text-anchor="middle" class="t-small">Al₂O₃ substrate, Pt meander,</text><text x="290" y="226" text-anchor="middle" class="t-small">glass passivation (dashed)</text>
+            <text x="290" y="262" text-anchor="middle" class="t-small t-muted">R₀ = 100 Ω (Pt100) or 1000 Ω</text>
+            <text x="290" y="280" text-anchor="middle" class="t-small t-muted">+0.39 % per K, very stable</text>
+
+            <text x="490" y="20" text-anchor="middle" font-weight="600">(c) Thermocouple</text>
+            <path d="M420 110 C450 110 470 80 530 80 L560 80" fill="none" stroke="var(--magenta)" stroke-width="2.5"/>
+            <path d="M420 110 C450 110 470 140 530 140 L560 140" fill="none" stroke="var(--water)" stroke-width="2.5"/>
+            <circle cx="420" cy="110" r="6" class="fill-amber"/>
+            <text x="420" y="136" text-anchor="middle" class="t-small">hot junction</text><text x="420" y="150" text-anchor="middle" class="t-small">T<tspan baseline-shift="sub" font-size="8">hot</tspan></text>
+            <text x="448" y="62" class="t-small" style="fill:var(--magenta)">metal A (chromel)</text><text x="448" y="168" class="t-small" style="fill:var(--water)">metal B (alumel)</text>
+            <rect x="556" y="62" width="40" height="96" rx="4" class="fill-sunk" stroke="currentColor"/>
+            <text x="576" y="176" text-anchor="middle" class="t-small">reference</text><text x="576" y="190" text-anchor="middle" class="t-small">junction T<tspan baseline-shift="sub" font-size="8">ref</tspan></text>
+            <text x="576" y="206" text-anchor="middle" class="t-small t-muted">(measured by a</text><text x="576" y="220" text-anchor="middle" class="t-small t-muted">thermistor: CJC)</text>
+            <line x1="596" y1="80" x2="620" y2="80" class="stroke" stroke-width="1.5"/><line x1="596" y1="140" x2="620" y2="140" class="stroke" stroke-width="1.5"/>
+            <circle cx="632" cy="110" r="0" />
+            <text x="470" y="250" text-anchor="middle" class="t-small">V ≈ S<tspan baseline-shift="sub" font-size="8">AB</tspan>(T<tspan baseline-shift="sub" font-size="8">hot</tspan> − T<tspan baseline-shift="sub" font-size="8">ref</tspan>)</text>
+            <text x="470" y="270" text-anchor="middle" class="t-small t-muted">type K: ≈ 41 µV per K</text>
+            <line x1="620" y1="80" x2="620" y2="140" class="stroke" stroke-width="0"/>
+
+            <text x="700" y="20" text-anchor="middle" font-weight="600">(d) Digital probe</text>
+            <rect x="672" y="40" width="56" height="170" rx="26" class="fill-sunk" stroke="currentColor" stroke-width="1.3"/>
+            <path d="M672 66 A28 28 0 0 1 728 66" class="fill-sunk"/>
+            <rect x="686" y="56" width="28" height="24" rx="3" style="fill:var(--ink-2)"/>
+            <line x1="692" y1="80" x2="692" y2="250" class="stroke" stroke-width="1.5" style="stroke:var(--danger)"/>
+            <line x1="700" y1="80" x2="700" y2="250" class="stroke" stroke-width="1.5" style="stroke:var(--amber)"/>
+            <line x1="708" y1="80" x2="708" y2="250" class="stroke" stroke-width="1.5"/>
+            <rect x="676" y="92" width="48" height="60" fill="none" stroke="var(--muted)" stroke-dasharray="3 3"/>
+            <text x="740" y="70" class="t-small">IC</text>
+            <text x="740" y="126" class="t-small">potting</text>
+            <text x="740" y="196" class="t-small">stainless</text><text x="740" y="210" class="t-small">sheath</text>
+            <text x="700" y="268" text-anchor="middle" class="t-small t-muted">VDD · DQ · GND</text>
+            <text x="700" y="286" text-anchor="middle" class="t-small t-muted">1-Wire, 4.7 kΩ pull-up</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 5.</b> Construction of the four common temperature sensors (not to scale). (a) An NTC thermistor is a sintered metal-oxide semiconductor chip in a glass or epoxy bead. (b) A thin-film platinum resistance thermometer (RTD) is a platinum meander laser-trimmed to 100 Ω or 1000 Ω at 0 °C on a ceramic substrate. (c) A thermocouple generates a voltage proportional to the temperature <em>difference</em> between its hot junction and the reference junction, which is measured separately (cold-junction compensation, CJC). (d) A digital probe such as the DS18B20 contains a complete sensor, ADC and serial interface inside a potted stainless-steel sheath.</figcaption>
+      </figure>
+
+      <h3>Thermistors: large signal, strongly nonlinear</h3>
+      <p>An NTC (negative temperature coefficient) thermistor is a semiconductor: the number of mobile charge carriers grows exponentially with temperature, so its resistance falls exponentially. Near room temperature a typical NTC changes by about −4 % per kelvin, which makes it easy to read with a simple divider. The price is strong nonlinearity, handled by the β equation or the Steinhart–Hart equation.</p>
+      <div class="eq-box" id="eq-beta">
+        <div class="eq-head"><span class="eq-label">β (B-parameter) model of an NTC thermistor</span><span class="eq-num">(9.1.5)</span></div>
+        <div class="eq-main">\[ R_T = R_{25}\exp\!\left[\beta\left(\frac{1}{T} - \frac{1}{T_{25}}\right)\right] \qquad\Longleftrightarrow\qquad \frac{1}{T} = \frac{1}{T_{25}} + \frac{1}{\beta}\ln\frac{R_T}{R_{25}} \]</div>
+        <p class="eq-read">the thermistor resistance equals its resistance at 25 °C multiplied by the exponential of beta times the difference between the reciprocal absolute temperature and the reciprocal of 298.15 K; inverted, the reciprocal temperature is the reciprocal reference temperature plus the natural logarithm of the resistance ratio divided by beta.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(R_T\)</td><td>resistance at absolute temperature \(T\)</td><td>Ω</td><td>1–100 kΩ</td></tr>
+          <tr><td>\(R_{25}\)</td><td>nominal resistance at 25 °C</td><td>Ω</td><td>10 kΩ</td></tr>
+          <tr><td>\(\beta\)</td><td>material constant (B value), quoted for a temperature pair, e.g. B₂₅/₅₀</td><td>K</td><td>3000–4500</td></tr>
+          <tr><td>\(T\), \(T_{25}\)</td><td>absolute temperature; 298.15 K</td><td>K</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>In a semiconductor the density of charge carriers follows a Boltzmann factor, \(n \propto \exp(-E_a/k_B T)\), where \(E_a\) is an activation energy. Resistance is inversely proportional to carrier density, so \(R \propto \exp(E_a/k_B T)\).</li>
+            <li>Write \(\beta = E_a/k_B\) (units: kelvin) and take the ratio of resistances at \(T\) and at \(T_{25}\): \(R_T/R_{25} = \exp[\beta(1/T - 1/T_{25})]\).</li>
+            <li>Take the natural logarithm and solve for \(1/T\): \(1/T = 1/T_{25} + \ln(R_T/R_{25})/\beta\).</li>
+            <li>The temperature coefficient follows by differentiation: \(\alpha = \dfrac{1}{R}\dfrac{\mathrm{d}R}{\mathrm{d}T} = -\dfrac{\beta}{T^2}\). At 25 °C with β = 3950 K: \(\alpha = -3950/298.15^2 = -0.0444\) K⁻¹ = −4.4 % per kelvin.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>β is not truly constant: for real thermistors it varies slightly with temperature, which is why data sheets specify it between two temperatures (B₂₅/₅₀, B₂₅/₈₅). Over ±25 K around 25 °C the β model is usually good to a few tenths of a kelvin; for better accuracy use the Steinhart–Hart equation or the manufacturer's resistance table. The library function <code>thermistorR</code> in this course implements Eq. 9.1.5.</p>
+        </details>
+        <div class="eq-units">\(\beta\,(1/T)\): K × K⁻¹ = dimensionless, so the exponent is dimensionless ✓; \(R_T\) has the unit of \(R_{25}\), Ω ✓</div>
+        <div class="mini-calc" data-formula="1/(1/298.15 + log(R/R25)/beta) - 273.15" data-output="Temperature" data-unit="°C" data-digits="2" data-plot="R">
+          <div data-var="R" data-label="Measured resistance R<sub>T</sub>" data-min="2000" data-max="60000" data-value="12555" data-scale="log" data-unit="Ω"></div>
+          <div data-var="R25" data-label="R<sub>25</sub>" data-min="1000" data-max="100000" data-value="10000" data-scale="log" data-unit="Ω"></div>
+          <div data-var="beta" data-label="β" data-min="3000" data-max="4500" data-step="10" data-value="3950" data-unit="K"></div>
+        </div>
+      </div>
+      <div class="eq-box" id="eq-steinhart-hart">
+        <div class="eq-head"><span class="eq-label">Steinhart–Hart equation</span><span class="eq-num">(9.1.6)</span></div>
+        <div class="eq-main">\[ \frac{1}{T} = A + B\,\ln R_T + C\,(\ln R_T)^{3} \]</div>
+        <p class="eq-read">the reciprocal of the absolute temperature is a constant plus a constant times the logarithm of the resistance plus a third constant times the cube of the logarithm of the resistance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example (WE 2)</th></tr>
+          <tr><td>\(A\)</td><td>calibration coefficient</td><td>K⁻¹</td><td>1.092739 × 10⁻³</td></tr>
+          <tr><td>\(B\)</td><td>calibration coefficient</td><td>K⁻¹</td><td>2.409652 × 10⁻⁴</td></tr>
+          <tr><td>\(C\)</td><td>calibration coefficient</td><td>K⁻¹</td><td>5.363408 × 10⁻⁸</td></tr>
+          <tr><td>\(R_T\)</td><td>resistance, in ohms (numerical value inside the logarithm)</td><td>Ω</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation — and how to find A, B and C</summary>
+          <ol class="steps">
+            <li>The β model (Eq. 9.1.5) can be rewritten as \(1/T = (1/T_{25} - \ln R_{25}/\beta) + (1/\beta)\ln R_T\): a straight line in \(\ln R_T\). So it is the special case \(A = 1/T_{25} - \ln R_{25}/\beta\), \(B = 1/\beta\), \(C = 0\).</li>
+            <li>Steinhart and Hart (1968), calibrating thermistors for deep-sea oceanography, found that a polynomial in \(\ln R\) fits real thermistors much better, and that the quadratic term can be dropped with negligible loss. The cubic term absorbs the temperature dependence of β.</li>
+            <li>With three calibration points \((T_i, R_i)\), write \(L_i = \ln R_i\) and \(Y_i = 1/T_i\). Each point gives one linear equation \(A + B L_i + C L_i^3 = Y_i\). Three points give a 3 × 3 linear system that can be solved exactly (e.g., by Gaussian elimination or Cramer's rule).</li>
+            <li>With more than three points, fit \(A, B, C\) by least squares (multiple linear regression of \(Y\) on \(L\) and \(L^3\)), which also gives an estimate of the fit residuals.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Over a range of 0–50 °C, a Steinhart–Hart fit to a good calibration typically reproduces the calibration points to within a few millikelvin; the accuracy of the result is then limited by the calibration reference and by self-heating, not by the equation. Coefficients are specific to one thermistor type (or, for the best accuracy, to one individual thermistor). The course library function <code>steinhartHart(R, A, B, C)</code> implements Eq. 9.1.6; <strong>use coefficients that belong to your own thermistor</strong> — its default coefficients describe a different 10 kΩ thermistor from the β = 3950 K example used here.</p>
+        </details>
+        <div class="eq-units">\([A] = [B] = [C] =\) K⁻¹ (the logarithm of a pure number is dimensionless), so \(1/T\) is in K⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="shExample" data-output="Temperature (Steinhart–Hart)" data-unit="°C" data-digits="3" data-plot="R" data-title="Try it — coefficients from Worked example 2">
+          <div data-var="R" data-label="Measured resistance R<sub>T</sub>" data-min="2000" data-max="60000" data-value="12555" data-scale="log" data-unit="Ω"></div>
+        </div>
+      </div>
+
+      <figure class="figure" id="thermistor-designer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — design a thermistor input for your nutrient tank</div>
+          <div class="fx-grid">
+            <div id="th-ctl"></div>
+            <div><div id="th-plot" style="height:300px"></div></div>
+          </div>
+          <div class="readouts" id="th-ro"></div>
+        </div>
+        <figcaption><b>Figure 6.</b> Output voltage of the divider in Figure 4 (green, left axis) and the temperature change corresponding to one ADC step (magenta, right axis, millikelvin) from −10 to 50 °C. The vertical line marks 20 °C. Change the fixed resistor and see where the curve is steepest and the resolution best; lower the ADC resolution to see why 10-bit converters struggle. Self-heating uses the dissipation constant δ from the thermistor data sheet (the 1.5 mW K⁻¹ default is an assumption — check yours).</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">From an ADC code to a nutrient-solution temperature</span></div>
+        <div class="we-problem"><p>Your ESP32 logger uses the circuit of Figure 4: a 10 kΩ fixed resistor on top, a 10 kΩ (at 25 °C), β = 3950 K NTC thermistor to ground, 3.3 V supply, and the ADC used ratiometrically (\(V_{\text{ref}} = V_s\)), 12 bits. The mean of 16 readings is code 2280. (a) What is the thermistor resistance? (b) What temperature does the β model give? (c) You calibrated this particular thermistor in stirred water baths against a reference thermometer and obtained 33 100 Ω at 0.0 °C, 10 000 Ω at 25.0 °C and 3 588 Ω at 50.0 °C. Find the Steinhart–Hart coefficients and the temperature they give. (d) What is the temperature resolution of one ADC step at this point?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Resistance.</strong> Ratiometric form of Eq. 9.1.3: \(R_T = R_f\,\dfrac{\text{code}}{2^N - \text{code}} = 10\,000\times\dfrac{2280}{4096 - 2280} = 10\,000\times1.2555 = 12\,555\ \Omega\).</li>
+              <li><strong>β model.</strong> \(\dfrac{1}{T} = \dfrac{1}{298.15} + \dfrac{\ln(12\,555/10\,000)}{3950} = 3.35402\times10^{-3} + \dfrac{0.22754}{3950} = 3.35402\times10^{-3} + 5.761\times10^{-5} = 3.41163\times10^{-3}\ \text{K}^{-1}\), so \(T = 293.12\) K = <strong>19.97 °C</strong>.</li>
+              <li><strong>Set up Steinhart–Hart.</strong> Compute \(L = \ln R\) and \(Y = 1/T\) for the three calibration points: (0 °C) \(L = 10.40729\), \(L^3 = 1127.231\), \(Y = 3.660992\times10^{-3}\); (25 °C) \(L = 9.21034\), \(L^3 = 781.317\), \(Y = 3.354016\times10^{-3}\); (50 °C) \(L = 8.18535\), \(L^3 = 548.418\), \(Y = 3.094538\times10^{-3}\).</li>
+              <li><strong>Solve</strong> the three equations \(A + B L_i + C L_i^3 = Y_i\) (subtracting pairs eliminates \(A\); a second subtraction eliminates \(B\)). The result is \(A = 1.092739\times10^{-3}\), \(B = 2.409652\times10^{-4}\), \(C = 5.363408\times10^{-8}\) K⁻¹. Check: inserting \(R = 10\,000\) Ω returns exactly 25.000 °C. ✓</li>
+              <li><strong>Apply.</strong> \(L = \ln 12\,555 = 9.43788\), \(L^3 = 840.666\): \(1/T = 1.092739\times10^{-3} + 2.409652\times10^{-4}\times9.43788 + 5.363408\times10^{-8}\times840.666 = 3.412029\times10^{-3}\), so \(T = 293.08\) K = <strong>19.93 °C</strong>.</li>
+              <li><strong>Compare.</strong> The nominal β model reads 0.035 K high here; at 0 °C the same β model would be 0.3 K off, because the real thermistor's β between 0 and 25 °C is 3899 K, not 3950 K. Calibration pays off away from 25 °C.</li>
+              <li><strong>Resolution.</strong> Near 20 °C, \(\mathrm{d}V_{\text{out}}/\mathrm{d}T = -V_s R_f\beta R_T/[T^2(R_f + R_T)^2] = -37.4\) mV K⁻¹. One LSB is 3.3 V/4096 = 0.806 mV, so one step corresponds to 0.806/37.4 = 0.022 K (Eq. 9.1.4).</li>
+            </ol>
+            <span class="answer">R = 12 555 Ω; 19.97 °C (β); 19.93 °C (Steinhart–Hart); resolution ≈ 0.02 K per LSB</span>
+            <p style="margin-top:10px">Sanity check: a resolution of 0.02 K is far finer than the ±0.2–0.5 °C accuracy typical of uncalibrated thermistors, so the ADC's <em>resolution</em> is not the limiting factor — but its <em>nonlinearity</em> (±12 LSB INL on the ESP32 ≈ ±0.26 K here) may be. Calibrate the whole chain, not just the thermistor.</p>
+          </div>
+        </details>
+      </div>
+
+      <h3>Platinum resistance thermometers (RTDs)</h3>
+      <p>Platinum is chemically inert and its resistance–temperature relation is extremely reproducible, which is why platinum resistance thermometers define the International Temperature Scale between the triple point of hydrogen and the freezing point of silver. Industrial RTDs follow the standardised Callendar–Van Dusen equation of IEC 60751 (IEC, 2022).</p>
+      <div class="eq-box" id="eq-cvd">
+        <div class="eq-head"><span class="eq-label">Callendar–Van Dusen equation (IEC 60751, t ≥ 0 °C)</span><span class="eq-num">(9.1.7)</span></div>
+        <div class="eq-main">\[ R(t) = R_0\left(1 + A\,t + B\,t^{2}\right), \qquad A = 3.9083\times10^{-3}\ ^{\circ}\text{C}^{-1},\quad B = -5.775\times10^{-7}\ ^{\circ}\text{C}^{-2} \]</div>
+        <p class="eq-read">the resistance of a platinum sensor at Celsius temperature t equals its resistance at 0 °C multiplied by one plus A times t plus B times t squared, with standard coefficients A and B.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(R_0\)</td><td>resistance at 0 °C: 100 Ω (Pt100) or 1000 Ω (Pt1000)</td><td>Ω</td></tr>
+          <tr><td>\(t\)</td><td>Celsius temperature</td><td>°C</td></tr>
+          <tr><td>\(A, B\)</td><td>standard coefficients for industrial platinum (α = 0.00385 °C⁻¹)</td><td>°C⁻¹, °C⁻²</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the inverse</summary>
+          <ol class="steps">
+            <li>Eq. 9.1.7 is a quadratic in \(t\): \(B t^2 + A t + (1 - R/R_0) = 0\).</li>
+            <li>The physically meaningful root is \(t = \dfrac{-A + \sqrt{A^2 - 4B(1 - R/R_0)}}{2B}\).</li>
+            <li>Example: a Pt100 reads 108.50 Ω: \(1 - R/R_0 = -0.085\); \(A^2 - 4B(-0.085) = 1.52748\times10^{-5} - 1.9635\times10^{-7} = 1.50785\times10^{-5}\); square root 3.88310 × 10⁻³; \(t = (-3.9083 + 3.88310)\times10^{-3}/(-1.155\times10^{-6}) = 21.82\ ^{\circ}\text{C}\).</li>
+            <li>The mean coefficient between 0 and 100 °C, \(\alpha = (R_{100} - R_0)/(100 R_0) = 0.003851\ ^{\circ}\text{C}^{-1}\), is the "α = 0.00385" printed on sensor labels.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions, tolerance classes and wiring</summary>
+          <p>Below 0 °C an extra term \(C(t - 100)t^3\) with \(C = -4.183\times10^{-12}\ ^{\circ}\text{C}^{-4}\) is added. IEC 60751 tolerance class B allows ±(0.30 + 0.005|t|) °C and class A ±(0.15 + 0.002|t|) °C. Because a Pt100 changes by only 0.39 Ω K⁻¹, the resistance of the connecting wires matters: 2 × 0.2 Ω of lead resistance in a two-wire connection reads as +1 °C. Use three-wire or four-wire (Kelvin) connections, or a Pt1000 sensor, whose ten-times-larger signal makes lead resistance ten times less important.</p>
+        </details>
+        <div class="eq-units">\(A t\): °C⁻¹ × °C = 1; \(B t^2\): °C⁻² × °C² = 1; so \(R\) has the unit of \(R_0\), Ω ✓</div>
+        <div class="mini-calc" data-formula="R0*(1+3.9083e-3*t-5.775e-7*t*t)" data-output="Resistance" data-unit="Ω" data-digits="3" data-plot="t">
+          <div data-var="t" data-label="Temperature t" data-min="0" data-max="100" data-step="0.1" data-value="20" data-unit="°C"></div>
+          <div data-var="R0" data-label="R<sub>0</sub> (100 = Pt100, 1000 = Pt1000)" data-min="100" data-max="1000" data-step="900" data-value="100" data-unit="Ω"></div>
+        </div>
+      </div>
+
+      <h3>Thermocouples</h3>
+      <p>When two different metals are joined and the junction is at a different temperature from their other ends, a voltage appears: the <strong>Seebeck effect</strong>. For small temperature differences the voltage is approximately \(V \approx S_{AB}(T_{\text{hot}} - T_{\text{ref}})\), where the Seebeck coefficient \(S_{AB}\) of a type K (chromel–alumel) couple is about 41 µV K⁻¹ near room temperature (Burns et al., 1993). Thermocouples are rugged, fast (a fine-wire junction has a time constant of fractions of a second) and cover extreme ranges — ideal for furnaces, dryers and the leaf-temperature measurements of plant physiologists. For crop environments their disadvantages dominate: a 1 °C change produces only 41 µV, which needs a precise amplifier, and the reading depends on an accurate measurement of the reference-junction temperature (cold-junction compensation). Their typical accuracy of ±1–2 °C is poor for climate control.</p>
+
+      <h3>Integrated digital sensors</h3>
+      <p>Most sensors you will buy for your project are <em>smart</em>: the sensing element, amplifier, ADC, calibration coefficients and a digital interface are on one chip. The DS18B20 (a band-gap silicon temperature sensor with a 1-Wire bus, 9–12-bit resolution, ±0.5 °C from −10 to +85 °C) is the standard waterproof tank probe; the Sensirion SHT4x family combines a capacitive humidity sensor with a temperature sensor (SHT40: ±1.8 %RH and ±0.2 °C typical) on a 1.5 mm chip with an I²C interface (Sensirion, n.d.-a). Digital sensors remove the analogue chain from your hands — but not its errors: they are hidden behind the factory calibration, which you should still verify.</p>
+      <table>
+        <caption>Table 2. Temperature sensors compared (typical values; check the data sheet of the part you use).</caption>
+        <thead><tr><th>Sensor</th><th>Signal</th><th>Sensitivity</th><th>Typical accuracy</th><th>Strengths</th><th>Weaknesses</th></tr></thead>
+        <tbody>
+          <tr><td>NTC thermistor</td><td>resistance</td><td>≈ −4 % K⁻¹</td><td>±0.1–0.5 °C (better when calibrated)</td><td>large signal, cheap, small</td><td>nonlinear, self-heating, interchangeability</td></tr>
+          <tr><td>Pt100 / Pt1000 RTD</td><td>resistance</td><td>+0.385 % K⁻¹</td><td>class A: ±0.15 °C at 0 °C</td><td>stable, standardised, linear</td><td>small signal, lead resistance, cost</td></tr>
+          <tr><td>Thermocouple (type K)</td><td>voltage</td><td>≈ 41 µV K⁻¹</td><td>±1–2 °C</td><td>wide range, fast, rugged</td><td>tiny signal, needs CJC</td></tr>
+          <tr><td>Digital IC (DS18B20)</td><td>digital (1-Wire)</td><td>0.0625 °C per LSB</td><td>±0.5 °C (−10 to 85 °C)</td><td>no analogue design, many on one bus</td><td>slow conversion (up to 750 ms), sheath lag</td></tr>
+          <tr><td>Digital IC (SHT40)</td><td>digital (I²C)</td><td>—</td><td>±0.2 °C typical</td><td>RH + T in one chip</td><td>needs radiation shield outdoors</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="humidity-light">Humidity and light</h2>
+      <h3>Capacitive humidity sensors</h3>
+      <p>Almost every electronic hygrometer in a greenhouse is a <strong>capacitive polymer sensor</strong> (Farahani et al., 2014). A thin hygroscopic polymer film (often polyimide) forms the dielectric of a small capacitor (Figure 7). Water molecules diffuse from the air through a porous top electrode into the polymer until the film's water content is in equilibrium with the relative humidity. Because water has a relative permittivity of about 80 and the dry polymer only about 3–4, each absorbed molecule raises the permittivity \(\varepsilon_r\) and hence the capacitance of the parallel-plate structure, \(C = \varepsilon_0\varepsilon_r A/d\). An on-chip circuit converts the few-picofarad change into a digital RH value, and an on-chip temperature sensor allows temperature compensation.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 880 250" role="img" aria-label="Cross-section of a capacitive polymer humidity sensor">
+            <defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <rect x="40" y="170" width="380" height="40" class="fill-sunk" stroke="currentColor"/>
+            <text x="230" y="195" text-anchor="middle" class="t-small">silicon substrate with CMOS readout (C → digital)</text>
+            <rect x="60" y="158" width="340" height="12" class="fill-amber"/>
+            <text x="430" y="168" class="t-small">bottom electrode</text>
+            <rect x="60" y="100" width="340" height="58" class="fill-water-soft" stroke="var(--water)"/>
+            <text x="430" y="132" class="t-small">polyimide film, thickness d ≈ 1 µm</text>
+            <text x="430" y="146" class="t-small t-muted">ε<tspan baseline-shift="sub" font-size="8">r</tspan> rises as H₂O is absorbed</text>
+            <g class="fill-amber">
+              <rect x="60" y="92" width="44" height="8"/><rect x="116" y="92" width="44" height="8"/><rect x="172" y="92" width="44" height="8"/><rect x="228" y="92" width="44" height="8"/><rect x="284" y="92" width="44" height="8"/><rect x="340" y="92" width="60" height="8"/>
+            </g>
+            <text x="430" y="98" class="t-small">porous / segmented top electrode</text>
+            <g class="fill-water">
+              <circle cx="90" cy="118" r="4"/><circle cx="140" cy="135" r="4"/><circle cx="180" cy="112" r="4"/><circle cx="230" cy="140" r="4"/><circle cx="265" cy="120" r="4"/><circle cx="320" cy="132" r="4"/><circle cx="370" cy="115" r="4"/><circle cx="210" cy="126" r="4"/>
+            </g>
+            <g class="stroke-water" stroke-width="1.5" style="color:var(--water)">
+              <line x1="110" y1="40" x2="110" y2="86" marker-end="url(#ar3)"/><line x1="166" y1="52" x2="166" y2="86" marker-end="url(#ar3)"/><line x1="278" y1="40" x2="278" y2="86" marker-end="url(#ar3)"/><line x1="334" y1="52" x2="334" y2="86" marker-end="url(#ar3)"/>
+            </g>
+            <text x="220" y="36" text-anchor="middle" class="t-small">water vapour diffuses in until equilibrium with the air RH</text>
+            <text x="770" y="40" text-anchor="middle" font-weight="600">C = ε₀ ε<tspan baseline-shift="sub" font-size="9">r</tspan> A / d</text>
+            <g transform="translate(700,60)">
+              <line x1="0" y1="140" x2="160" y2="140" class="stroke"/><line x1="0" y1="0" x2="0" y2="140" class="stroke"/>
+              <path d="M0 118 C40 104 80 90 120 72 C135 64 150 52 160 40" class="stroke-water" stroke-width="2.2"/>
+              <text x="80" y="160" text-anchor="middle" class="t-small">relative humidity (%)</text>
+              <text x="-8" y="70" text-anchor="middle" class="t-small" transform="rotate(-90 -8 70)">capacitance</text>
+              <text x="0" y="176" class="t-small t-muted">0</text><text x="150" y="176" class="t-small t-muted">100</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 7.</b> Capacitive humidity sensor. Water molecules (blue) absorbed by the polymer dielectric raise its permittivity and thus the capacitance. The response is nearly linear in relative humidity, slightly steeper at high RH. Contamination of the polymer, long exposure to condensing conditions and chemical vapours shift the calibration.</figcaption>
+      </figure>
+      <p>Three practical facts follow from the physics. First, the polymer responds to <em>relative</em> humidity at <em>its own</em> temperature — so a sensor warmed by sunlight or by its own electronics reports a humidity that is too low. Second, sorption takes time: the SHT40 data sheet gives a humidity response time τ₆₃ of 4 s and a temperature response time of 2 s in moving air (Sensirion, n.d.-a), longer in still air. Third, near saturation (above about 90 %RH, common in greenhouses at night) accuracy degrades and condensation on the sensor can take hours to evaporate.</p>
+      <div class="callout warn"><div class="callout-title">Practical warning: shield and ventilate</div><p>Air temperature and humidity sensors must sit in a <strong>ventilated radiation shield</strong> at crop height, away from heating pipes and lamps. In sunlight an unshielded sensor can read several degrees too warm; its RH is then too low and the vapour pressure deficit (VPD) calculated from them (<a href="/lessons/psychrometrics/">Lesson 8.2</a>) is badly wrong. Greenhouse climate computers use an aspirated "measuring box" with a small fan for exactly this reason.</p></div>
+
+      <h3>Quantum (PAR) sensors</h3>
+      <p>You met the quantum sensor in <a href="/lessons/radiation-physics/">Lesson 4.1</a>: a silicon photodiode behind filters that shape its spectral response to a flat 400–700 nm photon response, under a diffuser that gives it a cosine angular response. Here we look at it as a sensor engineer. A photodiode is a self-generating transducer: each absorbed photon with enough energy creates one electron–hole pair, and in short-circuit (photovoltaic) mode the photocurrent is proportional to the number of absorbed photons per second. A shunt resistor or a transimpedance amplifier turns the current into a voltage; a calibration factor (µmol m⁻² s⁻¹ per mV) turns that into PPFD.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 260" role="img" aria-label="Quantum sensor cross-section and cosine response geometry with a polar plot">
+            <rect x="40" y="130" width="170" height="90" rx="10" class="fill-sunk" stroke="currentColor" stroke-width="1.3"/>
+            <path d="M70 130 Q125 78 180 130 Z" class="fill-bg" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="80" y="138" width="90" height="10" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/>
+            <rect x="92" y="152" width="66" height="12" class="fill-accent"/>
+            <rect x="110" y="220" width="30" height="30" class="fill-sunk" stroke="currentColor"/>
+            <text x="220" y="100" class="t-small">acrylic diffuser (cosine correction)</text><line x1="160" y1="104" x2="216" y2="98" class="stroke-muted"/>
+            <text x="220" y="146" class="t-small">spectral filters</text><line x1="170" y1="143" x2="216" y2="143" class="stroke-muted"/>
+            <text x="220" y="164" class="t-small">Si photodiode → current ∝ photons</text><line x1="158" y1="158" x2="216" y2="161" class="stroke-muted"/>
+            <text x="150" y="246" class="t-small">cable, mV or digital output</text>
+            <g transform="translate(560,190)">
+              <line x1="-120" y1="0" x2="120" y2="0" class="stroke"/>
+              <line x1="0" y1="0" x2="0" y2="-140" class="stroke-muted" stroke-dasharray="4 3"/>
+              <circle cx="0" cy="-60" r="60" fill="none" stroke="var(--accent)" stroke-width="2.2"/>
+              <path d="M0 0 C-10 -2 -40 -20 -52 -48 C-62 -76 -44 -112 0 -120 C44 -112 62 -76 52 -48 C40 -20 10 -2 0 0" fill="none" stroke="var(--magenta)" stroke-width="2" stroke-dasharray="5 4"/>
+              <line x1="0" y1="0" x2="-85" y2="-85" class="stroke-amber" stroke-width="1.6"/>
+              <path d="M0 -40 A40 40 0 0 0 -28 -28" class="stroke-amber" stroke-width="1.4"/>
+              <text x="-30" y="-44" class="t-small" style="fill:var(--amber)">θ</text>
+              <text x="-118" y="18" class="t-small t-muted">horizontal receiving surface</text>
+              <text x="8" y="-128" class="t-small" style="fill:var(--accent)">ideal: E(θ) = E<tspan baseline-shift="sub" font-size="8">n</tspan> cos θ</text>
+              <text x="60" y="-30" class="t-small" style="fill:var(--magenta)">real sensor</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 8.</b> Left: cross-section of a quantum sensor. Right: polar plot of angular response. A horizontal surface receives flux proportional to cos θ (green circle); a real diffuser deviates at large zenith angles (magenta, exaggerated). A good sensor is specified, for example, as ±5 % at 75° zenith (Apogee Instruments, n.d.).</figcaption>
+      </figure>
+      <p>Its main error sources are the <strong>spectral error</strong> (mismatch with the ideal 400–700 nm response, largest under narrow-band LEDs close to the band edges; Barnes et al., 1993), the <strong>cosine error</strong> (largest for low sun angles and in diffuse light), <strong>calibration uncertainty</strong> and <strong>drift</strong>, and the temperature coefficient of the photodiode. The data sheet of a current full-spectrum sensor lists a calibration uncertainty of ±5 %, repeatability better than 0.5 %, drift below 2 % per year, a response time below 1 ms and a temperature response of −0.11 % per °C (Apogee Instruments, n.d.). Ross and Sulev (2000) give a systematic analysis of these errors. Notice the response time: a photodiode is essentially instantaneous, so the "dynamics" of light measurement are set by how often you sample (<a href="/lessons/measurement-uncertainty/">Lesson 9.3</a>), not by the sensor.</p>
+
+      <h2 id="gas-substrate">Gases and water in the root zone: NDIR CO₂ and dielectric sensors</h2>
+      <h3>Non-dispersive infrared (NDIR) CO₂ sensors</h3>
+      <p>CO₂ molecules absorb infrared radiation strongly in a band centred near 4.26 µm, where their asymmetric stretching vibration is excited; the other major air components (N₂, O₂, Ar) do not absorb there, and water vapour absorbs only weakly in this window. An NDIR sensor (Figure 9) shines broadband infrared light from a small lamp or LED through a gas cell onto a detector behind a narrow band-pass filter at 4.26 µm. The more CO₂ molecules are in the path, the less light arrives (Hodgkinson &amp; Tatam, 2013). "Non-dispersive" means that no prism or grating spreads the spectrum — the filter selects the band.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 250" role="img" aria-label="NDIR gas cell with infrared source, optical path, gas diffusion membrane and dual-channel thermopile detector">
+            <defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <rect x="140" y="80" width="400" height="80" rx="8" class="fill-amber-soft" stroke="var(--amber)" stroke-width="2"/>
+            <text x="340" y="176" text-anchor="middle" class="t-small">gold-coated optical cell, path length L</text>
+            <line x1="200" y1="80" x2="480" y2="80" stroke="var(--bg-elev)" stroke-width="3"/>
+            <line x1="200" y1="80" x2="480" y2="80" class="stroke" stroke-width="1.5" stroke-dasharray="3 4"/>
+            <text x="340" y="18" text-anchor="middle" class="t-small">membrane / sintered filter: air and CO₂ diffuse in</text>
+            <g class="stroke" stroke-width="1.4"><line x1="250" y1="30" x2="250" y2="74" marker-end="url(#ar4)"/><line x1="340" y1="30" x2="340" y2="74" marker-end="url(#ar4)"/><line x1="430" y1="30" x2="430" y2="74" marker-end="url(#ar4)"/></g>
+            <circle cx="100" cy="120" r="30" class="fill-bg" stroke="currentColor" stroke-width="1.3"/>
+            <path d="M86 128 q4 -16 8 0 q4 16 8 0 q4 -16 8 0" fill="none" stroke="var(--danger)" stroke-width="2"/>
+            <text x="100" y="172" text-anchor="middle" class="t-small">IR source</text><text x="100" y="186" text-anchor="middle" class="t-small t-muted">(pulsed lamp/LED)</text>
+            <g stroke="var(--danger)" stroke-width="1.6" fill="none">
+              <path d="M140 104 q10 -8 20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0"/>
+              <path d="M140 136 q10 -8 20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0"/>
+            </g>
+            <g class="fill-water"><circle cx="230" cy="120" r="4"/><circle cx="222" cy="120" r="3" class="fill-magenta"/><circle cx="238" cy="120" r="3" class="fill-magenta"/>
+              <circle cx="330" cy="112" r="4"/><circle cx="322" cy="112" r="3" class="fill-magenta"/><circle cx="338" cy="112" r="3" class="fill-magenta"/>
+              <circle cx="420" cy="126" r="4"/><circle cx="412" cy="126" r="3" class="fill-magenta"/><circle cx="428" cy="126" r="3" class="fill-magenta"/></g>
+            <rect x="540" y="86" width="14" height="30" class="fill-magenta-soft" stroke="currentColor"/>
+            <rect x="540" y="124" width="14" height="30" class="fill-water-soft" stroke="currentColor"/>
+            <rect x="556" y="88" width="30" height="26" style="fill:var(--ink-2)"/>
+            <rect x="556" y="126" width="30" height="26" style="fill:var(--ink-2)"/>
+            <text x="596" y="98" class="t-small">active: 4.26 µm filter</text><text x="596" y="112" class="t-small t-muted">(CO₂ absorbs)</text>
+            <text x="596" y="138" class="t-small">reference: 3.91 µm</text><text x="596" y="152" class="t-small t-muted">(no absorption)</text>
+            <text x="570" y="190" text-anchor="middle" class="t-small">dual thermopile detector</text>
+            <text x="340" y="222" text-anchor="middle" class="t-small">CO₂ from ratio: I<tspan baseline-shift="sub" font-size="8">act</tspan>/I<tspan baseline-shift="sub" font-size="8">ref</tspan> = (I/I₀) · const = exp(−k c L) · const</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 9.</b> Dual-wavelength NDIR CO₂ sensor. The reference channel sees the same lamp and optics but at a wavelength CO₂ does not absorb, so lamp ageing, dirt on the mirrors and detector temperature largely cancel in the ratio. Single-channel sensors instead rely on automatic baseline correction, which assumes the sensor regularly sees fresh outdoor air (≈ 427 ppm) — an assumption that fails in a permanently enriched greenhouse.</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-ndir">
+        <div class="eq-head"><span class="eq-label">NDIR: Beer–Lambert law with pressure and temperature compensation</span><span class="eq-num">(9.1.8)</span></div>
+        <div class="eq-main">\[ \frac{I}{I_0} = e^{-k\,c\,L},\qquad c = \frac{x\,P}{R\,T}\qquad\Rightarrow\qquad x_{\text{true}} = x_{\text{reported}}\;\frac{P_{\text{cal}}}{P}\;\frac{T}{T_{\text{cal}}} \]</div>
+        <p class="eq-read">the transmitted intensity is the unattenuated intensity times the exponential of minus the absorption coefficient times the molar concentration of CO₂ times the path length; the molar concentration equals the mole fraction times the pressure divided by the gas constant times the temperature. A sensor that reports a mole fraction assuming calibration conditions must therefore be corrected by the ratio of pressures and temperatures.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(I, I_0\)</td><td>detected intensity with and without CO₂</td><td>W m⁻² (arbitrary)</td></tr>
+          <tr><td>\(k\)</td><td>band-averaged molar absorption coefficient</td><td>m² mol⁻¹</td></tr>
+          <tr><td>\(c\)</td><td>molar concentration (amount per volume) of CO₂</td><td>mol m⁻³</td></tr>
+          <tr><td>\(L\)</td><td>optical path length</td><td>m</td></tr>
+          <tr><td>\(x\)</td><td>mole fraction of CO₂ (µmol mol⁻¹ ≈ ppm)</td><td>mol mol⁻¹</td></tr>
+          <tr><td>\(P, T\)</td><td>gas pressure and absolute temperature in the cell</td><td>Pa, K</td></tr>
+          <tr><td>\(P_{\text{cal}}, T_{\text{cal}}\)</td><td>pressure and temperature at factory calibration</td><td>Pa, K</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Absorption in a thin layer.</strong> In a slab of thickness \(\mathrm{d}\ell\), the fraction of photons absorbed is proportional to the number of absorbers per unit area, \(c\,\mathrm{d}\ell\): \(\mathrm{d}I = -k\,c\,I\,\mathrm{d}\ell\).</li>
+            <li>Separate and integrate over the path: \(\displaystyle\int_{I_0}^{I}\frac{\mathrm{d}I}{I} = -k c\int_0^L \mathrm{d}\ell\), so \(\ln(I/I_0) = -kcL\) and \(I = I_0 e^{-kcL}\) — the same law that describes light extinction in a canopy (<a href="/lessons/growth-analysis/">Lesson 2.4</a>). The course library implements it as <code>beerLambert(eps, conc, path)</code>.</li>
+            <li><strong>Inversion.</strong> \(c = -\ln(I/I_0)/(kL)\). The absorbance \(-\ln(I/I_0)\) is proportional to the <em>number of molecules per volume</em>, not to the mole fraction.</li>
+            <li><strong>Ideal gas.</strong> \(PV = nRT\) gives the total molar concentration \(n/V = P/(RT)\); the CO₂ concentration is \(c = xP/(RT)\).</li>
+            <li><strong>Compensation.</strong> The sensor was calibrated to report \(x\) at \(P_{\text{cal}}, T_{\text{cal}}\), so it reports \(x_{\text{rep}} = c\,R T_{\text{cal}}/P_{\text{cal}}\). Substituting the true \(c\): \(x_{\text{rep}} = x_{\text{true}}(P/P_{\text{cal}})(T_{\text{cal}}/T)\). Invert to obtain Eq. 9.1.8.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Real NDIR sensors do not follow a pure exponential over their whole range because the filter band covers many absorption lines of different strength; manufacturers use empirical calibration curves. The pressure correction is nevertheless close to proportional (a 1 % pressure drop reduces the reading by about 1 %). Weather changes pressure by ±3 %, and altitude by about 1 % per 100 m, so pressure compensation matters for accurate CO₂ enrichment. Many modern sensors accept an ambient-pressure input for this purpose. Photoacoustic sensors such as the Sensirion SCD41 detect the same 4.26 µm absorption as a pressure wave in a tiny cell; the SCD30 is a dual-channel NDIR sensor (Sensirion, n.d.-b, n.d.-c).</p>
+        </details>
+        <div class="eq-units">\(k c L\): m² mol⁻¹ × mol m⁻³ × m = dimensionless ✓; \(xP/(RT)\): Pa/(J mol⁻¹ K⁻¹ × K) = N m⁻² /(N m mol⁻¹) = mol m⁻³ ✓</div>
+        <div class="mini-calc" data-formula="x*(Pcal/P)*((T+273.15)/(Tcal+273.15))" data-output="Corrected CO₂ mole fraction" data-unit="ppm" data-digits="0" data-plot="P">
+          <div data-var="x" data-label="Reported CO₂" data-min="300" data-max="1500" data-step="10" data-value="820" data-unit="ppm"></div>
+          <div data-var="P" data-label="Actual pressure P" data-min="850" data-max="1050" data-step="1" data-value="975" data-unit="hPa"></div>
+          <div data-var="T" data-label="Actual gas temperature" data-min="5" data-max="40" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="Pcal" data-label="Calibration pressure" data-min="1000" data-max="1030" data-step="0.25" data-value="1013.25" data-unit="hPa"></div>
+          <div data-var="Tcal" data-label="Calibration temperature" data-min="15" data-max="30" data-step="0.5" data-value="25" data-unit="°C"></div>
+        </div>
+      </div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">A low-pressure day in the greenhouse</span></div>
+        <div class="we-problem"><p>A greenhouse CO₂ controller doses to a set-point of 800 ppm. Its NDIR sensor was calibrated at 1013.25 hPa and 25 °C and has no pressure input. A deep low-pressure system brings the barometric pressure to 975 hPa; the cell is at 22 °C. The sensor reads 820 ppm. (a) What is the true CO₂ mole fraction? (b) Is the crop under- or over-dosed relative to the set-point, and by how much?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Pressure ratio:</strong> \(P_{\text{cal}}/P = 1013.25/975 = 1.0392\). At lower pressure there are fewer molecules per litre, so the sensor under-reads.</li>
+              <li><strong>Temperature ratio:</strong> \(T/T_{\text{cal}} = 295.15/298.15 = 0.9899\). Cooler gas is denser, so the sensor slightly over-reads; this partially offsets the pressure effect.</li>
+              <li><strong>Correct:</strong> \(x_{\text{true}} = 820\times1.0392\times0.9899 = 843.6\) ppm.</li>
+              <li><strong>Interpret:</strong> the controller believes the air is 20 ppm above the set-point; in reality it is 44 ppm above. Because the sensor under-reads, the controller keeps dosing until the <em>reading</em> reaches 800 ppm, i.e. until the true value is about 823 ppm: the crop is over-dosed by roughly 3 % on this day. At altitude the effect is permanent: a greenhouse 530 m above sea level has a mean pressure of about 952 hPa (FAO-56 formula, <code>pressureAtElevation</code>), so an uncompensated sensor there reads about 6 % low all year and the controller over-doses by about 6 %, which costs money and carbon.</li>
+            </ol>
+            <span class="answer">True value ≈ 844 ppm (reading 2.8 % low)</span>
+          </div>
+        </details>
+      </div>
+
+      <h3>Dielectric sensing of substrate and soil water</h3>
+      <p>The relative permittivity of liquid water (≈ 80) is roughly 20 times that of mineral soil particles (≈ 3–5) and 80 times that of air (1). The bulk apparent permittivity \(\varepsilon_a\) of a moist porous medium is therefore dominated by its water content, and measuring it is the basis of almost every electronic soil and substrate moisture sensor (Robinson et al., 2003). Two families exist. <strong>Time-domain reflectometry (TDR)</strong> sends a fast voltage step along two or three parallel metal rods inserted in the medium and times the reflection from the rod ends (Figure 10): electromagnetic waves travel at \(c/\sqrt{\varepsilon_a}\), so wetter media slow the pulse. <strong>Capacitance or frequency-domain (FDR) sensors</strong> make the medium the dielectric of a capacitor in an oscillator circuit and measure the resulting frequency or charge time, typically at tens of MHz. They are cheaper but more affected by salinity and temperature (Blonquist et al., 2005).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 260" role="img" aria-label="TDR probe in a substrate slab and the reflected waveform with travel time">
+            <rect x="40" y="96" width="290" height="120" rx="6" class="fill-amber-soft" stroke="var(--amber)"/>
+            <text x="185" y="236" text-anchor="middle" class="t-small">substrate slab (rock wool, coir) or soil</text>
+            <rect x="20" y="118" width="46" height="76" rx="6" class="fill-sunk" stroke="currentColor"/>
+            <line x1="66" y1="136" x2="296" y2="136" class="stroke" stroke-width="3"/><line x1="66" y1="156" x2="296" y2="156" class="stroke" stroke-width="3"/><line x1="66" y1="176" x2="296" y2="176" class="stroke" stroke-width="3"/>
+            <path d="M20 156 C0 156 0 60 60 60 L100 60" class="stroke" stroke-width="2"/>
+            <text x="106" y="64" class="t-small">coaxial cable to TDR instrument</text>
+            <line x1="66" y1="206" x2="296" y2="206" class="stroke-muted" stroke-width="1"/><line x1="66" y1="200" x2="66" y2="212" class="stroke-muted"/><line x1="296" y1="200" x2="296" y2="212" class="stroke-muted"/>
+            <text x="181" y="202" text-anchor="middle" class="t-small">rod length L</text>
+            <g class="fill-water"><circle cx="110" cy="146" r="3"/><circle cx="160" cy="166" r="3"/><circle cx="215" cy="126" r="3"/><circle cx="260" cy="188" r="3"/><circle cx="140" cy="186" r="3"/><circle cx="240" cy="148" r="3"/></g>
+            <g transform="translate(390,40)">
+              <line x1="0" y1="180" x2="300" y2="180" class="stroke"/><line x1="0" y1="0" x2="0" y2="180" class="stroke"/>
+              <text x="150" y="206" text-anchor="middle" class="t-small">time</text>
+              <text x="-10" y="90" text-anchor="middle" class="t-small" transform="rotate(-90 -10 90)">reflected voltage</text>
+              <path d="M0 150 L40 150 L46 90 L70 90 L80 104 L90 118 L150 118 L158 60 L170 42 L300 42" class="stroke-water" stroke-width="2.2"/>
+              <line x1="80" y1="100" x2="80" y2="170" class="stroke-muted" stroke-dasharray="3 3"/><line x1="158" y1="56" x2="158" y2="170" class="stroke-muted" stroke-dasharray="3 3"/>
+              <line x1="80" y1="164" x2="158" y2="164" class="stroke-magenta" stroke-width="1.6"/>
+              <text x="119" y="158" text-anchor="middle" class="t-small" style="fill:var(--magenta)">t (two-way)</text>
+              <text x="54" y="84" class="t-small t-muted">rods start</text><text x="164" y="36" class="t-small t-muted">rod ends</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 10.</b> Time-domain reflectometry. The step travels down the rods and is reflected at their open ends; the two-way travel time \(t\) along rods of length \(L\) gives the apparent permittivity (Eq. 9.1.9). Wetter media give longer travel times.</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-topp">
+        <div class="eq-head"><span class="eq-label">TDR permittivity and the Topp equation</span><span class="eq-num">(9.1.9)</span></div>
+        <div class="eq-main">\[ \varepsilon_a = \left(\frac{c\,t}{2L}\right)^{2}, \qquad \theta_v = -5.3\times10^{-2} + 2.92\times10^{-2}\,\varepsilon_a - 5.5\times10^{-4}\,\varepsilon_a^{2} + 4.3\times10^{-6}\,\varepsilon_a^{3} \]</div>
+        <p class="eq-read">the apparent permittivity equals the square of the speed of light times the two-way travel time divided by twice the rod length; the volumetric water content is an empirical third-order polynomial in the apparent permittivity.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\varepsilon_a\)</td><td>apparent relative permittivity of the bulk medium</td><td>–</td></tr>
+          <tr><td>\(c\)</td><td>speed of light in vacuum, 2.998 × 10⁸</td><td>m s⁻¹</td></tr>
+          <tr><td>\(t\)</td><td>two-way travel time along the rods</td><td>s</td></tr>
+          <tr><td>\(L\)</td><td>rod length</td><td>m</td></tr>
+          <tr><td>\(\theta_v\)</td><td>volumetric water content (volume of water per bulk volume)</td><td>m³ m⁻³</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>An electromagnetic wave in a non-magnetic dielectric travels at \(v = c/\sqrt{\varepsilon_a}\).</li>
+            <li>The pulse goes down the rods and back: distance \(2L\) in time \(t\), so \(v = 2L/t\).</li>
+            <li>Equate: \(c/\sqrt{\varepsilon_a} = 2L/t\Rightarrow \varepsilon_a = (ct/2L)^2\).</li>
+            <li>Topp, Davis and Annan (1980) measured \(\varepsilon_a\) on four mineral soils of different texture at known water contents and fitted a cubic polynomial, Eq. 9.1.9, that was nearly independent of soil type, density and temperature — which made TDR a standard method.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — growing media need their own calibration</summary>
+          <p>The Topp equation is for mineral soils. Organic and highly porous substrates (peat, coir, rock wool, bark) have much lower solid densities and different bound-water fractions, and the Topp curve can be wrong by several percentage points of water content in them; manufacturers therefore supply substrate-specific calibrations, and you should verify them gravimetrically (weigh a sample wet and oven-dry). High salinity (EC of the pore water) adds dielectric losses that make capacitance sensors over-read, a known problem in fertigated substrates.</p>
+        </details>
+        <div class="eq-units">\((ct/2L)^2\): (m s⁻¹ × s / m)² = dimensionless ✓; θ in m³ m⁻³ (the coefficients carry the units)</div>
+        <div class="mini-calc" data-fn="topp" data-output="Volumetric water content θ<sub>v</sub>" data-unit="%" data-digits="1" data-plot="eps">
+          <div data-var="eps" data-label="Apparent permittivity ε<sub>a</sub>" data-min="2" data-max="40" data-step="0.1" data-value="16" data-unit=""></div>
+        </div>
+      </div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">Reading a TDR trace</span></div>
+        <div class="we-problem"><p>A TDR probe with 20 cm rods is inserted into a mineral soil in a field trial. The two-way travel time measured between the reflections at the start and the end of the rods is 4.0 ns. After irrigation it is 6.4 ns. What are the volumetric water contents before and after? How many millimetres of water per 20 cm of soil depth were added?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Permittivity before:</strong> \(\varepsilon_a = \left(\dfrac{2.998\times10^8\times4.0\times10^{-9}}{2\times0.20}\right)^2 = (2.998)^2 = 8.99\).</li>
+              <li><strong>Topp:</strong> \(\theta_v = -0.053 + 0.0292\times8.99 - 0.00055\times8.99^2 + 4.3\times10^{-6}\times8.99^3 = -0.053 + 0.2625 - 0.0444 + 0.0031 = 0.168\) m³ m⁻³.</li>
+              <li><strong>After:</strong> \(\varepsilon_a = (2.998\times10^8\times6.4\times10^{-9}/0.40)^2 = 4.797^2 = 23.0\); Topp gives \(\theta_v = -0.053 + 0.6719 - 0.2912 + 0.0524 = 0.380\) m³ m⁻³.</li>
+              <li><strong>Water added:</strong> \(\Delta\theta\times\text{depth} = (0.380 - 0.168)\times200\ \text{mm} = 42\) mm, assuming the change is uniform over the rod length.</li>
+              <li><strong>Sanity check:</strong> 0.17 is a moderately dry loam, 0.38 close to saturation for many soils; a 42 mm irrigation is large but plausible for a heavy application. The irrigation lesson (<a href="/lessons/precision-irrigation/">Lesson 11.3</a>) uses these numbers in a soil water balance.</li>
+            </ol>
+            <span class="answer">θ ≈ 0.17 before, ≈ 0.38 after; ≈ 42 mm added in the top 20 cm</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="mass-images">Mass and images: load cells and cameras</h2>
+      <h3>Strain gauges, bridges and load cells</h3>
+      <p>Weighing is one of the most powerful and underrated measurements in plant science. A substrate slab or gutter standing on a load cell tells you, minute by minute, how much water the crop transpires and when the irrigation drains — the principle of a weighing lysimeter. A load cell is a machined metal beam carrying four metal-foil strain gauges. Stretching a gauge makes its conductor longer and thinner and raises its resistance: \(\Delta R/R = GF\cdot\varepsilon\), where the <em>gauge factor</em> \(GF\approx2\) for metal foil and \(\varepsilon\) is the strain. At the rated load the strain is only about 10⁻³, so \(\Delta R/R\approx0.2\,\%\): a job for the Wheatstone bridge (Figure 11).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 270" role="img" aria-label="Wheatstone bridge with four strain gauges and a bending-beam load cell">
+            <defs><marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g class="stroke" stroke-width="1.6">
+              <line x1="160" y1="30" x2="160" y2="50"/><line x1="160" y1="230" x2="160" y2="250"/>
+              <line x1="160" y1="50" x2="100" y2="130"/><line x1="160" y1="50" x2="220" y2="130"/>
+              <line x1="100" y1="130" x2="160" y2="230"/><line x1="220" y1="130" x2="160" y2="230"/>
+            </g>
+            <g class="fill-bg" stroke="currentColor" stroke-width="1.3">
+              <rect x="-14" y="-6" width="28" height="12" transform="translate(130 90) rotate(-53)"/>
+              <rect x="-14" y="-6" width="28" height="12" transform="translate(190 90) rotate(53)"/>
+              <rect x="-14" y="-6" width="28" height="12" transform="translate(130 180) rotate(59)"/>
+              <rect x="-14" y="-6" width="28" height="12" transform="translate(190 180) rotate(-59)"/>
+            </g>
+            <text x="100" y="82" class="t-small" text-anchor="end">R₁ (T)</text><text x="222" y="82" class="t-small">R₂ (C)</text>
+            <text x="102" y="198" class="t-small" text-anchor="end">R₄ (C)</text><text x="222" y="198" class="t-small">R₃ (T)</text>
+            <circle cx="100" cy="130" r="4" fill="currentColor"/><circle cx="220" cy="130" r="4" fill="currentColor"/>
+            <text x="160" y="24" text-anchor="middle" class="t-small">+V<tspan baseline-shift="sub" font-size="8">ex</tspan></text><text x="160" y="266" text-anchor="middle" class="t-small">0 V</text>
+            <line x1="100" y1="130" x2="40" y2="130" class="stroke" stroke-width="1.3"/><line x1="220" y1="130" x2="280" y2="130" class="stroke" stroke-width="1.3"/>
+            <text x="30" y="126" class="t-small" text-anchor="end">V<tspan baseline-shift="sub" font-size="8">out</tspan>−</text><text x="286" y="126" class="t-small">V<tspan baseline-shift="sub" font-size="8">out</tspan>+</text>
+            <text x="160" y="140" text-anchor="middle" class="t-small t-muted">≈ 0 at no load</text>
+            <rect x="360" y="110" width="80" height="120" class="fill-sunk" stroke="currentColor"/>
+            <line x1="360" y1="110" x2="340" y2="90" class="stroke-muted"/><line x1="360" y1="140" x2="340" y2="120" class="stroke-muted"/><line x1="360" y1="170" x2="340" y2="150" class="stroke-muted"/><line x1="360" y1="200" x2="340" y2="180" class="stroke-muted"/>
+            <text x="400" y="252" text-anchor="middle" class="t-small">fixed support</text>
+            <path d="M440 130 L660 130 L660 170 L440 170 Z" class="fill-bg" stroke="currentColor" stroke-width="1.4"/>
+            <ellipse cx="545" cy="150" rx="22" ry="13" class="fill-sunk" stroke="currentColor"/><ellipse cx="585" cy="150" rx="22" ry="13" class="fill-sunk" stroke="currentColor"/>
+            <rect x="480" y="124" width="26" height="6" class="fill-magenta"/><rect x="590" y="124" width="26" height="6" class="fill-water"/>
+            <rect x="480" y="170" width="26" height="6" class="fill-water"/><rect x="590" y="170" width="26" height="6" class="fill-magenta"/>
+            <text x="493" y="116" text-anchor="middle" class="t-small" style="fill:var(--magenta)">T</text><text x="603" y="116" text-anchor="middle" class="t-small" style="fill:var(--water)">C</text>
+            <text x="493" y="192" text-anchor="middle" class="t-small" style="fill:var(--water)">C</text><text x="603" y="192" text-anchor="middle" class="t-small" style="fill:var(--magenta)">T</text>
+            <line x1="650" y1="60" x2="650" y2="126" class="stroke" stroke-width="2.2" marker-end="url(#ar5)"/>
+            <text x="656" y="72" class="t-small">load F</text>
+            <text x="458" y="218" class="t-small">binocular bending beam: two gauges stretched (T),</text>
+            <text x="458" y="232" class="t-small">two compressed (C) → full bridge</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 11.</b> Left: Wheatstone bridge with four active strain gauges. Gauges in tension (T) and compression (C) sit in opposite arms so that their changes add, while temperature effects (which change all four equally) cancel. Right: bending-beam load cell of the type used under hydroponic gutters and substrate slabs.</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-bridge">
+        <div class="eq-head"><span class="eq-label">Wheatstone bridge output and load-cell signal</span><span class="eq-num">(9.1.10)</span></div>
+        <div class="eq-main">\[ V_{\text{out}} = V_{\text{ex}}\left(\frac{R_3}{R_2 + R_3} - \frac{R_4}{R_1 + R_4}\right)\;\approx\; V_{\text{ex}}\,GF\,\varepsilon \ \ \text{(full bridge)},\qquad V_{\text{out}} = V_{\text{ex}}\;\text{RO}\;\frac{F}{F_{\text{cap}}} \]</div>
+        <p class="eq-read">the bridge output is the difference between the voltages of its two dividers; with four active gauges it is the excitation voltage times the gauge factor times the strain. For a commercial load cell it equals the excitation voltage times the rated output (in millivolts per volt) times the fraction of rated capacity applied.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(V_{\text{ex}}\)</td><td>bridge excitation voltage</td><td>V</td></tr>
+          <tr><td>\(R_1\ldots R_4\)</td><td>bridge arm resistances (numbered as in Figure 11)</td><td>Ω</td></tr>
+          <tr><td>\(GF\)</td><td>gauge factor (≈ 2 for metal foil)</td><td>–</td></tr>
+          <tr><td>\(\varepsilon\)</td><td>strain \(\Delta\ell/\ell\)</td><td>–</td></tr>
+          <tr><td>RO</td><td>rated output of the load cell</td><td>mV V⁻¹</td></tr>
+          <tr><td>\(F, F_{\text{cap}}\)</td><td>applied load and rated capacity</td><td>N or kg</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Each side of the bridge is a voltage divider (Eq. 9.1.3). The right node is at \(V_{\text{ex}}R_3/(R_2 + R_3)\), the left node at \(V_{\text{ex}}R_4/(R_1+R_4)\); the output is their difference.</li>
+            <li>At balance all four are equal (\(R\)), and \(V_{\text{out}} = V_{\text{ex}}(1/2 - 1/2) = 0\).</li>
+            <li>Under load, gauges in tension become \(R(1+\delta)\) and those in compression \(R(1-\delta)\), with \(\delta = GF\,\varepsilon\). With R₁ and R₃ in tension and R₂ and R₄ in compression: \(\dfrac{R_3}{R_2 + R_3} = \dfrac{1+\delta}{2}\) and \(\dfrac{R_4}{R_1 + R_4} = \dfrac{1-\delta}{2}\).</li>
+            <li>So \(V_{\text{out}} = V_{\text{ex}}\left(\dfrac{1+\delta}{2} - \dfrac{1-\delta}{2}\right) = V_{\text{ex}}\,\delta = V_{\text{ex}}\,GF\,\varepsilon\) — exactly linear for this symmetric arrangement. A single active gauge (quarter bridge) gives only about \(V_{\text{ex}}GF\varepsilon/4\) and is slightly nonlinear.</li>
+            <li>Manufacturers summarise the whole beam, gauges and bridge in the rated output RO (typically 1–3 mV V⁻¹ at full capacity), which gives the practical form.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Real load cells also have creep (slow change of output under constant load), temperature effects on zero and span, and sensitivity to off-centre loads. The output is a few millivolts, so it needs a high-gain, low-noise amplifier: the popular 24-bit HX711 converter for scales has a programmable gain of 128 and a ±20 mV input range at 5 V supply. Protect the cell against overload and moisture — a wet greenhouse is a harsh place for strain gauges.</p>
+        </details>
+        <div class="eq-units">\(V_{\text{ex}}\,GF\,\varepsilon\): V × 1 × 1 = V ✓; \(V_{\text{ex}}\,\text{RO}\,F/F_{\text{cap}}\): V × mV V⁻¹ × 1 = mV ✓</div>
+        <div class="mini-calc" data-formula="Vex*RO*F/Fcap" data-output="Bridge output" data-unit="mV" data-digits="3" data-plot="F">
+          <div data-var="F" data-label="Load F" data-min="0" data-max="50" data-step="0.1" data-value="12" data-unit="kg"></div>
+          <div data-var="Fcap" data-label="Rated capacity" data-min="5" data-max="200" data-step="5" data-value="50" data-unit="kg"></div>
+          <div data-var="RO" data-label="Rated output RO" data-min="0.5" data-max="3" data-step="0.1" data-value="2" data-unit="mV V⁻¹"></div>
+          <div data-var="Vex" data-label="Excitation V<sub>ex</sub>" data-min="2.5" data-max="10" data-step="0.1" data-value="5" data-unit="V"></div>
+        </div>
+      </div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">Can a load cell see a lettuce transpire?</span></div>
+        <div class="we-problem"><p>A 50 kg load cell (rated output 2.0 mV V⁻¹, 5.0 V excitation) carries a 1 m NFT gutter with 12 lettuce plants. Each plant transpires about 5 g of water per hour at midday. The signal is read by an HX711 at gain 128, whose ±19.5 mV input range is divided into 2²⁴ steps. (a) What is the output at full capacity? (b) How many microvolts correspond to 1 g? (c) What is the resolution in grams? (d) Can you detect the hourly transpiration of the gutter?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Full scale:</strong> \(V_{\text{FS}} = 5.0\ \text{V}\times2.0\ \text{mV V}^{-1} = 10.0\) mV at 50 kg.</li>
+              <li><strong>Sensitivity:</strong> \(10.0\ \text{mV}/50\,000\ \text{g} = 0.20\ \mu\text{V g}^{-1}\).</li>
+              <li><strong>ADC step:</strong> \(2\times19.5\ \text{mV}/2^{24} = 39.0\ \text{mV}/16\,777\,216 = 2.3\) nV, i.e. \(2.3/200 = 0.012\) g per step (Eq. 9.1.4). In practice electronic noise of the order of 20–100 nV sets the usable resolution nearer 0.1–0.5 g.</li>
+              <li><strong>Signal:</strong> 12 plants × 5 g h⁻¹ = 60 g h⁻¹ → \(60\times0.20 = 12\ \mu\text{V}\) per hour — hundreds of times the noise floor.</li>
+            </ol>
+            <span class="answer">10 mV full scale; 0.2 µV g⁻¹; ≈ 0.01 g per ADC step (noise-limited ≈ 0.1–0.5 g); yes, 60 g h⁻¹ is easily detected</span>
+            <p style="margin-top:10px">The real challenges are elsewhere: temperature drift of the zero over a day, creep, plants growing (their own mass increases), splashing water and people leaning on the gutter. Log the weight at high frequency and interpret changes with care.</p>
+          </div>
+        </details>
+      </div>
+
+      <h3>Cameras as sensors</h3>
+      <p>A digital camera is an array of millions of photodiodes, each covered by a red, green or blue filter in a Bayer mosaic (Figure 12). It is therefore a spatially resolved light sensor — and, with the right processing, a sensor of leaf area, colour, disease and growth (Li et al., 2014; <a href="/lessons/computer-vision/">Lesson 10.3</a>). To use it quantitatively you must respect the same chain as for any sensor. The <em>raw</em> pixel value is approximately proportional to the number of photons collected during the exposure; a standard JPEG is not: the camera has already interpolated the mosaic, applied an automatic white balance, a colour matrix and a strongly nonlinear "gamma" curve. Changing light (sun, clouds, LED recipe) changes the colours of a healthy plant. For measurements, fix the exposure and white balance, include a colour reference card in the image, and prefer raw files or at least fixed camera settings.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 180" role="img" aria-label="Bayer colour filter mosaic and camera image processing pipeline">
+            <defs><marker id="ar6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g transform="translate(30,30)" stroke="var(--bg-elev)" stroke-width="1">
+              <rect x="0" y="0" width="28" height="28" fill="#d0443e"/><rect x="28" y="0" width="28" height="28" fill="#3e9e4d"/><rect x="56" y="0" width="28" height="28" fill="#d0443e"/><rect x="84" y="0" width="28" height="28" fill="#3e9e4d"/>
+              <rect x="0" y="28" width="28" height="28" fill="#3e9e4d"/><rect x="28" y="28" width="28" height="28" fill="#3a6fc4"/><rect x="56" y="28" width="28" height="28" fill="#3e9e4d"/><rect x="84" y="28" width="28" height="28" fill="#3a6fc4"/>
+              <rect x="0" y="56" width="28" height="28" fill="#d0443e"/><rect x="28" y="56" width="28" height="28" fill="#3e9e4d"/><rect x="56" y="56" width="28" height="28" fill="#d0443e"/><rect x="84" y="56" width="28" height="28" fill="#3e9e4d"/>
+              <rect x="0" y="84" width="28" height="28" fill="#3e9e4d"/><rect x="28" y="84" width="28" height="28" fill="#3a6fc4"/><rect x="56" y="84" width="28" height="28" fill="#3e9e4d"/><rect x="84" y="84" width="28" height="28" fill="#3a6fc4"/>
+            </g>
+            <text x="30" y="160" class="t-small">Bayer mosaic:</text><text x="30" y="174" class="t-small">50 % G, 25 % R, 25 % B</text>
+            <g class="t-small">
+              <rect x="180" y="62" width="90" height="46" rx="8" class="fill-bg" stroke="currentColor"/><text x="225" y="82" text-anchor="middle">raw counts</text><text x="225" y="98" text-anchor="middle" class="t-muted">∝ photons</text>
+              <rect x="300" y="62" width="90" height="46" rx="8" class="fill-bg" stroke="currentColor"/><text x="345" y="82" text-anchor="middle">demosaic</text><text x="345" y="98" text-anchor="middle" class="t-muted">interpolate RGB</text>
+              <rect x="420" y="62" width="100" height="46" rx="8" class="fill-bg" stroke="currentColor"/><text x="470" y="82" text-anchor="middle">white balance</text><text x="470" y="98" text-anchor="middle" class="t-muted">+ colour matrix</text>
+              <rect x="550" y="62" width="120" height="46" rx="8" class="fill-magenta-soft" stroke="currentColor"/><text x="610" y="82" text-anchor="middle">gamma + JPEG</text><text x="610" y="98" text-anchor="middle" class="t-muted">nonlinear, lossy</text>
+            </g>
+            <g class="stroke" stroke-width="1.4"><line x1="150" y1="85" x2="178" y2="85" marker-end="url(#ar6)"/><line x1="270" y1="85" x2="298" y2="85" marker-end="url(#ar6)"/><line x1="390" y1="85" x2="418" y2="85" marker-end="url(#ar6)"/><line x1="520" y1="85" x2="548" y2="85" marker-end="url(#ar6)"/></g>
+            <text x="425" y="140" text-anchor="middle" class="t-small t-muted">quantitative analysis is safest on the left of this chain; each step to the right adds assumptions</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 12.</b> A camera is a sensor array. Raw counts are nearly linear in collected photons; a JPEG image has been interpolated, colour-corrected and gamma-encoded.</figcaption>
+      </figure>
+      <div class="callout frontier"><div class="callout-title">Frontier — sensors in 2026</div><p>Three developments are changing crop sensing. <strong>Low-cost smart sensors</strong> with digital interfaces and factory calibration (photoacoustic CO₂, MEMS humidity, 16-bit ADCs) have made a research-grade climate logger affordable for students. <strong>Soft sensors</strong> — quantities estimated by a model from other measurements, such as crop transpiration from load-cell and climate data — are increasingly used in commercial greenhouses. And <strong>imaging</strong> is moving from RGB to multispectral, thermal and chlorophyll-fluorescence cameras on rails and robots. All three make calibration, metadata and uncertainty (Lesson 9.3) more, not less, important.</p></div>
+
+      <h3>Choosing sensors for your project</h3>
+      <table>
+        <caption>Table 3. A sensor selection guide for the course project (student-budget options; verify specifications for the exact part).</caption>
+        <thead><tr><th>Quantity</th><th>Recommended principle</th><th>What to check</th><th>Typical pitfall</th></tr></thead>
+        <tbody>
+          <tr><td>Water temperature</td><td>DS18B20 in stainless sheath, or calibrated NTC</td><td>±0.5 °C spec; verify in ice water and against a reference</td><td>reading before thermal equilibrium (τ)</td></tr>
+          <tr><td>Air T and RH</td><td>SHT4x-type capacitive sensor</td><td>radiation shield, ventilation</td><td>sensor heated by lamps or electronics</td></tr>
+          <tr><td>PPFD</td><td>calibrated quantum sensor</td><td>spectral range (full-spectrum for LEDs), calibration date</td><td>using a lux meter; not measuring on a grid</td></tr>
+          <tr><td>CO₂</td><td>dual-channel NDIR or photoacoustic</td><td>pressure compensation, self-calibration setting</td><td>automatic baseline correction in an enriched room</td></tr>
+          <tr><td>Substrate moisture</td><td>capacitance or TDR probe</td><td>substrate-specific calibration</td><td>salinity effect in fertigated media</td></tr>
+          <tr><td>Water use</td><td>load cell + HX711</td><td>zero drift, creep</td><td>interpreting growth as water change</td></tr>
+          <tr><td>pH, EC, DO</td><td>electrochemical/optical (Lesson 9.2)</td><td>calibration routine, isolation</td><td>two probes interfering in one tank</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="sensor-physics-main">
+        <script type="application/json">
+        {"title":"How sensors work","questions":[
+          {"type":"numeric","q":"A 12-bit ADC has a reference voltage of 3.3 V. What voltage does one least-significant bit (LSB) represent? Give the answer in millivolts.","answer":0.8057,"tol":0.02,"unit":"mV","hint":"LSB = V<sub>ref</sub>/2<sup>N</sup>.","explain":"<p>\\(3.3\\ \\text{V}/2^{12} = 3.3/4096 = 0.806\\) mV.</p>"},
+          {"type":"mcq","q":"A probe with a first-order time constant τ = 20 s is plunged from air into water that is 4 °C colder. Approximately what fraction of the 4 °C step has the reading covered after 60 s?","options":["63 %","86 %","95 %","99 %"],"answer":2,"feedback":["63 % is reached after one time constant (20 s).","86 % is reached after two time constants (40 s).","","99 % needs about 4.6 time constants (92 s)."],"hint":"60 s is how many time constants?","explain":"<p>60 s = 3τ, and \\(1 - e^{-3} = 0.950\\): 95 % of the step.</p>"},
+          {"type":"numeric","q":"A 10 kΩ NTC thermistor with β = 3950 K (R₂₅ = 10 kΩ) has a resistance of 15.0 kΩ. What temperature does the β model give (°C)?","answer":16.15,"abstol":0.08,"unit":"°C","hint":"1/T = 1/298.15 + ln(R/R₂₅)/β, with T in kelvin.","explain":"<p>\\(1/T = 3.35402\\times10^{-3} + \\ln(1.5)/3950 = 3.35402\\times10^{-3} + 1.0265\\times10^{-4} = 3.45667\\times10^{-3}\\) K⁻¹, so \\(T = 289.30\\) K = 16.15 °C.</p>"},
+          {"type":"mcq","q":"You want the best voltage-divider sensitivity for a 10 kΩ, β = 3950 K thermistor used around 20 °C (where R<sub>T</sub> ≈ 12.5 kΩ). Which fixed resistor should you choose?","options":["1 kΩ","4.7 kΩ","12 kΩ","100 kΩ"],"answer":2,"feedback":["A small fixed resistor puts almost the whole supply across the thermistor: small changes, poor sensitivity, and more self-heating.","Better than 1 kΩ, but not the optimum.","","With 100 kΩ the output sits near 0.37 V (3.3 V supply) and changes little."],"explain":"<p>d<i>V</i>/d<i>R</i><sub>T</sub> is maximal when <i>R</i><sub>f</sub> = <i>R</i><sub>T</sub> at the temperature of interest (Eq. 9.1.3), i.e. ≈ 12.5 kΩ; 12 kΩ is the nearest standard value.</p>"},
+          {"type":"tf","q":"A thermocouple measures the absolute temperature of its tip without needing any other temperature measurement.","answer":false,"explain":"<p>The Seebeck voltage depends on the temperature <em>difference</em> between the measuring junction and the reference junction. The reference-junction temperature must be measured separately (cold-junction compensation).</p>"},
+          {"type":"numeric","q":"An NDIR CO₂ sensor calibrated at 1013.25 hPa, without pressure compensation, reads 600 ppm at a site where the pressure is 950 hPa (same temperature as at calibration). What is the true CO₂ mole fraction?","answer":640,"tol":0.01,"unit":"ppm","hint":"The sensor responds to molecules per volume, which scale with pressure.","explain":"<p>\\(x_{\\text{true}} = 600\\times1013.25/950 = 640\\) ppm. At low pressure the sensor under-reads.</p>"},
+          {"type":"numeric","q":"A TDR measurement in a mineral soil gives an apparent permittivity ε<sub>a</sub> = 16. What volumetric water content does the Topp equation give (m³ m⁻³)?","answer":0.291,"abstol":0.005,"unit":"m³ m⁻³","explain":"<p>\\(\\theta = -0.053 + 0.0292\\times16 - 0.00055\\times256 + 4.3\\times10^{-6}\\times4096 = -0.053 + 0.4672 - 0.1408 + 0.0176 = 0.291\\).</p>"},
+          {"type":"numeric","q":"A greenhouse warms at 3 °C per hour. The air-temperature sensor in its shield has a time constant of 4 minutes. By how much does the reading lag behind the true temperature once the ramp is established (°C)?","answer":0.2,"abstol":0.01,"unit":"°C","hint":"Dynamic error of a first-order sensor on a ramp = rate × τ.","explain":"<p>Rate = 3 °C/60 min = 0.05 °C min⁻¹; lag = 0.05 × 4 = 0.20 °C.</p>"},
+          {"type":"multi","q":"Which of the following are genuine error sources of a quantum (PAR) sensor? (Select all that apply.)","options":["Mismatch between its spectral response and the ideal 400–700 nm response","Imperfect cosine response at large zenith angles","A time constant of several minutes","Calibration drift over years"],"answer":[0,1,3],"explain":"<p>Photodiodes respond in well under a millisecond, so response time is not an issue; spectral error, cosine error and drift are the classic error sources (Ross &amp; Sulev, 2000).</p>"},
+          {"type":"mcq","q":"Why must air temperature and humidity sensors in a greenhouse be placed in a ventilated radiation shield?","options":["To protect them from rain","Because solar and lamp radiation heat the sensor above air temperature, making T too high and RH too low","Because the shield increases their resolution","Because capacitive sensors only work in moving air"],"answer":1,"feedback":["Greenhouses rarely rain inside; the main problem is radiative heating.","","Resolution is set by the electronics, not the shield.","They work in still air, just more slowly."],"explain":"<p>A sensor absorbs radiation and warms above the air. Its RH (measured at its own temperature) then reads low. Ventilation keeps it at air temperature; the shield blocks radiation.</p>"},
+          {"type":"tf","q":"Replacing a 12-bit ADC with a 16-bit ADC always makes a temperature measurement more accurate.","answer":false,"explain":"<p>More bits improve <em>resolution</em>. Accuracy depends on all errors in the chain — thermistor tolerance, reference-voltage error, ADC nonlinearity, self-heating, calibration. A 16-bit converter can still read 0.5 °C wrong.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Measurand</dt><dd>The quantity intended to be measured, defined with its conditions (place, medium, averaging time).</dd>
+        <dt>Transducer</dt><dd>A device that converts one physical quantity into another, usually into an electrical signal; modulating (needs excitation) or self-generating.</dd>
+        <dt>Sensitivity</dt><dd>The slope of the transfer function, output change per unit change of the measurand.</dd>
+        <dt>Hysteresis</dt><dd>Difference between readings at the same input approached from below and from above.</dd>
+        <dt>Resolution</dt><dd>The smallest change of the measurand that produces a detectable output change; for an ADC one LSB. Not the same as accuracy.</dd>
+        <dt>Time constant (τ)</dt><dd>For a first-order sensor, the time to cover 63.2 % of a step change; depends on the medium and flow.</dd>
+        <dt>Voltage divider</dt><dd>Two resistances in series across a supply; converts a resistance into a voltage, Eq. 9.1.3.</dd>
+        <dt>ADC / LSB</dt><dd>Analogue-to-digital converter; the least-significant bit is the voltage step of one code, \(V_{\text{ref}}/2^N\).</dd>
+        <dt>NTC thermistor</dt><dd>A semiconductor resistor whose resistance falls exponentially with temperature; described by the β or Steinhart–Hart equation.</dd>
+        <dt>RTD (Pt100)</dt><dd>Platinum resistance thermometer with 100 Ω at 0 °C, described by the Callendar–Van Dusen equation.</dd>
+        <dt>Seebeck effect</dt><dd>Generation of a voltage in a circuit of two different conductors whose junctions are at different temperatures — the thermocouple principle.</dd>
+        <dt>NDIR</dt><dd>Non-dispersive infrared gas sensing: concentration from the absorption of a filtered IR band (4.26 µm for CO₂) via the Beer–Lambert law.</dd>
+        <dt>Apparent permittivity</dt><dd>The bulk dielectric constant of a moist porous medium; dominated by water content and measured by TDR or capacitance sensors.</dd>
+        <dt>Wheatstone bridge</dt><dd>Two voltage dividers compared differentially to measure small resistance changes such as those of strain gauges.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can draw the measurement chain for any sensor in my project and name the main error at each stage.</li>
+        <li>I can derive the first-order step response and use it to decide how long to wait before reading a probe.</li>
+        <li>I can choose a series resistor for a thermistor and convert an ADC code into a temperature with the β and Steinhart–Hart equations.</li>
+        <li>I can explain why an NDIR sensor needs pressure compensation and apply the correction.</li>
+        <li>I can explain why the Topp equation may fail in coir or rock wool and what to do about it.</li>
+        <li>I can explain the difference between resolution and accuracy to a fellow student who trusts every displayed digit.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Farahani, H., Wagiran, R., &amp; Hamidon, M. N. (2014). Humidity sensors principle, mechanism, and fabrication technologies: a comprehensive review. <em>Sensors</em>, 14(5), 7881–7939. <a href="https://doi.org/10.3390/s140507881" target="_blank" rel="noopener">doi:10.3390/s140507881</a><span class="r-why">Read the sections on capacitive sensors: how the polymer dielectric works, and why hysteresis and drift occur.</span></li>
+        <li><span class="r-type">Required · classic</span>Topp, G. C., Davis, J. L., &amp; Annan, A. P. (1980). Electromagnetic determination of soil water content: measurements in coaxial transmission lines. <em>Water Resources Research</em>, 16(3), 574–582. <a href="https://doi.org/10.1029/WR016i003p00574" target="_blank" rel="noopener">doi:10.1029/WR016i003p00574</a><span class="r-why">One of the most cited papers in soil physics; see how an empirical equation earns its place — and where its validity ends.</span></li>
+        <li><span class="r-type">Recommended</span>Hodgkinson, J., &amp; Tatam, R. P. (2013). Optical gas sensing: a review. <em>Measurement Science and Technology</em>, 24(1), 012004. <a href="https://doi.org/10.1088/0957-0233/24/1/012004" target="_blank" rel="noopener">doi:10.1088/0957-0233/24/1/012004</a><span class="r-why">The physics behind NDIR and photoacoustic CO₂ sensors, with their limits.</span></li>
+        <li><span class="r-type">Recommended</span>Barnes, C., Tibbitts, T., Sager, J., Deitzer, G., Bubenheim, D., Koerner, G., &amp; Bugbee, B. (1993). Accuracy of quantum sensors measuring yield photon flux and photosynthetic photon flux. <em>HortScience</em>, 28(12), 1197–1200. <a href="https://doi.org/10.21273/HORTSCI.28.12.1197" target="_blank" rel="noopener">doi:10.21273/HORTSCI.28.12.1197</a><span class="r-why">A short, practical paper on spectral errors of quantum sensors under different lamps.</span></li>
+        <li><span class="r-type">Textbook</span>Fraden, J. (2016). <em>Handbook of Modern Sensors: Physics, Designs, and Applications</em> (5th ed.). Springer. <a href="https://doi.org/10.1007/978-3-319-19303-8" target="_blank" rel="noopener">doi:10.1007/978-3-319-19303-8</a><span class="r-why">Chapters on sensor characteristics, temperature, humidity and optical sensors; the reference work for this lesson.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Analog Devices. (n.d.). <em>DS18B20: Programmable resolution 1-Wire digital thermometer</em> [Data sheet]. <a href="https://www.analog.com/en/products/ds18b20.html" target="_blank" rel="noopener">analog.com/en/products/ds18b20.html</a></li>
+        <li>Apogee Instruments. (n.d.). <em>SQ-500-SS full-spectrum quantum sensor: specifications</em>. <a href="https://www.apogeeinstruments.com/sq-500-ss-full-spectrum-quantum-sensor/" target="_blank" rel="noopener">apogeeinstruments.com</a></li>
+        <li>Barnes, C., Tibbitts, T., Sager, J., Deitzer, G., Bubenheim, D., Koerner, G., &amp; Bugbee, B. (1993). Accuracy of quantum sensors measuring yield photon flux and photosynthetic photon flux. <em>HortScience</em>, 28(12), 1197–1200. <a href="https://doi.org/10.21273/HORTSCI.28.12.1197" target="_blank" rel="noopener">doi:10.21273/HORTSCI.28.12.1197</a></li>
+        <li>Blonquist, J. M., Jones, S. B., &amp; Robinson, D. A. (2005). Standardizing characterization of electromagnetic water content sensors: Part 2. Evaluation of seven sensing systems. <em>Vadose Zone Journal</em>, 4(4), 1059–1069. <a href="https://doi.org/10.2136/vzj2004.0141" target="_blank" rel="noopener">doi:10.2136/vzj2004.0141</a></li>
+        <li>Burns, G. W., Scroger, M. G., Strouse, G. F., Croarkin, M. C., &amp; Guthrie, W. F. (1993). <em>Temperature-electromotive force reference functions and tables for the letter-designated thermocouple types based on the ITS-90</em> (NIST Monograph 175). National Institute of Standards and Technology. <a href="https://doi.org/10.6028/NIST.MONO.175" target="_blank" rel="noopener">doi:10.6028/NIST.MONO.175</a></li>
+        <li>Espressif Systems. (2025). <em>ESP32 series datasheet</em> (Version 5.3). <a href="https://documentation.espressif.com/esp32_datasheet_en.pdf" target="_blank" rel="noopener">documentation.espressif.com/esp32_datasheet_en.pdf</a></li>
+        <li>Farahani, H., Wagiran, R., &amp; Hamidon, M. N. (2014). Humidity sensors principle, mechanism, and fabrication technologies: a comprehensive review. <em>Sensors</em>, 14(5), 7881–7939. <a href="https://doi.org/10.3390/s140507881" target="_blank" rel="noopener">doi:10.3390/s140507881</a></li>
+        <li>Fraden, J. (2016). <em>Handbook of Modern Sensors: Physics, Designs, and Applications</em> (5th ed.). Springer. <a href="https://doi.org/10.1007/978-3-319-19303-8" target="_blank" rel="noopener">doi:10.1007/978-3-319-19303-8</a></li>
+        <li>Hodgkinson, J., &amp; Tatam, R. P. (2013). Optical gas sensing: a review. <em>Measurement Science and Technology</em>, 24(1), 012004. <a href="https://doi.org/10.1088/0957-0233/24/1/012004" target="_blank" rel="noopener">doi:10.1088/0957-0233/24/1/012004</a></li>
+        <li>IEC. (2022). <em>IEC 60751: Industrial platinum resistance thermometers and platinum temperature sensors</em>. International Electrotechnical Commission.</li>
+        <li>JCGM. (2012). <em>International vocabulary of metrology — Basic and general concepts and associated terms (VIM)</em> (3rd ed., JCGM 200:2012). Joint Committee for Guides in Metrology. <a href="https://www.bipm.org/en/committees/jc/jcgm/publications" target="_blank" rel="noopener">bipm.org</a></li>
+        <li>Li, L., Zhang, Q., &amp; Huang, D. (2014). A review of imaging techniques for plant phenotyping. <em>Sensors</em>, 14(11), 20078–20111. <a href="https://doi.org/10.3390/s141120078" target="_blank" rel="noopener">doi:10.3390/s141120078</a></li>
+        <li>Robinson, D. A., Jones, S. B., Wraith, J. M., Or, D., &amp; Friedman, S. P. (2003). A review of advances in dielectric and electrical conductivity measurement in soils using time domain reflectometry. <em>Vadose Zone Journal</em>, 2(4), 444–475. <a href="https://doi.org/10.2136/vzj2003.4440" target="_blank" rel="noopener">doi:10.2136/vzj2003.4440</a></li>
+        <li>Ross, J., &amp; Sulev, M. (2000). Sources of errors in measurements of PAR. <em>Agricultural and Forest Meteorology</em>, 100(2–3), 103–125. <a href="https://doi.org/10.1016/S0168-1923(99)00144-6" target="_blank" rel="noopener">doi:10.1016/S0168-1923(99)00144-6</a></li>
+        <li>Sensirion. (n.d.-a). <em>SHT40 digital humidity and temperature sensor</em> [Product specifications]. <a href="https://sensirion.com/products/catalog/SHT40" target="_blank" rel="noopener">sensirion.com/products/catalog/SHT40</a></li>
+        <li>Sensirion. (n.d.-b). <em>SCD41 CO₂ sensor</em> [Product specifications]. <a href="https://sensirion.com/products/catalog/SCD41" target="_blank" rel="noopener">sensirion.com/products/catalog/SCD41</a></li>
+        <li>Sensirion. (n.d.-c). <em>SCD30 CO₂, humidity and temperature sensor</em> [Product specifications]. <a href="https://sensirion.com/products/catalog/SCD30" target="_blank" rel="noopener">sensirion.com/products/catalog/SCD30</a></li>
+        <li>Steinhart, J. S., &amp; Hart, S. R. (1968). Calibration curves for thermistors. <em>Deep Sea Research and Oceanographic Abstracts</em>, 15(4), 497–503. <a href="https://doi.org/10.1016/0011-7471(68)90057-0" target="_blank" rel="noopener">doi:10.1016/0011-7471(68)90057-0</a></li>
+        <li>Texas Instruments. (2018). <em>ADS111x ultra-small, low-power, I²C-compatible, 860-SPS, 16-bit ADCs with internal reference, oscillator, and programmable comparator</em> [Data sheet SBAS444]. <a href="https://www.ti.com/product/ADS1115" target="_blank" rel="noopener">ti.com/product/ADS1115</a></li>
+        <li>Topp, G. C., Davis, J. L., &amp; Annan, A. P. (1980). Electromagnetic determination of soil water content: measurements in coaxial transmission lines. <em>Water Resources Research</em>, 16(3), 574–582. <a href="https://doi.org/10.1029/WR016i003p00574" target="_blank" rel="noopener">doi:10.1029/WR016i003p00574</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, linspace } from '/assets/js/plot.js';
+import { thermistorR } from '/assets/js/physics.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+import { mulberry32, randn } from '/assets/js/stats.js';
+
+/* small slider factory with the same look as the mini-calcs */
+function addSlider(host, o) {
+  const w = document.createElement('div'); w.className = 'mc-var';
+  w.innerHTML = `<div class="mc-lab"><span>${o.label}</span><output></output></div><input type="range" aria-label="${o.label.replace(/<[^>]+>/g, '')}">`;
+  const r = w.querySelector('input'), out = w.querySelector('output');
+  const toR = v => o.log ? Math.log10(v) : v, fromR = v => o.log ? Math.pow(10, v) : v;
+  r.min = toR(o.min); r.max = toR(o.max); r.step = o.log ? (toR(o.max) - toR(o.min)) / 300 : o.step; r.value = toR(o.value);
+  const get = () => { const v = fromR(+r.value); return o.log ? +v.toPrecision(3) : v; };
+  const show = () => { out.textContent = (o.fmt ? o.fmt(get()) : fmt(get(), o.digits ?? 0)) + (o.unit ? ' ' + o.unit : ''); r.style.setProperty('--fill', ((+r.value - +r.min) / (+r.max - +r.min) * 100) + '%'); };
+  r.addEventListener('input', () => { show(); o.onInput && o.onInput(); });
+  show(); host.appendChild(w);
+  return { get, set: v => { r.value = toR(v); show(); } };
+}
+
+/* ---------- Figure 2: static characteristics playground ---------- */
+{
+  const ctl = document.getElementById('sp-ctl');
+  const upd = () => draw();
+  const S = {
+    off: addSlider(ctl, { label: 'Offset', min: -3, max: 3, step: 0.1, value: 0.5, unit: '% FS', digits: 1, onInput: upd }),
+    gain: addSlider(ctl, { label: 'Gain error', min: -5, max: 5, step: 0.1, value: 1, unit: '%', digits: 1, onInput: upd }),
+    nl: addSlider(ctl, { label: 'Nonlinearity (bow)', min: -3, max: 3, step: 0.1, value: 1, unit: '% FS', digits: 1, onInput: upd }),
+    hy: addSlider(ctl, { label: 'Hysteresis', min: 0, max: 4, step: 0.1, value: 1, unit: '% FS', digits: 1, onInput: upd }),
+    noise: addSlider(ctl, { label: 'Noise (1σ)', min: 0, max: 2, step: 0.05, value: 0.3, unit: '% FS', digits: 2, onInput: upd }),
+    bits: addSlider(ctl, { label: 'Resolution', min: 4, max: 12, step: 1, value: 10, unit: 'bit', digits: 0, onInput: upd })
+  };
+  const FS = 50;
+  const plot = new Plot('#sp-plot', { x: { label: 'True temperature', unit: '°C', min: 0, max: 50 }, y: { label: 'Error (reading − true)', unit: '°C' }, legend: true });
+  const ro = new Readouts('#sp-ro');
+  ro.add({ id: 'max', label: 'Worst deterministic error', unit: '% FS', digits: 2 })
+    .add({ id: 'at', label: 'Located at', unit: '°C', digits: 1 })
+    .add({ id: 'rnd', label: 'Random band ±2σ', unit: '% FS', digits: 2 })
+    .add({ id: 'lsb', label: 'Resolution (1 LSB)', unit: '°C', digits: 3 });
+  const xs = linspace(0, 50, 201);
+  function reading(x, dir, s) {
+    const lsb = FS / Math.pow(2, s.bits);
+    const base = s.off / 100 * FS + (1 + s.gain / 100) * x + 4 * s.nl / 100 * FS * (x / FS) * (1 - x / FS);
+    const h = s.hy / 100 * FS / 2 * Math.sin(Math.PI * x / FS);
+    const v = base + (dir > 0 ? -h : h);
+    return Math.round(v / lsb) * lsb;
+  }
+  function draw() {
+    const s = Object.fromEntries(Object.entries(S).map(([k, v]) => [k, v.get()]));
+    const up = xs.map(x => reading(x, 1, s)), dn = xs.map(x => reading(x, -1, s));
+    const lim = Math.max(1, 1.15 * Math.max(...up.map((v, i) => Math.abs(v - xs[i])), ...dn.map((v, i) => Math.abs(v - xs[i]))) + 2.5 * s.noise / 100 * FS);
+    plot.setAxis('y', { min: -lim, max: lim });
+    plot.hregion('spec', -0.5, 0.5, { color: 'accent', alpha: 0.08 });
+    plot.line('ideal', [0, 50], [0, 0], { color: 'muted', dash: [6, 4], width: 1.5, label: 'Ideal (zero error)' });
+    plot.line('up', xs, up.map((v, i) => v - xs[i]), { color: 'accent', width: 2.2, label: 'Rising sweep', step: s.bits <= 6 });
+    plot.line('dn', xs, dn.map((v, i) => v - xs[i]), { color: 'magenta', width: 2, label: 'Falling sweep', step: s.bits <= 6 });
+    const rng = mulberry32(7); const px = linspace(1, 49, 40);
+    const py = px.map(x => { const lsb = FS / Math.pow(2, s.bits); const v = reading(x, 1, s) + randn(rng) * s.noise / 100 * FS; return Math.round(v / lsb) * lsb - x; });
+    plot.scatter('pts', px, py, { color: 'water', r: 2.8, label: 'Noisy readings' });
+    let mx = 0, at = 0; xs.forEach((x, i) => { const e = Math.max(Math.abs(up[i] - x), Math.abs(dn[i] - x)); if (e > mx) { mx = e; at = x; } });
+    ro.set('max', mx / FS * 100, mx / FS * 100 < 1 ? 'ok' : mx / FS * 100 < 3 ? 'warn' : 'bad');
+    ro.set('at', at);
+    ro.set('rnd', 2 * s.noise, 2 * s.noise < 1 ? 'ok' : 'warn');
+    ro.set('lsb', FS / Math.pow(2, s.bits));
+  }
+  draw();
+}
+
+/* ---------- Figure 3: dynamic response explorer ---------- */
+{
+  const ctl = document.getElementById('dy-ctl');
+  let mode = 'step';
+  const upd = () => draw();
+  const tauS = addSlider(ctl, { label: 'Time constant τ', min: 1, max: 600, value: 30, log: true, unit: 's', digits: 0, onInput: upd });
+  const rateS = addSlider(ctl, { label: 'Ramp rate', min: 0.5, max: 10, step: 0.5, value: 2, unit: '°C h⁻¹', digits: 1, onInput: upd });
+  const perS = addSlider(ctl, { label: 'Oscillation period', min: 30, max: 3600, value: 600, log: true, unit: 's', digits: 0, onInput: upd });
+  const note = document.createElement('p'); note.className = 'fx-note'; ctl.appendChild(note);
+  const plot = new Plot('#dy-plot', { x: { label: 'Time', unit: 's', min: 0 }, y: { label: 'Temperature', unit: '°C' }, legend: true });
+  const ro = new Readouts('#dy-ro');
+  ro.add({ id: 'a', label: '', unit: '', digits: 1 }).add({ id: 'b', label: '', unit: '', digits: 1 }).add({ id: 'c', label: '', unit: '', digits: 1 });
+  const relabel = (id, label, unit) => { const it = ro.items[id]; it.el.querySelector('.ro-label').textContent = label; it.unit = unit; };
+  function draw() {
+    const tau = tauS.get();
+    let tMax, xs, xt, yt;
+    if (mode === 'step') {
+      tMax = Math.max(60, 6 * tau); xs = linspace(0, tMax, 400);
+      xt = xs.map(t => t < 0 ? 18 : 22); yt = xs.map(t => 22 + (18 - 22) * Math.exp(-t / tau));
+      relabel('a', 'Time to 63.2 % (τ)', 's'); relabel('b', 'Time to 95 % (3τ)', 's'); relabel('c', 'Time to within 0.1 °C', 's');
+      ro.set('a', tau); ro.set('b', 3 * tau); ro.set('c', tau * Math.log(4 / 0.1), tau * Math.log(40) < 120 ? 'ok' : 'warn');
+      note.textContent = 'Step: probe moved from 18 °C to 22 °C at t = 0.';
+    } else if (mode === 'ramp') {
+      const r = rateS.get() / 3600; tMax = Math.max(1800, 8 * tau); xs = linspace(0, tMax, 400);
+      xt = xs.map(t => 15 + r * t); yt = xs.map(t => 15 + r * (t - tau * (1 - Math.exp(-t / tau))));
+      relabel('a', 'Delay (= τ)', 's'); relabel('b', 'Dynamic error r·τ', '°C'); relabel('c', 'Error after 1 h', '°C');
+      const e = r * tau; ro.set('a', tau); ro.set('b', e, e < 0.1 ? 'ok' : e < 0.3 ? 'warn' : 'bad');
+      ro.set('c', r * tau * (1 - Math.exp(-3600 / tau)));
+      note.textContent = 'Ramp: air warming steadily from 15 °C.';
+    } else {
+      const P = perS.get(), w = 2 * Math.PI / P, A = 1.5; tMax = Math.max(3 * P, 5 * tau); xs = linspace(0, tMax, 600);
+      xt = xs.map(t => 20 + A * Math.sin(w * t));
+      const k = A / (1 + (w * tau) ** 2);
+      yt = xs.map(t => 20 + k * (Math.sin(w * t) - w * tau * Math.cos(w * t) + w * tau * Math.exp(-t / tau)));
+      const ar = 1 / Math.sqrt(1 + (w * tau) ** 2);
+      relabel('a', 'Amplitude ratio', '%'); relabel('b', 'Phase lag', 's'); relabel('c', 'Recorded peak-to-peak', '°C');
+      ro.set('a', 100 * ar, ar > 0.9 ? 'ok' : ar > 0.5 ? 'warn' : 'bad'); ro.set('b', Math.atan(w * tau) / w); ro.set('c', 2 * A * ar);
+      note.textContent = 'Oscillation: true temperature swings ±1.5 °C around 20 °C.';
+    }
+    plot.setAxis('x', { min: 0, max: tMax });
+    plot.line('true', xs, xt, { color: 'muted', dash: [6, 4], width: 1.6, label: 'True value' });
+    plot.line('sens', xs, yt, { color: 'accent', width: 2.4, label: 'Sensor reading' });
+    if (mode === 'step') plot.vline('tau', tau, { color: 'magenta', label: 't = τ' }); else plot.remove('tau');
+    ctl.children[1].style.display = mode === 'ramp' ? '' : 'none';
+    ctl.children[2].style.display = mode === 'sine' ? '' : 'none';
+  }
+  const seg = document.getElementById('dy-mode');
+  seg.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); mode = b.dataset.v; draw(); });
+  draw();
+}
+
+/* ---------- Figure 6: thermistor divider designer ---------- */
+{
+  const ctl = document.getElementById('th-ctl');
+  const upd = () => draw();
+  const S = {
+    rf: addSlider(ctl, { label: 'Fixed resistor R<sub>f</sub>', min: 1000, max: 100000, value: 10000, log: true, unit: 'Ω', fmt: v => v >= 1000 ? fmt(v / 1000, 1) + ' k' : fmt(v, 0) , onInput: upd }),
+    beta: addSlider(ctl, { label: 'β', min: 3000, max: 4500, step: 10, value: 3950, unit: 'K', digits: 0, onInput: upd }),
+    bits: addSlider(ctl, { label: 'ADC resolution', min: 10, max: 16, step: 1, value: 12, unit: 'bit', digits: 0, onInput: upd }),
+    vs: addSlider(ctl, { label: 'Supply V<sub>s</sub>', min: 1.8, max: 5, step: 0.1, value: 3.3, unit: 'V', digits: 1, onInput: upd }),
+    dc: addSlider(ctl, { label: 'Dissipation constant δ', min: 0.5, max: 10, step: 0.1, value: 1.5, unit: 'mW K⁻¹', digits: 1, onInput: upd })
+  };
+  const plot = new Plot('#th-plot', { x: { label: 'Temperature', unit: '°C', min: -10, max: 50 }, y: { label: 'V_out', unit: 'V', min: 0 }, y2: { label: 'Resolution per LSB', unit: 'mK', min: 0 }, legend: true });
+  const ro = new Readouts('#th-ro');
+  ro.add({ id: 'v', label: 'V<sub>out</sub> at 20 °C', unit: 'V', digits: 3 })
+    .add({ id: 's', label: 'Sensitivity at 20 °C', unit: 'mV K⁻¹', digits: 1 })
+    .add({ id: 'r', label: 'Resolution at 20 °C', unit: 'mK', digits: 1 })
+    .add({ id: 'sh', label: 'Self-heating at 20 °C', unit: 'mK', digits: 1 })
+    .add({ id: 'best', label: 'Optimal R<sub>f</sub> for 20 °C', unit: 'kΩ', digits: 1 });
+  const Ts = linspace(-10, 50, 241);
+  function draw() {
+    const rf = S.rf.get(), beta = S.beta.get(), N = S.bits.get(), vs = S.vs.get(), dc = S.dc.get();
+    const R = T => thermistorR(T, 10000, beta);
+    const V = T => vs * R(T) / (R(T) + rf);
+    const dV = T => (V(T + 0.01) - V(T - 0.01)) / 0.02;
+    const lsb = vs / Math.pow(2, N);
+    const res = Ts.map(T => 1000 * lsb / Math.abs(dV(T)));
+    plot.line('v', Ts, Ts.map(V), { color: 'accent', width: 2.4, label: 'V_out' });
+    plot.line('res', Ts, res, { color: 'magenta', width: 2, label: 'mK per LSB', y2: true });
+    plot.vline('t20', 20, { color: 'muted', label: '20 °C' });
+    const s20 = Math.abs(dV(20)) * 1000, r20 = 1000 * lsb / Math.abs(dV(20));
+    const P = V(20) ** 2 / R(20) * 1000; // mW
+    const dT = P / dc * 1000; // mK
+    ro.set('v', V(20));
+    ro.set('s', s20, s20 > 30 ? 'ok' : s20 > 15 ? 'warn' : 'bad');
+    ro.set('r', r20, r20 < 50 ? 'ok' : r20 < 200 ? 'warn' : 'bad');
+    ro.set('sh', dT, dT < 50 ? 'ok' : dT < 100 ? 'warn' : 'bad');
+    ro.set('best', R(20) / 1000);
+  }
+  draw();
+}
+</script>
+</body>
+</html>

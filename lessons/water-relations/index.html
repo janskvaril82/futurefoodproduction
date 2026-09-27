@@ -1,0 +1,1082 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Water relations, transpiration and vapour pressure deficit · Future Food Production</title>
+<meta name="description" content="Water potential and its components, osmosis, the soil–plant–atmosphere continuum, stomata, transpiration, vapour pressure deficit, boundary layers, the leaf energy balance, the Penman–Monteith equation, VPD management, calcium transport and tipburn, and water-use efficiency.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator functions for this lesson (FAO-56 / Tetens saturation vapour pressure, Campbell & Norman conductances). */
+window.FFP_CALC = window.FFP_CALC || {};
+(function (C) {
+  function es(T) { return 0.6108 * Math.exp(17.27 * T / (T + 237.3)); }            /* kPa */
+  C.wrVPDleaf = function (v) { return es(v.Tl) - v.RH / 100 * es(v.Ta); };
+  C.wrGb = function (v) { return 0.147 * Math.sqrt(v.u / (0.72 * v.w / 100)); };     /* w in cm */
+  /* leaf-minus-air temperature from the leaf energy balance, solved by bisection */
+  C.wrLeafDT = function (v) {
+    var cp = 29.3, sig = 5.670374e-8, eps = 0.97, P = 101.3, d = 0.72 * 0.08;
+    var gHa = 2 * 0.135 * Math.sqrt(v.u / d), gr = 4 * eps * sig * Math.pow(v.Ta + 273.15, 3) / cp;
+    var gbv = 2 * 0.147 * Math.sqrt(v.u / d), gv = v.gs > 0 ? 1 / (1 / v.gs + 1 / gbv) : 0;
+    var ea = v.RH / 100 * es(v.Ta), lam = (2.501e6 - 2361 * v.Ta) * 0.018015;
+    function f(Tl) { return v.Rn - cp * (gHa + gr) * (Tl - v.Ta) - lam * gv * (es(Tl) - ea) / P; }
+    var lo = v.Ta - 25, hi = v.Ta + 35;
+    for (var i = 0; i < 60; i++) { var m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m; }
+    return (lo + hi) / 2 - v.Ta;
+  };
+  /* Penman-Monteith transpiration, g m-2 h-1; Rn W m-2, T degC, RH %, ga and gs in mm s-1 */
+  C.wrPM = function (v) {
+    var e = es(v.T), D = e * (1 - v.RH / 100), De = 4098 * e / Math.pow(v.T + 237.3, 2), P = 101.3, gam = 0.000665 * P;
+    var rho = P * 1000 / (287.05 * (v.T + 273.15)), cp = 1005, ga = v.ga / 1000, gs = v.gs / 1000;
+    var lE = (De * v.Rn + rho * cp * D * ga) / (De + gam * (1 + ga / gs));
+    return lE / (2.501e6 - 2361 * v.T) * 3600 * 1000;
+  };
+})(window.FFP_CALC);
+</script>
+<style>
+  @media (max-width: 760px) { .wr-2col { grid-template-columns: 1fr !important; } }
+  .wr-note { font-size: .86rem; color: var(--muted); margin: 8px 0 0; }
+</style>
+</head>
+<body data-page="lesson" data-slug="water-relations">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Water relations, transpiration and vapour pressure deficit</h1>
+      <p class="lead">A lettuce plant in a vertical farm drinks several times its own fresh weight in water before harvest — and releases almost all of it back into the room as vapour. That invisible stream cools the leaves, carries calcium to growing tissues, and forms the largest latent-heat load that the air-conditioning system must remove. This lesson follows water from the nutrient solution to the air with the physics of water potential, builds the conductance models that engineers use to predict transpiration, derives the Penman–Monteith equation step by step, and turns it all into practical rules for managing vapour pressure deficit in greenhouses and plant factories.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Define water potential and its osmotic, pressure, gravitational and matric components, and calculate osmotic potential with the van 't Hoff relation (LO2, LO3).</li>
+        <li>Describe the soil–plant–atmosphere continuum with the cohesion–tension theory and an Ohm's-law analogy, and compute water potentials along the pathway (LO2, LO3).</li>
+        <li>Explain how stomata regulate gas exchange, and calculate transpiration from stomatal and boundary-layer conductances and the leaf-to-air vapour pressure deficit (LO2, LO3).</li>
+        <li>Set up the leaf energy balance and derive and apply the Penman–Monteith equation to a greenhouse or vertical-farm canopy (LO3).</li>
+        <li>Justify target VPD ranges for controlled environments and explain the links between transpiration, calcium transport, tipburn and water-use efficiency (LO2, LO7).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+
+      <!-- ============================================================ 1 -->
+      <h2 id="why-water">Why water is an engineering problem in CEA</h2>
+      <p class="lede-drop">Of all the water a crop takes up through its roots, only a tiny fraction stays in the plant: typically more than 95 % is transpired, a few per cent end up as tissue water, and well under one per cent is split in photosynthesis (Taiz et al., 2022). Transpiration is not a design flaw. It is the unavoidable price of photosynthesis: leaves must open pores to let CO₂ in, and a wet surface exposed to unsaturated air loses water. But plants have turned the price into a service. The water flow cools leaves under strong light, it delivers nutrients — above all calcium, which moves almost exclusively with the transpiration stream — and it keeps cells turgid so that they can expand.</p>
+      <p>For an environmental engineer designing a plant factory, transpiration has a second face: <strong>every kilogram of water transpired carries about 2.45 MJ of latent heat into the air</strong>, which must be removed again by dehumidification. Graamans et al. (2017) showed that crop transpiration is therefore a central design parameter for the climate systems of closed plant factories, and in <a href="/lessons/energy-balance/">Lesson 8.1</a> you will see that dehumidification can be one of the largest electricity uses after lighting. In a greenhouse, by contrast, transpiration is the main cooling mechanism in summer and a source of disease-promoting humidity in winter. Controlling water vapour is therefore a balancing act between plant physiology, disease risk and energy.</p>
+      <div class="callout key"><div class="callout-title">Big idea</div><p>Water always moves from higher to lower <strong>water potential</strong>. From the root zone to the leaf the water potential falls by a fraction of a megapascal; from the leaf to the air it falls by tens of megapascals. The steepest drop is at the leaf surface, which is why <strong>stomata and the vapour pressure deficit of the air</strong> control how fast a plant transpires.</p></div>
+
+      <!-- ============================================================ 2 -->
+      <h2 id="water-potential">Water potential: the currency of water movement</h2>
+      <p>Why does water move into a root from a nutrient solution, up a stem against gravity, and out of a leaf into the air? In each case the driving force is a difference in the <strong>free energy</strong> of water. Plant physiologists express that free energy per unit volume, which gives it the units of pressure, and call it <strong>water potential</strong>, Ψ (psi). Pure, free water at atmospheric pressure and the same temperature and height is the reference, Ψ = 0. Anything that lowers the free energy of water — dissolved solutes, binding to surfaces, suction — makes Ψ negative; positive pressure makes it positive.</p>
+
+      <div class="eq-box" id="eq-wr-psi">
+        <div class="eq-head"><span class="eq-label">Water potential and its components</span><span class="eq-num">(2.2.1)</span></div>
+        <div class="eq-main">\[ \Psi_w = \frac{\mu_w-\mu_w^{\circ}}{\bar V_w} = \Psi_s + \Psi_p + \Psi_g + \Psi_m, \qquad \Psi_g = \rho_w\,g\,h \]</div>
+        <p class="eq-read">water potential is the chemical potential of water relative to pure water, divided by the molar volume of water. It is the sum of an osmotic (solute) component, a pressure component, a gravitational component and a matric component; the gravitational component equals the density of water times gravitational acceleration times height above the reference level.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical values</th></tr>
+          <tr><td>\(\Psi_w\)</td><td>water potential</td><td>MPa</td><td>0 (pure water) to −100 (dry air)</td></tr>
+          <tr><td>\(\mu_w-\mu_w^{\circ}\)</td><td>chemical potential of water relative to pure water</td><td>J mol⁻¹</td><td></td></tr>
+          <tr><td>\(\bar V_w\)</td><td>partial molar volume of water</td><td>m³ mol⁻¹</td><td>18.05 × 10⁻⁶</td></tr>
+          <tr><td>\(\Psi_s\)</td><td>osmotic (solute) potential, always ≤ 0</td><td>MPa</td><td>cell sap −0.5 to −1.5; nutrient solution ≈ −0.05 to −0.1</td></tr>
+          <tr><td>\(\Psi_p\)</td><td>pressure potential: turgor (&gt; 0) in cells, tension (&lt; 0) in xylem</td><td>MPa</td><td>turgor +0.3 to +1</td></tr>
+          <tr><td>\(\Psi_g\)</td><td>gravitational potential</td><td>MPa</td><td>+0.0098 per metre of height</td></tr>
+          <tr><td>\(\Psi_m\)</td><td>matric potential: water bound to surfaces and in narrow pores</td><td>MPa</td><td>substrates at container capacity ≈ −0.001 to −0.01</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The chemical potential \(\mu_w\) (J mol⁻¹) is the free energy per mole of water. Water moves spontaneously from high to low \(\mu_w\).</li>
+            <li>Dividing by the molar volume \(\bar V_w\) (m³ mol⁻¹) converts J mol⁻¹ into J m⁻³ = N m m⁻³ = N m⁻² = Pa. That is why water potential has pressure units and can be compared directly with turgor pressure or xylem tension.</li>
+            <li>Because the free-energy effects of solutes, pressure, height and surface binding are (to good approximation) independent, they add. Plant physiologists often combine \(\Psi_m\) into \(\Psi_p\) inside cells and ignore \(\Psi_g\) over short heights.</li>
+            <li>Height: \(\Psi_g = \rho_wgh = 1000\times9.81\times1 = 9810\) Pa ≈ 0.01 MPa per metre — negligible for a lettuce, but 0.1 MPa at the top of a 10 m tree.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Components are defined relative to pure water at the same temperature. Across a membrane that is not perfectly semipermeable, only a fraction (the reflection coefficient σ) of the osmotic potential difference drives flow. In the xylem, which has very few solutes, \(\Psi_w\approx\Psi_p\) (a negative tension).</p></details>
+        <div class="eq-units">(J mol⁻¹)/(m³ mol⁻¹) = J m⁻³ = Pa ✓; \(\rho_wgh\): kg m⁻³ · m s⁻² · m = kg m⁻¹ s⁻² = Pa ✓</div>
+        <div class="mini-calc" data-formula="s + p + 1000*9.81*h/1e6" data-output="Total water potential Ψ<sub>w</sub>" data-unit="MPa" data-digits="3" data-plot="p" data-title="Try it — add up the components">
+          <div data-var="s" data-label="Osmotic potential Ψ<sub>s</sub>" data-min="-2" data-max="0" data-step="0.01" data-value="-0.8" data-unit="MPa"></div>
+          <div data-var="p" data-label="Pressure potential Ψ<sub>p</sub>" data-min="-1.5" data-max="1.5" data-step="0.01" data-value="0.5" data-unit="MPa"></div>
+          <div data-var="h" data-label="Height above reference h" data-min="0" data-max="10" data-step="0.1" data-value="0.3" data-unit="m"></div>
+        </div>
+      </div>
+
+      <p>The osmotic component deserves a closer look, because it connects plant water relations to the chemistry of the nutrient solution. For dilute solutions it is given by a relation that Jacobus van 't Hoff derived by analogy with the ideal-gas law — he received the first Nobel Prize in Chemistry (1901) partly for it:</p>
+
+      <div class="eq-box" id="eq-wr-vanthoff">
+        <div class="eq-head"><span class="eq-label">Osmotic potential (van 't Hoff relation)</span><span class="eq-num">(2.2.2)</span></div>
+        <div class="eq-main">\[ \Psi_s = -\,c_s\,R\,T \]</div>
+        <p class="eq-read">the osmotic potential equals minus the total concentration of dissolved particles (osmolality) times the gas constant times the absolute temperature.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(c_s\)</td><td>osmolar concentration: moles of <em>particles</em> per unit volume (1 mol NaCl gives ≈ 2 osmol)</td><td>mol m⁻³ (= mmol L⁻¹)</td><td>cell sap 200–600</td></tr>
+          <tr><td>\(R\)</td><td>gas constant</td><td>J mol⁻¹ K⁻¹</td><td>8.314</td></tr>
+          <tr><td>\(T\)</td><td>absolute temperature</td><td>K</td><td>293 at 20 °C</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The chemical potential of water in a solution is \(\mu_w = \mu_w^\circ + RT\ln a_w\), where \(a_w\) is the activity (≈ mole fraction \(x_w\)) of water.</li>
+            <li>For a dilute solution \(x_w = 1-x_s\) and \(\ln(1-x_s)\approx -x_s\), so \(\mu_w-\mu_w^\circ\approx -RTx_s\).</li>
+            <li>Divide by \(\bar V_w\): \(\Psi_s = -RTx_s/\bar V_w\). In a dilute solution \(x_s/\bar V_w\) is the number of moles of solute particles per volume of water, i.e., the concentration \(c_s\). Hence \(\Psi_s = -c_sRT\).</li>
+            <li>Worked number: cell sap of 300 mmol L⁻¹ = 300 mol m⁻³ at 25 °C: \(\Psi_s = -300\times8.314\times298.15 = -7.44\times10^5\) Pa = −0.74 MPa.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ideal, dilute solution. Electrolytes dissociate (count all ions) and interact (activity coefficients below 1), so a measured osmolality is more reliable than a calculation from the recipe. The relation is excellent for nutrient solutions and adequate for cell sap.</p></details>
+        <div class="eq-units">mol m⁻³ · J mol⁻¹ K⁻¹ · K = J m⁻³ = Pa ✓ (divide by 10⁶ for MPa)</div>
+        <div class="mini-calc" data-formula="-c*8.314*(T+273.15)/1e6" data-output="Osmotic potential Ψ<sub>s</sub>" data-unit="MPa" data-digits="3" data-plot="c">
+          <div data-var="c" data-label="Osmolar concentration c<sub>s</sub>" data-min="0" data-max="800" data-step="1" data-value="300" data-unit="mmol L⁻¹"></div>
+          <div data-var="T" data-label="Temperature" data-min="0" data-max="40" data-step="0.5" data-value="25" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 280" role="img" aria-label="A turgid plant cell and bar diagrams of osmotic potential, pressure potential and total water potential in three situations">
+            <defs><marker id="wp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-amber"/></marker></defs>
+            <!-- cell -->
+            <rect x="30" y="40" width="210" height="190" rx="18" class="fill-accent-soft" stroke="currentColor" stroke-width="6"/>
+            <ellipse cx="135" cy="135" rx="78" ry="64" class="fill-water-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="135" y="130" text-anchor="middle" class="t-small">vacuole</text>
+            <text x="135" y="146" text-anchor="middle" class="t-small">solutes → Ψₛ &lt; 0</text>
+            <line x1="200" y1="100" x2="228" y2="80" class="stroke-amber" stroke-width="2" marker-end="url(#wp-a)"/>
+            <line x1="70" y1="100" x2="42" y2="80" class="stroke-amber" stroke-width="2" marker-end="url(#wp-a)"/>
+            <line x1="135" y1="199" x2="135" y2="224" class="stroke-amber" stroke-width="2" marker-end="url(#wp-a)"/>
+            <text x="30" y="26" class="t-small">cell wall resists expansion → turgor Ψₚ &gt; 0</text>
+            <text x="30" y="254" class="t-small t-muted">water enters until Ψ(cell) = Ψ(outside)</text>
+            <!-- bars -->
+            <line x1="290" y1="140" x2="690" y2="140" stroke="currentColor" stroke-width="1.2"/>
+            <text x="286" y="144" text-anchor="end" class="t-small t-mono">0</text>
+            <text x="286" y="64" text-anchor="end" class="t-small t-mono">+0.8</text>
+            <text x="286" y="224" text-anchor="end" class="t-small t-mono">−0.8</text>
+            <line x1="290" y1="60" x2="690" y2="60" class="stroke-muted" stroke-dasharray="2 4"/>
+            <line x1="290" y1="220" x2="690" y2="220" class="stroke-muted" stroke-dasharray="2 4"/>
+            <text x="264" y="140" class="t-small" transform="rotate(-90 264 140)" text-anchor="middle">MPa</text>
+            <!-- case a: pure water -->
+            <rect x="310" y="140" width="28" height="80" class="fill-water"/>
+            <rect x="342" y="60" width="28" height="80" class="fill-amber"/>
+            <path d="M378 134 l6 6 l-6 6 l-6 -6 z" fill="currentColor"/>
+            <text x="345" y="250" text-anchor="middle" class="t-small">in pure water</text>
+            <text x="345" y="266" text-anchor="middle" class="t-small t-muted">Ψ = 0</text>
+            <!-- case b: nutrient solution -->
+            <rect x="440" y="140" width="28" height="80" class="fill-water"/>
+            <rect x="472" y="67" width="28" height="73" class="fill-amber"/>
+            <path d="M508 141 l6 6 l-6 6 l-6 -6 z" fill="currentColor"/>
+            <text x="475" y="250" text-anchor="middle" class="t-small">in nutrient solution</text>
+            <text x="475" y="266" text-anchor="middle" class="t-small t-muted">Ψ = −0.07</text>
+            <!-- case c: flaccid -->
+            <rect x="570" y="140" width="28" height="80" class="fill-water"/>
+            <rect x="602" y="139" width="28" height="2" class="fill-amber"/>
+            <path d="M638 214 l6 6 l-6 6 l-6 -6 z" fill="currentColor"/>
+            <text x="605" y="250" text-anchor="middle" class="t-small">flaccid (wilting)</text>
+            <text x="605" y="266" text-anchor="middle" class="t-small t-muted">Ψ = −0.8</text>
+            <!-- legend -->
+            <rect x="300" y="14" width="12" height="12" class="fill-water"/><text x="318" y="25" class="t-small">Ψₛ</text>
+            <rect x="360" y="14" width="12" height="12" class="fill-amber"/><text x="378" y="25" class="t-small">Ψₚ</text>
+            <path d="M428 14 l6 6 l-6 6 l-6 -6 z" fill="currentColor"/><text x="440" y="25" class="t-small">Ψ = Ψₛ + Ψₚ</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Left: a turgid cell. Solutes lower the water potential inside the vacuole, water enters by osmosis, and the stiff cell wall pushes back, building turgor pressure. Right: illustrative components for a cell whose sap has Ψₛ = −0.8 MPa, at equilibrium with pure water (Ψ = 0), with a typical hydroponic nutrient solution (Ψ ≈ −0.07 MPa) and after losing turgor (Ψₚ = 0).</figcaption>
+      </figure>
+
+      <p>Water crosses membranes mostly through <strong>aquaporins</strong>, water-channel proteins whose opening is regulated by phosphorylation, pH and calcium; they allow plants to change the hydraulic conductance of roots and leaves within minutes (Chaumont &amp; Tyerman, 2014). The volume flux across a membrane is proportional to the water-potential difference, \(J_v = L_p\,\Delta\Psi\), where \(L_p\) is the hydraulic conductivity — a first appearance of the Ohm's-law thinking that we develop next.</p>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">Nutrient solution, cell sap and salt stress</span></div>
+        <div class="we-problem"><p>A hydroponic lettuce solution contains about 28 mmol L⁻¹ of dissolved ions (all ions counted). Root cortex cells have an osmolality of 300 mmol L⁻¹. The temperature is 20 °C. (a) Calculate Ψₛ of the solution and of the cells. (b) If the cells reach equilibrium with the solution, what is their turgor? (c) A grower accidentally adds 50 mmol L⁻¹ NaCl. What happens to the driving force for water uptake?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>RT at 20 °C</strong> = 8.314 × 293.15 = 2437 J mol⁻¹.</li>
+              <li><strong>Solution:</strong> \(\Psi_s = -28\ \text{mol m}^{-3}\times2437 = -6.8\times10^4\) Pa = <strong>−0.068 MPa</strong>.</li>
+              <li><strong>Cells:</strong> \(\Psi_s = -300\times2437 = -0.731\) MPa.</li>
+              <li><strong>Equilibrium turgor:</strong> at equilibrium Ψ(cell) = Ψ(solution) = −0.068 MPa, so \(\Psi_p = \Psi - \Psi_s = -0.068-(-0.731) = +0.66\) MPa — about three times the pressure in a car tyre.</li>
+              <li><strong>Salt addition:</strong> NaCl dissociates into Na⁺ and Cl⁻, adding ≈ 100 mmol L⁻¹ of particles. New Ψₛ of the solution = −(128 × 2437) = −0.31 MPa. The root must now lower its own water potential by an extra 0.24 MPa to keep taking up water at the same rate: the plant experiences "physiological drought" although it stands in water.</li>
+            </ol>
+            <span class="answer">Solution −0.07 MPa; cells −0.73 MPa; equilibrium turgor ≈ +0.66 MPa; salt lowers the root-zone potential to ≈ −0.31 MPa</span>
+            <p style="margin-top:10px">This is why electrical conductivity (EC), a proxy for total ion concentration, is managed so carefully in hydroponics (<a href="/lessons/nutrient-solution-chemistry/">Lesson 5.2</a>), and why sodium accumulation in recirculating systems is a concern (<a href="/lessons/mineral-nutrition/">Lesson 2.3</a>).</p>
+          </div>
+        </details>
+      </div>
+
+      <!-- ============================================================ 3 -->
+      <h2 id="spac">The soil–plant–atmosphere continuum</h2>
+      <p>How does water reach the top of a tomato plant three metres tall, or a 100 m redwood? Not by being pushed from below, and not by capillarity alone. According to the <strong>cohesion–tension theory</strong> proposed by Dixon and Joly (1895), evaporation from the cell walls inside the leaf pulls water up through the xylem as a continuous column held together by the strong cohesion of water molecules (hydrogen bonds). The xylem sap is therefore under <em>tension</em> (negative pressure), typically a few tenths of a megapascal in well-watered crops and several megapascals in drought-stressed trees (Tyree &amp; Zimmermann, 2002). The whole pathway — nutrient solution or soil, root, stem, leaf and air — is called the <strong>soil–plant–atmosphere continuum</strong> (SPAC).</p>
+
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="The soil-plant-atmosphere continuum drawn as a series of resistances with typical water potentials">
+            <defs><marker id="sp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-water"/></marker></defs>
+            <text x="360" y="22" text-anchor="middle" class="t-small t-muted">water flows from high (less negative) to low (more negative) water potential</text>
+            <!-- nodes -->
+            <rect x="14" y="96" width="104" height="64" rx="10" class="fill-water-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="66" y="120" text-anchor="middle" class="t-small" style="font-weight:700">root zone</text>
+            <text x="66" y="138" text-anchor="middle" class="t-small">nutrient solution</text>
+            <text x="66" y="154" text-anchor="middle" class="t-small t-mono">−0.07 MPa</text>
+            <rect x="170" y="96" width="92" height="64" rx="10" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="216" y="120" text-anchor="middle" class="t-small" style="font-weight:700">root xylem</text>
+            <text x="216" y="154" text-anchor="middle" class="t-small t-mono">−0.2 MPa</text>
+            <rect x="314" y="96" width="92" height="64" rx="10" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="360" y="120" text-anchor="middle" class="t-small" style="font-weight:700">stem xylem</text>
+            <text x="360" y="154" text-anchor="middle" class="t-small t-mono">−0.3 MPa</text>
+            <rect x="458" y="96" width="92" height="64" rx="10" class="fill-accent" />
+            <text x="504" y="120" text-anchor="middle" class="t-small" style="fill:var(--accent-ink);font-weight:700">leaf cells</text>
+            <text x="504" y="154" text-anchor="middle" class="t-small t-mono" style="fill:var(--accent-ink)">−0.5 MPa</text>
+            <rect x="610" y="96" width="98" height="64" rx="10" class="fill-bg" stroke="currentColor" stroke-width="1" stroke-dasharray="4 3"/>
+            <text x="659" y="120" text-anchor="middle" class="t-small" style="font-weight:700">bulk air</text>
+            <text x="659" y="138" text-anchor="middle" class="t-small">20 °C, 60 % RH</text>
+            <text x="659" y="154" text-anchor="middle" class="t-small t-mono">−69 MPa</text>
+            <!-- resistors -->
+            <path d="M118 128 h8 l4 -8 l8 16 l8 -16 l8 16 l8 -16 l4 8 h12" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="144" y="90" text-anchor="middle" class="t-small">R<tspan baseline-shift="sub" font-size="9">root</tspan></text>
+            <path d="M262 128 h8 l4 -8 l8 16 l8 -16 l8 16 l8 -16 l4 8 h12" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="288" y="90" text-anchor="middle" class="t-small">R<tspan baseline-shift="sub" font-size="9">stem</tspan></text>
+            <path d="M406 128 h8 l4 -8 l8 16 l8 -16 l8 16 l8 -16 l4 8 h12" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="432" y="90" text-anchor="middle" class="t-small">R<tspan baseline-shift="sub" font-size="9">leaf</tspan></text>
+            <path d="M550 128 h10 l4 -8 l8 16 l8 -16 l8 16 l8 -16 l4 8 h10" fill="none" class="stroke-magenta" stroke-width="2"/>
+            <line x1="562" y1="146" x2="600" y2="108" class="stroke-magenta" stroke-width="1.6" marker-end="url(#sp-a)"/>
+            <text x="580" y="86" text-anchor="middle" class="t-small" style="fill:var(--magenta)">stomata +</text>
+            <text x="580" y="74" text-anchor="middle" class="t-small" style="fill:var(--magenta)">boundary layer</text>
+            <!-- flow arrow -->
+            <line x1="40" y1="200" x2="690" y2="200" class="stroke-water" stroke-width="3" marker-end="url(#sp-a)"/>
+            <text x="200" y="222" class="t-small" style="fill:var(--water)">liquid water under tension (xylem)</text>
+            <text x="600" y="222" text-anchor="middle" class="t-small" style="fill:var(--water)">water vapour</text>
+            <line x1="556" y1="190" x2="556" y2="232" class="stroke-muted" stroke-dasharray="3 3"/>
+            <text x="360" y="262" text-anchor="middle" class="t-small">ΔΨ root zone → leaf ≈ 0.4 MPa</text>
+            <text x="360" y="280" text-anchor="middle" class="t-small" style="fill:var(--magenta)">ΔΨ leaf → air ≈ 68 MPa: the stomata are the valve of the whole system</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> The soil–plant–atmosphere continuum as resistances in series (after van den Honert, 1948). Values are illustrative for a well-watered crop in hydroponics; the air value follows from Eq. 2.2.3. The variable resistance of the stomata (magenta) sits where the water-potential drop is by far the largest.</figcaption>
+      </figure>
+
+      <p>Why is the air value so extreme? Water vapour in air is in equilibrium with liquid water of a certain water potential, given by a relation that follows directly from the chemical potential of an ideal gas:</p>
+
+      <div class="eq-box" id="eq-wr-air">
+        <div class="eq-head"><span class="eq-label">Water potential of air (Kelvin relation)</span><span class="eq-num">(2.2.3)</span></div>
+        <div class="eq-main">\[ \Psi_{\text{air}} = \frac{R\,T}{\bar V_w}\,\ln\!\left(\frac{\text{RH}}{100}\right) = \frac{R\,T}{\bar V_w}\,\ln\!\left(\frac{e}{e_s}\right) \]</div>
+        <p class="eq-read">the water potential of moist air equals the gas constant times absolute temperature divided by the molar volume of water, times the natural logarithm of the relative humidity expressed as a fraction (the ratio of actual to saturation vapour pressure).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\Psi_{\text{air}}\)</td><td>water potential of the water vapour in air</td><td>Pa (MPa)</td></tr>
+          <tr><td>RH</td><td>relative humidity</td><td>%</td></tr>
+          <tr><td>\(e, e_s\)</td><td>actual and saturation vapour pressure</td><td>kPa</td></tr>
+          <tr><td>\(RT/\bar V_w\)</td><td>135 MPa at 20 °C</td><td>Pa</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>For an ideal gas, the chemical potential of water vapour at partial pressure \(e\) is \(\mu = \mu_{\text{sat}} + RT\ln(e/e_s)\), where \(\mu_{\text{sat}}\) is its value at saturation — which equals the chemical potential of pure liquid water at the same temperature (vapour and liquid in equilibrium).</li>
+            <li>Hence \(\mu - \mu_w^\circ = RT\ln(e/e_s)\). Divide by \(\bar V_w\) (Eq. 2.2.1) to get \(\Psi_{\text{air}}\).</li>
+            <li>At 20 °C: \(RT/\bar V_w = 8.314\times293.15/18.05\times10^{-6} = 1.35\times10^8\) Pa = 135 MPa.</li>
+            <li>At RH = 60 %: \(\Psi = 135\times\ln0.60 = -69\) MPa. Even at 98 % RH, Ψ = −2.7 MPa — lower than the leaf. Only in nearly saturated air does the gradient vanish.</li>
+          </ol>
+        </details>
+        <details><summary>Why is the leaf's own internal air nearly saturated?</summary><p>Inside the leaf, the air spaces are in contact with wet cell walls at Ψ ≈ −0.5 MPa. Inverting Eq. 2.2.3, the equilibrium relative humidity is \(\exp(-0.5/135) = 0.9963\): 99.6 %. For practical calculations we therefore assume that the vapour pressure inside the leaf equals the saturation vapour pressure at leaf temperature, \(e_s(T_{\text{leaf}})\) — the basis of Eq. 2.2.6.</p></details>
+        <div class="eq-units">(J mol⁻¹ K⁻¹ · K)/(m³ mol⁻¹) = J m⁻³ = Pa; ln(RH) is dimensionless ✓</div>
+        <div class="mini-calc" data-formula="8.314*(T+273.15)/18.05e-6*log(RH/100)/1e6" data-output="Ψ of the air" data-unit="MPa" data-digits="1" data-plot="RH">
+          <div data-var="RH" data-label="Relative humidity" data-min="20" data-max="99.9" data-step="0.1" data-value="60" data-unit="%"></div>
+          <div data-var="T" data-label="Air temperature" data-min="0" data-max="40" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <p>Within the plant, van den Honert (1948) recognised that the steady flow of water resembles an electric current through resistors in series: the same flux passes every segment, and each segment consumes a share of the total potential difference in proportion to its resistance.</p>
+
+      <div class="eq-box" id="eq-wr-ohm">
+        <div class="eq-head"><span class="eq-label">Ohm's-law analogy for the SPAC</span><span class="eq-num">(2.2.4)</span></div>
+        <div class="eq-main">\[ E = \frac{\Psi_{\text{rz}}-\Psi_{\text{leaf}}}{R_{\text{root}}+R_{\text{stem}}+R_{\text{leaf}}} = K_{\text{plant}}\,(\Psi_{\text{rz}}-\Psi_{\text{leaf}}) \quad\Rightarrow\quad \Psi_{\text{leaf}} = \Psi_{\text{rz}} - \frac{E}{K_{\text{plant}}} \]</div>
+        <p class="eq-read">the transpiration flux equals the drop in water potential from the root zone to the leaf divided by the sum of the hydraulic resistances in series, or equivalently times the whole-plant hydraulic conductance. Rearranged: leaf water potential is the root-zone potential minus the flux divided by the conductance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(E\)</td><td>transpiration (water flux) per unit leaf area</td><td>mmol m⁻² s⁻¹</td></tr>
+          <tr><td>\(\Psi_{\text{rz}}\)</td><td>water potential of the root zone (for hydroponics ≈ Ψₛ of the solution)</td><td>MPa</td></tr>
+          <tr><td>\(R_i\)</td><td>hydraulic resistance of segment \(i\)</td><td>MPa s m² mmol⁻¹</td></tr>
+          <tr><td>\(K_{\text{plant}} = 1/\sum R_i\)</td><td>whole-plant hydraulic conductance (leaf-area based)</td><td>mmol m⁻² s⁻¹ MPa⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>In steady state no water accumulates in any segment, so the same flux \(E\) passes through root, stem and leaf (like current through resistors in series).</li>
+            <li>For each segment, flux = conductance × potential drop: \(E = (\Psi_{i}-\Psi_{i+1})/R_i\).</li>
+            <li>Adding the drops: \(\Psi_{\text{rz}}-\Psi_{\text{leaf}} = E(R_{\text{root}}+R_{\text{stem}}+R_{\text{leaf}})\).</li>
+            <li>The larger the transpiration, the more negative the leaf water potential must become — which is why leaves lose turgor at midday under high VPD even in a well-watered hydroponic system when root conductance is low (for instance in cold or poorly oxygenated nutrient solution; see <a href="/lessons/root-zone/">Lesson 5.3</a>).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Steady state; resistances independent of flux (in reality root conductance changes with aquaporin activity and xylem conductance falls when cavitation embolises vessels). Capacitance (water stored in tissues) buffers fast changes and is neglected. The vapour phase from leaf to air is <em>not</em> treated with this equation, because its driving force is a vapour-pressure difference, not a water-potential difference (Eq. 2.2.5).</p></details>
+        <div class="eq-units">(mmol m⁻² s⁻¹ MPa⁻¹) · MPa = mmol m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="psi - Et/K" data-output="Leaf water potential Ψ<sub>leaf</sub>" data-unit="MPa" data-digits="2" data-plot="Et">
+          <div data-var="Et" data-label="Transpiration E" data-min="0" data-max="8" data-step="0.1" data-value="3" data-unit="mmol m⁻² s⁻¹"></div>
+          <div data-var="K" data-label="Plant conductance K<sub>plant</sub>" data-min="1" data-max="30" data-step="0.5" data-value="7" data-unit="mmol m⁻² s⁻¹ MPa⁻¹"></div>
+          <div data-var="psi" data-label="Root-zone Ψ<sub>rz</sub>" data-min="-1" data-max="0" data-step="0.01" data-value="-0.07" data-unit="MPa"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="spac-fig">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the water-potential staircase</div>
+          <div class="wr-2col" style="display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:18px;align-items:start">
+            <div id="spac-plot"></div>
+            <div id="spac-ctl"></div>
+          </div>
+          <div class="readouts" id="spac-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> Water potential along the pathway from the root zone to the leaf (Eq. 2.2.4) for a chosen transpiration rate and segment conductances. Conductances are illustrative, per unit leaf area. The water potential of the air (Eq. 2.2.3) is shown as a readout because it is two orders of magnitude lower. Try lowering the root conductance, as happens in cold or oxygen-poor nutrient solutions, or adding salt to the root zone.</figcaption>
+      </figure>
+
+      <p>Where does the resistance sit? In the root, water must cross the <strong>endodermis</strong>, whose radial walls carry a band of hydrophobic suberin and lignin, the <strong>Casparian strip</strong> (Figure 4). Water and ions that travelled through the porous cell walls (the <em>apoplastic</em> path) are forced here to cross a plasma membrane, which gives the plant control over what enters its xylem. Water also moves from cell to cell through plasmodesmata (<em>symplastic</em> path) or across membranes through aquaporins (<em>transcellular</em> path). Steudle (2000) combined these routes in a composite transport model that explains why root hydraulic conductance varies so much with conditions.</p>
+
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="Radial pathways of water through a root: apoplastic, symplastic and transcellular, with the Casparian strip in the endodermis">
+            <defs>
+              <marker id="rt-am" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-amber"/></marker>
+              <marker id="rt-ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-accent"/></marker>
+              <marker id="rt-wa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-water"/></marker>
+            </defs>
+            <text x="20" y="30" class="t-small t-muted">root surface</text>
+            <text x="690" y="30" text-anchor="end" class="t-small t-muted">root centre</text>
+            <!-- cells -->
+            <g stroke="currentColor" stroke-width="3" class="fill-accent-soft">
+              <rect x="40" y="80" width="84" height="130" rx="8"/>
+              <rect x="130" y="80" width="84" height="130" rx="8"/>
+              <rect x="220" y="80" width="84" height="130" rx="8"/>
+              <rect x="310" y="80" width="84" height="130" rx="8"/>
+              <rect x="400" y="80" width="84" height="130" rx="8"/>
+              <rect x="490" y="80" width="84" height="130" rx="8"/>
+            </g>
+            <rect x="584" y="70" width="110" height="150" rx="10" class="fill-water-soft" stroke="currentColor" stroke-width="3"/>
+            <!-- Casparian strip -->
+            <rect x="424" y="76" width="36" height="10" style="fill:var(--ink)"/>
+            <rect x="424" y="204" width="36" height="10" style="fill:var(--ink)"/>
+            <text x="442" y="60" text-anchor="middle" class="t-small" style="font-weight:700">Casparian strip</text>
+            <!-- labels -->
+            <text x="82" y="238" text-anchor="middle" class="t-small">epidermis</text>
+            <text x="82" y="252" text-anchor="middle" class="t-small t-muted">(root hair)</text>
+            <text x="262" y="238" text-anchor="middle" class="t-small">cortex</text>
+            <text x="442" y="238" text-anchor="middle" class="t-small">endodermis</text>
+            <text x="532" y="238" text-anchor="middle" class="t-small">pericycle</text>
+            <text x="639" y="238" text-anchor="middle" class="t-small">xylem vessel</text>
+            <path d="M40 150 q-18 0 -30 12" fill="none" stroke="currentColor" stroke-width="3"/>
+            <!-- apoplastic path (walls) -->
+            <path d="M14 76 L 420 76" fill="none" class="stroke-amber" stroke-width="2.2" stroke-dasharray="6 4"/>
+            <path d="M420 76 C 432 92, 452 92, 462 104" fill="none" class="stroke-amber" stroke-width="2.2" marker-end="url(#rt-am)"/>
+            <path d="M470 104 L 490 76 L 580 76" fill="none" class="stroke-amber" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#rt-am)"/>
+            <text x="200" y="66" class="t-small" style="fill:var(--amber)">apoplastic: through cell walls — blocked by the Casparian strip, must cross a membrane</text>
+            <!-- symplastic path -->
+            <path d="M14 140 L 580 140" fill="none" class="stroke-accent" stroke-width="2.4" marker-end="url(#rt-ac)"/>
+            <g class="stroke-accent" stroke-width="2"><line x1="127" y1="134" x2="127" y2="146"/><line x1="217" y1="134" x2="217" y2="146"/><line x1="307" y1="134" x2="307" y2="146"/><line x1="397" y1="134" x2="397" y2="146"/><line x1="487" y1="134" x2="487" y2="146"/></g>
+            <text x="150" y="130" class="t-small" style="fill:var(--accent)">symplastic: cytoplasm to cytoplasm via plasmodesmata</text>
+            <!-- transcellular path -->
+            <path d="M14 185 L 44 185 L 120 172 L 134 185 L 210 172 L 224 185 L 300 172 L 314 185 L 390 172 L 404 185 L 480 172 L 494 185 L 580 180" fill="none" class="stroke-water" stroke-width="2.2" marker-end="url(#rt-wa)"/>
+            <text x="150" y="200" class="t-small" style="fill:var(--water)">transcellular: across membranes through aquaporins</text>
+            <text x="360" y="284" text-anchor="middle" class="t-small t-muted">all three routes converge at the endodermis, where membranes (and their transporters and aquaporins) control entry into the xylem</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 4.</b> Radial transport of water (and dissolved ions) across a root, drawn as a strip of cells from the root surface to a xylem vessel. The Casparian strip in the walls of the endodermis blocks the apoplastic path, so everything that reaches the xylem has crossed at least one membrane. Mineral uptake along these routes is treated in <a href="/lessons/mineral-nutrition/">Lesson 2.3</a>.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Where is the bottleneck in a hydroponic lettuce?</span></div>
+        <div class="we-problem"><p>A lettuce plant in deep-water culture transpires 3.0 mmol m⁻² s⁻¹ (per leaf area) at midday. The nutrient solution has Ψ = −0.07 MPa. Illustrative conductances are K<sub>root</sub> = 15, K<sub>stem</sub> = 40 and K<sub>leaf</sub> = 20 mmol m⁻² s⁻¹ MPa⁻¹. (a) Calculate the water potential after each segment. (b) Which segment is the largest resistance? (c) The solution cools to 10 °C and root conductance halves. What is the new leaf water potential? (d) Compare the leaf-to-air drop with the root-to-leaf drop if the air is at 22 °C and 70 % RH.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Root:</strong> drop = 3.0/15 = 0.200 MPa → Ψ<sub>root xylem</sub> = −0.07 − 0.20 = −0.27 MPa.</li>
+              <li><strong>Stem:</strong> drop = 3.0/40 = 0.075 MPa → −0.345 MPa.</li>
+              <li><strong>Leaf:</strong> drop = 3.0/20 = 0.150 MPa → Ψ<sub>leaf</sub> = <strong>−0.495 MPa</strong>. The root is the largest resistance (47 % of the 0.425 MPa drop).</li>
+              <li><strong>Cold solution:</strong> K<sub>root</sub> = 7.5 → root drop 0.40 MPa → Ψ<sub>leaf</sub> = −0.07 − 0.40 − 0.075 − 0.15 = <strong>−0.695 MPa</strong>: the leaf must develop 0.2 MPa more tension for the same transpiration, which may cost turgor and growth, or force the stomata to close.</li>
+              <li><strong>Air:</strong> RT/\(\bar V_w\) at 22 °C = 8.314 × 295.15/18.05 × 10⁻⁶ = 135.9 MPa; Ψ<sub>air</sub> = 135.9 × ln 0.70 = −48.5 MPa. The leaf-to-air drop (≈ 48 MPa) is more than 100 times the root-to-leaf drop.</li>
+            </ol>
+            <span class="answer">Ψ<sub>leaf</sub> ≈ −0.50 MPa (root is the bottleneck); ≈ −0.70 MPa with a cold root zone; leaf-to-air drop ≈ 48 MPa</span>
+          </div>
+        </details>
+      </div>
+
+      <h3>Root pressure and guttation</h3>
+      <p>At night, when stomata are nearly closed and transpiration stops, roots keep loading ions into the xylem. The xylem sap then has a lower osmotic potential than the root zone, water follows osmotically, and a positive <strong>root pressure</strong> of up to a few tenths of a megapascal develops. If the air is humid, water is pushed out through <strong>hydathodes</strong> at the leaf margins as droplets — <strong>guttation</strong> (Figure 5). Guttation is harmless in itself, but the droplets contain salts and sugars and are a pathway for pathogens (Singh, 2014), and in greenhouses it is a visible sign that night-time humidity is high and transpiration very low. As you will see in Section 2.2.8, root pressure is also thought to help deliver calcium to leaves that barely transpire.</p>
+      <div class="fig-row">
+        <figure class="figure">
+          <div class="fig-body"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Epipremnum_guttation.jpg?width=1200" alt="Water droplets exuded at the tip of an Epipremnum leaf by guttation."></div>
+          <figcaption><b>Figure 5.</b> Guttation droplets at the tip of an <em>Epipremnum</em> leaf, pushed out through hydathodes by root pressure. <span class="credit">Image: Adrian Tync — Wikimedia Commons, CC BY-SA 4.0.</span></figcaption>
+        </figure>
+      </div>
+
+      <!-- ============================================================ 4 -->
+      <h2 id="stomata">Stomata: adjustable valves</h2>
+      <p>Leaves are wrapped in a waxy <strong>cuticle</strong> that is almost impermeable to water and CO₂. Gas exchange happens through <strong>stomata</strong>, microscopic pores each bordered by two <strong>guard cells</strong> (Figure 6). Stomata typically cover only about 1 % of the leaf surface when open, yet they can carry most of the leaf's gas exchange because diffusion through many small pores is remarkably efficient. Guard cells open the pore by accumulating K⁺ and anions (Cl⁻, malate), driven by a plasma-membrane H⁺-ATPase: their water potential falls, water flows in, turgor rises, and the radially reinforced walls bow apart. Losing the solutes reverses the process.</p>
+      <div class="fig-row">
+        <figure class="figure">
+          <div class="fig-body"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Tomato_leaf_stomate_1-color.jpg?width=1200" alt="Colourised scanning electron micrograph of a stoma on a tomato leaf, showing two guard cells around the pore."></div>
+          <figcaption><b>Figure 6.</b> A stoma on a tomato leaf (colourised electron micrograph): two kidney-shaped guard cells around the pore through which CO₂ enters and water vapour leaves. <span class="credit">Image: Photohound — Wikimedia Commons, public domain.</span></figcaption>
+        </figure>
+      </div>
+      <p>Guard cells integrate many signals. <strong>Light</strong> opens stomata, both through a specific blue-light response (phototropins) and through signals linked to photosynthesis; <strong>high CO₂</strong> inside the leaf closes them partly; <strong>abscisic acid</strong> (ABA), a hormone produced under water deficit, closes them; and <strong>high VPD</strong> makes them close, partly because it lowers leaf water status (Buckley, 2019; Grossiord et al., 2020). Stomata respond in minutes, not seconds, so under fluctuating light they lag behind photosynthesis, which costs both carbon and water — an active research area (Lawson &amp; Vialet-Chabrand, 2019).</p>
+      <p>Engineers quantify the openness of stomata as a <strong>conductance</strong>, the flux per unit driving force. Two unit systems are in use: conductance in <strong>m s⁻¹</strong> (a velocity; the flux is density × conductance × concentration difference) and molar conductance in <strong>mol m⁻² s⁻¹</strong> (flux in mol m⁻² s⁻¹ per unit difference in mole fraction). They are related by \(g_{\text{mol}} = g_{\text{m/s}}\,P/(RT)\): at 20 °C and sea level, 1 mm s⁻¹ ≈ 0.041 mol m⁻² s⁻¹. The molar form is preferred because it hardly depends on temperature and pressure. Well-watered crop leaves in good light have stomatal conductances of the order of a few tenths of a mol m⁻² s⁻¹; closed stomata and the cuticle together allow only a few per cent of that (Jones, 2014).</p>
+
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 330" role="img" aria-label="Cross-section of a leaf with the pathway of water vapour from mesophyll cell walls through the substomatal cavity and stoma to the boundary layer and the bulk air, with the equivalent conductance network">
+            <defs><marker id="lf-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-water"/></marker></defs>
+            <!-- upper epidermis -->
+            <rect x="20" y="30" width="440" height="8" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/>
+            <text x="470" y="37" class="t-small t-muted">cuticle</text>
+            <g class="fill-bg" stroke="currentColor" stroke-width="1">
+              <rect x="20" y="38" width="55" height="22"/><rect x="75" y="38" width="55" height="22"/><rect x="130" y="38" width="55" height="22"/><rect x="185" y="38" width="55" height="22"/><rect x="240" y="38" width="55" height="22"/><rect x="295" y="38" width="55" height="22"/><rect x="350" y="38" width="55" height="22"/><rect x="405" y="38" width="55" height="22"/>
+            </g>
+            <text x="470" y="54" class="t-small">upper epidermis</text>
+            <!-- palisade -->
+            <g class="fill-accent" opacity="0.85">
+              <rect x="24" y="64" width="30" height="72" rx="10"/><rect x="58" y="64" width="30" height="72" rx="10"/><rect x="92" y="64" width="30" height="72" rx="10"/><rect x="126" y="64" width="30" height="72" rx="10"/><rect x="160" y="64" width="30" height="72" rx="10"/><rect x="194" y="64" width="30" height="72" rx="10"/><rect x="228" y="64" width="30" height="72" rx="10"/><rect x="262" y="64" width="30" height="72" rx="10"/><rect x="296" y="64" width="30" height="72" rx="10"/><rect x="330" y="64" width="30" height="72" rx="10"/><rect x="364" y="64" width="30" height="72" rx="10"/><rect x="398" y="64" width="30" height="72" rx="10"/><rect x="430" y="64" width="28" height="72" rx="10"/>
+            </g>
+            <text x="470" y="104" class="t-small">palisade mesophyll</text>
+            <!-- spongy -->
+            <g class="fill-accent-soft" stroke="currentColor" stroke-width="1">
+              <ellipse cx="44" cy="160" rx="22" ry="15"/><ellipse cx="100" cy="170" rx="24" ry="14"/><ellipse cx="60" cy="200" rx="20" ry="13"/><ellipse cx="150" cy="158" rx="20" ry="14"/><ellipse cx="196" cy="182" rx="22" ry="15"/><ellipse cx="130" cy="206" rx="22" ry="12"/>
+              <ellipse cx="300" cy="160" rx="22" ry="15"/><ellipse cx="350" cy="182" rx="22" ry="14"/><ellipse cx="404" cy="162" rx="22" ry="15"/><ellipse cx="430" cy="204" rx="22" ry="13"/><ellipse cx="370" cy="214" rx="18" ry="10"/><ellipse cx="248" cy="150" rx="18" ry="11"/>
+            </g>
+            <text x="470" y="176" class="t-small">spongy mesophyll + air spaces</text>
+            <!-- lower epidermis with stoma -->
+            <g class="fill-bg" stroke="currentColor" stroke-width="1">
+              <rect x="20" y="226" width="55" height="20"/><rect x="75" y="226" width="55" height="20"/><rect x="130" y="226" width="55" height="20"/><rect x="185" y="226" width="40" height="20"/><rect x="275" y="226" width="40" height="20"/><rect x="315" y="226" width="55" height="20"/><rect x="370" y="226" width="55" height="20"/><rect x="425" y="226" width="35" height="20"/>
+            </g>
+            <ellipse cx="236" cy="236" rx="11" ry="12" class="fill-accent" stroke="currentColor" stroke-width="1"/>
+            <ellipse cx="264" cy="236" rx="11" ry="12" class="fill-accent" stroke="currentColor" stroke-width="1"/>
+            <text x="470" y="240" class="t-small">lower epidermis, stoma (guard cells)</text>
+            <text x="250" y="212" text-anchor="middle" class="t-small t-muted">substomatal cavity</text>
+            <!-- boundary layer -->
+            <rect x="20" y="248" width="440" height="36" class="fill-water-soft" opacity="0.7"/>
+            <text x="30" y="270" class="t-small" style="fill:var(--water)">boundary layer (still air)</text>
+            <text x="30" y="306" class="t-small t-muted">bulk air: vapour pressure eₐ, temperature Tₐ</text>
+            <!-- vapour path -->
+            <path d="M 196 190 C 220 200, 244 204, 250 222 L 250 300" fill="none" class="stroke-water" stroke-width="2.6" marker-end="url(#lf-a)"/>
+            <path d="M 300 176 C 280 196, 256 204, 252 222" fill="none" class="stroke-water" stroke-width="2" />
+            <!-- network -->
+            <g transform="translate(560,40)">
+              <text x="60" y="0" text-anchor="middle" class="t-small" style="font-weight:700">equivalent circuit</text>
+              <rect x="10" y="16" width="100" height="30" rx="7" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+              <text x="60" y="36" text-anchor="middle" class="t-small">eₛ(T<tspan baseline-shift="sub" font-size="9">leaf</tspan>)</text>
+              <path d="M60 46 v10 l-8 4 l16 8 l-16 8 l16 8 l-16 8 l8 4 v10" fill="none" stroke="currentColor" stroke-width="1.6"/>
+              <text x="80" y="86" class="t-small" style="fill:var(--magenta)">1/g<tspan baseline-shift="sub" font-size="9">s</tspan></text>
+              <line x1="44" y1="98" x2="78" y2="64" class="stroke-magenta" stroke-width="1.4"/>
+              <circle cx="60" cy="112" r="3" fill="currentColor"/>
+              <text x="70" y="116" class="t-small t-muted">leaf surface</text>
+              <path d="M60 116 v10 l-8 4 l16 8 l-16 8 l16 8 l-16 8 l8 4 v10" fill="none" stroke="currentColor" stroke-width="1.6"/>
+              <text x="80" y="156" class="t-small" style="fill:var(--water)">1/g<tspan baseline-shift="sub" font-size="9">b</tspan></text>
+              <rect x="10" y="186" width="100" height="30" rx="7" class="fill-bg" stroke="currentColor" stroke-width="1" stroke-dasharray="4 3"/>
+              <text x="60" y="206" text-anchor="middle" class="t-small">eₐ (air)</text>
+              <text x="60" y="240" text-anchor="middle" class="t-small">E = g<tspan baseline-shift="sub" font-size="9">tw</tspan>(eₛ − eₐ)/P</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 7.</b> Leaf anatomy and the diffusion path of water vapour. Evaporation from wet mesophyll cell walls saturates the internal air spaces at \(e_s(T_{\text{leaf}})\); vapour diffuses through the stomatal pore (conductance \(g_s\), variable) and the boundary layer of still air on the leaf surface (\(g_b\)) into the bulk air. The two conductances act in series, like resistances in an electrical circuit. CO₂ follows the same path in the opposite direction.</figcaption>
+      </figure>
+
+      <!-- ============================================================ 5 -->
+      <h2 id="transpiration-vpd">Transpiration and the vapour pressure deficit</h2>
+      <p>Once the vapour leaves the wet cell walls, its movement is pure diffusion, driven by the difference in vapour pressure (or mole fraction) between the leaf interior and the air. The capacity of air to hold water vapour rises steeply with temperature. The saturation vapour pressure is given to better than 0.1 % between 0 and 40 °C by the Tetens (1930) formula in the form adopted by FAO-56 (Allen et al., 1998; see also Murray, 1967):</p>
+
+      <div class="eq-box" id="eq-wr-tetens">
+        <div class="eq-head"><span class="eq-label">Saturation vapour pressure and leaf-to-air VPD</span><span class="eq-num">(2.2.5)</span></div>
+        <div class="eq-main">\[ e_s(T) = 0.6108\,\exp\!\left(\frac{17.27\,T}{T+237.3}\right), \qquad \text{VPD}_{\text{air}} = e_s(T_a)\left(1-\frac{\text{RH}}{100}\right), \qquad \text{VPD}_{\text{leaf}} = e_s(T_{\ell}) - \frac{\text{RH}}{100}\,e_s(T_a) \]</div>
+        <p class="eq-read">the saturation vapour pressure in kilopascals is 0.6108 times the exponential of 17.27 T over T plus 237.3, with T in degrees Celsius. The air's vapour pressure deficit is the saturation vapour pressure at air temperature times one minus the relative humidity. What drives transpiration is the leaf-to-air deficit: saturation vapour pressure at leaf temperature minus the actual vapour pressure of the air.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(e_s(T)\)</td><td>saturation vapour pressure over liquid water</td><td>kPa</td><td>2.339 at 20 °C; 3.168 at 25 °C</td></tr>
+          <tr><td>\(T_a, T_\ell\)</td><td>air and leaf temperature</td><td>°C</td><td></td></tr>
+          <tr><td>RH</td><td>relative humidity of the air, \(100\,e_a/e_s(T_a)\)</td><td>%</td><td></td></tr>
+          <tr><td>\(e_a\)</td><td>actual vapour pressure of the air</td><td>kPa</td><td></td></tr>
+        </table>
+        <details><summary>Where does the formula come from?</summary>
+          <ol class="steps">
+            <li>The Clausius–Clapeyron equation, \(\mathrm{d}\ln e_s/\mathrm{d}T = \lambda M_w/(RT^2)\), states that the logarithm of the saturation vapour pressure increases with temperature at a rate set by the latent heat of vaporisation.</li>
+            <li>Integrating it exactly requires the temperature dependence of λ. Tetens (1930) proposed the empirical form \(e_s = a\exp[bT/(T+c)]\), which mimics the integrated equation with three fitted constants; FAO-56 uses a = 0.6108 kPa, b = 17.27, c = 237.3 °C.</li>
+            <li>The slope needed later for Penman–Monteith follows by differentiation: \(\Delta = \mathrm{d}e_s/\mathrm{d}T = 4098\,e_s(T)/(T+237.3)^2\) kPa °C⁻¹ (0.145 kPa °C⁻¹ at 20 °C).</li>
+          </ol>
+        </details>
+        <details><summary>Why leaf temperature matters</summary><p>A leaf 2 °C warmer than the air has an internal saturation vapour pressure about 12 % higher; a leaf 2 °C cooler, 12 % lower. Under LEDs, which emit much of their heat by convection rather than as thermal radiation towards the crop, leaves tend to be slightly cooler than under high-pressure sodium lamps — though Nelson and Bugbee (2015) showed that evaporative cooling and water status matter more than the lamp type. Measure leaf temperature (e.g., with an infrared thermometer) when you calculate VPD for a crop.</p></details>
+        <div class="eq-units">The exponent is dimensionless (°C/°C); \(e_s\) inherits kPa from the constant 0.6108 kPa ✓</div>
+        <div class="mini-calc" data-fn="wrVPDleaf" data-output="Leaf-to-air VPD" data-unit="kPa" data-digits="3" data-plot="RH" data-ymin="0" data-title="Try it — leaf-to-air vapour pressure deficit">
+          <div data-var="Ta" data-label="Air temperature T<sub>a</sub>" data-min="10" data-max="35" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="RH" data-label="Relative humidity" data-min="20" data-max="100" data-step="1" data-value="70" data-unit="%"></div>
+          <div data-var="Tl" data-label="Leaf temperature T<sub>ℓ</sub>" data-min="8" data-max="38" data-step="0.5" data-value="21" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <p>With the driving force defined, transpiration is simply conductance times driving force. Because the stomata and the boundary layer are in series, their conductances combine like resistances in series:</p>
+
+      <div class="eq-box" id="eq-wr-e">
+        <div class="eq-head"><span class="eq-label">Leaf transpiration</span><span class="eq-num">(2.2.6)</span></div>
+        <div class="eq-main">\[ E = g_{tw}\,\frac{e_s(T_\ell) - e_a}{P} = g_{tw}\,\frac{\text{VPD}_{\text{leaf}}}{P}, \qquad \frac{1}{g_{tw}} = \frac{1}{g_{sw}} + \frac{1}{g_{bw}} \]</div>
+        <p class="eq-read">transpiration equals the total conductance to water vapour times the leaf-to-air vapour pressure difference divided by atmospheric pressure (which converts vapour pressure into mole fraction). The total conductance is the series combination of the stomatal and boundary-layer conductances: their reciprocals (resistances) add.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(E\)</td><td>transpiration rate per unit leaf area</td><td>mol m⁻² s⁻¹</td><td>1–8 × 10⁻³</td></tr>
+          <tr><td>\(g_{sw}\)</td><td>stomatal conductance to water vapour</td><td>mol m⁻² s⁻¹</td><td>0.05–0.8</td></tr>
+          <tr><td>\(g_{bw}\)</td><td>boundary-layer conductance to water vapour (Eq. 2.2.7)</td><td>mol m⁻² s⁻¹</td><td>0.2–3</td></tr>
+          <tr><td>\(g_{tw}\)</td><td>total conductance</td><td>mol m⁻² s⁻¹</td><td></td></tr>
+          <tr><td>\(P\)</td><td>atmospheric pressure</td><td>kPa</td><td>101.3 at sea level</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Fick's law of diffusion in molar form: flux = conductance × difference in mole fraction, \(E = g\,(x_{\text{leaf}}-x_{\text{air}})\).</li>
+            <li>By Dalton's law the mole fraction of water vapour is \(x = e/P\). Inside the leaf \(e = e_s(T_\ell)\) (99.6 % RH, see Eq. 2.2.3).</li>
+            <li>In steady state the flux through the stoma equals the flux through the boundary layer: \(E = g_{sw}(x_\ell - x_{\text{surf}}) = g_{bw}(x_{\text{surf}}-x_a)\). Eliminating the unknown surface mole fraction gives \(E = (x_\ell - x_a)/(1/g_{sw}+1/g_{bw})\).</li>
+            <li>For CO₂ entering the leaf the same equations apply with conductances divided by 1.6 (stomata) and 1.37 (boundary layer), the ratios of the diffusivities — the basis of the water-use-efficiency relation in Eq. 2.2.10.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Leaf temperature must be known — it is itself set by the energy balance (Section 2.2.6). For leaves with stomata on both surfaces (amphistomatous, like lettuce), the two sides act in parallel: add the conductances of the two sides. The small "ternary" correction for the mass flow of the escaping vapour is neglected.</p></details>
+        <div class="eq-units">(mol m⁻² s⁻¹)(kPa/kPa) = mol m⁻² s⁻¹ ✓; × 18.02 g mol⁻¹ × 3600 s h⁻¹ → g m⁻² h⁻¹</div>
+        <div class="mini-calc" data-formula="1000/(1/gs + 1/gb)*vpd/P" data-output="Transpiration E" data-unit="mmol m⁻² s⁻¹" data-digits="2" data-plot="gs">
+          <div data-var="gs" data-label="Stomatal conductance g<sub>sw</sub>" data-min="0.01" data-max="1" data-step="0.01" data-value="0.3" data-unit="mol m⁻² s⁻¹"></div>
+          <div data-var="gb" data-label="Boundary-layer conductance g<sub>bw</sub>" data-min="0.1" data-max="3" data-step="0.01" data-value="0.67" data-unit="mol m⁻² s⁻¹"></div>
+          <div data-var="vpd" data-label="Leaf-to-air VPD" data-min="0.05" data-max="3" data-step="0.01" data-value="0.64" data-unit="kPa"></div>
+          <div data-var="P" data-label="Air pressure P" data-min="60" data-max="105" data-step="0.1" data-value="101.3" data-unit="kPa"></div>
+        </div>
+      </div>
+
+      <p>The boundary layer is the thin film of slowly moving air that clings to every surface. Its conductance increases with wind speed and decreases with leaf size, because the layer thickens as air travels across the leaf. For a flat leaf in forced convection, Campbell and Norman (1998) give:</p>
+
+      <div class="eq-box" id="eq-wr-gb">
+        <div class="eq-head"><span class="eq-label">Boundary-layer conductance of a leaf</span><span class="eq-num">(2.2.7)</span></div>
+        <div class="eq-main">\[ g_{bw} = 0.147\,\sqrt{\frac{u}{d}}, \qquad g_{bH} = 0.135\,\sqrt{\frac{u}{d}}, \qquad d = 0.72\,w \]</div>
+        <p class="eq-read">the boundary-layer conductance to water vapour for one leaf surface, in mol per square metre per second, is 0.147 times the square root of wind speed divided by the characteristic dimension of the leaf; the conductance to heat has the coefficient 0.135. The characteristic dimension is about 0.72 times the leaf width.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(g_{bw}, g_{bH}\)</td><td>boundary-layer conductance for vapour and heat, one side of the leaf</td><td>mol m⁻² s⁻¹</td></tr>
+          <tr><td>\(u\)</td><td>air speed at the leaf</td><td>m s⁻¹</td></tr>
+          <tr><td>\(d\)</td><td>characteristic dimension (mean path length of air across the leaf)</td><td>m</td></tr>
+          <tr><td>\(w\)</td><td>leaf width</td><td>m</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Laminar boundary-layer theory gives a layer thickness that grows as \(\delta\propto\sqrt{\nu x/u}\) with distance \(x\) along a plate (ν = kinematic viscosity).</li>
+            <li>Conductance is diffusivity divided by thickness, so \(g\propto D/\delta\propto\sqrt{u/x}\); averaging over the leaf gives \(\sqrt{u/d}\).</li>
+            <li>The coefficients contain the diffusivities of heat and vapour and the molar density of air; they include an empirical factor (≈ 1.4) because real leaves in turbulent surroundings have thinner boundary layers than smooth plates in a wind tunnel.</li>
+            <li>Example: u = 0.3 m s⁻¹ (a typical vertical-farm air speed) and w = 8 cm: d = 0.0576 m, \(g_{bw} = 0.147\sqrt{5.21} = 0.34\) mol m⁻² s⁻¹ per side, 0.67 for both sides together.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Forced convection (air speed above roughly 0.1 m s⁻¹); at very low air speeds free convection (warm air rising from warm leaves) dominates and conductances are lower still. In a dense canopy, inner leaves see much lower air speeds than the air-handling design value — the root of many tipburn problems (Section 2.2.8).</p></details>
+        <div class="eq-units">\(\sqrt{(\text{m s}^{-1})/\text{m}} = \text{s}^{-1/2}\); the coefficient 0.147 carries mol m⁻² s⁻¹/2 so that the product is mol m⁻² s⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="wrGb" data-output="g<sub>bw</sub> (one side)" data-unit="mol m⁻² s⁻¹" data-digits="3" data-plot="u">
+          <div data-var="u" data-label="Air speed u" data-min="0.05" data-max="3" data-step="0.01" data-value="0.3" data-unit="m s⁻¹"></div>
+          <div data-var="w" data-label="Leaf width w" data-min="1" data-max="30" data-step="0.5" data-value="8" data-unit="cm"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">Transpiration of a lettuce leaf in a vertical farm</span></div>
+        <div class="we-problem"><p>In a vertical farm the air is at 22 °C and 70 % RH; the air speed over the canopy is 0.3 m s⁻¹. A lettuce leaf 8 cm wide, with stomata on both surfaces and a total stomatal conductance of 0.30 mol m⁻² s⁻¹, is at 21 °C. Calculate VPD<sub>air</sub>, VPD<sub>leaf</sub>, the total conductance, the transpiration rate (mmol m⁻² s⁻¹ and g m⁻² h⁻¹) and the latent heat flux.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Saturation pressures</strong> (Eq. 2.2.5): \(e_s(22) = 0.6108\exp(17.27\times22/259.3) = 2.644\) kPa; \(e_s(21) = 2.487\) kPa.</li>
+              <li><strong>Air vapour pressure</strong>: \(e_a = 0.70\times2.644 = 1.851\) kPa. VPD<sub>air</sub> = 2.644 − 1.851 = <strong>0.793 kPa</strong>; VPD<sub>leaf</sub> = 2.487 − 1.851 = <strong>0.636 kPa</strong> (20 % lower, because the leaf is cooler).</li>
+              <li><strong>Boundary layer</strong> (Eq. 2.2.7): d = 0.72 × 0.08 = 0.0576 m; per side 0.147√(0.3/0.0576) = 0.336; both sides 0.671 mol m⁻² s⁻¹.</li>
+              <li><strong>Total conductance</strong>: 1/g<sub>tw</sub> = 1/0.30 + 1/0.671 = 3.333 + 1.490 = 4.823 → g<sub>tw</sub> = 0.207 mol m⁻² s⁻¹. The boundary layer contributes 31 % of the total resistance.</li>
+              <li><strong>Transpiration</strong> (Eq. 2.2.6): E = 0.207 × 0.636/101.3 = 1.30 × 10⁻³ mol m⁻² s⁻¹ = <strong>1.30 mmol m⁻² s⁻¹</strong> → × 18.02 × 3600 = <strong>84 g m⁻² h⁻¹</strong> of leaf.</li>
+              <li><strong>Latent heat</strong>: λ ≈ 44.1 kJ mol⁻¹ at 22 °C → λE = 1.30 × 10⁻³ × 44 100 = <strong>57 W m⁻²</strong> of leaf.</li>
+              <li><strong>Sanity check.</strong> For a canopy with, say, two to three layers of transpiring leaf per square metre of floor over a 16 h photoperiod this is of the order of 2–4 L m⁻² d⁻¹ — consistent with the canopy-scale estimate of Worked example 4.</li>
+            </ol>
+            <span class="answer">VPD<sub>leaf</sub> = 0.64 kPa; g<sub>tw</sub> = 0.21 mol m⁻² s⁻¹; E ≈ 1.3 mmol m⁻² s⁻¹ ≈ 84 g m⁻² h⁻¹; λE ≈ 57 W m⁻²</span>
+          </div>
+        </details>
+      </div>
+
+      <figure class="figure wide" id="vpd-fig">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the VPD map (drag the climate point)</div>
+          <div class="wr-2col" style="display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:18px;align-items:start">
+            <div id="vpd-plot"></div>
+            <div id="vpd-ctl"></div>
+          </div>
+          <div class="readouts" id="vpd-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 8.</b> Leaf-to-air VPD (colour, kPa) as a function of air temperature and relative humidity, for a chosen leaf-minus-air temperature difference. Contours mark 0.3, 0.8, 1.0 and 1.5 kPa. Recommendations for greenhouse crops mostly fall between about 0.3 and 1.0 kPa; below ≈ 0.3 kPa transpiration, calcium transport and disease risk become problems, and above ≈ 1.5 kPa plants show water stress (summary in Shamshiri et al., 2018). Click or drag on the map to move the climate point.</figcaption>
+      </figure>
+
+      <!-- ============================================================ 6 -->
+      <h2 id="energy-balance">The leaf energy balance</h2>
+      <p>Leaf temperature is not a given: it is the outcome of an energy balance. A leaf absorbs short-wave radiation (PAR and near-infrared from the sun or lamps) and long-wave thermal radiation from its surroundings; it loses energy by emitting thermal radiation, by convection to the air (sensible heat) and by evaporating water (latent heat). Only a few per cent of absorbed energy is stored in photosynthesis or in warming the leaf, so for practical purposes:</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 250" role="img" aria-label="Energy balance of a leaf: absorbed radiation equals emitted thermal radiation plus sensible heat plus latent heat">
+            <defs>
+              <marker id="eb-am" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-amber"/></marker>
+              <marker id="eb-mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-magenta"/></marker>
+              <marker id="eb-wa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-water"/></marker>
+              <marker id="eb-dg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--danger)"/></marker>
+            </defs>
+            <rect x="120" y="14" width="140" height="18" rx="4" class="fill-sunk" stroke="currentColor"/>
+            <text x="270" y="28" class="t-small">LED or sun</text>
+            <path d="M150 128 C 200 96, 300 96, 360 128 C 300 150, 200 150, 150 128 z" class="fill-accent" stroke="currentColor" stroke-width="1"/>
+            <line x1="150" y1="128" x2="100" y2="140" stroke="currentColor" stroke-width="2"/>
+            <text x="255" y="132" text-anchor="middle" class="t-small" style="fill:var(--accent-ink)">leaf at T<tspan baseline-shift="sub" font-size="9">ℓ</tspan></text>
+            <line x1="170" y1="36" x2="200" y2="98" class="stroke-amber" stroke-width="3" marker-end="url(#eb-am)"/>
+            <line x1="230" y1="36" x2="240" y2="96" class="stroke-amber" stroke-width="3" marker-end="url(#eb-am)"/>
+            <text x="60" y="62" class="t-small" style="fill:var(--amber)">absorbed short-wave</text>
+            <text x="60" y="76" class="t-small" style="fill:var(--amber)">(PAR + NIR)</text>
+            <line x1="120" y1="220" x2="180" y2="150" class="stroke-amber" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#eb-am)"/>
+            <text x="30" y="236" class="t-small" style="fill:var(--amber)">absorbed long-wave from surroundings</text>
+            <line x1="300" y1="104" x2="340" y2="40" class="stroke-magenta" stroke-width="2.4" marker-end="url(#eb-mg)"/>
+            <line x1="300" y1="150" x2="330" y2="214" class="stroke-magenta" stroke-width="2.4" marker-end="url(#eb-mg)"/>
+            <text x="346" y="46" class="t-small" style="fill:var(--magenta)">emitted εσT<tspan baseline-shift="super" font-size="9">4</tspan></text>
+            <path d="M372 120 q10 -8 20 0 t20 0 t20 0" fill="none" style="stroke:var(--danger)" stroke-width="2.2" marker-end="url(#eb-dg)"/>
+            <text x="440" y="116" class="t-small" style="fill:var(--danger)">sensible heat H = c<tspan baseline-shift="sub" font-size="9">p</tspan>g<tspan baseline-shift="sub" font-size="9">H</tspan>(T<tspan baseline-shift="sub" font-size="9">ℓ</tspan> − Tₐ)</text>
+            <path d="M330 150 q-6 12 0 24 t0 24" fill="none" class="stroke-water" stroke-width="2.2" marker-end="url(#eb-wa)"/>
+            <path d="M270 152 q-6 12 0 24 t0 24" fill="none" class="stroke-water" stroke-width="2.2" marker-end="url(#eb-wa)"/>
+            <text x="360" y="194" class="t-small" style="fill:var(--water)">latent heat λE (water vapour)</text>
+            <rect x="440" y="140" width="250" height="36" rx="8" class="fill-bg" stroke="currentColor" stroke-width=".8"/>
+            <text x="565" y="163" text-anchor="middle" class="t-small">R<tspan baseline-shift="sub" font-size="9">abs</tspan> = εσT<tspan baseline-shift="sub" font-size="9">ℓ</tspan><tspan baseline-shift="super" font-size="9">4</tspan> + H + λE</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 9.</b> The leaf energy balance. Transpiration (λE) is the only term that depends on stomatal conductance, which is why a transpiring leaf is cooler than a leaf with closed stomata.</figcaption>
+      </figure>
+
+      <div class="eq-box" id="eq-wr-leafeb">
+        <div class="eq-head"><span class="eq-label">Leaf energy balance</span><span class="eq-num">(2.2.8)</span></div>
+        <div class="eq-main">\[ R_{\text{ni}} = c_p\,(g_{Ha}+g_r)\,(T_\ell - T_a) + \lambda\,g_{v}\,\frac{e_s(T_\ell)-e_a}{P}, \qquad g_r = \frac{4\,\varepsilon\,\sigma\,T_a^3}{c_p} \]</div>
+        <p class="eq-read">the isothermal net radiation absorbed by the leaf is shared between sensible heat — molar heat capacity of air times the heat and radiative conductances times the leaf-to-air temperature difference — and latent heat — molar latent heat times the vapour conductance times the vapour-pressure difference divided by pressure. The radiative conductance linearises the extra thermal radiation emitted when the leaf is warmer than the air.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(R_{\text{ni}}\)</td><td>isothermal net radiation (net radiation if the leaf were at air temperature)</td><td>W m⁻²</td><td>50–400</td></tr>
+          <tr><td>\(c_p\)</td><td>molar heat capacity of air</td><td>J mol⁻¹ K⁻¹</td><td>29.3</td></tr>
+          <tr><td>\(g_{Ha}\)</td><td>boundary-layer conductance for heat (both sides, Eq. 2.2.7)</td><td>mol m⁻² s⁻¹</td><td></td></tr>
+          <tr><td>\(g_r\)</td><td>radiative conductance</td><td>mol m⁻² s⁻¹</td><td>≈ 0.19 at 20 °C</td></tr>
+          <tr><td>\(\varepsilon, \sigma\)</td><td>leaf emissivity; Stefan–Boltzmann constant</td><td>–; W m⁻² K⁻⁴</td><td>0.97; 5.67 × 10⁻⁸</td></tr>
+          <tr><td>\(\lambda\)</td><td>molar latent heat of vaporisation</td><td>J mol⁻¹</td><td>44 100 at 20 °C</td></tr>
+          <tr><td>\(g_v\)</td><td>total vapour conductance (stomata + boundary layer, Eq. 2.2.6)</td><td>mol m⁻² s⁻¹</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Energy conservation (steady state, storage and photosynthesis neglected): absorbed radiation = emitted thermal radiation + H + λE.</li>
+            <li>Write the emitted term as the value at air temperature plus a correction: \(\varepsilon\sigma T_\ell^4 \approx \varepsilon\sigma T_a^4 + 4\varepsilon\sigma T_a^3(T_\ell-T_a)\) (first-order Taylor expansion).</li>
+            <li>Absorbed radiation minus \(\varepsilon\sigma T_a^4\) is the isothermal net radiation \(R_{\text{ni}}\); the correction behaves like an extra conductance \(g_r = 4\varepsilon\sigma T_a^3/c_p\) acting in parallel with convection.</li>
+            <li>Sensible heat: \(H = c_pg_{Ha}(T_\ell-T_a)\); latent heat: \(\lambda E\) with \(E\) from Eq. 2.2.6. Substituting gives the equation above, which has one unknown, \(T_\ell\). Because \(e_s\) is non-linear, it is solved numerically (the calculator uses bisection) — or linearised, which leads straight to Penman–Monteith.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A single flat leaf with a uniform temperature; the calculator assumes an 8 cm wide leaf with stomata on both sides. \(R_{\text{ni}}\) of a lettuce leaf under 300–400 µmol m⁻² s⁻¹ of LED light is of the order of 60–100 W m⁻² (absorbed PAR plus a little near-infrared, with surroundings near air temperature).</p></details>
+        <div class="eq-units">J mol⁻¹ K⁻¹ · mol m⁻² s⁻¹ · K = W m⁻² ✓; J mol⁻¹ · mol m⁻² s⁻¹ · kPa/kPa = W m⁻² ✓</div>
+        <div class="mini-calc" data-fn="wrLeafDT" data-output="Leaf − air temperature" data-unit="°C" data-digits="2" data-plot="gs" data-title="Try it — how transpiration cools a leaf">
+          <div data-var="gs" data-label="Stomatal conductance g<sub>s</sub>" data-min="0" data-max="0.8" data-step="0.01" data-value="0.3" data-unit="mol m⁻² s⁻¹"></div>
+          <div data-var="Rn" data-label="Isothermal net radiation R<sub>ni</sub>" data-min="0" data-max="500" data-step="5" data-value="100" data-unit="W m⁻²"></div>
+          <div data-var="Ta" data-label="Air temperature" data-min="10" data-max="35" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="RH" data-label="Relative humidity" data-min="20" data-max="98" data-step="1" data-value="70" data-unit="%"></div>
+          <div data-var="u" data-label="Air speed" data-min="0.05" data-max="2" data-step="0.05" data-value="0.3" data-unit="m s⁻¹"></div>
+        </div>
+      </div>
+      <p>Play with the calculator: with 100 W m⁻², 22 °C and 70 % RH, a transpiring leaf is within about 1 °C of the air; close the stomata and it warms by several degrees. Raise the net radiation to 400 W m⁻² (full sun on a greenhouse crop) with low air speed and closed stomata, and the leaf can be 10 °C or more above air temperature — the same order as the worst-case values that Nelson and Bugbee (2015) modelled for water-stressed leaves. Leaf temperature, VPD and transpiration are therefore coupled; the next section solves them together.</p>
+
+      <!-- ============================================================ 7 -->
+      <h2 id="penman-monteith">The Penman–Monteith equation, step by step</h2>
+      <p>In 1948 Howard Penman derived an equation for evaporation from open water that avoided the need to know the surface temperature, by linearising the saturation vapour pressure curve. In 1965 John Monteith extended it to vegetation by adding the stomatal (surface) resistance. The <strong>Penman–Monteith equation</strong> is now the international standard for crop evapotranspiration (Allen et al., 1998) and the core of greenhouse transpiration models (Stanghellini et al., 2019). It applies to a single leaf or — as a "big leaf" — to a whole canopy.</p>
+
+      <div class="eq-box" id="eq-wr-pm">
+        <div class="eq-head"><span class="eq-label">Penman–Monteith equation</span><span class="eq-num">(2.2.9)</span></div>
+        <div class="eq-main">\[ \lambda E = \frac{\Delta\,(R_n-G) + \rho_a\,c_p\,D\,g_a}{\Delta + \gamma\left(1+\dfrac{g_a}{g_s}\right)} \]</div>
+        <p class="eq-read">the latent heat flux equals the slope of the saturation vapour pressure curve times the available energy, plus the air density times its specific heat times the vapour pressure deficit times the aerodynamic conductance, all divided by the slope plus the psychrometric constant times one plus the ratio of aerodynamic to surface conductance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(\lambda E\)</td><td>latent heat flux (transpiration × latent heat)</td><td>W m⁻²</td><td></td></tr>
+          <tr><td>\(\Delta\)</td><td>slope of \(e_s(T)\) at air temperature, \(4098\,e_s/(T+237.3)^2\)</td><td>kPa K⁻¹</td><td>0.145 at 20 °C</td></tr>
+          <tr><td>\(R_n, G\)</td><td>net radiation absorbed by the canopy; heat flux into the substrate/soil</td><td>W m⁻²</td><td></td></tr>
+          <tr><td>\(\rho_a\)</td><td>density of air</td><td>kg m⁻³</td><td>≈ 1.2</td></tr>
+          <tr><td>\(c_p\)</td><td>specific heat of air</td><td>J kg⁻¹ K⁻¹</td><td>1005</td></tr>
+          <tr><td>\(D\)</td><td>vapour pressure deficit of the air</td><td>kPa</td><td></td></tr>
+          <tr><td>\(g_a\)</td><td>aerodynamic (boundary-layer) conductance for heat and vapour</td><td>m s⁻¹</td><td>0.01–0.05 indoors</td></tr>
+          <tr><td>\(g_s\)</td><td>surface (bulk stomatal) conductance of the canopy</td><td>m s⁻¹</td><td></td></tr>
+          <tr><td>\(\gamma\)</td><td>psychrometric constant \(c_pP/(0.622\,\lambda)\)</td><td>kPa K⁻¹</td><td>0.067 at 101.3 kPa</td></tr>
+        </table>
+        <details><summary>Follow the derivation (8 steps)</summary>
+          <ol class="steps">
+            <li><strong>Energy balance of the surface</strong> (canopy or leaf, storage neglected): \(R_n - G = H + \lambda E\).</li>
+            <li><strong>Sensible heat</strong> flows from the surface at \(T_s\) to the air at \(T_a\) through the aerodynamic conductance: \(H = \rho_ac_p\,g_a\,(T_s - T_a)\).</li>
+            <li><strong>Latent heat</strong> flows from the saturated interior (vapour pressure \(e_s(T_s)\)) through the stomata and the boundary layer in series: \(\lambda E = \dfrac{\rho_ac_p}{\gamma}\,\dfrac{e_s(T_s)-e_a}{1/g_s + 1/g_a}\). (The factor \(\rho_ac_p/\gamma\) converts a vapour-pressure difference in kPa into an energy flux; it follows from the definition of γ.)</li>
+            <li><strong>The problem:</strong> \(T_s\) is unknown and \(e_s(T_s)\) is non-linear. <strong>Penman's trick:</strong> linearise around air temperature, \(e_s(T_s)\approx e_s(T_a) + \Delta\,(T_s - T_a)\).</li>
+            <li>Then \(e_s(T_s)-e_a = D + \Delta\,(T_s-T_a)\), where \(D = e_s(T_a)-e_a\) is the VPD of the air, which we can measure.</li>
+            <li><strong>Eliminate \(T_s\)</strong> with steps 1 and 2: \(T_s-T_a = H/(\rho_ac_pg_a) = (R_n-G-\lambda E)/(\rho_ac_pg_a)\).</li>
+            <li><strong>Substitute</strong> into step 3: \(\lambda E\,\gamma\,(1/g_s+1/g_a) = \rho_ac_pD + \Delta\,(R_n-G-\lambda E)/g_a\).</li>
+            <li><strong>Collect</strong> the λE terms and multiply by \(g_a\): \(\lambda E\,[\gamma(1+g_a/g_s) + \Delta] = \Delta(R_n-G) + \rho_ac_pDg_a\). Dividing gives Eq. 2.2.9. ✓</li>
+          </ol>
+        </details>
+        <details><summary>Two limits worth remembering</summary>
+          <ul>
+            <li><strong>Wet surface</strong> (\(g_s\to\infty\)): \(\lambda E = [\Delta(R_n-G) + \rho_ac_pDg_a]/(\Delta+\gamma)\) — Penman's (1948) open-water equation.</li>
+            <li><strong>Closed canopy in still, humid air</strong> (\(D\to0\) or \(g_a\to0\)): \(\lambda E \to \Delta(R_n-G)/(\Delta+\gamma)\) with \(g_s\) large — the "equilibrium evaporation", driven by radiation only. The first term of the numerator is the <em>radiative</em> term, the second the <em>aerodynamic</em> (VPD-driven) term; Figure 10 separates them.</li>
+            <li>The FAO-56 reference evapotranspiration \(ET_0\) used in <a href="/lessons/precision-irrigation/">Lesson 11.3</a> is Eq. 2.2.9 for a standard grass surface (\(r_s = 70\) s m⁻¹, \(r_a = 208/u_2\)) with the constants evaluated; it is implemented as <code>et0PenmanMonteith</code> in the course physics library.</li>
+          </ul>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Steady state; the same aerodynamic conductance for heat and vapour; linearisation error small when \(|T_s - T_a|\) is a few kelvin; canopy treated as one big leaf (Stanghellini's greenhouse version adds leaf area index and separate radiation terms). In closed plant factories the air's VPD is itself changed by the transpired water unless dehumidification keeps up — the feedback that Graamans et al. (2017) built into their model.</p></details>
+        <div class="eq-units">Numerator: (kPa K⁻¹)(W m⁻²) + (kg m⁻³)(J kg⁻¹ K⁻¹)(kPa)(m s⁻¹) = kPa K⁻¹ · W m⁻² ✓ (J m⁻³ K⁻¹ · m s⁻¹ = W m⁻² K⁻¹); denominator: kPa K⁻¹ → λE in W m⁻² ✓</div>
+        <div class="mini-calc" data-fn="wrPM" data-output="Canopy transpiration" data-unit="g m⁻² h⁻¹" data-digits="0" data-plot="gs" data-title="Try it — Penman–Monteith for a crop tier">
+          <div data-var="gs" data-label="Surface conductance g<sub>s</sub>" data-min="1" data-max="40" data-step="0.5" data-value="15" data-unit="mm s⁻¹"></div>
+          <div data-var="Rn" data-label="Net radiation R<sub>n</sub> − G" data-min="0" data-max="500" data-step="5" data-value="120" data-unit="W m⁻²"></div>
+          <div data-var="T" data-label="Air temperature" data-min="10" data-max="35" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="RH" data-label="Relative humidity" data-min="30" data-max="98" data-step="1" data-value="70" data-unit="%"></div>
+          <div data-var="ga" data-label="Aerodynamic conductance g<sub>a</sub>" data-min="2" data-max="60" data-step="1" data-value="20" data-unit="mm s⁻¹"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="pm-fig">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — what drives transpiration: radiation or VPD?</div>
+          <div class="wr-2col" style="display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:18px;align-items:start">
+            <div id="pm-plot"></div>
+            <div id="pm-ctl"></div>
+          </div>
+          <div class="readouts" id="pm-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 10.</b> Penman–Monteith latent heat flux of a crop tier as a function of air VPD (varied through relative humidity at fixed temperature), split into its radiative and aerodynamic terms, with sensible heat H = Rₙ − λE. When H is negative the air heats the canopy — the canopy is cooler than the air. The daily figures assume a 16 h photoperiod and ignore night-time transpiration.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">How much water does a vertical-farm tier transpire — and what does it cost to remove?</span></div>
+        <div class="we-problem"><p>A lettuce tier absorbs a net radiation of 120 W m⁻² (floor area) from its LEDs during a 16 h photoperiod. The air is at 22 °C and 70 % RH, the aerodynamic conductance is 20 mm s⁻¹ and the canopy surface conductance 15 mm s⁻¹; G = 0. Use ρₐ = 1.196 kg m⁻³, cₚ = 1005 J kg⁻¹ K⁻¹, P = 101.3 kPa. Calculate λE, the transpiration in L m⁻² d⁻¹, the latent heat to be removed per day, and the electricity for dehumidification if the dehumidifier removes 3 L of water per kWh.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Air properties</strong>: \(e_s(22) = 2.644\) kPa, \(D = 0.30\times2.644 = 0.793\) kPa, \(\Delta = 4098\times2.644/259.3^2 = 0.161\) kPa K⁻¹, \(\gamma = 0.000665\times101.3 = 0.0674\) kPa K⁻¹.</li>
+              <li><strong>Radiative term</strong>: \(\Delta R_n = 0.161\times120 = 19.33\).</li>
+              <li><strong>Aerodynamic term</strong>: \(\rho_ac_pDg_a = 1.196\times1005\times0.793\times0.020 = 19.06\).</li>
+              <li><strong>Denominator</strong>: \(0.161 + 0.0674\times(1+20/15) = 0.161 + 0.157 = 0.318\).</li>
+              <li><strong>λE</strong> = (19.33 + 19.06)/0.318 = <strong>121 W m⁻²</strong> — radiative and aerodynamic terms contribute almost equally, and λE ≈ Rₙ: nearly all absorbed light energy leaves the canopy as latent heat (H ≈ 0).</li>
+              <li><strong>Water</strong>: λ = 2.449 MJ kg⁻¹ at 22 °C → E = 121/2.449 × 10⁶ = 4.9 × 10⁻⁵ kg m⁻² s⁻¹ = 0.178 mm h⁻¹ → × 16 h = <strong>2.8 L m⁻² d⁻¹</strong>.</li>
+              <li><strong>Latent heat</strong>: 2.8 kg × 2.449 MJ kg⁻¹ = 6.9 MJ m⁻² d⁻¹ = <strong>1.9 kWh m⁻² d⁻¹</strong> of heat that the HVAC must handle (compare with the lighting electricity of the same order; <a href="/lessons/energy-balance/">Lesson 8.1</a>).</li>
+              <li><strong>Dehumidification electricity</strong> at 3 L kWh⁻¹: 2.8/3 = <strong>0.95 kWh m⁻² d⁻¹</strong> per tier — and the recovered water (condensate) can be returned to the nutrient tank, which is why plant factories can have very high water-use efficiency.</li>
+            </ol>
+            <span class="answer">λE ≈ 121 W m⁻² → ≈ 2.8 L m⁻² d⁻¹ of water, ≈ 1.9 kWh m⁻² d⁻¹ latent load, ≈ 0.95 kWh m⁻² d⁻¹ for dehumidification</span>
+          </div>
+        </details>
+      </div>
+
+      <a class="lab-link" data-lab="stomata-transpiration" data-why="Watch guard cells open and close in 3D as light, CO₂ and VPD change, and quantify transpiration and leaf cooling with the energy balance of this section."></a>
+
+      <!-- ============================================================ 8 -->
+      <h2 id="vpd-cea">Managing VPD in greenhouses and vertical farms</h2>
+      <p>Why do growers talk about VPD rather than relative humidity? Because the same 70 % RH means very different drying power at different temperatures: 0.70 kPa at 20 °C but 1.27 kPa at 30 °C. VPD is the variable that the plant "feels". Reviewing recommendations for greenhouse tomato, Shamshiri et al. (2018) found optimal VPD values recommended between about 0.3 and 1.0 kPa in different sources, with commercial guidelines such as 0.5–1.2 kPa; they summarised that VPD below ≈ 0.3 kPa is associated with mineral deficiencies, guttation, fungal diseases and soft growth, and VPD above ≈ 1.5 kPa with wilting, leaf roll and stunted plants. They also point out that VPD should not be used directly as the feedback variable of a climate controller, because the same VPD can result from many combinations of temperature and humidity — control temperature and humidity, and use VPD to choose their set-points.</p>
+
+      <table>
+        <caption>Table 1. What happens at the edges of the VPD window (qualitative; see Shamshiri et al., 2018; Grossiord et al., 2020).</caption>
+        <thead><tr><th></th><th>VPD too low (humid; ≲ 0.3 kPa)</th><th>VPD in the typical window (≈ 0.3–1.0 kPa)</th><th>VPD too high (dry; ≳ 1.5 kPa)</th></tr></thead>
+        <tbody>
+          <tr><td>Transpiration</td><td>very low; guttation at night</td><td>moderate</td><td>high until stomata close</td></tr>
+          <tr><td>Calcium delivery to young leaves and fruits</td><td>poor → tipburn, blossom-end rot risk</td><td>adequate</td><td>diverted to strongly transpiring leaves</td></tr>
+          <tr><td>Leaf temperature</td><td>close to or above air</td><td>slightly below air</td><td>below air while stomata open</td></tr>
+          <tr><td>Disease</td><td>Botrytis, mildews favoured (free water)</td><td>low risk</td><td>low risk; some pests (spider mites) favoured</td></tr>
+          <tr><td>Growth</td><td>soft, large thin leaves</td><td>good</td><td>stomatal closure limits photosynthesis; small, tough leaves</td></tr>
+          <tr><td>Energy (plant factory)</td><td>low dehumidification load, high disease risk</td><td>balanced</td><td>high latent load; humidification may be needed in winter greenhouses</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Calcium, transpiration and tipburn in lettuce</h3>
+      <p>Calcium is a structural nutrient of cell walls and membranes (<a href="/lessons/mineral-nutrition/">Lesson 2.3</a>). Unlike potassium or nitrogen, it moves almost only in the xylem with the transpiration stream and is hardly redistributed in the phloem (White &amp; Broadley, 2003). Organs that transpire little — the young, enclosed inner leaves of a lettuce head, fruits, growing tips — therefore receive little calcium, however much there is in the nutrient solution. When such tissue grows very fast, the local supply cannot keep up and the margins of young leaves collapse and turn brown: <strong>tipburn</strong> (Collier &amp; Tibbitts, 1982; Barta &amp; Tibbitts, 2000). Saure (1998) reviewed the evidence and stressed that tipburn is a disorder of rapidly growing tissue under conditions that restrict calcium supply, with other stress factors contributing.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 280" role="img" aria-label="Calcium delivery in a lettuce head: strong xylem flow to transpiring outer leaves, weak flow to enclosed inner leaves, and an air jet onto the heart that increases inner-leaf transpiration">
+            <defs>
+              <marker id="tb-wa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="fill-water"/></marker>
+              <marker id="tb-k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+            </defs>
+            <!-- outer leaves -->
+            <path d="M200 220 C 120 200, 80 120, 130 80 C 170 110, 200 170, 230 214 z" class="fill-accent" opacity="0.8"/>
+            <path d="M380 220 C 460 200, 500 120, 450 80 C 410 110, 380 170, 350 214 z" class="fill-accent" opacity="0.8"/>
+            <!-- inner leaves -->
+            <path d="M270 216 C 240 180, 240 130, 290 110 C 340 130, 340 180, 310 216 z" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+            <path d="M282 150 C 272 140, 278 124, 290 118 C 302 124, 308 140, 298 150" fill="none" style="stroke:var(--danger)" stroke-width="3"/>
+            <text x="290" y="96" text-anchor="middle" class="t-small" style="fill:var(--danger)">tipburn on inner-leaf margins</text>
+            <!-- stem/xylem -->
+            <rect x="282" y="216" width="16" height="44" class="fill-amber-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="306" y="252" class="t-small">xylem sap with Ca²⁺</text>
+            <!-- flows -->
+            <path d="M286 222 C 250 210, 190 190, 150 120" fill="none" class="stroke-water" stroke-width="4" marker-end="url(#tb-wa)"/>
+            <path d="M294 222 C 330 210, 390 190, 430 120" fill="none" class="stroke-water" stroke-width="4" marker-end="url(#tb-wa)"/>
+            <path d="M290 216 L 290 162" fill="none" class="stroke-water" stroke-width="1.2" marker-end="url(#tb-wa)"/>
+            <text x="60" y="60" class="t-small" style="fill:var(--water)">outer leaves transpire strongly:</text>
+            <text x="60" y="74" class="t-small" style="fill:var(--water)">most Ca goes here</text>
+            <text x="470" y="200" class="t-small" style="fill:var(--water)">enclosed inner leaves:</text>
+            <text x="470" y="214" class="t-small" style="fill:var(--water)">little transpiration, little Ca</text>
+            <!-- air jet -->
+            <line x1="560" y1="30" x2="320" y2="110" stroke="currentColor" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#tb-k)"/>
+            <text x="470" y="30" class="t-small">air blown onto the heart raises</text>
+            <text x="470" y="44" class="t-small">inner-leaf transpiration and Ca supply</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 11.</b> Why tipburn starts in the heart of a lettuce head. Calcium follows the transpiration stream to the leaves that transpire most; the fast-growing, enclosed inner leaves receive too little. Directing air onto the growing point eliminated tipburn in the high-light, high-CO₂ experiments of Frantz et al. (2004).</figcaption>
+      </figure>
+
+      <p>Controlled environments make tipburn both more likely and more controllable. More likely, because the conditions that maximise growth — high PPFD, CO₂ enrichment (which also partly closes stomata), warm temperatures — accelerate leaf expansion faster than calcium can follow, and because dense canopies and low air speeds create humid, still air inside the heads. More controllable, because air flow can be engineered: Frantz et al. (2004) eliminated tipburn by blowing air directly onto the meristem, which doubled edible yield at the highest light level; Lee et al. (2013) showed in a closed plant factory that air temperature and air-flow rate both affect tipburn occurrence in leaf lettuce; and vertical farms increasingly use perforated ducts or fans that blow down into the canopy. Root pressure at night, when transpiration stops, is thought to deliver part of the calcium that reaches low-transpiring organs, which is one reason why night-time humidity management matters too (Collier &amp; Tibbitts, 1982).</p>
+
+      <div class="callout frontier"><div class="callout-title">Research frontier (2026)</div><p>How much air movement is enough — and can it be too much? Dupont et al. (2026) grew lettuce and tomato under two low air speeds (0.22 and 0.65 m s⁻¹). The higher air speed raised transpirational demand; stomata partly closed and intrinsic water-use efficiency rose, but lettuce fresh weight and leaf length fell by about 13 %. Small differences in air flow, often ignored in experiments, change the leaf boundary layer, stomatal behaviour and growth — an important reminder for your own growth experiments (<a href="/lessons/experimental-design/">Lesson 3.1</a>) and for vertical-farm air-handling design.</p></div>
+
+      <h3>Water-use efficiency</h3>
+      <p>Because CO₂ and water vapour share the stomatal pathway, the ratio of carbon gained to water lost is set by physics and by how far the stomata let the internal CO₂ drop:</p>
+
+      <div class="eq-box" id="eq-wr-wue">
+        <div class="eq-head"><span class="eq-label">Leaf water-use efficiency</span><span class="eq-num">(2.2.10)</span></div>
+        <div class="eq-main">\[ \text{WUE} = \frac{A}{E} = \frac{g_c\,(C_a - C_i)}{g_w\,\text{VPD}/P} = \frac{(C_a-C_i)\,P}{1.6\,\text{VPD}} = \frac{C_a\,(1-C_i/C_a)\,P}{1.6\,\text{VPD}} \]</div>
+        <p class="eq-read">water-use efficiency, the CO₂ assimilated per water transpired, equals the CO₂ drawdown from ambient to intercellular air times atmospheric pressure, divided by 1.6 times the vapour pressure deficit. It rises with CO₂ enrichment and falls with VPD.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(A, E\)</td><td>net CO₂ assimilation, transpiration</td><td>mol m⁻² s⁻¹</td><td></td></tr>
+          <tr><td>\(C_a, C_i\)</td><td>ambient and intercellular CO₂ mole fraction</td><td>mol mol⁻¹</td><td>\(C_i/C_a\) ≈ 0.7 for C3</td></tr>
+          <tr><td>\(g_c, g_w\)</td><td>conductances to CO₂ and water vapour</td><td>mol m⁻² s⁻¹</td><td>\(g_w = 1.6\,g_c\)</td></tr>
+          <tr><td>1.6</td><td>ratio of the diffusivities of water vapour and CO₂ in air</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>CO₂ enters by diffusion: \(A = g_c(C_a - C_i)\) (boundary layer neglected).</li>
+            <li>Water leaves by diffusion: \(E = g_w\,\text{VPD}/P\) (Eq. 2.2.6).</li>
+            <li>Water vapour is lighter and diffuses faster: \(g_w = 1.6\,g_c\) through stomatal pores.</li>
+            <li>Dividing, \(g_c\) cancels: \(A/E = (C_a-C_i)P/(1.6\,\text{VPD})\). Example: \(C_a\) = 400 µmol mol⁻¹, \(C_i\) = 280, VPD = 1.0 kPa, P = 101.3 kPa → WUE = 120 × 10⁻⁶ × 101.3/1.6 = 7.6 × 10⁻³ mol CO₂ per mol H₂O = 7.6 mmol mol⁻¹, i.e., about 130 water molecules per CO₂.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Instantaneous leaf-level WUE; night-time water loss, respiration and the difference between leaf and air temperature are ignored. Crop-level WUE (g biomass per litre) also depends on how much water is lost by evaporation from substrates and by drainage — in closed plant factories where condensate is recycled, system-level water-use efficiency can be far higher than in the field (<a href="/lessons/resource-use-efficiency/">Lesson 8.4</a>).</p></details>
+        <div class="eq-units">(mol mol⁻¹)(kPa)/(kPa) = mol CO₂ per mol H₂O ✓</div>
+        <div class="mini-calc" data-formula="1000*Ca*1e-6*(1-ratio)*P/(1.6*vpd)" data-output="Water-use efficiency A/E" data-unit="mmol CO₂ mol⁻¹ H₂O" data-digits="2" data-plot="vpd">
+          <div data-var="vpd" data-label="VPD" data-min="0.1" data-max="3" data-step="0.05" data-value="1" data-unit="kPa"></div>
+          <div data-var="Ca" data-label="Ambient CO₂ C<sub>a</sub>" data-min="300" data-max="1500" data-step="10" data-value="400" data-unit="µmol mol⁻¹"></div>
+          <div data-var="ratio" data-label="C<sub>i</sub>/C<sub>a</sub>" data-min="0.4" data-max="0.95" data-step="0.01" data-value="0.7"></div>
+          <div data-var="P" data-label="Air pressure P" data-min="60" data-max="105" data-step="0.1" data-value="101.3" data-unit="kPa"></div>
+        </div>
+      </div>
+
+      <p>Equation 2.2.10 contains the whole CEA strategy in one line. CO₂ enrichment raises \(C_a\) and — as stomata partly close — lowers \(C_i/C_a\) slightly, so WUE rises strongly; keeping VPD moderate avoids wasting water per unit of carbon. The catch: very low VPD also lowers transpiration and calcium delivery. The art of climate control is to keep VPD in the window where both carbon gain and calcium transport are adequate, with enough air movement to thin the boundary layers inside the canopy.</p>
+
+      <a class="lab-link" data-lab="psychrometric-chart" data-why="Drag air states across a psychrometric chart and trace how heating, cooling, dehumidification and crop transpiration change temperature, humidity and VPD."></a>
+      <p>For the thermodynamics of moist air — humidity ratio, dew point, enthalpy and the psychrometric chart — continue with <a href="/lessons/psychrometrics/">Lesson 8.2</a>.</p>
+
+      <!-- ============================================================ quiz -->
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="water-relations-main">
+        <script type="application/json">
+        {"title":"Water relations, transpiration and VPD","questions":[
+          {"type":"numeric","q":"Cell sap has an osmolality of 250 mmol L⁻¹. What is its osmotic potential at 20 °C (in MPa, enter a negative number)?","answer":-0.609,"tol":0.02,"unit":"MPa","hint":"Ψₛ = −c R T with c in mol m⁻³ (= mmol L⁻¹) and T in K.","explain":"<p>\\(\\Psi_s = -250\\times8.314\\times293.15 = -6.09\\times10^5\\) Pa = −0.61 MPa.</p>"},
+          {"type":"numeric","q":"What is the water potential of air at 20 °C and 80 % relative humidity (in MPa)?","answer":-30.1,"tol":0.02,"unit":"MPa","hint":"Ψ = (RT/V̄w) ln(RH/100) with V̄w = 18.05 × 10⁻⁶ m³ mol⁻¹.","explain":"<p>\\(RT/\\bar V_w = 135.0\\) MPa; \\(135.0\\times\\ln0.8 = -30.1\\) MPa.</p>"},
+          {"type":"mcq","q":"In a well-watered plant, where along the soil–plant–atmosphere continuum is the largest drop in water potential?","options":["Across the root endodermis","Along the stem xylem","From the leaf interior to the bulk air","From the nutrient solution to the root surface"],"answer":2,"feedback":["The root is often the largest <em>liquid-phase</em> resistance, but its drop is only a fraction of a MPa.","The xylem is a low-resistance pipe; the drop is typically a few hundredths to tenths of a MPa.","","In a stirred hydroponic solution this drop is negligible."],"explain":"<p>The drop from the leaf (≈ −0.5 MPa) to air (−30 to −100 MPa) is two orders of magnitude larger than all liquid-phase drops together. This is why stomata control transpiration.</p>"},
+          {"type":"numeric","q":"Calculate the vapour pressure deficit of air at 25 °C and 60 % RH (leaf at air temperature).","answer":1.267,"tol":0.02,"unit":"kPa","hint":"eₛ(25) = 0.6108 exp(17.27 × 25/262.3).","explain":"<p>\\(e_s(25) = 3.168\\) kPa; VPD = 0.40 × 3.168 = 1.27 kPa.</p>"},
+          {"type":"numeric","q":"A leaf has a total conductance to water vapour of 0.25 mol m⁻² s⁻¹. The leaf-to-air VPD is 1.0 kPa and the air pressure 100 kPa. What is the transpiration rate in mmol m⁻² s⁻¹?","answer":2.5,"tol":0.02,"unit":"mmol m⁻² s⁻¹","explain":"<p>\\(E = 0.25\\times1.0/100 = 2.5\\times10^{-3}\\) mol m⁻² s⁻¹ = 2.5 mmol m⁻² s⁻¹.</p>"},
+          {"type":"tf","q":"If the relative humidity is held constant at 70 %, raising the air temperature from 20 to 30 °C leaves the VPD unchanged.","answer":false,"explain":"<p>VPD = eₛ(T)(1 − RH/100). eₛ rises from 2.34 to 4.24 kPa, so VPD rises from 0.70 to 1.27 kPa — an 81 % increase in drying power at the same RH.</p>"},
+          {"type":"numeric","q":"Using Campbell and Norman's formula, what is the boundary-layer conductance to water vapour of one side of a leaf 10 cm wide in air moving at 0.5 m s⁻¹?","answer":0.387,"tol":0.03,"unit":"mol m⁻² s⁻¹","hint":"d = 0.72 w; g = 0.147 √(u/d).","explain":"<p>d = 0.072 m; √(0.5/0.072) = 2.635; g = 0.147 × 2.635 = 0.39 mol m⁻² s⁻¹.</p>"},
+          {"type":"mcq","q":"In the Penman–Monteith equation, what happens when the surface conductance gₛ becomes very large (a wet surface)?","options":["λE becomes zero","λE becomes [Δ(Rₙ − G) + ρₐcₚDgₐ]/(Δ + γ), Penman's open-water equation","λE becomes equal to Rₙ − G exactly","λE becomes proportional to gₛ"],"answer":1,"feedback":["That is the limit of closed stomata (gₛ → 0).","","Only if the aerodynamic term exactly balances; in general H ≠ 0.","λE saturates as gₛ grows because the boundary layer and energy supply limit it."],"explain":"<p>With gₐ/gₛ → 0 the denominator becomes Δ + γ, which is Penman's (1948) equation for open water.</p>"},
+          {"type":"multi","q":"Which conditions increase the risk of tipburn in lettuce grown in a vertical farm? (Select all that apply.)","options":["Very rapid growth under high PPFD and CO₂ enrichment","Still, humid air inside the heads because of dense canopies and low air speed","Air blown directly onto the growing point","A tenfold increase of calcium in the nutrient solution above normal levels"],"answer":[0,1],"explain":"<p>Tipburn is a local calcium shortage in fast-growing, low-transpiring tissue. Air directed onto the meristem prevents it (Frantz et al., 2004). Raising solution calcium far above normal does not solve a <em>transport</em> problem and may cause other imbalances.</p>"},
+          {"type":"numeric","q":"A CO₂-enriched greenhouse has Cₐ = 800 µmol mol⁻¹, Cᵢ/Cₐ = 0.7, VPD = 0.8 kPa and P = 101.3 kPa. What is the leaf water-use efficiency in mmol CO₂ per mol H₂O?","answer":19.0,"tol":0.02,"unit":"mmol mol⁻¹","hint":"WUE = (Cₐ − Cᵢ) P/(1.6 VPD).","explain":"<p>\\((240\\times10^{-6}\\times101.3)/(1.6\\times0.8) = 1.90\\times10^{-2}\\) mol mol⁻¹ = 19.0 mmol mol⁻¹ — 2.5 times the value at 400 µmol mol⁻¹ and 1 kPa.</p>"},
+          {"type":"numeric","q":"Convert a stomatal conductance of 10 mm s⁻¹ into molar units at 20 °C and 101.3 kPa.","answer":0.416,"tol":0.02,"unit":"mol m⁻² s⁻¹","hint":"g(mol) = g(m s⁻¹) × P/(RT) with P in Pa.","explain":"<p>\\(P/(RT) = 101\\,300/(8.314\\times293.15) = 41.6\\) mol m⁻³; 0.010 m s⁻¹ × 41.6 = 0.416 mol m⁻² s⁻¹.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Water potential (Ψ)</dt><dd>Chemical potential of water relative to pure water, per unit molar volume (MPa); water moves from high to low Ψ.</dd>
+        <dt>Osmotic potential (Ψₛ)</dt><dd>Component of Ψ due to dissolved solutes; Ψₛ = −cRT for dilute solutions.</dd>
+        <dt>Turgor pressure (Ψₚ)</dt><dd>Positive hydrostatic pressure inside a cell pressed against its wall; negative pressure (tension) in the xylem.</dd>
+        <dt>Cohesion–tension theory</dt><dd>Explanation of the ascent of sap: evaporation in leaves pulls a cohesive water column up through the xylem under tension.</dd>
+        <dt>Soil–plant–atmosphere continuum (SPAC)</dt><dd>The continuous water pathway from root zone through the plant to the air, analysed as resistances in series.</dd>
+        <dt>Casparian strip</dt><dd>Hydrophobic band in endodermal cell walls that blocks apoplastic flow and forces water and ions through membranes.</dd>
+        <dt>Stomatal conductance</dt><dd>Measure of how easily gases diffuse through the stomata, usually in mol m⁻² s⁻¹.</dd>
+        <dt>Boundary-layer conductance</dt><dd>Conductance of the layer of still air on a leaf surface; increases with air speed and decreases with leaf size.</dd>
+        <dt>Vapour pressure deficit (VPD)</dt><dd>Difference between saturation and actual vapour pressure of air (kPa); leaf-to-air VPD uses the saturation pressure at leaf temperature.</dd>
+        <dt>Transpiration</dt><dd>Loss of water vapour from plants, mainly through stomata; E = g·VPD/P.</dd>
+        <dt>Latent heat flux</dt><dd>Energy carried away by evaporating water (λE), ≈ 2.45 MJ per kg of water.</dd>
+        <dt>Penman–Monteith equation</dt><dd>Combination equation giving evapotranspiration from available energy, VPD, aerodynamic and surface conductances.</dd>
+        <dt>Guttation</dt><dd>Exudation of xylem sap droplets from hydathodes, driven by root pressure when transpiration is low.</dd>
+        <dt>Tipburn</dt><dd>Necrosis of young leaf margins caused by local calcium shortage in fast-growing, low-transpiring tissue.</dd>
+        <dt>Water-use efficiency</dt><dd>Carbon gained per water lost; at leaf level A/E = (Cₐ − Cᵢ)P/(1.6 VPD).</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can calculate the osmotic potential of a nutrient solution and explain what salt does to root water uptake.</li>
+        <li>I can use the Ohm's-law analogy to find leaf water potential and identify the largest hydraulic resistance.</li>
+        <li>I can compute VPD at air and leaf temperature and a leaf's transpiration from stomatal and boundary-layer conductances.</li>
+        <li>I can derive the Penman–Monteith equation from the energy balance and use it to estimate the water and latent-heat load of a crop tier.</li>
+        <li>I can justify a VPD set-point range for a greenhouse or vertical farm and explain its links to calcium transport, tipburn and disease.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56). FAO. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">fao.org/4/x0490e</a><span class="r-why">Read Chapters 2 and 3: the Penman–Monteith equation, vapour pressure and psychrometric constants, explained for engineers.</span></li>
+        <li><span class="r-type">Required · open access</span>Grossiord, C., Buckley, T. N., Cernusak, L. A., Novick, K. A., Poulter, B., Siegwolf, R. T. W., Sperry, J. S., &amp; McDowell, N. G. (2020). Plant responses to rising vapor pressure deficit. <em>New Phytologist</em>, 226(6), 1550–1566. <a href="https://doi.org/10.1111/nph.16485" target="_blank" rel="noopener">doi:10.1111/nph.16485</a><span class="r-why">A clear review of how stomata, transpiration and growth respond to VPD.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Graamans, L., van den Dobbelsteen, A., Meinen, E., &amp; Stanghellini, C. (2017). Plant factories; crop transpiration and energy balance. <em>Agricultural Systems</em>, 153, 138–147. <a href="https://doi.org/10.1016/j.agsy.2017.01.003" target="_blank" rel="noopener">doi:10.1016/j.agsy.2017.01.003</a><span class="r-why">A transpiration model for lettuce in closed plant factories and its consequences for climatisation.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Nelson, J. A., &amp; Bugbee, B. (2015). Analysis of environmental effects on leaf temperature under sunlight, high pressure sodium and light emitting diodes. <em>PLoS ONE</em>, 10(10), e0138930. <a href="https://doi.org/10.1371/journal.pone.0138930" target="_blank" rel="noopener">doi:10.1371/journal.pone.0138930</a><span class="r-why">The leaf energy balance of Section 2.2.6 applied to LED, HPS and sunlight.</span></li>
+        <li><span class="r-type">Recommended · free to read</span>Lawson, T., &amp; Vialet-Chabrand, S. (2019). Speedy stomata, photosynthesis and plant water use efficiency. <em>New Phytologist</em>, 221(1), 93–98. <a href="https://doi.org/10.1111/nph.15330" target="_blank" rel="noopener">doi:10.1111/nph.15330</a><span class="r-why">Why the speed of stomatal responses matters for water-use efficiency under fluctuating light.</span></li>
+        <li><span class="r-type">Textbook</span>Jones, H. G. (2014). <em>Plants and Microclimate: A Quantitative Approach to Environmental Plant Physiology</em> (3rd ed.). Cambridge University Press. <a href="https://doi.org/10.1017/CBO9780511845727" target="_blank" rel="noopener">doi:10.1017/CBO9780511845727</a><span class="r-why">The standard quantitative treatment of water relations, energy balance and stomata.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56). Food and Agriculture Organization of the United Nations. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">https://www.fao.org/4/x0490e/x0490e00.htm</a></li>
+        <li>Barta, D. J., &amp; Tibbitts, T. W. (2000). Calcium localization and tipburn development in lettuce leaves during early enlargement. <em>Journal of the American Society for Horticultural Science</em>, 125(3), 294–298. <a href="https://doi.org/10.21273/JASHS.125.3.294" target="_blank" rel="noopener">doi:10.21273/JASHS.125.3.294</a></li>
+        <li>Buckley, T. N. (2019). How do stomata respond to water status? <em>New Phytologist</em>, 224(1), 21–36. <a href="https://doi.org/10.1111/nph.15899" target="_blank" rel="noopener">doi:10.1111/nph.15899</a></li>
+        <li>Campbell, G. S., &amp; Norman, J. M. (1998). <em>An Introduction to Environmental Biophysics</em> (2nd ed.). Springer. <a href="https://doi.org/10.1007/978-1-4612-1626-1" target="_blank" rel="noopener">doi:10.1007/978-1-4612-1626-1</a></li>
+        <li>Chaumont, F., &amp; Tyerman, S. D. (2014). Aquaporins: highly regulated channels controlling plant water relations. <em>Plant Physiology</em>, 164(4), 1600–1618. <a href="https://doi.org/10.1104/pp.113.233791" target="_blank" rel="noopener">doi:10.1104/pp.113.233791</a></li>
+        <li>Collier, G. F., &amp; Tibbitts, T. W. (1982). Tipburn of lettuce. <em>Horticultural Reviews</em>, 4, 49–65. <a href="https://doi.org/10.1002/9781118060773.ch2" target="_blank" rel="noopener">doi:10.1002/9781118060773.ch2</a></li>
+        <li>Dixon, H. H., &amp; Joly, J. (1895). On the ascent of sap. <em>Philosophical Transactions of the Royal Society of London B</em>, 186, 563–576. <a href="https://doi.org/10.1098/rstb.1895.0012" target="_blank" rel="noopener">doi:10.1098/rstb.1895.0012</a></li>
+        <li>Dupont, K., Frati, R., &amp; Vialet-Chabrand, S. R. M. (2026). Low wind, high impact: sustained low airflow alters water use efficiency and shapes plant acclimation. <em>Journal of Experimental Botany</em>, 77(16), 5225–5243. <a href="https://doi.org/10.1093/jxb/erag185" target="_blank" rel="noopener">doi:10.1093/jxb/erag185</a></li>
+        <li>Frantz, J. M., Ritchie, G., Cometti, N. N., Robinson, J., &amp; Bugbee, B. (2004). Exploring the limits of crop productivity: beyond the limits of tipburn in lettuce. <em>Journal of the American Society for Horticultural Science</em>, 129(3), 331–338. <a href="https://doi.org/10.21273/JASHS.129.3.0331" target="_blank" rel="noopener">doi:10.21273/JASHS.129.3.0331</a></li>
+        <li>Graamans, L., van den Dobbelsteen, A., Meinen, E., &amp; Stanghellini, C. (2017). Plant factories; crop transpiration and energy balance. <em>Agricultural Systems</em>, 153, 138–147. <a href="https://doi.org/10.1016/j.agsy.2017.01.003" target="_blank" rel="noopener">doi:10.1016/j.agsy.2017.01.003</a></li>
+        <li>Grossiord, C., Buckley, T. N., Cernusak, L. A., Novick, K. A., Poulter, B., Siegwolf, R. T. W., Sperry, J. S., &amp; McDowell, N. G. (2020). Plant responses to rising vapor pressure deficit. <em>New Phytologist</em>, 226(6), 1550–1566. <a href="https://doi.org/10.1111/nph.16485" target="_blank" rel="noopener">doi:10.1111/nph.16485</a></li>
+        <li>Jones, H. G. (2014). <em>Plants and Microclimate: A Quantitative Approach to Environmental Plant Physiology</em> (3rd ed.). Cambridge University Press. <a href="https://doi.org/10.1017/CBO9780511845727" target="_blank" rel="noopener">doi:10.1017/CBO9780511845727</a></li>
+        <li>Lawson, T., &amp; Vialet-Chabrand, S. (2019). Speedy stomata, photosynthesis and plant water use efficiency. <em>New Phytologist</em>, 221(1), 93–98. <a href="https://doi.org/10.1111/nph.15330" target="_blank" rel="noopener">doi:10.1111/nph.15330</a></li>
+        <li>Lee, J. G., Choi, C. S., Jang, Y. A., Jang, S. W., Lee, S. G., &amp; Um, Y. C. (2013). Effects of air temperature and air flow rate control on the tipburn occurrence of leaf lettuce in a closed-type plant factory system. <em>Horticulture, Environment, and Biotechnology</em>, 54(4), 303–310. <a href="https://doi.org/10.1007/s13580-013-0031-0" target="_blank" rel="noopener">doi:10.1007/s13580-013-0031-0</a></li>
+        <li>Monteith, J. L. (1965). Evaporation and environment. <em>Symposia of the Society for Experimental Biology</em>, 19, 205–234.</li>
+        <li>Monteith, J. L., &amp; Unsworth, M. H. (2013). <em>Principles of Environmental Physics</em> (4th ed.). Academic Press. <a href="https://doi.org/10.1016/C2010-0-66393-0" target="_blank" rel="noopener">doi:10.1016/C2010-0-66393-0</a></li>
+        <li>Murray, F. W. (1967). On the computation of saturation vapor pressure. <em>Journal of Applied Meteorology</em>, 6(1), 203–204. <a href="https://doi.org/10.1175/1520-0450(1967)006%3C0203:OTCOSV%3E2.0.CO;2" target="_blank" rel="noopener">doi:10.1175/1520-0450(1967)006&lt;0203:OTCOSV&gt;2.0.CO;2</a></li>
+        <li>Nelson, J. A., &amp; Bugbee, B. (2015). Analysis of environmental effects on leaf temperature under sunlight, high pressure sodium and light emitting diodes. <em>PLoS ONE</em>, 10(10), e0138930. <a href="https://doi.org/10.1371/journal.pone.0138930" target="_blank" rel="noopener">doi:10.1371/journal.pone.0138930</a></li>
+        <li>Penman, H. L. (1948). Natural evaporation from open water, bare soil and grass. <em>Proceedings of the Royal Society of London A</em>, 193(1032), 120–145. <a href="https://doi.org/10.1098/rspa.1948.0037" target="_blank" rel="noopener">doi:10.1098/rspa.1948.0037</a></li>
+        <li>Saure, M. C. (1998). Causes of the tipburn disorder in leaves of vegetables. <em>Scientia Horticulturae</em>, 76(3–4), 131–147. <a href="https://doi.org/10.1016/S0304-4238(98)00153-8" target="_blank" rel="noopener">doi:10.1016/S0304-4238(98)00153-8</a></li>
+        <li>Shamshiri, R. R., Jones, J. W., Thorp, K. R., Ahmad, D., Man, H. C., &amp; Taheri, S. (2018). Review of optimum temperature, humidity, and vapour pressure deficit for microclimate evaluation and control in greenhouse cultivation of tomato: a review. <em>International Agrophysics</em>, 32(2), 287–302. <a href="https://doi.org/10.1515/intag-2017-0005" target="_blank" rel="noopener">doi:10.1515/intag-2017-0005</a></li>
+        <li>Singh, S. (2014). Guttation: new insights into agricultural implications. <em>Advances in Agronomy</em>, 128, 97–135. <a href="https://doi.org/10.1016/B978-0-12-802139-2.00003-2" target="_blank" rel="noopener">doi:10.1016/B978-0-12-802139-2.00003-2</a></li>
+        <li>Stanghellini, C., van 't Ooster, B., &amp; Heuvelink, E. (2019). <em>Greenhouse Horticulture: Technology for Optimal Crop Production</em>. Wageningen Academic Publishers. <a href="https://doi.org/10.3920/978-90-8686-879-7" target="_blank" rel="noopener">doi:10.3920/978-90-8686-879-7</a></li>
+        <li>Steudle, E. (2000). Water uptake by roots: effects of water deficit. <em>Journal of Experimental Botany</em>, 51(350), 1531–1542. <a href="https://doi.org/10.1093/jexbot/51.350.1531" target="_blank" rel="noopener">doi:10.1093/jexbot/51.350.1531</a></li>
+        <li>Taiz, L., Møller, I. M., Murphy, A., &amp; Zeiger, E. (2022). <em>Plant Physiology and Development</em> (7th ed.). Oxford University Press / Sinauer.</li>
+        <li>Tetens, O. (1930). Über einige meteorologische Begriffe. <em>Zeitschrift für Geophysik</em>, 6, 297–309.</li>
+        <li>Tyree, M. T., &amp; Zimmermann, M. H. (2002). <em>Xylem Structure and the Ascent of Sap</em> (2nd ed.). Springer. <a href="https://doi.org/10.1007/978-3-662-04931-0" target="_blank" rel="noopener">doi:10.1007/978-3-662-04931-0</a></li>
+        <li>van den Honert, T. H. (1948). Water transport in plants as a catenary process. <em>Discussions of the Faraday Society</em>, 3, 146–153. <a href="https://doi.org/10.1039/DF9480300146" target="_blank" rel="noopener">doi:10.1039/DF9480300146</a></li>
+        <li>White, P. J., &amp; Broadley, M. R. (2003). Calcium in plants. <em>Annals of Botany</em>, 92(4), 487–511. <a href="https://doi.org/10.1093/aob/mcg164" target="_blank" rel="noopener">doi:10.1093/aob/mcg164</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, linspace } from '/assets/js/plot.js';
+import { Readouts } from '/assets/js/ui.js';
+import { svp, svpSlope, dewPoint, absoluteHumidity, latentHeat, psychroConst } from '/assets/js/physics.js';
+
+function makeSlider(host, { label, min, max, step, value, unit = '', digits }, onInput) {
+  const w = document.createElement('div'); w.className = 'mc-var';
+  w.innerHTML = `<div class="mc-lab"><span>${label}</span><output></output></div><input type="range" min="${min}" max="${max}" step="${step}" aria-label="${label.replace(/<[^>]+>/g, '')}">`;
+  const r = w.querySelector('input'), o = w.querySelector('output');
+  const d = digits != null ? digits : (step < 1 ? Math.min(4, Math.ceil(-Math.log10(step) - 1e-9)) : 0);
+  const show = () => { o.textContent = (+r.value).toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d }) + (unit ? ' ' + unit : ''); r.style.setProperty('--fill', ((r.value - min) / (max - min) * 100) + '%'); };
+  r.value = value; show();
+  r.addEventListener('input', () => { show(); onInput && onInput(+r.value); });
+  host.appendChild(w);
+  return { get: () => +r.value, set: v => { r.value = v; show(); } };
+}
+
+/* ---------- Figure 3: SPAC staircase ---------- */
+const SP = { E: 3, rz: -0.07, Kr: 15, Ks: 40, Kl: 20, h: 0.3, RH: 70, T: 22 };
+const NODES = ['Root zone', 'Root xylem', 'Stem top', 'Leaf cells'];
+const spPlot = new Plot('#spac-plot', { x: { label: 'Position along the pathway', min: -0.3, max: 3.3, format: v => (Math.abs(v - Math.round(v)) < 1e-6 && NODES[Math.round(v)]) || '' }, y: { label: 'Water potential Ψ', unit: 'MPa', min: 'auto', max: 0.05 }, height: 300, crosshair: false });
+const spCtl = document.getElementById('spac-ctl');
+makeSlider(spCtl, { label: 'Transpiration E', min: 0, max: 8, step: 0.1, value: SP.E, unit: 'mmol m⁻² s⁻¹' }, v => { SP.E = v; spDraw(); });
+makeSlider(spCtl, { label: 'Root-zone Ψ (solution)', min: -1, max: 0, step: 0.01, value: SP.rz, unit: 'MPa' }, v => { SP.rz = v; spDraw(); });
+makeSlider(spCtl, { label: 'K<sub>root</sub>', min: 2, max: 60, step: 0.5, value: SP.Kr, unit: 'mmol m⁻² s⁻¹ MPa⁻¹' }, v => { SP.Kr = v; spDraw(); });
+makeSlider(spCtl, { label: 'K<sub>stem</sub>', min: 5, max: 150, step: 1, value: SP.Ks, unit: 'mmol m⁻² s⁻¹ MPa⁻¹' }, v => { SP.Ks = v; spDraw(); });
+makeSlider(spCtl, { label: 'K<sub>leaf</sub>', min: 2, max: 60, step: 0.5, value: SP.Kl, unit: 'mmol m⁻² s⁻¹ MPa⁻¹' }, v => { SP.Kl = v; spDraw(); });
+makeSlider(spCtl, { label: 'Plant height', min: 0.1, max: 5, step: 0.1, value: SP.h, unit: 'm' }, v => { SP.h = v; spDraw(); });
+makeSlider(spCtl, { label: 'Air relative humidity', min: 30, max: 99, step: 1, value: SP.RH, unit: '%' }, v => { SP.RH = v; spDraw(); });
+const spro = new Readouts('#spac-ro');
+spro.add({ id: 'leaf', label: 'Leaf water potential', unit: 'MPa', digits: 2 })
+  .add({ id: 'root', label: 'Share of drop in root', unit: '%', digits: 0 })
+  .add({ id: 'air', label: 'Ψ of the air', unit: 'MPa', digits: 1 })
+  .add({ id: 'ratio', label: 'Drop leaf → air ÷ drop root zone → leaf', unit: '×', digits: 0 });
+function spDraw() {
+  const dr = SP.E / SP.Kr, ds = SP.E / SP.Ks + 0.0098 * SP.h, dl = SP.E / SP.Kl;
+  const psi = [SP.rz, SP.rz - dr, SP.rz - dr - ds, SP.rz - dr - ds - dl];
+  spPlot.line('psi', [0, 1, 2, 3], psi, { color: 'water', width: 3, label: 'Ψ along the pathway' });
+  spPlot.scatter('pts', [0, 1, 2, 3], psi, { color: 'accent', r: 6 });
+  spPlot.hline('zero', 0, { color: 'muted', dash: [2, 3] });
+  ['root', 'stem', 'leaf'].forEach((k, i) => spPlot.text('t' + k, i + 0.5, (psi[i] + psi[i + 1]) / 2, `−${[dr, ds, dl][i].toFixed(2)}`, { color: 'magenta', align: 'center', dy: -12 }));
+  spPlot.setAxis('y', { min: Math.min(-0.6, Math.floor((psi[3] - 0.15) * 10) / 10), max: 0.05 });
+  const air = 8.314 * (SP.T + 273.15) / 18.05e-6 * Math.log(SP.RH / 100) / 1e6;
+  const tot = SP.rz - psi[3];
+  spro.set('leaf', psi[3], psi[3] > -0.8 ? 'ok' : psi[3] > -1.5 ? 'warn' : 'bad');
+  spro.set('root', tot > 0 ? 100 * dr / tot : 0);
+  spro.set('air', air);
+  spro.set('ratio', tot > 0 ? (psi[3] - air) / tot : NaN);
+}
+spDraw();
+
+/* ---------- Figure 8: VPD map ---------- */
+const VP = { Ta: 22, RH: 70, dT: -1 };
+const TA0 = 10, TA1 = 35, RH0 = 30, RH1 = 100;
+const vpPlot = new Plot('#vpd-plot', { x: { label: 'Air temperature', unit: '°C', min: TA0, max: TA1 }, y: { label: 'Relative humidity', unit: '%', min: RH0, max: RH1 }, height: 330, legend: true, crosshair: false });
+const vpCtl = document.getElementById('vpd-ctl');
+const sTa = makeSlider(vpCtl, { label: 'Air temperature', min: TA0, max: TA1, step: 0.5, value: VP.Ta, unit: '°C' }, v => { VP.Ta = v; vpPoint(); });
+const sRH = makeSlider(vpCtl, { label: 'Relative humidity', min: RH0, max: RH1, step: 1, value: VP.RH, unit: '%' }, v => { VP.RH = v; vpPoint(); });
+makeSlider(vpCtl, { label: 'Leaf − air temperature', min: -4, max: 4, step: 0.5, value: VP.dT, unit: '°C' }, v => { VP.dT = v; vpMap(); vpPoint(); });
+vpCtl.insertAdjacentHTML('beforeend', '<p class="wr-note">Colour: leaf-to-air VPD from 0 (dark) to ≥ 2.5 kPa (yellow).</p>');
+const vro = new Readouts('#vpd-ro');
+vro.add({ id: 'vair', label: 'VPD of the air', unit: 'kPa', digits: 2 })
+  .add({ id: 'vleaf', label: 'Leaf-to-air VPD', unit: 'kPa', digits: 2 })
+  .add({ id: 'dew', label: 'Dew point', unit: '°C', digits: 1 })
+  .add({ id: 'ah', label: 'Humidity deficit', unit: 'g m⁻³', digits: 1 })
+  .add({ id: 'zone', label: 'Assessment', unit: '', format: v => v });
+const vLeaf = (Ta, RH) => svp(Ta + VP.dT) - RH / 100 * svp(Ta);
+function vpMap() {
+  const nx = 100, ny = 70, z = [];
+  for (let j = 0; j < ny; j++) { const RH = RH0 + (RH1 - RH0) * (j + 0.5) / ny; const row = []; for (let i = 0; i < nx; i++) { const Ta = TA0 + (TA1 - TA0) * (i + 0.5) / nx; row.push(Math.max(0, vLeaf(Ta, RH))); } z.push(row); }
+  vpPlot.heatmap('hm', { z, x0: TA0, x1: TA1, y0: RH0, y1: RH1, colormap: 'viridis', min: 0, max: 2.5, alpha: 0.85 });
+  const Ts = linspace(TA0, TA1, 101);
+  [[0.3, 'c5'], [0.8, 'c1'], [1.0, 'c1'], [1.5, 'danger']].forEach(([v, col]) => {
+    const rh = Ts.map(T => 100 * (svp(T + VP.dT) - v) / svp(T));
+    vpPlot.line('c' + v, Ts, rh.map(r => (r >= RH0 && r <= RH1) ? r : NaN), { color: '#ffffff', width: v === 0.3 || v === 1.5 ? 2 : 1.4, dash: v === 0.8 ? [5, 4] : null, label: '', noTip: true });
+    let k = Ts.length - 1; while (k > 0 && !(rh[k] >= RH0 + 3 && rh[k] <= RH1 - 3)) k--;
+    if (k > 0) vpPlot.text('l' + v, Ts[k] - 0.4, rh[k], v.toFixed(1) + ' kPa', { color: '#ffffff', align: 'right', dy: -7, size: 11 });
+  });
+}
+function vpPoint() {
+  vpPlot.point('state', VP.Ta, VP.RH, { color: 'magenta', r: 7, label: `${VP.Ta.toFixed(1)} °C, ${VP.RH.toFixed(0)} %` });
+  const va = svp(VP.Ta) * (1 - VP.RH / 100), vl = vLeaf(VP.Ta, VP.RH);
+  vro.set('vair', va); vro.set('vleaf', vl, vl < 0.3 ? 'warn' : vl <= 1.0 ? 'ok' : vl <= 1.5 ? 'warn' : 'bad');
+  vro.set('dew', VP.RH >= 100 ? VP.Ta : dewPoint(VP.Ta, VP.RH));
+  vro.set('ah', absoluteHumidity(VP.Ta, 100) - absoluteHumidity(VP.Ta, VP.RH));
+  vro.set('zone', vl < 0.3 ? 'Too humid: low transpiration, disease risk' : vl <= 1.0 ? 'Within the commonly recommended window' : vl <= 1.5 ? 'Drying: watch for stress' : 'Too dry: water stress likely', vl < 0.3 || (vl > 1.0 && vl <= 1.5) ? 'warn' : vl <= 1.0 ? 'ok' : 'bad');
+}
+let dragging = false;
+const vpMove = e => { if (!e.inside) return; VP.Ta = Math.round(e.x * 2) / 2; VP.RH = Math.round(e.y); sTa.set(VP.Ta); sRH.set(VP.RH); vpPoint(); };
+vpPlot.on('pointerdown', e => { dragging = true; vpMove(e); });
+vpPlot.on('pointermove', e => { if (dragging) vpMove(e); });
+vpPlot.on('pointerup', () => { dragging = false; });
+vpMap(); vpPoint();
+
+/* ---------- Figure 10: Penman–Monteith partition ---------- */
+const PM = { Rn: 120, T: 22, ga: 20, gs: 15, RH: 70 };
+const pmPlot = new Plot('#pm-plot', { x: { label: 'Vapour pressure deficit of the air D', unit: 'kPa', min: 0, max: 2.5 }, y: { label: 'Energy flux', unit: 'W m⁻²', min: 'auto', max: 'auto' }, height: 320 });
+const pmCtl = document.getElementById('pm-ctl');
+makeSlider(pmCtl, { label: 'Net radiation Rₙ − G', min: 0, max: 400, step: 5, value: PM.Rn, unit: 'W m⁻²' }, v => { PM.Rn = v; pmDraw(); });
+makeSlider(pmCtl, { label: 'Air temperature', min: 12, max: 32, step: 0.5, value: PM.T, unit: '°C' }, v => { PM.T = v; pmDraw(); });
+makeSlider(pmCtl, { label: 'Aerodynamic g<sub>a</sub>', min: 2, max: 60, step: 1, value: PM.ga, unit: 'mm s⁻¹' }, v => { PM.ga = v; pmDraw(); });
+makeSlider(pmCtl, { label: 'Surface g<sub>s</sub>', min: 1, max: 40, step: 0.5, value: PM.gs, unit: 'mm s⁻¹' }, v => { PM.gs = v; pmDraw(); });
+makeSlider(pmCtl, { label: 'Relative humidity (operating point)', min: 30, max: 98, step: 1, value: PM.RH, unit: '%' }, v => { PM.RH = v; pmDraw(); });
+const pro = new Readouts('#pm-ro');
+pro.add({ id: 'le', label: 'Latent heat λE', unit: 'W m⁻²', digits: 0 })
+  .add({ id: 'h', label: 'Sensible heat H', unit: 'W m⁻²', digits: 0 })
+  .add({ id: 'e', label: 'Transpiration', unit: 'g m⁻² h⁻¹', digits: 0 })
+  .add({ id: 'day', label: 'Water per 16 h day', unit: 'L m⁻² d⁻¹', digits: 2 })
+  .add({ id: 'kwh', label: 'Latent load per day', unit: 'kWh m⁻² d⁻¹', digits: 2 });
+function pmParts(D) {
+  const T = PM.T, De = svpSlope(T), gam = psychroConst(101.3), rho = 101.3 * 1000 / (287.05 * (T + 273.15)), ga = PM.ga / 1000, gs = PM.gs / 1000;
+  const den = De + gam * (1 + ga / gs);
+  const rad = De * PM.Rn / den, aer = rho * 1005 * D * ga / den;
+  return { rad, aer, le: rad + aer, h: PM.Rn - rad - aer };
+}
+function pmDraw() {
+  const Dmax = svp(PM.T) * 0.7; const X = linspace(0, 2.5, 126);
+  const parts = X.map(pmParts);
+  pmPlot.line('le', X, parts.map(p => p.le), { color: 'water', width: 3, label: 'λE total' });
+  pmPlot.line('rad', X, parts.map(p => p.rad), { color: 'amber', dash: [6, 4], width: 1.8, label: 'radiative term' });
+  pmPlot.line('aer', X, parts.map(p => p.aer), { color: 'magenta', dash: [6, 4], width: 1.8, label: 'aerodynamic term' });
+  pmPlot.line('h', X, parts.map(p => p.h), { color: 'danger', width: 1.6, label: 'H = Rₙ − λE' });
+  pmPlot.hline('zero', 0, { color: 'muted', dash: [2, 3] });
+  pmPlot.region('realistic', 0, Math.min(2.5, Dmax), { color: 'accent', alpha: 0.05 });
+  const D = svp(PM.T) * (1 - PM.RH / 100), p = pmParts(D);
+  pmPlot.point('op', D, p.le, { color: 'water', r: 6, label: `${PM.RH.toFixed(0)} % RH` });
+  const lam = latentHeat(PM.T), E = p.le / lam * 3600 * 1000;
+  pro.set('le', p.le); pro.set('h', p.h, p.h < 0 ? null : null);
+  pro.set('e', E); pro.set('day', E * 16 / 1000); pro.set('kwh', p.le * 16 * 3600 / 3.6e6);
+}
+pmDraw();
+</script>
+</body>
+</html>

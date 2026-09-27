@@ -1,0 +1,1282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control, optimisation and autonomous growing · Future Food Production</title>
+<meta name="description" content="Open and closed loops; greenhouse dynamics from the energy balance; first-order-plus-dead-time models and step tests; on/off control with hysteresis; PID control, windup and discrete implementation; Ziegler–Nichols, Cohen–Coon and SIMC tuning; cascade control, temperature integration and DIF; model predictive and economic optimal control; reinforcement learning and the Autonomous Greenhouse Challenge.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* first-order-plus-dead-time step response (Eq. 10.4.2) */
+FFP_CALC.fopdt = v => v.t <= v.theta ? v.y0 : v.y0 + v.K * v.du * (1 - Math.exp(-(v.t - v.theta) / v.tau));
+/* on/off cycle period of a first-order process without dead time (Eq. 10.4.3) */
+FFP_CALC.onoff = v => { const lo = v.r - v.h, hi = v.r + v.h; if (v.Tinf <= hi || v.To >= lo) return NaN; return v.tau * (Math.log((v.Tinf - lo) / (v.Tinf - hi)) + Math.log((hi - v.To) / (lo - v.To))); };
+/* k-step-ahead prediction of a first-order model with constant heating (Eq. 10.4.8) */
+FFP_CALC.predict = v => { const a = Math.exp(-v.dt / v.tau), Tss = v.To + v.Q / v.K; return Tss + (v.T0 - Tss) * Math.pow(a, v.N); };
+</script>
+<style>
+.fig-ctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:0 0 10px}
+.fig-ctl .seg{margin-top:0}
+.fig-ctl label.chk,label.chk{display:inline-flex;gap:6px;align-items:center;font-size:.86rem;color:var(--ink-2);cursor:pointer}
+.fig-grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media (max-width:760px){.fig-grid2{grid-template-columns:1fr}}
+.fig-note{font-size:.82rem;color:var(--muted);margin:6px 0 0}
+.sliders-inline{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:2px 16px}
+.sl-group{background:var(--bg-sunk);border-radius:10px;padding:8px 12px 2px;margin-bottom:10px}
+.sl-group h4{margin:2px 0 6px;font:700 .68rem var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.st-area{min-height:150px;width:100%;font:500 .78rem var(--font-mono)}
+.pid-layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(250px,1fr);gap:16px;align-items:start}
+@media (max-width:900px){.pid-layout{grid-template-columns:1fr}}
+.rl-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media (max-width:760px){.rl-layout{grid-template-columns:1fr}}
+.prose .fig-ctl input.inline-num{width:84px!important;display:inline-block;flex:0 0 auto;margin:0}
+.inline-num{width:78px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg-elev);color:var(--ink);font:500 .84rem var(--font-mono)}
+</style>
+</head>
+<body data-page="lesson" data-slug="control-optimisation">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Control, optimisation and autonomous growing</h1>
+      <p class="lead">At three o'clock on a January night in Västerås nobody is awake in the greenhouse, yet every few seconds a controller compares the air temperature with its set-point and moves the valve that sends hot water through the heating pipes. Control engineering is the invisible grower: it decides how much energy a greenhouse uses, how steady its climate is and how well the crop grows. This lesson starts with the thermostat, derives the dynamics of a greenhouse from its energy balance, and builds up the PID controller that runs most of the world's climate computers. It then climbs to model predictive control, economic optimal control and reinforcement learning — the methods with which, in the Autonomous Greenhouse Challenges, algorithms have grown cucumbers, tomatoes and lettuce without a human grower at the controls.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Distinguish open-loop, feedback and feedforward control, and identify the set-point, process variable, manipulated variable and disturbances of greenhouse and growth-chamber control loops (LO2, LO5).</li>
+        <li>Derive a first-order-plus-dead-time model from an energy balance, identify its gain, time constant and dead time from a step test on your own data, and predict the step response (LO3, LO5).</li>
+        <li>Analyse on/off control with hysteresis and PID control — including offset, integral windup, derivative kick and discrete implementation — and simulate them (LO5).</li>
+        <li>Tune PI(D) controllers with the Ziegler–Nichols, Cohen–Coon and SIMC rules and compare performance, energy use and actuator wear (LO3, LO5).</li>
+        <li>Explain cascade control, temperature integration and DIF, and formulate a model predictive or economic optimal control problem with a cost function, a prediction horizon and constraints (LO3, LO5).</li>
+        <li>Describe reinforcement learning as a Markov decision process, perform a Q-learning update, and critically evaluate the results of the Autonomous Greenhouse Challenges (LO5, LO1).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="loops">Open loop, closed loop and the language of control</h2>
+      <p class="lede-drop">Every control problem has the same ingredients. There is a <strong>process</strong> — the greenhouse air, the nutrient tank, the growth chamber — whose output we want to keep at a desired value: the <strong>controlled</strong> or <strong>process variable</strong> \(y\) (air temperature, EC, CO₂ concentration), with its desired value, the <strong>set-point</strong> \(r\). We act on the process through an <strong>actuator</strong> — a heating valve, a vent motor, a dosing pump — whose setting is the <strong>manipulated variable</strong> \(u\). And the process is pushed around by <strong>disturbances</strong> \(d\) that we do not control: the sun, the outside temperature and wind, the crop's transpiration, a door left open. The <strong>error</strong> \(e = r - y\) is what a controller tries to keep small.</p>
+      <p>In <strong>open-loop</strong> control the actuator follows a fixed plan and never looks at the result: lights on from 06:00 to 22:00, irrigation every two hours, the heating valve at 40 %. Open loops are simple, cheap and cannot become unstable, but they cannot correct anything the plan did not foresee. In <strong>closed-loop</strong> (feedback) control a sensor measures the output and the controller adjusts the actuator according to the error. Feedback copes with unknown disturbances and with an imperfect knowledge of the process — the reason it is everywhere — but it can only react after an error has appeared, it depends entirely on the quality of its sensor (<a href="/lessons/sensor-physics/">Lesson 9.1</a>), and an over-eager feedback loop oscillates. <strong>Feedforward</strong> control measures a disturbance and acts <em>before</em> it affects the output: a climate computer that reduces heating as soon as the solar radiation sensor on the roof reports the sun, or that starts an irrigation cycle when the accumulated radiation sum passes a threshold. Practical systems combine feedforward with feedback.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 320" role="img" aria-label="Block diagrams. Open loop: a schedule sets the actuator, which acts on the process; disturbances change the output without correction. Closed loop: the set-point is compared with the measured output; the error drives the controller, which sets the actuator; disturbances act on the process; a sensor measures the output and feeds it back; an optional feedforward path measures a disturbance">
+            <defs><marker id="co-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <text x="12" y="22" font-weight="650">Open loop</text>
+            <g class="t-small" text-anchor="middle">
+              <rect x="40" y="44" width="110" height="40" rx="8" class="fill-sunk" stroke="currentColor"/><text x="95" y="68">schedule / timer</text>
+              <rect x="200" y="44" width="110" height="40" rx="8" class="fill-water-soft" stroke="currentColor"/><text x="255" y="62">actuator</text><text x="255" y="76" class="t-muted">heating valve</text>
+              <rect x="360" y="44" width="130" height="40" rx="8" class="fill-accent-soft" stroke="currentColor"/><text x="425" y="62">process</text><text x="425" y="76" class="t-muted">greenhouse air</text>
+            </g>
+            <line x1="150" y1="64" x2="198" y2="64" class="stroke" stroke-width="1.3" marker-end="url(#co-a1)"/><text x="174" y="58" class="t-small" text-anchor="middle">u</text>
+            <line x1="310" y1="64" x2="358" y2="64" class="stroke" stroke-width="1.3" marker-end="url(#co-a1)"/>
+            <line x1="490" y1="64" x2="560" y2="64" class="stroke" stroke-width="1.3" marker-end="url(#co-a1)"/><text x="572" y="68" class="t-small">y = air temperature</text>
+            <line x1="425" y1="16" x2="425" y2="42" class="stroke-amber" stroke-width="1.5" marker-end="url(#co-a1)" color="var(--amber)"/><text x="433" y="24" class="t-small" style="fill:var(--amber)">d: sun, wind, outside T (not corrected)</text>
+            <line x1="12" y1="110" x2="708" y2="110" class="stroke-muted" stroke-dasharray="3 4"/>
+            <text x="12" y="134" font-weight="650">Closed loop (feedback), with optional feedforward</text>
+            <circle cx="92" cy="206" r="14" class="fill-bg" stroke="currentColor"/><text x="92" y="211" text-anchor="middle">Σ</text>
+            <line x1="20" y1="206" x2="76" y2="206" class="stroke" stroke-width="1.3" marker-end="url(#co-a1)"/><text x="14" y="224" class="t-small">r (set-point)</text><text x="70" y="198" class="t-small">+</text>
+            <g class="t-small" text-anchor="middle">
+              <rect x="150" y="186" width="110" height="40" rx="8" class="fill-magenta-soft" stroke="currentColor"/><text x="205" y="204">controller</text><text x="205" y="218" class="t-muted">PID, MPC, RL …</text>
+              <rect x="310" y="186" width="110" height="40" rx="8" class="fill-water-soft" stroke="currentColor"/><text x="365" y="204">actuator</text><text x="365" y="218" class="t-muted">valve, vents</text>
+              <rect x="470" y="186" width="130" height="40" rx="8" class="fill-accent-soft" stroke="currentColor"/><text x="535" y="204">process</text><text x="535" y="218" class="t-muted">greenhouse air</text>
+              <rect x="470" y="262" width="130" height="36" rx="8" class="fill-sunk" stroke="currentColor"/><text x="535" y="284">sensor (+ noise)</text>
+            </g>
+            <line x1="106" y1="206" x2="148" y2="206" class="stroke" stroke-width="1.3" marker-end="url(#co-a1)"/><text x="126" y="199" class="t-small" text-anchor="middle">e</text>
+            <line x1="260" y1="206" x2="308" y2="206" class="stroke" stroke-width="1.3" marker-end="url(#co-a1)"/><text x="284" y="199" class="t-small" text-anchor="middle">u</text>
+            <line x1="420" y1="206" x2="468" y2="206" class="stroke" stroke-width="1.3" marker-end="url(#co-a1)"/>
+            <line x1="600" y1="206" x2="690" y2="206" class="stroke" stroke-width="1.3" marker-end="url(#co-a1)"/><text x="646" y="198" class="t-small">y</text>
+            <path d="M650 206 L650 280 L602 280" class="stroke" stroke-width="1.3" fill="none" marker-end="url(#co-a1)"/>
+            <path d="M470 280 L92 280 L92 222" class="stroke" stroke-width="1.3" fill="none" marker-end="url(#co-a1)"/><text x="100" y="244" class="t-small">−</text><text x="280" y="274" class="t-small t-muted">measured output fed back</text>
+            <line x1="535" y1="150" x2="535" y2="184" class="stroke-amber" stroke-width="1.5" marker-end="url(#co-a1)" color="var(--amber)"/><text x="543" y="160" class="t-small" style="fill:var(--amber)">d: sun, outside T, wind</text>
+            <path d="M530 156 C 420 150, 260 150, 214 184" class="stroke-magenta" stroke-width="1.3" stroke-dasharray="5 4" fill="none" marker-end="url(#co-a1)" color="var(--magenta)"/><text x="300" y="148" class="t-small" style="fill:var(--magenta)">feedforward: measured disturbance</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Open-loop and closed-loop control. The feedback loop compares the measured output with the set-point; the feedforward path (dashed) lets the controller act on a measured disturbance before the output changes. Everything the controller knows about the process arrives through the sensor.</figcaption>
+      </figure>
+
+      <table>
+        <caption>Table 1. The main control loops of a greenhouse or plant factory.</caption>
+        <thead><tr><th>Controlled variable</th><th>Sensor</th><th>Manipulated variable(s)</th><th>Main disturbances</th><th>Typical response time</th></tr></thead>
+        <tbody>
+          <tr><td>Air temperature</td><td>aspirated thermometer (Pt100, thermistor)</td><td>heating-water valve, vents, screens, heat pump</td><td>sun, outside temperature, wind</td><td>minutes to hours</td></tr>
+          <tr><td>Humidity / VPD</td><td>capacitive RH sensor + temperature</td><td>vents, heating, dehumidifier, fogging</td><td>crop transpiration, outside humidity</td><td>minutes</td></tr>
+          <tr><td>CO₂ concentration</td><td>NDIR sensor</td><td>CO₂ dosing valve</td><td>ventilation, crop uptake</td><td>minutes to an hour</td></tr>
+          <tr><td>Light (DLI)</td><td>PAR sensor</td><td>supplementary lamps, shade screens</td><td>sun, clouds</td><td>seconds (decided hourly)</td></tr>
+          <tr><td>Root zone EC and pH</td><td>EC and pH electrodes (Lesson 9.2)</td><td>stock-solution and acid dosing pumps</td><td>uptake, evaporation, fresh-water top-up</td><td>minutes to hours</td></tr>
+          <tr><td>Irrigation</td><td>radiation sum, drain fraction, substrate moisture</td><td>irrigation valves</td><td>transpiration</td><td>hours</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout history"><div class="callout-title">History</div><p>James Watt's centrifugal governor (1788) was a mechanical feedback controller that kept a steam engine's speed constant; when such governors began to "hunt" (oscillate), James Clerk Maxwell wrote the first mathematical stability analysis of a feedback system (Maxwell, 1868). Nicolas Minorsky analysed three-term — proportional, integral and derivative — control for steering ships in 1922 (Minorsky, 1922), and in 1942 Ziegler and Nichols published tuning rules that are still taught (Ziegler &amp; Nichols, 1942). Much of the modern theory of practical PID control was developed at Lund University by Karl Johan Åström and Tore Hägglund (Åström &amp; Hägglund, 2006).</p></div>
+
+      <h2 id="process-models">Process dynamics: from the energy balance to first order plus dead time</h2>
+      <p>To control a process you must know how it responds. In <a href="/lessons/energy-balance/">Lesson 8.1</a> you wrote the <em>steady-state</em> energy balance of a greenhouse (Eq. 8.1.6): heat in equals heat out. Control is about the moments when the balance does <em>not</em> hold — the heat that goes into warming the air, the structure and the crop. Adding that storage term turns the balance into a differential equation.</p>
+
+      <div class="eq-box" id="eq-dyn-balance">
+        <div class="eq-head"><span class="eq-label">Dynamic energy balance → a first-order process</span><span class="eq-num">(10.4.1)</span></div>
+        <div class="eq-main">\[ C\,\frac{\mathrm dT}{\mathrm dt} = Q_h + S - K\,(T-T_o)\quad\Longleftrightarrow\quad \tau\,\frac{\mathrm dT}{\mathrm dt} + T = T_o + \frac{Q_h+S}{K},\qquad \tau = \frac{C}{K},\qquad K_p = \frac{1}{K} \]</div>
+        <p class="eq-read">the heat stored per second in the greenhouse (heat capacity times the rate of temperature change) equals the heating power plus the useful solar gain minus the heat lost to the outside, which is proportional to the temperature difference. Dividing by the loss coefficient gives the standard first-order form: the temperature relaxes towards a steady-state value with a time constant equal to heat capacity divided by the loss coefficient, and each extra watt per square metre of heating raises that steady state by \(1/K\) kelvin.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Västerås glasshouse (Lesson 8.1)</th></tr>
+          <tr><td>\(T\), \(T_o\)</td><td>inside air temperature, outside temperature</td><td>°C</td><td>18, −5</td></tr>
+          <tr><td>\(C\)</td><td>effective heat capacity per m² floor (air + fast-responding thermal mass)</td><td>J m⁻² K⁻¹</td><td>6.6 × 10³ (air only)</td></tr>
+          <tr><td>\(K\)</td><td>overall heat-loss coefficient per m² floor (cover + leakage)</td><td>W m⁻² K⁻¹</td><td>8.42</td></tr>
+          <tr><td>\(Q_h\), \(S\)</td><td>heating power; solar heat actually absorbed</td><td>W m⁻²</td><td>0–200</td></tr>
+          <tr><td>\(\tau\)</td><td>time constant</td><td>s</td><td>790 s (air only)</td></tr>
+          <tr><td>\(K_p\)</td><td>process gain: steady-state temperature rise per unit heating</td><td>K (W m⁻²)⁻¹</td><td>0.119</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Draw a control volume around 1 m² of greenhouse floor (air plus whatever thermal mass exchanges heat quickly with it). Conservation of energy: rate of change of stored heat = inflows − outflows.</li>
+            <li>Stored heat \(= C\,T\) (per m²), so its rate of change is \(C\,\mathrm dT/\mathrm dt\). For the air alone, \(C = \rho c_p \bar h\), the air density times its specific heat times the mean greenhouse height.</li>
+            <li>Inflows: heating \(Q_h\) and absorbed solar radiation \(S\); outflow: \(K(T-T_o)\), with \(K\) collecting conduction through the cover and leakage (Eqs. 8.1.5 and 8.1.7). Latent heat and soil flux are neglected here or lumped into \(K\) and \(S\).</li>
+            <li>Divide by \(K\): \((C/K)\,\mathrm dT/\mathrm dt + T = T_o + (Q_h+S)/K\). The group \(C/K\) has units J K⁻¹ ÷ W K⁻¹ = s: the <strong>time constant</strong> \(\tau\).</li>
+            <li>For constant inputs the solution is \(T(t) = T_{ss} + (T_0 - T_{ss})\,e^{-t/\tau}\) with \(T_{ss} = T_o + (Q_h+S)/K\): after one time constant 63.2 % of the change has happened, after three 95 % — exactly like the sensor of <a href="/lessons/sensor-physics/">Lesson 9.1</a> (Eq. 9.1.2), which obeys the same mathematics.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>A single, well-mixed temperature and a constant \(K\). Real greenhouses have several heat stores with different time constants — air (minutes), crop and structure (tens of minutes), heating pipes (minutes), soil (hours to days) — and \(K\) changes with wind, screens and vent opening. For control design, a first-order model with an <em>effective</em> heat capacity, identified from a step test (Eq. 10.4.2), is usually good enough; detailed simulation models such as GreenLight (Katzin et al., 2020) resolve the separate stores.</p>
+        </details>
+        <div class="eq-units">\(C\,\mathrm dT/\mathrm dt\): J m⁻² K⁻¹ × K s⁻¹ = W m⁻² ✓; \(K(T-T_o)\): W m⁻² K⁻¹ × K = W m⁻² ✓; \(\tau = C/K\): (J m⁻² K⁻¹)/(W m⁻² K⁻¹) = J/W = s ✓.</div>
+        <div class="mini-calc" data-formula="(1.2*1005*h + 1000*Cm)/K/3600" data-output="Time constant τ" data-unit="h" data-digits="2" data-plot="Cm" data-ymin="0" data-title="Try it — how thermal mass slows a greenhouse down">
+          <div data-var="h" data-label="Mean greenhouse height h̄" data-min="2" data-max="8" data-step="0.1" data-value="5.5" data-unit="m"></div>
+          <div data-var="Cm" data-label="Extra fast thermal mass (crop, structure, pipes)" data-min="0" data-max="150" data-step="1" data-value="0" data-unit="kJ m⁻² K⁻¹"></div>
+          <div data-var="K" data-label="Heat-loss coefficient K" data-min="1" data-max="12" data-step="0.1" data-value="8.4" data-unit="W m⁻² K⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">How fast does a greenhouse respond?</span></div>
+        <div class="we-problem"><p>Use the single-glass Västerås greenhouse of Lesson 8.1 (Worked example 4): \(K = 8.42\) W m⁻² K⁻¹, mean height 5.5 m. (a) What is the time constant of the air alone? (b) Crop, structure and heating pipes add an estimated 50 kJ m⁻² K⁻¹ of fast thermal mass; recalculate. (c) How much heating power raises the steady-state temperature by 20 K, and what fraction of that rise is reached one hour after the heating is switched on in case (b)?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>(a) Air only.</strong> \(C = \rho c_p\bar h = 1.2\times1005\times5.5 = 6633\) J m⁻² K⁻¹; \(\tau = 6633/8.42 = 788\) s ≈ 13 min.</li>
+            <li><strong>(b) With thermal mass.</strong> \(C = 6633 + 50\,000 = 56\,633\) J m⁻² K⁻¹; \(\tau = 56\,633/8.42 = 6725\) s ≈ 1.9 h. The air on its own would react in minutes, but the air is coupled to masses that respond in hours — the effective time constant is dominated by them.</li>
+            <li><strong>(c) Gain and progress.</strong> \(K_p = 1/K = 0.119\) K per W m⁻², so a 20 K rise needs \(20\times8.42 = 168\) W m⁻² (for a hectare, 1.7 MW). After one hour, \(1-e^{-1/1.87} = 0.41\): only 41 % of the rise; after three hours 80 %.</li>
+            <li><strong>Consequence for control.</strong> A heating controller that waits until the air is cold before acting will always be late: slow processes reward feedforward (weather forecasts, solar sensors) and prediction (Section 10.4.7).</li>
+          </ol>
+          <span class="answer">τ ≈ 13 min for the air alone, ≈ 1.9 h with thermal mass; 168 W m⁻² for +20 K, of which 41 % is reached after 1 h</span>
+        </div></details>
+      </div>
+
+      <p>Real processes rarely behave as a pure first-order system. Hot water must first travel from the boiler to the pipes, heat must be conducted through the pipe wall, the air must mix, and the sensor itself has a time constant. Such chains of small lags make the response start with a delay and an S-shaped foot. Control engineers capture all of this with one extra parameter: the <strong>dead time</strong> \(\theta\), during which the output does not yet respond at all.</p>
+
+      <div class="eq-box" id="eq-fopdt">
+        <div class="eq-head"><span class="eq-label">First-order-plus-dead-time (FOPDT) model and two-point identification</span><span class="eq-num">(10.4.2)</span></div>
+        <div class="eq-main">\[ y(t) = \begin{cases} y_0 & t<\theta\\ y_0 + K\,\Delta u\,\left[1-e^{-(t-\theta)/\tau}\right] & t\ge\theta\end{cases},\qquad \tau = 1.5\,(t_{63}-t_{28}),\qquad \theta = t_{63}-\tau \]</div>
+        <p class="eq-read">after the input is stepped by \(\Delta u\) at time zero, the output stays at its initial value for the dead time and then approaches its new steady state \(y_0 + K\Delta u\) exponentially with time constant \(\tau\). From a recorded step response, read the times at which 28.3 % and 63.2 % of the total change are reached: one and a half times their difference is the time constant, and the dead time is the 63.2 % time minus the time constant.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Growth chamber (WE 2)</th></tr>
+          <tr><td>\(\Delta u\)</td><td>size of the input step (e.g., heater power)</td><td>%</td><td>50</td></tr>
+          <tr><td>\(K\)</td><td>process gain: final output change per unit input change</td><td>°C %⁻¹</td><td>0.12</td></tr>
+          <tr><td>\(\tau\)</td><td>time constant</td><td>s</td><td>270</td></tr>
+          <tr><td>\(\theta\)</td><td>dead time (apparent delay)</td><td>s</td><td>80</td></tr>
+          <tr><td>\(t_{28}, t_{63}\)</td><td>times after the step at which 28.3 % and 63.2 % of the change are reached</td><td>s</td><td>170, 350</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the two-point method</summary>
+          <ol class="steps">
+            <li>For \(t\ge\theta\), the fraction of the final change reached is \(F(t) = 1-e^{-(t-\theta)/\tau}\).</li>
+            <li>Choose two convenient fractions: \(F = 1-e^{-1/3} = 0.283\) is reached when \(t-\theta = \tau/3\); \(F = 1-e^{-1} = 0.632\) when \(t-\theta = \tau\). Hence \(t_{28} = \theta+\tau/3\) and \(t_{63} = \theta+\tau\).</li>
+            <li>Subtract: \(t_{63}-t_{28} = 2\tau/3\), so \(\tau = 1.5\,(t_{63}-t_{28})\); then \(\theta = t_{63}-\tau\). The gain is simply \(K = \Delta y_\infty/\Delta u\). (This is Smith's method, found in process-control textbooks such as Seborg et al., 2016.)</li>
+            <li>Using two points in the <em>middle</em> of the response makes the estimate robust against the curved foot of higher-order processes; alternatively, fit all three parameters by non-linear least squares (Lesson 10.1, Eq. 10.1.7) — Figure 3 does both.</li>
+            <li>In Laplace-transform language the model is the transfer function \(G(s) = K e^{-\theta s}/(\tau s+1)\) — the starting point of the tuning rules in Section 10.4.5.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The process must start at steady state, the step must be large compared with the noise but small enough to stay in the linear range, and no other disturbance may change during the test (a cloud passing over a greenhouse spoils a temperature step test). The ratio \(\theta/\tau\) measures how hard the process is to control: as a rule of thumb, below about 0.3 tight feedback control is easy, while dead-time-dominated processes (\(\theta/\tau > 1\)) limit how fast any feedback controller can respond.</p>
+        </details>
+        <div class="eq-units">\(K\Delta u\): (°C %⁻¹) × % = °C ✓; \((t-\theta)/\tau\): s/s dimensionless, as an exponent must be ✓.</div>
+        <div class="mini-calc" data-fn="fopdt" data-output="Chamber temperature y(t)" data-unit="°C" data-digits="2" data-plot="t" data-title="Try it — a step response">
+          <div data-var="t" data-label="Time after the step t" data-min="0" data-max="1500" data-step="5" data-value="600" data-unit="s"></div>
+          <div data-var="y0" data-label="Initial temperature y₀" data-min="10" data-max="25" data-step="0.5" data-value="18" data-unit="°C"></div>
+          <div data-var="K" data-label="Gain K" data-min="0.02" data-max="0.3" data-step="0.005" data-value="0.12" data-unit="°C %⁻¹"></div>
+          <div data-var="du" data-label="Step size Δu" data-min="5" data-max="100" data-step="5" data-value="50" data-unit="%"></div>
+          <div data-var="tau" data-label="Time constant τ" data-min="20" data-max="1200" data-step="10" data-value="270" data-unit="s"></div>
+          <div data-var="theta" data-label="Dead time θ" data-min="0" data-max="400" data-step="5" data-value="80" data-unit="s"></div>
+        </div>
+      </div>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 660 300" role="img" aria-label="Anatomy of a step response: the input steps at time zero; the output starts to rise after the dead time theta, reaches 28.3 percent of its final change at t28 and 63.2 percent at t63, and approaches the new steady state K times delta u">
+            <defs><marker id="co-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <line x1="70" y1="220" x2="640" y2="220" class="stroke" stroke-width="1.2"/><line x1="70" y1="220" x2="70" y2="20" class="stroke" stroke-width="1.2"/>
+            <text x="620" y="238" class="t-small">time</text><text x="14" y="30" class="t-small">output y</text>
+            <path d="M70 200 L110 200 L110 200 L150 200 C 160 200, 170 199, 180 192 C 220 160, 260 120, 300 100 C 360 72, 440 56, 520 50 L 630 47" class="stroke-accent" stroke-width="3" fill="none"/>
+            <line x1="70" y1="46" x2="640" y2="46" class="stroke-muted" stroke-dasharray="5 4"/><text x="500" y="40" class="t-small t-muted">new steady state y₀ + KΔu</text>
+            <line x1="70" y1="200" x2="640" y2="200" class="stroke-muted" stroke-dasharray="2 4"/><text x="560" y="194" class="t-small t-muted">y₀</text>
+            <line x1="70" y1="156" x2="640" y2="156" class="stroke-amber" stroke-dasharray="3 3"/><text x="580" y="152" class="t-small" style="fill:var(--amber)">28.3 %</text>
+            <line x1="70" y1="103" x2="640" y2="103" class="stroke-amber" stroke-dasharray="3 3"/><text x="580" y="99" class="t-small" style="fill:var(--amber)">63.2 %</text>
+            <line x1="210" y1="156" x2="210" y2="220" class="stroke-amber" stroke-dasharray="3 3"/><text x="210" y="234" class="t-small" text-anchor="middle" style="fill:var(--amber)">t₂₈</text>
+            <line x1="296" y1="103" x2="296" y2="220" class="stroke-amber" stroke-dasharray="3 3"/><text x="296" y="234" class="t-small" text-anchor="middle" style="fill:var(--amber)">t₆₃</text>
+            <line x1="110" y1="258" x2="150" y2="258" class="stroke-magenta" stroke-width="1.4" marker-start="url(#co-a2)" marker-end="url(#co-a2)" color="var(--magenta)"/><text x="130" y="274" text-anchor="middle" class="t-small" style="fill:var(--magenta)">θ</text>
+            <line x1="150" y1="276" x2="296" y2="276" class="stroke-water" stroke-width="1.4" marker-start="url(#co-a2)" marker-end="url(#co-a2)" color="var(--water)"/><text x="223" y="292" text-anchor="middle" class="t-small" style="fill:var(--water)">τ</text>
+            <line x1="620" y1="200" x2="620" y2="46" class="stroke" stroke-width="1.2" marker-start="url(#co-a2)" marker-end="url(#co-a2)"/><text x="604" y="128" class="t-small" text-anchor="end">K·Δu</text>
+            <path d="M70 214 L110 214 L110 204 L180 204" class="stroke" stroke-width="1.6" fill="none"/><text x="76" y="188" class="t-small t-muted">input step Δu</text>
+            <line x1="110" y1="220" x2="110" y2="250" class="stroke-muted" stroke-dasharray="2 3"/><line x1="150" y1="200" x2="150" y2="262" class="stroke-muted" stroke-dasharray="2 3"/>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> Anatomy of a first-order-plus-dead-time step response. Three numbers — gain \(K\), time constant \(\tau\) and dead time \(\theta\) — summarise how a chamber, a greenhouse compartment or a nutrient tank reacts, and they are all a tuning rule needs.</figcaption>
+      </figure>
+
+      <figure class="figure wide" id="fig-steptest">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — identify a process from a step test (paste your own data)</div>
+          <div class="fig-grid2">
+            <div>
+              <label for="st-data" style="font-size:.84rem;color:var(--ink-2)">Two columns: time (s) and measured output (e.g. °C). The example is a simulated growth chamber whose heater was stepped from 0 to 50 % at t = 60 s.</label>
+              <textarea id="st-data" class="st-area" spellcheck="false"></textarea>
+              <div class="fig-ctl" style="margin-top:6px">
+                <span class="fig-note" style="margin:0">step size Δu</span><input class="inline-num" type="number" id="st-du" value="50" step="1" aria-label="Step size"> <span class="fig-note" style="margin:0">at t =</span><input class="inline-num" type="number" id="st-t0" value="60" step="1" aria-label="Step time"><span class="fig-note" style="margin:0">s</span>
+              </div>
+              <div class="fig-ctl">
+                <button class="btn btn-sm" type="button" id="st-two">Two-point method</button>
+                <button class="btn btn-sm btn-primary" type="button" id="st-fit">Least-squares fit</button>
+                <button class="btn btn-sm btn-ghost" type="button" id="st-new">New simulated test</button>
+              </div>
+            </div>
+            <div>
+              <div class="mc-var"><div class="mc-lab"><span>Gain K</span><output id="st-K-out"></output></div><input id="st-K" type="range" min="0.01" max="0.4" step="0.001" value="0.1" aria-label="Gain"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Time constant τ</span><output id="st-tau-out"></output></div><input id="st-tau" type="range" min="10" max="1500" step="5" value="200" aria-label="Time constant"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Dead time θ</span><output id="st-th-out"></output></div><input id="st-th" type="range" min="0" max="400" step="1" value="30" aria-label="Dead time"></div>
+              <p class="fig-note">Drag the sliders to fit the curve by eye, then compare with the two-point method and with least squares.</p>
+            </div>
+          </div>
+          <div id="st-plot" style="margin-top:6px"></div>
+          <div class="readouts" id="st-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> Step-test identification. Points: measured output; magenta: the FOPDT model (Eq. 10.4.2) with the parameters on the sliders; dashed amber lines: the 28.3 % and 63.2 % levels used by the two-point method. The readouts include \(\theta/\tau\), which tells you how difficult the process will be to control. Replace the example with a step test on your own system (for example, the temperature of your nutrient tank after switching an aquarium heater on) and use the identified parameters in Figure 5.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Reading a step test</span></div>
+        <div class="we-problem"><p>A growth chamber at a steady 18.0 °C has its heater stepped from 0 to 50 % at \(t = 0\). The temperature finally settles at 24.0 °C; it passes 19.70 °C at \(t = 170\) s and 21.79 °C at \(t = 350\) s. Identify \(K\), \(\tau\) and \(\theta\) and predict the temperature at \(t = 600\) s.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Gain.</strong> \(K = \Delta y/\Delta u = (24.0-18.0)/50 = 0.12\) °C %⁻¹.</li>
+            <li><strong>Check the two levels.</strong> 28.3 % of 6.0 °C is 1.70 °C → 19.70 °C; 63.2 % is 3.79 °C → 21.79 °C. So \(t_{28} = 170\) s and \(t_{63} = 350\) s.</li>
+            <li><strong>Time constant and dead time.</strong> \(\tau = 1.5\times(350-170) = 270\) s; \(\theta = 350-270 = 80\) s.</li>
+            <li><strong>Prediction.</strong> \(y(600) = 18.0 + 6.0\,[1-e^{-(600-80)/270}] = 18.0 + 6.0\times(1-e^{-1.926}) = 18.0+6.0\times0.854 = 23.13\) °C.</li>
+            <li><strong>Difficulty.</strong> \(\theta/\tau = 0.30\): a moderately easy process — but the 80 s delay means no controller can correct a disturbance faster than about a minute and a half.</li>
+          </ol>
+          <span class="answer">K = 0.12 °C %⁻¹, τ = 270 s, θ = 80 s; y(600 s) ≈ 23.1 °C</span>
+        </div></details>
+      </div>
+
+      <table>
+        <caption>Table 2. Orders of magnitude of dynamics in food-production systems (derived from the balances of Modules 5 and 8; identify your own system with a step test).</caption>
+        <thead><tr><th>Process</th><th>Dominant storage</th><th>Time constant</th><th>Dead time</th></tr></thead>
+        <tbody>
+          <tr><td>Air temperature in a small growth chamber</td><td>air + walls</td><td>minutes</td><td>seconds to a minute (sensor, mixing)</td></tr>
+          <tr><td>Greenhouse air temperature, pipe heating</td><td>air, crop, structure, pipes</td><td>tens of minutes to hours</td><td>minutes (pipe water transport)</td></tr>
+          <tr><td>CO₂ concentration in a closed greenhouse</td><td>greenhouse air volume</td><td>\(1/N\): 2 h at \(N\) = 0.5 h⁻¹, minutes with vents open</td><td>mixing, sensor sampling</td></tr>
+          <tr><td>Nutrient-tank temperature</td><td>water (\(c_p\) = 4186 J kg⁻¹ K⁻¹)</td><td>hours</td><td>small</td></tr>
+          <tr><td>EC after dosing in a recirculating system</td><td>tank + pipe volume</td><td>minutes (mixing)</td><td>transport time to the sensor</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="onoff">On/off control with hysteresis</h2>
+      <p>The simplest feedback controller switches an actuator fully on or fully off — a thermostat on an electric heater, a solenoid valve for CO₂, a fan. If it switched exactly at the set-point, measurement noise would make it chatter on and off many times a second, wearing out relays and contactors. A <strong>hysteresis band</strong> (dead band) prevents this: switch on when the temperature falls below \(r-h\) and off when it rises above \(r+h\), and leave the actuator alone in between.</p>
+
+      <div class="eq-box" id="eq-onoff">
+        <div class="eq-head"><span class="eq-label">On/off control with hysteresis and its limit cycle</span><span class="eq-num">(10.4.3)</span></div>
+        <div class="eq-main">\[ u_k = \begin{cases} 1 & T_k < r-h\\ 0 & T_k > r+h\\ u_{k-1} & \text{otherwise}\end{cases},\qquad t_{\text{on}} = \tau\ln\frac{T_\infty-(r-h)}{T_\infty-(r+h)},\qquad t_{\text{off}} = \tau\ln\frac{(r+h)-T_o}{(r-h)-T_o} \]</div>
+        <p class="eq-read">the heater is switched on when the temperature is below the lower edge of the band and off when it is above the upper edge; inside the band it keeps its previous state. For a first-order process without dead time the temperature then oscillates between the edges of the band: the heating phase lasts \(t_{\text{on}}\), the time to climb from \(r-h\) to \(r+h\) towards the temperature \(T_\infty\) the heater would eventually reach, and the cooling phase lasts \(t_{\text{off}}\), the time to fall back towards the outside temperature \(T_o\).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>WE 3</th></tr>
+          <tr><td>\(r\), \(h\)</td><td>set-point and half-width of the hysteresis band</td><td>°C</td><td>22, 0.5</td></tr>
+          <tr><td>\(T_\infty\)</td><td>steady-state temperature with the heater permanently on (\(T_o + K_p Q_{\max}\))</td><td>°C</td><td>30</td></tr>
+          <tr><td>\(T_o\)</td><td>steady-state temperature with the heater off (ambient)</td><td>°C</td><td>10</td></tr>
+          <tr><td>\(\tau\)</td><td>time constant of the process</td><td>s</td><td>300</td></tr>
+          <tr><td>\(t_{\text{on}}, t_{\text{off}}\)</td><td>durations of the heating and cooling phases; period \(P = t_{\text{on}}+t_{\text{off}}\)</td><td>s</td><td>37.5, 25.0</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>While the heater is on, Eq. 10.4.1 gives \(T(t) = T_\infty + (T_{\text{start}}-T_\infty)e^{-t/\tau}\). Starting at \(r-h\), the time to reach \(r+h\) solves \(r+h = T_\infty + (r-h-T_\infty)e^{-t/\tau}\), i.e. \(e^{-t/\tau} = \dfrac{T_\infty-(r+h)}{T_\infty-(r-h)}\), which gives \(t_{\text{on}}\).</li>
+            <li>While the heater is off, the temperature decays towards \(T_o\): from \(r+h\) to \(r-h\) takes \(t_{\text{off}} = \tau\ln\dfrac{(r+h)-T_o}{(r-h)-T_o}\).</li>
+            <li>For a narrow band, \(\ln(1+x)\approx x\) gives \(t_{\text{on}}\approx 2h\tau/(T_\infty-r)\) and \(t_{\text{off}}\approx 2h\tau/(r-T_o)\): the period is proportional to the band width and to the time constant, and the <strong>duty cycle</strong> \(t_{\text{on}}/P \approx (r-T_o)/(T_\infty-T_o)\) is exactly the fraction of full power needed to hold the set-point.</li>
+            <li><strong>With dead time</strong> \(\theta\), the heater keeps heating for \(\theta\) after the temperature crosses \(r+h\) (and the process keeps cooling for \(\theta\) after crossing \(r-h\)). The swing grows by about \((T_\infty-r-h)(1-e^{-\theta/\tau})\) above the band and \((r-h-T_o)(1-e^{-\theta/\tau})\) below it — independent of how narrow you make the band.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>On/off control <em>always</em> produces a sustained oscillation (a limit cycle); only its amplitude and period can be chosen. It is appropriate for on/off actuators, slow processes and wide tolerances. Where the actuator allows, time-proportioning ("slow pulse-width modulation") or a continuous controller gives a steadier result.</p>
+        </details>
+        <div class="eq-units">Arguments of the logarithms are ratios of temperature differences (dimensionless); \(\tau\) in s → \(t_{\text{on}}\), \(t_{\text{off}}\) in s ✓.</div>
+        <div class="mini-calc" data-fn="onoff" data-output="Cycle period P = t_on + t_off" data-unit="s" data-digits="1" data-plot="h" data-ymin="0" data-title="Try it — the price of a narrow band">
+          <div data-var="h" data-label="Half band h" data-min="0.05" data-max="3" data-step="0.05" data-value="0.5" data-unit="°C"></div>
+          <div data-var="tau" data-label="Time constant τ" data-min="30" data-max="3600" data-step="10" data-value="300" data-unit="s"></div>
+          <div data-var="r" data-label="Set-point r" data-min="15" data-max="28" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="To" data-label="Ambient T_o" data-min="-10" data-max="18" data-step="0.5" data-value="10" data-unit="°C"></div>
+          <div data-var="Tinf" data-label="Heater-on limit T∞" data-min="24" data-max="45" data-step="0.5" data-value="30" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">How often does the thermostat switch?</span></div>
+        <div class="we-problem"><p>An electric heater keeps a propagation chamber at 22 °C with a thermostat band of ±0.5 °C. The chamber behaves as a first-order process with \(\tau = 300\) s; with the heater off it would cool to 10 °C, with the heater permanently on it would reach 30 °C. (a) Compute the heating and cooling phases, the period and the number of switch-ons per hour. (b) What happens with a band of ±1.5 °C? (c) The sensor adds an effective dead time of 20 s. Estimate the actual temperature swing.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>(a)</strong> \(t_{\text{on}} = 300\ln\dfrac{30-21.5}{30-22.5} = 300\ln(8.5/7.5) = 37.5\) s; \(t_{\text{off}} = 300\ln\dfrac{22.5-10}{21.5-10} = 300\ln(12.5/11.5) = 25.0\) s. Period 62.6 s → about 58 switch-ons per hour — 500 000 per year, far beyond the life of a mechanical relay. Duty cycle 37.5/62.6 = 0.60 = (22 − 10)/(30 − 10) ✓.</li>
+            <li><strong>(b)</strong> With ±1.5 °C: \(t_{\text{on}} = 300\ln\dfrac{30-20.5}{30-23.5} = 300\ln(1.4615) = 113.8\) s, \(t_{\text{off}} = 300\ln\dfrac{23.5-10}{20.5-10} = 300\ln(1.2857) = 75.4\) s; period 189 s, three times longer — at the price of a three times larger swing.</li>
+            <li><strong>(c)</strong> With \(\theta = 20\) s, \(1-e^{-20/300} = 0.0645\). Extra overshoot above 22.5 °C: \((30-22.5)\times0.0645 = 0.48\) °C; extra undershoot below 21.5 °C: \((21.5-10)\times0.0645 = 0.74\) °C. The real swing is ≈ 1.0 + 0.48 + 0.74 = 2.2 °C peak to peak, more than twice the nominal band.</li>
+          </ol>
+          <span class="answer">(a) 37.5 s on, 25.0 s off, ≈ 58 cycles h⁻¹; (b) 189 s period; (c) swing ≈ 2.2 °C instead of 1 °C</span>
+        </div></details>
+      </div>
+
+      <figure class="figure wide" id="fig-onoff">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — thermostat with hysteresis</div>
+          <div class="sliders-inline">
+            <div class="mc-var"><div class="mc-lab"><span>Half band h</span><output id="oo-h-out"></output></div><input id="oo-h" type="range" min="0.05" max="2.5" step="0.05" value="0.5" aria-label="Half band"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Dead time θ</span><output id="oo-th-out"></output></div><input id="oo-th" type="range" min="0" max="120" step="1" value="20" aria-label="Dead time"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Time constant τ</span><output id="oo-tau-out"></output></div><input id="oo-tau" type="range" min="60" max="1800" step="10" value="300" aria-label="Time constant"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Ambient T_o</span><output id="oo-to-out"></output></div><input id="oo-to" type="range" min="4" max="18" step="0.5" value="10" aria-label="Ambient temperature"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Sensor noise σ</span><output id="oo-n-out"></output></div><input id="oo-n" type="range" min="0" max="0.3" step="0.01" value="0.03" aria-label="Sensor noise"></div>
+          </div>
+          <div id="oo-plot"></div>
+          <div class="readouts" id="oo-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 4.</b> Three hours of on/off control of a first-order chamber (set-point 22 °C, heater-on limit 30 °C) simulated second by second. Green: measured temperature; shaded: the hysteresis band; grey steps (right axis): heater state. Readouts compare the simulated period with Eq. 10.4.3, which ignores dead time. Set the band to 0.05 °C and add noise: the heater chatters. Increase the dead time: the swing grows even though the band stays the same.</figcaption>
+      </figure>
+
+      <h2 id="pid">PID control</h2>
+      <p>A continuous actuator — a mixing valve, a variable-speed fan, a dimmable LED — allows a smoother strategy: make the correction proportional to the error. The <strong>PID controller</strong> adds two refinements: a term proportional to the accumulated error (integral action) and a term proportional to its rate of change (derivative action). It is by far the most widely used control algorithm in industry and in greenhouse climate computers.</p>
+
+      <div class="eq-box" id="eq-pid">
+        <div class="eq-head"><span class="eq-label">The PID control law</span><span class="eq-num">(10.4.4)</span></div>
+        <div class="eq-main">\[ u(t) = u_0 + K_c\left[\,e(t) + \frac{1}{T_i}\int_0^{t} e(t')\,\mathrm dt' + T_d\,\frac{\mathrm de(t)}{\mathrm dt}\right],\qquad e(t) = r(t)-y(t) \]</div>
+        <p class="eq-read">the actuator setting equals a bias plus the controller gain times the sum of three terms: the present error, the accumulated past error divided by the integral time, and the predicted future error — its current rate of change times the derivative time.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Chamber example</th></tr>
+          <tr><td>\(u\), \(u_0\)</td><td>controller output (actuator setting) and bias</td><td>%</td><td>0–100</td></tr>
+          <tr><td>\(K_c\)</td><td>controller (proportional) gain</td><td>% °C⁻¹</td><td>5–30</td></tr>
+          <tr><td>\(T_i\)</td><td>integral (reset) time: the time for the integral term to repeat the proportional action for a constant error</td><td>s</td><td>150–600</td></tr>
+          <tr><td>\(T_d\)</td><td>derivative time: how far ahead the error is extrapolated</td><td>s</td><td>0–60</td></tr>
+          <tr><td>\(e\)</td><td>control error</td><td>°C</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the reasoning: what each term does</summary>
+          <ol class="steps">
+            <li><strong>P — proportional.</strong> \(u = u_0 + K_ce\). Bigger errors get bigger corrections. But consider a process with gain \(K\) and a load disturbance \(d\): at steady state \(y = K u + d\) and \(u = u_0 + K_c(r-y)\). Solving, \(e = r - y = \dfrac{r - Ku_0 - d}{1+KK_c}\): a <strong>steady-state offset</strong> remains unless the bias happens to be exactly right. Raising \(K_c\) shrinks the offset but makes the loop oscillatory.</li>
+            <li><strong>I — integral.</strong> The integral keeps growing as long as any error remains. At steady state every term must be constant, which is only possible for the integral if \(e = 0\): integral action removes the offset. In effect it finds the correct bias automatically. Too much integral action (small \(T_i\)) causes overshoot and slow oscillation.</li>
+            <li><strong>D — derivative.</strong> \(T_d\,\mathrm de/\mathrm dt\) extrapolates the error \(T_d\) seconds ahead, so the controller brakes before the temperature overshoots. It adds damping and allows a higher gain, but it amplifies measurement noise (the derivative of noise is large), so it is always filtered and often left out: most greenhouse loops are PI.</li>
+            <li><strong>Why "time" parameters?</strong> For a constant error \(e\), the P term gives \(K_ce\) and the I term grows by \(K_ce\) every \(T_i\) seconds — hence "reset time". A ramp error \(e = at\) makes the D term equal to \(K_cT_da\), the P term's value \(T_d\) seconds later — hence "derivative time".</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>This is the "ideal" or standard form; controllers also exist in parallel form (\(K_p e + K_i\int e + K_d\dot e\), with \(K_i = K_c/T_i\) and \(K_d = K_cT_d\)) and series form — check which one your controller uses before copying gains. The law assumes a continuous, unconstrained actuator; real valves saturate at 0 and 100 %, which leads to integral windup (Eq. 10.4.5).</p>
+        </details>
+        <div class="eq-units">\(K_c e\): (% °C⁻¹)(°C) = % ✓; \(\frac{1}{T_i}\int e\,\mathrm dt\): (s⁻¹)(°C s) = °C ✓; \(T_d\,\mathrm de/\mathrm dt\): (s)(°C s⁻¹) = °C ✓ — the bracket is in °C, multiplied by \(K_c\) gives %.</div>
+        <div class="mini-calc" data-formula="min(100, max(0, u0 + Kc*(e + S/Ti + Td*dedt)))" data-output="Controller output u (clipped to 0–100 %)" data-unit="%" data-digits="1" data-plot="e" data-title="Try it — the three terms">
+          <div data-var="e" data-label="Error e = r − y" data-min="-5" data-max="5" data-step="0.05" data-value="2" data-unit="°C"></div>
+          <div data-var="S" data-label="Integrated error ∫e dt" data-min="-2000" data-max="2000" data-step="10" data-value="120" data-unit="°C s"></div>
+          <div data-var="dedt" data-label="Rate of change de/dt" data-min="-0.1" data-max="0.1" data-step="0.001" data-value="-0.01" data-unit="°C s⁻¹"></div>
+          <div data-var="Kc" data-label="Gain K_c" data-min="0" data-max="40" data-step="0.5" data-value="5" data-unit="% °C⁻¹"></div>
+          <div data-var="Ti" data-label="Integral time T_i" data-min="20" data-max="1200" data-step="10" data-value="240" data-unit="s"></div>
+          <div data-var="Td" data-label="Derivative time T_d" data-min="0" data-max="120" data-step="1" data-value="30" data-unit="s"></div>
+          <div data-var="u0" data-label="Bias u₀" data-min="0" data-max="100" data-step="1" data-value="20" data-unit="%"></div>
+        </div>
+      </div>
+
+      <p>A climate computer does not compute integrals and derivatives continuously: it samples the sensor every \(\Delta t\) seconds (typically 1–60 s) and updates the output. Three practical problems must be handled in that discrete implementation.</p>
+      <ul>
+        <li><strong>Integral windup.</strong> When the actuator saturates — the heating valve is fully open on a very cold night, or fully closed on a sunny afternoon — the error persists and the integral keeps growing to a huge value. When conditions change, the controller must first "unwind" this integral before the actuator moves, causing a large overshoot. The cure is <em>anti-windup</em>: stop integrating while the output is saturated in the direction of the error (conditional integration), or feed the difference between the saturated and the requested output back into the integrator (back-calculation) (Åström &amp; Rundqwist, 1989).</li>
+        <li><strong>Derivative kick.</strong> A step in the set-point is an infinitely fast change of the error; the derivative term responds with a spike that slams the actuator. Taking the derivative of the <em>measurement</em> instead of the error (\(-\mathrm dy/\mathrm dt\) instead of \(\mathrm de/\mathrm dt\)) gives the same braking action against real changes but ignores set-point steps.</li>
+        <li><strong>Noise.</strong> The derivative of a noisy signal is noisier still; a first-order filter on the derivative (typically with time constant \(T_d/N\), \(N\approx 5\)–20) keeps it usable.</li>
+      </ul>
+
+      <div class="eq-box" id="eq-pid-discrete">
+        <div class="eq-head"><span class="eq-label">Discrete PID with derivative on measurement and anti-windup</span><span class="eq-num">(10.4.5)</span></div>
+        <div class="eq-main">\[ u_k = \operatorname{sat}\Bigl(u_0 + K_c e_k + I_k - K_c T_d\,\frac{y_k-y_{k-1}}{\Delta t}\Bigr),\qquad I_{k+1} = \begin{cases} I_k + \dfrac{K_c\,\Delta t}{T_i}\,e_k & \text{if the output is not saturated in the direction of } e_k\\ I_k & \text{otherwise}\end{cases} \]</div>
+        <p class="eq-read">at every sampling instant the controller computes the proportional term from the current error, adds the stored integral, subtracts a derivative term based on how fast the <em>measurement</em> is changing, and clips the result to the actuator's range. The integral is updated by the error times the sampling interval scaled by \(K_c/T_i\) — unless the actuator is already at its limit and the error would push it further, in which case the integral is frozen.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(k\), \(\Delta t\)</td><td>sample number and sampling interval</td><td>–, s</td></tr>
+          <tr><td>\(I_k\)</td><td>integral term (stored, already multiplied by \(K_c/T_i\))</td><td>%</td></tr>
+          <tr><td>\(\operatorname{sat}(\cdot)\)</td><td>saturation: clip to \([u_{\min}, u_{\max}]\), e.g. 0–100 %</td><td>%</td></tr>
+          <tr><td>\(y_k - y_{k-1}\)</td><td>change of the measurement since the last sample</td><td>°C</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Replace the integral by a running sum of rectangles: \(\int_0^{t_k}e\,\mathrm dt \approx \sum_{j&lt;k} e_j\Delta t\). Multiplying by \(K_c/T_i\) and storing the running total gives the recursion \(I_{k+1} = I_k + (K_c\Delta t/T_i)e_k\).</li>
+            <li>Replace the derivative by a backward difference: \(\mathrm de/\mathrm dt \approx (e_k-e_{k-1})/\Delta t\). With a constant set-point, \(e_k-e_{k-1} = -(y_k-y_{k-1})\); using the measurement form for all times removes the kick when \(r\) jumps.</li>
+            <li>Anti-windup by conditional integration: if \(u_k\) was clipped at \(u_{\max}\) and \(e_k > 0\) (the error asks for even more), or clipped at \(u_{\min}\) and \(e_k < 0\), skip the integral update.</li>
+            <li>An equivalent "velocity" form computes the change \(\Delta u_k = K_c(e_k-e_{k-1}) + (K_c\Delta t/T_i)e_k - K_cT_d(y_k-2y_{k-1}+y_{k-2})/\Delta t\) and adds it to the previous output; clipping the output then prevents windup automatically.</li>
+            <li>Choose \(\Delta t\) small compared with the closed-loop response — as a rule of thumb at most a tenth of the time constant and less than about a quarter of the dead time.</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(K_c e_k\), \(I_k\) and \(K_cT_d(\Delta y/\Delta t)\) are all in % (°C⁻¹ × °C; % °C⁻¹ × s × °C s⁻¹) ✓.</div>
+        <div class="mini-calc" data-formula="Kc*Td*dr/dt" data-output="Derivative kick if D acts on the error" data-unit="%" data-digits="0" data-plot="dt" data-ymin="0" data-title="Try it — size of the derivative kick after a set-point step">
+          <div data-var="dr" data-label="Set-point step Δr" data-min="0.5" data-max="6" data-step="0.5" data-value="2" data-unit="°C"></div>
+          <div data-var="Kc" data-label="Gain K_c" data-min="1" data-max="40" data-step="0.5" data-value="10" data-unit="% °C⁻¹"></div>
+          <div data-var="Td" data-label="Derivative time T_d" data-min="1" data-max="120" data-step="1" data-value="40" data-unit="s"></div>
+          <div data-var="dt" data-label="Sampling interval Δt" data-min="1" data-max="60" data-step="1" data-value="5" data-unit="s"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">Three samples of a discrete PID controller</span></div>
+        <div class="we-problem"><p>A chamber heater is controlled by Eq. 10.4.5 with \(K_c = 8\) % °C⁻¹, \(T_i = 300\) s, \(T_d = 40\) s, \(\Delta t = 10\) s, bias \(u_0 = 0\) and a stored integral \(I_0 = 30\) %. The set-point is 22.0 °C. The last measurement before \(k=0\) was 19.7 °C; the next three measurements are 20.0, 20.4 and 20.7 °C. Compute the controller output at each sample.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>k = 0</strong> (y = 20.0): \(e = 2.0\); P = 8 × 2.0 = 16.0 %; D = −8 × 40 × (20.0 − 19.7)/10 = −9.6 %; u = 16.0 + 30.0 − 9.6 = 36.4 %. Integral update: \(I_1 = 30 + 8\times10/300\times2.0 = 30.53\) %.</li>
+            <li><strong>k = 1</strong> (y = 20.4): \(e = 1.6\); P = 12.8 %; D = −8 × 40 × 0.4/10 = −12.8 %; u = 12.8 + 30.53 − 12.8 = 30.5 %. \(I_2 = 30.53 + 0.267\times1.6 = 30.96\) %.</li>
+            <li><strong>k = 2</strong> (y = 20.7): \(e = 1.3\); P = 10.4 %; D = −8 × 40 × 0.3/10 = −9.6 %; u = 10.4 + 30.96 − 9.6 = 31.8 %.</li>
+            <li><strong>Interpretation.</strong> The temperature is rising quickly towards the set-point, so the derivative term brakes (−10 to −13 %), preventing overshoot; the integral creeps upwards because an error remains; the proportional term shrinks as the error does.</li>
+          </ol>
+          <span class="answer">u ≈ 36.4 %, 30.5 %, 31.8 % — the derivative term acts as a brake while the temperature rises</span>
+        </div></details>
+      </div>
+
+      <figure class="figure wide" id="fig-pid">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — tune a PID controller for a growth chamber</div>
+          <div class="pid-layout">
+            <div>
+              <div id="pid-y"></div>
+              <div id="pid-u"></div>
+            </div>
+            <div>
+              <div class="sl-group"><h4>Process (identify it in Figure 3)</h4>
+                <div class="mc-var"><div class="mc-lab"><span>Gain K</span><output id="pid-K-out"></output></div><input id="pid-K" type="range" min="0.03" max="0.3" step="0.005" value="0.15" aria-label="Process gain"></div>
+                <div class="mc-var"><div class="mc-lab"><span>Time constant τ</span><output id="pid-tau-out"></output></div><input id="pid-tau" type="range" min="30" max="1200" step="10" value="270" aria-label="Time constant"></div>
+                <div class="mc-var"><div class="mc-lab"><span>Dead time θ</span><output id="pid-th-out"></output></div><input id="pid-th" type="range" min="0" max="300" step="5" value="60" aria-label="Dead time"></div>
+              </div>
+              <div class="sl-group"><h4>Controller</h4>
+                <div class="mc-var"><div class="mc-lab"><span>Gain K_c</span><output id="pid-kc-out"></output></div><input id="pid-kc" type="range" min="0" max="60" step="0.25" value="11" aria-label="Controller gain"></div>
+                <div class="mc-var"><div class="mc-lab"><span>Integral time T_i</span><output id="pid-ti-out"></output></div><input id="pid-ti" type="range" min="20" max="2000" step="10" value="270" aria-label="Integral time"></div>
+                <div class="mc-var"><div class="mc-lab"><span>Derivative time T_d</span><output id="pid-td-out"></output></div><input id="pid-td" type="range" min="0" max="200" step="1" value="0" aria-label="Derivative time"></div>
+                <div class="mc-var"><div class="mc-lab"><span>Heater capacity (max output)</span><output id="pid-um-out"></output></div><input id="pid-um" type="range" min="40" max="100" step="5" value="100" aria-label="Maximum output"></div>
+                <div class="mc-var"><div class="mc-lab"><span>Sampling interval Δt</span><output id="pid-ts-out"></output></div><input id="pid-ts" type="range" min="1" max="60" step="1" value="5" aria-label="Sampling interval"></div>
+                <div class="mc-var"><div class="mc-lab"><span>Sensor noise σ</span><output id="pid-n-out"></output></div><input id="pid-n" type="range" min="0" max="0.3" step="0.01" value="0.04" aria-label="Sensor noise"></div>
+                <label class="chk"><input type="checkbox" id="pid-aw" checked> anti-windup</label>
+                <label class="chk"><input type="checkbox" id="pid-dm" checked> derivative on measurement</label>
+                <label class="chk"><input type="checkbox" id="pid-terms"> show P, I, D terms</label>
+              </div>
+              <div class="fig-ctl"><button class="btn btn-sm" type="button" id="pid-zn">Ziegler–Nichols PID</button><button class="btn btn-sm" type="button" id="pid-cc">Cohen–Coon PI</button><button class="btn btn-sm btn-primary" type="button" id="pid-simc">SIMC PI</button></div>
+            </div>
+          </div>
+          <div class="readouts" id="pid-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 5.</b> One hour of a growth chamber under discrete PID control (Eq. 10.4.5), simulated second by second. The chamber starts cold (14 °C) with a set-point of 22 °C; at 25 min the set-point is raised to 24 °C; at 45 min the door is opened (a −3 °C load disturbance). Top: temperature and set-point; bottom: heater output (and, optionally, the P, I and D terms). Things to try: switch anti-windup off and lower the heater capacity to 60 %; add derivative action with and without “derivative on measurement” and watch the kick at 25 min; increase the dead time and see how much gain the loop tolerates; press the tuning buttons after changing the process.</figcaption>
+      </figure>
+
+      <div class="callout warn"><div class="callout-title">Integral windup in a greenhouse</div><p>On a sunny spring afternoon the greenhouse is warmer than the heating set-point, so the heating controller closes its valve completely — and, without anti-windup, its integral keeps accumulating negative error for hours. At sunset the air cools below the set-point, but the valve stays shut until the integral has “unwound”, and the crop gets a cold evening. Every commercial climate computer therefore limits or freezes its integrators; if you program your own controller for the course project (for example on an Arduino), you must do the same.</p></div>
+
+      <h2 id="tuning">Tuning: Ziegler–Nichols, Cohen–Coon and SIMC</h2>
+      <p>Tuning means choosing \(K_c\), \(T_i\) and \(T_d\). Trial and error on a real greenhouse is slow and risky, so engineers start from rules that map the three FOPDT parameters of a step test onto controller settings. The rules differ in what they aim for. Ziegler and Nichols (1942) aimed at a fast response in which each oscillation is a quarter of the previous one — aggressive by modern standards. Cohen and Coon (1953) refined the formulas for processes with larger dead time. Skogestad's SIMC rules (Skogestad, 2003), developed at NTNU in Trondheim, aim for a smooth first-order closed-loop response with one tuning knob, the desired closed-loop time constant \(\tau_c\).</p>
+
+      <div class="eq-box" id="eq-tuning">
+        <div class="eq-head"><span class="eq-label">Tuning rules for an FOPDT process</span><span class="eq-num">(10.4.6)</span></div>
+        <div class="eq-main">\[ \text{Ziegler--Nichols PI:}\quad K_c = \frac{0.9}{K}\,\frac{\tau}{\theta},\quad T_i = 3.33\,\theta \qquad\qquad \text{PID:}\quad K_c = \frac{1.2}{K}\,\frac{\tau}{\theta},\quad T_i = 2\theta,\quad T_d = 0.5\,\theta \]
+        \[ \text{SIMC PI:}\quad K_c = \frac{1}{K}\,\frac{\tau}{\tau_c+\theta},\qquad T_i = \min\{\tau,\ 4(\tau_c+\theta)\},\qquad \tau_c = \theta\ \text{for tight but robust control} \]</div>
+        <p class="eq-read">both families set the controller gain inversely proportional to the process gain and proportional to the ratio of time constant to dead time: a sluggish process with little delay can be pushed hard, a process with a long delay must be handled gently. Ziegler–Nichols sets the integral time as a multiple of the dead time; SIMC sets it equal to the process time constant, unless that is very long, and lets you choose how fast the closed loop should be.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(K, \tau, \theta\)</td><td>process gain, time constant and dead time from the step test (Eq. 10.4.2)</td><td>°C %⁻¹, s, s</td></tr>
+          <tr><td>\(\tau_c\)</td><td>desired closed-loop time constant (SIMC tuning parameter)</td><td>s</td></tr>
+          <tr><td>\(K_c, T_i, T_d\)</td><td>controller gain, integral time, derivative time (Eq. 10.4.4)</td><td>% °C⁻¹, s, s</td></tr>
+          <tr><td>\(KK_c\)</td><td>loop gain (dimensionless)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the reasoning behind SIMC</summary>
+          <ol class="steps">
+            <li>Choose the closed-loop behaviour you want: after the unavoidable dead time, the output should follow a set-point change like a first-order system with time constant \(\tau_c\): \(y/r = e^{-\theta s}/(\tau_c s+1)\).</li>
+            <li>The controller that achieves this for the process \(Ke^{-\theta s}/(\tau s+1)\) follows from solving \(y/r = GC/(1+GC)\) for \(C\) ("direct synthesis"). Approximating the dead time in the denominator by \(e^{-\theta s}\approx 1-\theta s\) gives \(C = \dfrac{\tau s+1}{K(\tau_c+\theta)s}\) — exactly a PI controller with \(K_c = \tau/[K(\tau_c+\theta)]\) and \(T_i = \tau\) (Skogestad, 2003).</li>
+            <li>For processes with a very long time constant, \(T_i = \tau\) would make the integral action so slow that load disturbances linger; Skogestad therefore caps it at \(4(\tau_c+\theta)\).</li>
+            <li>With \(\tau_c = \theta\) the loop gain is \(KK_c = \tau/(2\theta)\), roughly half of the Ziegler–Nichols value \(0.9\,\tau/\theta\): SIMC trades a little speed for much better damping and robustness to changes in the process.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>All these rules assume that the FOPDT model is a fair description and that the process does not change. A greenhouse is not constant: its gain and time constant change with vent opening, screens, wind and crop size, so tunings made in winter may be too aggressive in summer. Robust (conservative) settings, gain scheduling or adaptive and model-based control address this. Ziegler–Nichols settings typically give 30–50 % overshoot and are best treated as an upper bound on aggressiveness.</p>
+        </details>
+        <div class="eq-units">\(K_c\): (°C %⁻¹)⁻¹ × s/s = % °C⁻¹ ✓ — the inverse of the process gain, as it must be for the loop gain \(KK_c\) to be dimensionless; \(T_i\), \(T_d\) in s ✓.</div>
+        <div class="mini-calc" data-formula="tau/(K*(tauc + theta))" data-output="SIMC controller gain K_c" data-unit="% °C⁻¹" data-digits="2" data-plot="tauc" data-ymin="0" data-title="Try it — the speed knob τ_c">
+          <div data-var="tauc" data-label="Desired closed-loop time constant τ_c" data-min="5" data-max="600" data-step="5" data-value="80" data-unit="s"></div>
+          <div data-var="K" data-label="Process gain K" data-min="0.02" data-max="0.4" data-step="0.005" data-value="0.12" data-unit="°C %⁻¹"></div>
+          <div data-var="tau" data-label="Time constant τ" data-min="30" data-max="1500" data-step="10" data-value="270" data-unit="s"></div>
+          <div data-var="theta" data-label="Dead time θ" data-min="5" data-max="400" data-step="5" data-value="80" data-unit="s"></div>
+        </div>
+      </div>
+
+      <table>
+        <caption>Table 3. Tuning rules for a process \(Ke^{-\theta s}/(\tau s+1)\) (Ziegler &amp; Nichols, 1942; Cohen &amp; Coon, 1953; Skogestad, 2003; Seborg et al., 2016). \(K_u\) and \(P_u\) are the ultimate gain and period at which a P-only loop oscillates steadily.</caption>
+        <thead><tr><th>Method</th><th>Controller</th><th>\(K_c\)</th><th>\(T_i\)</th><th>\(T_d\)</th></tr></thead>
+        <tbody>
+          <tr><td>Ziegler–Nichols, reaction curve</td><td>PI</td><td>\(0.9\,\tau/(K\theta)\)</td><td>\(3.33\,\theta\)</td><td>–</td></tr>
+          <tr><td>Ziegler–Nichols, reaction curve</td><td>PID</td><td>\(1.2\,\tau/(K\theta)\)</td><td>\(2\theta\)</td><td>\(0.5\,\theta\)</td></tr>
+          <tr><td>Ziegler–Nichols, ultimate gain</td><td>PI / PID</td><td>\(0.45K_u\) / \(0.6K_u\)</td><td>\(P_u/1.2\) / \(P_u/2\)</td><td>– / \(P_u/8\)</td></tr>
+          <tr><td>Cohen–Coon</td><td>PI</td><td>\(\dfrac{\tau}{K\theta}\left(0.9+\dfrac{\theta}{12\tau}\right)\)</td><td>\(\theta\,\dfrac{30+3\theta/\tau}{9+20\theta/\tau}\)</td><td>–</td></tr>
+          <tr><td>SIMC</td><td>PI</td><td>\(\dfrac{\tau}{K(\tau_c+\theta)}\)</td><td>\(\min\{\tau, 4(\tau_c+\theta)\}\)</td><td>–</td></tr>
+        </tbody>
+      </table>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">Three tunings for the same chamber</span></div>
+        <div class="we-problem"><p>For the growth chamber of Worked example 2 (\(K = 0.12\) °C %⁻¹, \(\tau = 270\) s, \(\theta = 80\) s), compute PI settings with Ziegler–Nichols, Cohen–Coon and SIMC (\(\tau_c = \theta\)). Compare the loop gains and predict which will overshoot most. Then try them in Figure 5.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Ratio.</strong> \(\tau/(K\theta) = 270/(0.12\times80) = 28.1\) % °C⁻¹.</li>
+            <li><strong>Ziegler–Nichols PI.</strong> \(K_c = 0.9\times28.1 = 25.3\) % °C⁻¹; \(T_i = 3.33\times80 = 267\) s.</li>
+            <li><strong>Cohen–Coon PI.</strong> \(K_c = 28.1\times(0.9 + 80/3240) = 28.1\times0.925 = 26.0\) % °C⁻¹; \(T_i = 80\times(30+0.889)/(9+5.926) = 80\times2.070 = 166\) s.</li>
+            <li><strong>SIMC PI.</strong> \(K_c = 270/[0.12\times(80+80)] = 14.1\) % °C⁻¹; \(T_i = \min\{270,\ 640\} = 270\) s.</li>
+            <li><strong>Compare.</strong> Loop gains \(KK_c\): ZN 3.0, CC 3.1, SIMC 1.7. Cohen–Coon combines the highest gain with the shortest integral time, so it will be the most oscillatory; SIMC the calmest. For a growth chamber, where plants hardly notice a slow return to the set-point but actuators wear and energy is wasted by oscillation, the calmer tuning is usually the better choice.</li>
+          </ol>
+          <span class="answer">ZN: 25.3 % °C⁻¹, 267 s · CC: 26.0 % °C⁻¹, 166 s · SIMC: 14.1 % °C⁻¹, 270 s (least overshoot)</span>
+        </div></details>
+      </div>
+
+      <h3>A controller for your own system</h3>
+      <p>In the course project you may want to control something yourself: the temperature of a nutrient tank with an aquarium heater, the photoperiod and dimming of an LED panel, or the pump of an aeroponic chamber. The workflow of this lesson applies directly. First, <strong>identify</strong> the process: switch the actuator from one constant level to another, log the response every few seconds, and fit \(K\), \(\tau\) and \(\theta\) in Figure 3. A 25 W aquarium heater in 20 L of water, for example, heats slowly — a time constant of hours — with a dead time set mostly by mixing and by where the sensor sits, so place the sensor close to the plant roots but not next to the heater. Second, <strong>choose the controller</strong>: an on/off actuator (a relay, a heater without power control) calls for a thermostat with a band chosen from Eq. 10.4.3 so that the relay switches at most a few times per hour; a continuously adjustable actuator (a dimmable LED driver, a variable-speed pump, a heater driven with slow pulse-width modulation) calls for a PI controller tuned with SIMC. Derivative action is rarely worth its noise in such slow systems.</p>
+      <p>Third, <strong>implement it safely</strong>. Microcontroller libraries for PID control exist for every platform, but check three things in the code: that the integral is limited (anti-windup), that the output is clipped to the actuator's range, and that the controller runs at a fixed sampling interval. Add independent safety limits that do not depend on the controller at all — a thermal fuse on the heater, a float switch that stops the pump when the tank is empty, a maximum on-time for any relay — because sensors fail, and a feedback loop with a broken sensor will happily drive its actuator to the limit (the sensor-anomaly detectors of <a href="/lessons/digital-twins/">Lesson 10.5</a> address exactly this). Finally, <strong>evaluate</strong> the loop as in Figure 5: log set-point, measurement and actuator output, compute the IAE, the overshoot and the energy use, and report them with the tuning you used. A control experiment reported this way is reproducible — and a good piece of engineering in your project report.</p>
+
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A controller is judged on several criteria at once: the integrated absolute error (IAE = \(\int|e|\,\mathrm dt\)), the overshoot and settling time after set-point changes, the rejection of disturbances, the robustness to changes in the process, the energy used and the wear of the actuator. No tuning is best for all of them; choose according to what matters for the crop and the installation.</p></div>
+
+      <h2 id="strategies">Beyond single loops: cascade control and set-point strategies</h2>
+      <p><strong>Cascade control</strong> nests one loop inside another. In a hot-water heated greenhouse, an outer (master) controller compares the air temperature with its set-point and computes the <em>desired pipe-water temperature</em>; an inner (slave) controller moves the mixing valve to achieve that water temperature. The inner loop is fast — minutes — and corrects disturbances in the supply water before they reach the air; the outer loop deals with the slow air dynamics. The interface is also convenient for constraints: minimum and maximum pipe temperatures, used by growers to steer humidity and crop activity, are simply limits on the outer controller's output.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 230" role="img" aria-label="Cascade control of greenhouse heating: the outer controller compares air temperature with its set-point and outputs a pipe-water temperature set-point, limited between minimum and maximum; the inner controller compares the pipe-water temperature with that set-point and moves the mixing valve; the water heats the pipes, which heat the air">
+            <defs><marker id="co-a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <g class="t-small" text-anchor="middle">
+              <circle cx="60" cy="90" r="13" class="fill-bg" stroke="currentColor"/><text x="60" y="95">Σ</text>
+              <rect x="100" y="70" width="110" height="40" rx="8" class="fill-magenta-soft" stroke="currentColor"/><text x="155" y="88">outer controller</text><text x="155" y="102" class="t-muted">air temperature</text>
+              <rect x="232" y="70" width="70" height="40" rx="8" class="fill-sunk" stroke="currentColor"/><text x="267" y="88">limits</text><text x="267" y="102" class="t-muted">min/max pipe</text>
+              <circle cx="336" cy="90" r="13" class="fill-bg" stroke="currentColor"/><text x="336" y="95">Σ</text>
+              <rect x="372" y="70" width="104" height="40" rx="8" class="fill-magenta-soft" stroke="currentColor"/><text x="424" y="88">inner controller</text><text x="424" y="102" class="t-muted">water temperature</text>
+              <rect x="500" y="70" width="92" height="40" rx="8" class="fill-water-soft" stroke="currentColor"/><text x="546" y="88">mixing valve</text><text x="546" y="102" class="t-muted">+ pipes</text>
+              <rect x="612" y="70" width="96" height="40" rx="8" class="fill-accent-soft" stroke="currentColor"/><text x="660" y="88">greenhouse</text><text x="660" y="102" class="t-muted">air</text>
+            </g>
+            <line x1="10" y1="90" x2="45" y2="90" class="stroke" stroke-width="1.3" marker-end="url(#co-a3)"/><text x="10" y="80" class="t-small">T set-point</text>
+            <line x1="73" y1="90" x2="98" y2="90" class="stroke" stroke-width="1.3" marker-end="url(#co-a3)"/>
+            <line x1="210" y1="90" x2="230" y2="90" class="stroke" stroke-width="1.3" marker-end="url(#co-a3)"/>
+            <line x1="302" y1="90" x2="321" y2="90" class="stroke" stroke-width="1.3" marker-end="url(#co-a3)"/><text x="310" y="64" class="t-small" text-anchor="middle">T_pipe,sp</text>
+            <line x1="349" y1="90" x2="370" y2="90" class="stroke" stroke-width="1.3" marker-end="url(#co-a3)"/>
+            <line x1="476" y1="90" x2="498" y2="90" class="stroke" stroke-width="1.3" marker-end="url(#co-a3)"/>
+            <line x1="592" y1="90" x2="610" y2="90" class="stroke" stroke-width="1.3" marker-end="url(#co-a3)"/>
+            <path d="M546 110 L546 150 L336 150 L336 105" class="stroke-water" stroke-width="1.4" fill="none" marker-end="url(#co-a3)" color="var(--water)"/><text x="440" y="166" class="t-small" text-anchor="middle" style="fill:var(--water)">inner loop: measured water temperature (fast, minutes)</text>
+            <path d="M660 110 L660 196 L60 196 L60 105" class="stroke-accent" stroke-width="1.4" fill="none" marker-end="url(#co-a3)" color="var(--accent)"/><text x="360" y="214" class="t-small" text-anchor="middle" style="fill:var(--accent)">outer loop: measured air temperature (slow, tens of minutes)</text>
+            <line x1="546" y1="30" x2="546" y2="68" class="stroke-amber" stroke-width="1.4" marker-end="url(#co-a3)" color="var(--amber)"/><text x="556" y="40" class="t-small" style="fill:var(--amber)">supply-water disturbance</text>
+            <line x1="660" y1="30" x2="660" y2="68" class="stroke-amber" stroke-width="1.4" marker-end="url(#co-a3)" color="var(--amber)"/><text x="600" y="24" class="t-small" style="fill:var(--amber)">sun, wind</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 6.</b> Cascade control of pipe heating. The inner loop rejects disturbances in the hot-water supply within minutes; the outer loop sets the pipe temperature needed to reach the air set-point, between grower-defined limits.</figcaption>
+      </figure>
+
+      <p>Controllers keep the climate at its set-points; <em>which</em> set-points to use is a horticultural and economic decision. Two classic strategies exploit the physiology of the crop. <strong>Temperature integration</strong> (TI) is based on the finding that, within limits, growth and development of many greenhouse crops respond to the average temperature over one or several days rather than to the exact temperature at each moment — for tomato, de Koning (1988) found that yield depended on the 24-hour mean over a wide range of day/night regimes. A TI strategy lets the temperature rise on sunny days (when the heat is free) and compensates with cooler nights (when heat is expensive), keeping the average on target (Körner &amp; Challa, 2003).</p>
+
+      <div class="eq-box" id="eq-ti">
+        <div class="eq-head"><span class="eq-label">Temperature integration: the night temperature that keeps the daily mean</span><span class="eq-num">(10.4.7)</span></div>
+        <div class="eq-main">\[ \bar T_{24} = \frac{n_d\,\bar T_{\text{day}} + (24-n_d)\,\bar T_{\text{night}}}{24}\quad\Longrightarrow\quad \bar T_{\text{night}} = \frac{24\,\bar T_{\text{target}}-n_d\,\bar T_{\text{day}}}{24-n_d} \]</div>
+        <p class="eq-read">the 24-hour mean temperature is the time-weighted average of the day and night means. To reach a target daily mean after a warm day, the night must be as much cooler as the day was warmer, weighted by their durations.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>WE 6</th></tr>
+          <tr><td>\(\bar T_{24}\), \(\bar T_{\text{target}}\)</td><td>achieved and targeted 24-hour mean temperature</td><td>°C</td><td>18</td></tr>
+          <tr><td>\(n_d\)</td><td>length of the day period</td><td>h</td><td>14</td></tr>
+          <tr><td>\(\bar T_{\text{day}}\), \(\bar T_{\text{night}}\)</td><td>mean temperatures of the day and night periods</td><td>°C</td><td>21, 13.8</td></tr>
+        </table>
+        <details><summary>Follow the derivation — and the limits</summary>
+          <ol class="steps">
+            <li>The 24-hour mean is \(\frac{1}{24}\int_0^{24}T\,\mathrm dt = \frac{1}{24}(n_d\bar T_{\text{day}} + (24-n_d)\bar T_{\text{night}})\) by definition of the period means.</li>
+            <li>Set it equal to the target and solve for \(\bar T_{\text{night}}\).</li>
+            <li>In practice TI runs over several days and within bounds — absolute minimum and maximum temperatures and a maximum permitted deviation of the running mean — because extreme temperatures damage crops and because development responds differently from photosynthesis (Körner &amp; Challa, 2003).</li>
+            <li>The energy saving comes from the night: heat loss is proportional to \(T-T_o\) (Eq. 10.4.1), so each degree less at night saves \(K(24-n_d)\) Wh m⁻² per night, while the warmer day costs nothing if the sun provides it.</li>
+          </ol>
+        </details>
+        <div class="eq-units">(h × °C + h × °C)/h = °C ✓.</div>
+        <div class="mini-calc" data-formula="(24*Tt - nd*Tday)/(24 - nd)" data-output="Required night mean temperature" data-unit="°C" data-digits="1" data-plot="Tday" data-title="Try it — a sunny day buys a cool night">
+          <div data-var="Tt" data-label="Target 24-h mean" data-min="14" data-max="24" data-step="0.5" data-value="18" data-unit="°C"></div>
+          <div data-var="Tday" data-label="Day mean achieved" data-min="14" data-max="30" data-step="0.5" data-value="21" data-unit="°C"></div>
+          <div data-var="nd" data-label="Day length" data-min="6" data-max="20" data-step="0.5" data-value="14" data-unit="h"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 6</span><span class="we-title">Temperature integration in a Västerås glasshouse</span></div>
+        <div class="we-problem"><p>A grower wants a 24-hour mean of 18 °C. On a sunny April day the sun keeps the greenhouse at 21 °C for 14 hours. (a) What night temperature keeps the mean at 18 °C? (b) With \(K = 8.42\) W m⁻² K⁻¹, how much heat does this save per night compared with keeping 18 °C at night, per m² and per hectare?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>(a)</strong> \(\bar T_{\text{night}} = (24\times18 - 14\times21)/10 = (432-294)/10 = 13.8\) °C.</li>
+            <li><strong>(b)</strong> The heat loss at night is proportional to \(T-T_o\); lowering the night temperature by 4.2 K for 10 h saves \(8.42\times4.2\times10 = 354\) Wh m⁻² = 0.35 kWh m⁻², i.e. about 3.5 MWh per hectare per night.</li>
+            <li><strong>Check the crop.</strong> 13.8 °C at night is within the tolerance of tomato and lettuce, but a grower would also check the minimum-temperature limit, humidity (colder nights raise the relative humidity and the risk of fungal disease) and the effect on development timing.</li>
+          </ol>
+          <span class="answer">13.8 °C at night; ≈ 0.35 kWh m⁻² (≈ 3.5 MWh ha⁻¹) of heat saved per night</span>
+        </div></details>
+      </div>
+
+      <p>The second strategy is <strong>DIF</strong>, the difference between day and night temperature. Erwin et al. (1989) showed for Easter lily that stem elongation depends on DIF rather than on either temperature alone: a negative DIF (cooler days than nights, or a temperature drop in the first hours after dawn) gives shorter, more compact plants. Growers of pot plants and bedding plants use this to replace chemical growth regulators (Myster &amp; Moe, 1995). DIF and TI can conflict — TI wants warm sunny days, negative DIF cool mornings — which is exactly the kind of trade-off that optimisation-based control can resolve. Other set-point strategies raise the temperature set-point with light (so that respiration and photosynthesis stay in balance), dose CO₂ mainly when the vents are nearly closed (so that little is lost), and use vapour-pressure deficit rather than relative humidity as the humidity target (<a href="/lessons/psychrometrics/">Lesson 8.2</a>).</p>
+
+      <h2 id="mpc">Model predictive control and economic optimal control</h2>
+      <p>A PID controller looks only at the present error and its recent history. A greenhouse, however, is slow, and much of what will disturb it is predictable: tomorrow's sunrise, tonight's frost, the hours when electricity is expensive. <strong>Model predictive control</strong> (MPC) uses a model of the process to predict the effect of possible future control sequences over a horizon, chooses the sequence that minimises a cost function while respecting constraints, applies only the <em>first</em> step, and repeats the whole calculation at the next sampling instant with fresh measurements — the <em>receding horizon</em>. MPC became the standard advanced control technology of the process industries (Qin &amp; Badgwell, 2003), and its theory is now mature (Mayne, 2014). In greenhouses it is attractive because of the slow dynamics, the weather forecasts, the many interacting actuators and the hard constraints (Iddio et al., 2020).</p>
+
+      <div class="eq-box" id="eq-mpc">
+        <div class="eq-head"><span class="eq-label">Model predictive control: the finite-horizon optimisation</span><span class="eq-num">(10.4.8)</span></div>
+        <div class="eq-main">\[ \min_{u_0,\dots,u_{N-1}}\ J = \sum_{k=1}^{N} q\,(\hat y_k - r_k)^2 + \sum_{k=0}^{N-1}\bigl[c_k\,u_k + \rho\,(u_k-u_{k-1})^2\bigr] \]
+        \[ \text{subject to}\quad \hat x_{k+1} = f(\hat x_k, u_k, \hat d_k),\quad \hat y_k = h(\hat x_k),\quad u_{\min}\le u_k\le u_{\max},\quad y_{\min}\le \hat y_k \le y_{\max} \]</div>
+        <p class="eq-read">over the next \(N\) steps, choose the sequence of control inputs that minimises the weighted sum of squared predicted deviations from the set-point, the cost of the inputs (for example, heating energy at a time-varying price) and a penalty on abrupt changes — subject to the process model driven by forecast disturbances and to limits on the inputs and outputs. Apply the first input, measure, and solve again one step later.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit (greenhouse heating)</th></tr>
+          <tr><td>\(N\)</td><td>prediction horizon (number of steps)</td><td>–, e.g. 24 steps of 15 min = 6 h</td></tr>
+          <tr><td>\(\hat x_k, \hat y_k\)</td><td>predicted state and output (air temperature)</td><td>°C</td></tr>
+          <tr><td>\(u_k\)</td><td>planned control input (heating power)</td><td>W m⁻²</td></tr>
+          <tr><td>\(\hat d_k\)</td><td>forecast disturbances (outside temperature, solar radiation)</td><td>°C, W m⁻²</td></tr>
+          <tr><td>\(r_k\)</td><td>set-point (or comfort band)</td><td>°C</td></tr>
+          <tr><td>\(q, \rho\)</td><td>weights on tracking error and on input changes</td><td>(cost unit) °C⁻², (cost unit) (W m⁻²)⁻²</td></tr>
+          <tr><td>\(c_k\)</td><td>cost per unit input at step \(k\) (energy price × duration)</td><td>€ per (W m⁻²)</td></tr>
+        </table>
+        <details><summary>Follow the reasoning — why a receding horizon works</summary>
+          <ol class="steps">
+            <li><strong>Prediction.</strong> For the linear model of Eq. 10.4.1 sampled every \(\Delta t\), \(\hat T_{k+1} = a\hat T_k + (1-a)[T_{o,k} + (Q_k+S_k)/K]\) with \(a = e^{-\Delta t/\tau}\). Repeating this \(N\) times expresses every predicted temperature as a linear function of the unknown inputs \(Q_0,\dots,Q_{N-1}\).</li>
+            <li><strong>Optimisation.</strong> Inserting the predictions into \(J\) gives a quadratic function of the inputs; with the input limits it is a <em>quadratic programme</em>, which has a unique minimum and is solved in milliseconds (Figure 8 solves one for every 15-minute step by projected gradient descent).</li>
+            <li><strong>Feedback.</strong> The plan is optimal only for the model and the forecast. By applying just the first input and re-planning from the next measurement, MPC corrects model errors and forecast errors continuously — it is a feedback controller whose control law is computed online.</li>
+            <li><strong>Horizon.</strong> The horizon must cover the slow dynamics and the relevant disturbances: a horizon shorter than the time constant cannot "see" the benefit of pre-heating before a cold night or of stopping heating before sunrise.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>MPC is only as good as its model and its forecasts; a biased weather forecast produces a biased plan (try it in Figure 8). The optimisation must finish within one sampling interval, which limits model complexity; for non-linear crop and climate models this remains a research topic. Constraints on outputs can make the problem infeasible; practical MPC therefore treats them as soft constraints with a large penalty, as in the economic mode of Figure 8.</p>
+        </details>
+        <div class="eq-units">Each term of \(J\) must be in the same unit, e.g. euro: \(q\) converts °C² to €, \(c_k\) converts W m⁻² held for \(\Delta t\) to €, \(\rho\) converts (W m⁻²)² to € ✓.</div>
+        <div class="mini-calc" data-fn="predict" data-output="Predicted temperature after N steps" data-unit="°C" data-digits="2" data-plot="Q" data-title="Try it — the prediction model inside MPC">
+          <div data-var="Q" data-label="Constant heating Q" data-min="0" data-max="250" data-step="5" data-value="100" data-unit="W m⁻²"></div>
+          <div data-var="N" data-label="Steps ahead N" data-min="1" data-max="48" data-step="1" data-value="8"></div>
+          <div data-var="dt" data-label="Step length Δt" data-min="60" data-max="3600" data-step="60" data-value="900" data-unit="s"></div>
+          <div data-var="tau" data-label="Time constant τ" data-min="600" data-max="14400" data-step="100" data-value="7100" data-unit="s"></div>
+          <div data-var="T0" data-label="Current temperature T₀" data-min="5" data-max="25" data-step="0.5" data-value="16" data-unit="°C"></div>
+          <div data-var="To" data-label="Outside temperature T_o" data-min="-15" data-max="15" data-step="0.5" data-value="2" data-unit="°C"></div>
+          <div data-var="K" data-label="Heat-loss coefficient K" data-min="2" data-max="12" data-step="0.1" data-value="8.4" data-unit="W m⁻² K⁻¹"></div>
+        </div>
+      </div>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 290" role="img" aria-label="Receding horizon: at the current time k the controller uses past measurements and a model to predict the output over the prediction horizon for a planned input sequence; only the first planned input is applied, then the horizon moves one step forward">
+            <defs><marker id="co-a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <rect x="300" y="20" width="360" height="238" class="fill-sunk" opacity=".7"/>
+            <line x1="300" y1="20" x2="300" y2="258" class="stroke" stroke-width="1.6"/><text x="300" y="274" text-anchor="middle" class="t-small" font-weight="650">now (k)</text>
+            <text x="150" y="38" text-anchor="middle" class="t-small t-muted">past: measured</text><text x="480" y="38" text-anchor="middle" class="t-small t-muted">future: predicted over the horizon N</text>
+            <line x1="40" y1="80" x2="660" y2="80" class="stroke-magenta" stroke-dasharray="6 4"/><text x="46" y="74" class="t-small" style="fill:var(--magenta)">set-point r</text>
+            <path d="M40 132 C 90 128, 140 120, 190 112 C 230 106, 270 104, 300 104" class="stroke-accent" stroke-width="2.6" fill="none"/>
+            <circle cx="300" cy="104" r="4" class="fill-accent"/>
+            <path d="M300 104 C 360 96, 420 86, 480 82 C 540 80, 600 80, 660 80" class="stroke-accent" stroke-width="2" stroke-dasharray="4 3" fill="none"/>
+            <text x="470" y="104" class="t-small" style="fill:var(--accent)">predicted output ŷ</text>
+            <line x1="40" y1="230" x2="660" y2="230" class="stroke-muted"/>
+            <path d="M40 200 L100 200 L100 190 L160 190 L160 196 L220 196 L220 186 L300 186" class="stroke" stroke-width="2" fill="none"/>
+            <rect x="300" y="170" width="45" height="60" class="fill-magenta-soft" stroke="var(--magenta)" stroke-width="1.6"/>
+            <path d="M345 176 L390 176 L390 186 L435 186 L435 194 L480 194 L480 200 L525 200 L525 204 L660 204" class="stroke-muted" stroke-width="1.8" stroke-dasharray="4 3" fill="none"/>
+            <text x="352" y="164" class="t-small" style="fill:var(--magenta)">apply only u₀</text>
+            <text x="500" y="222" class="t-small t-muted">planned inputs u₁ … u_N−1</text>
+            <text x="46" y="220" class="t-small">past inputs</text>
+            <line x1="300" y1="246" x2="660" y2="246" class="stroke" stroke-width="1.2" marker-start="url(#co-a4)" marker-end="url(#co-a4)"/><text x="600" y="242" class="t-small">horizon N</text>
+            <path d="M345 254 C 380 280, 420 280, 450 262" class="stroke-muted" stroke-width="1.2" fill="none" marker-end="url(#co-a4)"/><text x="455" y="270" class="t-small t-muted">next step: measure, shift horizon, re-optimise</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 7.</b> The receding-horizon principle. At every sampling instant MPC optimises a whole input sequence against the predicted future, applies only its first element, and starts again with the next measurement.</figcaption>
+      </figure>
+
+      <figure class="figure wide" id="fig-mpc">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — PI control versus model predictive control over two spring days</div>
+          <div class="fig-ctl">
+            <div class="seg" id="mpc-mode" role="group" aria-label="MPC objective">
+              <button type="button" data-v="track" aria-pressed="true">Tracking MPC (18 °C)</button>
+              <button type="button" data-v="econ">Economic MPC (16–21 °C band, energy price)</button>
+            </div>
+          </div>
+          <div class="sliders-inline">
+            <div class="mc-var"><div class="mc-lab"><span>Prediction horizon N</span><output id="mpc-N-out"></output></div><input id="mpc-N" type="range" min="1" max="48" step="1" value="24" aria-label="Prediction horizon"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Forecast error, outside temperature</span><output id="mpc-fe-out"></output></div><input id="mpc-fe" type="range" min="-4" max="4" step="0.5" value="0" aria-label="Forecast error"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Show the plan made at hour</span><output id="mpc-ins-out"></output></div><input id="mpc-ins" type="range" min="0" max="47" step="1" value="4" aria-label="Inspection hour"></div>
+          </div>
+          <div id="mpc-T"></div>
+          <div id="mpc-Q"></div>
+          <div class="readouts" id="mpc-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 8.</b> A greenhouse (Eq. 10.4.1 with \(K\) = 8.4 W m⁻² K⁻¹ and \(\tau\) ≈ 2 h; heating up to 180 W m⁻²) through two spring days with cold nights and sunny middays, simulated minute by minute. Dashed blue: a well-tuned PI controller holding 18 °C; magenta: MPC re-planning every 15 minutes with the forecast; dotted: the MPC's plan made at the inspected hour. In tracking mode MPC anticipates sunrise and sunset from the forecast and holds 18 °C more tightly than PI for the same energy (compare the comfort readouts). In economic mode it minimises the energy bill for an illustrative price profile (amber, right axis) while keeping the temperature inside 16–21 °C: it pre-heats before expensive hours and lets the temperature drift through the band — thermal storage used deliberately. Shorten the horizon or add a forecast error to see what happens when MPC cannot see far enough or is misled.</figcaption>
+      </figure>
+
+      <p>MPC still needs someone to specify a set-point or a band. <strong>Economic optimal control</strong> goes one step further and asks the grower's real question: which climate maximises profit — the value of the harvested crop minus the cost of heating, CO₂ and electricity? Eldert van Henten formulated this problem for lettuce in his doctoral work (Van Henten, 1994) and, with Jan Bontsema, showed how to solve it in practice by exploiting the very different speeds of crop and climate (Van Henten &amp; Bontsema, 2009; van Straten et al., 2010).</p>
+
+      <div class="eq-box" id="eq-econ">
+        <div class="eq-head"><span class="eq-label">Economic optimal control of a greenhouse crop</span><span class="eq-num">(10.4.9)</span></div>
+        <div class="eq-main">\[ \max_{u(t)}\ J = p_W\,W(t_f) - \int_{t_0}^{t_f}\bigl[c_Q\,Q_h(t) + c_{C}\,u_{C}(t)\bigr]\,\mathrm dt\quad\text{s.t.}\quad \frac{\mathrm dW}{\mathrm dt} = f_W(W, T, C, I),\quad \frac{\mathrm d\mathbf x_{\text{clim}}}{\mathrm dt} = f_{\text{clim}}(\mathbf x_{\text{clim}}, u, d) \]</div>
+        <p class="eq-read">choose the whole time course of the controls (heating, CO₂ dosing, ventilation) to maximise the value of the crop at harvest minus the accumulated cost of the resources used, subject to a crop growth model — in which growth depends on temperature, CO₂ and light — and a greenhouse climate model driven by the controls and the weather.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(W(t_f)\)</td><td>crop dry (or fresh) mass at harvest time \(t_f\)</td><td>kg m⁻²</td></tr>
+          <tr><td>\(p_W\)</td><td>price of the crop</td><td>€ kg⁻¹</td></tr>
+          <tr><td>\(Q_h\), \(u_C\)</td><td>heating power and CO₂ dosing rate</td><td>W m⁻², kg m⁻² s⁻¹</td></tr>
+          <tr><td>\(c_Q\), \(c_C\)</td><td>prices of heat and CO₂</td><td>€ J⁻¹, € kg⁻¹</td></tr>
+          <tr><td>\(f_W\), \(f_{\text{clim}}\)</td><td>crop growth model (e.g., Van Henten's lettuce model) and climate model</td><td>–</td></tr>
+          <tr><td>\(\lambda(t)\)</td><td>co-state: the marginal value at time \(t\) of one extra unit of crop mass</td><td>€ kg⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the reasoning — marginal value and time-scale decomposition</summary>
+          <ol class="steps">
+            <li><strong>Marginal thinking.</strong> At the optimum it cannot pay to change any control a little: one more joule of heat at time \(t\) must bring exactly as much future crop value as it costs. Optimal-control theory (Pontryagin's maximum principle) formalises this with a co-state \(\lambda(t)\), the value of one extra unit of crop mass at time \(t\) as seen from the harvest.</li>
+            <li><strong>Instantaneous rule.</strong> With \(\lambda\) known, the optimal controls at each moment maximise the "instantaneous profit" \(\lambda\,f_W - c_QQ_h - c_Cu_C\): heat or dose CO₂ only as long as the extra growth, valued at \(\lambda\), exceeds the cost.</li>
+            <li><strong>Two time scales.</strong> The crop changes over days to weeks, the climate over minutes. Van Henten and Bontsema (2009) exploit this: a slow upper level optimises the crop trajectory (and \(\lambda\)) over the season with coarse weather forecasts; a fast lower level computes the climate controls every few minutes from the instantaneous rule with actual measurements.</li>
+            <li><strong>A toy version.</strong> Suppose the season's yield rises with heating energy as \(W = W_{\max}(1-e^{-E/E_0})\). The profit \(J(E) = p_WW_{\max}(1-e^{-E/E_0}) - c_QE\) is maximal where the marginal revenue \(p_WW_{\max}e^{-E/E_0}/E_0\) equals the marginal cost \(c_Q\), i.e. at \(E^* = E_0\ln[p_WW_{\max}/(c_QE_0)]\). More heating beyond \(E^*\) still increases yield — but not profit.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The result is only as good as the crop and price models: yield quality, market prices that change during the season, labour and risk are hard to capture. The economic optimum is often <em>not</em> the biological optimum — in a Swedish winter it may pay to grow more slowly at a lower temperature. Economic optimal control is therefore used to support decisions and to set strategy, with growers retaining control over risks the model does not know.</p>
+        </details>
+        <div class="eq-units">\(p_WW\): € kg⁻¹ × kg m⁻² = € m⁻²; \(\int c_QQ_h\,\mathrm dt\): € J⁻¹ × W m⁻² × s = € m⁻² ✓ — every term of \(J\) is a profit per square metre.</div>
+        <div class="mini-calc" data-formula="p*W*(1 - exp(-En/E0)) - c*En" data-output="Toy profit J(E) (illustrative)" data-unit="€ m⁻²" data-digits="2" data-plot="En" data-title="Try it — where marginal revenue equals marginal cost">
+          <div data-var="En" data-label="Seasonal heating energy E" data-min="0" data-max="600" data-step="5" data-value="130" data-unit="kWh m⁻²"></div>
+          <div data-var="p" data-label="Crop price p_W" data-min="0.2" data-max="3" data-step="0.05" data-value="1.2" data-unit="€ kg⁻¹"></div>
+          <div data-var="W" data-label="Yield potential W_max" data-min="5" data-max="60" data-step="1" data-value="35" data-unit="kg m⁻²"></div>
+          <div data-var="E0" data-label="Energy scale E₀" data-min="50" data-max="500" data-step="10" data-value="250" data-unit="kWh m⁻²"></div>
+          <div data-var="c" data-label="Heat price c_Q" data-min="0.01" data-max="0.4" data-step="0.01" data-value="0.10" data-unit="€ kWh⁻¹"></div>
+        </div>
+      </div>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 250" role="img" aria-label="Hierarchical greenhouse control: a seasonal economic optimisation with crop model and weather and price forecasts computes the marginal value of crop growth and daily targets; a fast climate optimiser or MPC computes set-points every few minutes; PID loops drive the actuators; measurements flow back up">
+            <defs><marker id="co-a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <g class="t-small">
+              <rect x="150" y="14" width="400" height="48" rx="10" class="fill-magenta-soft" stroke="currentColor"/><text x="350" y="34" text-anchor="middle" font-weight="650">seasonal economic optimisation (days–weeks)</text><text x="350" y="50" text-anchor="middle" class="t-muted">crop model · price and weather outlook → marginal value λ(t), daily targets</text>
+              <rect x="150" y="96" width="400" height="48" rx="10" class="fill-water-soft" stroke="currentColor"/><text x="350" y="116" text-anchor="middle" font-weight="650">climate optimiser / MPC (minutes–hours)</text><text x="350" y="132" text-anchor="middle" class="t-muted">greenhouse model · weather forecast → set-points for heating, vents, CO₂, screens</text>
+              <rect x="150" y="178" width="400" height="48" rx="10" class="fill-accent-soft" stroke="currentColor"/><text x="350" y="198" text-anchor="middle" font-weight="650">PID and on/off loops (seconds–minutes)</text><text x="350" y="214" text-anchor="middle" class="t-muted">valves, vent motors, dosing valves, lamps</text>
+            </g>
+            <line x1="330" y1="62" x2="330" y2="94" class="stroke" stroke-width="1.4" marker-end="url(#co-a5)"/><line x1="330" y1="144" x2="330" y2="176" class="stroke" stroke-width="1.4" marker-end="url(#co-a5)"/>
+            <line x1="380" y1="176" x2="380" y2="146" class="stroke-muted" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#co-a5)"/><line x1="380" y1="94" x2="380" y2="64" class="stroke-muted" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#co-a5)"/>
+            <text x="392" y="84" class="t-small t-muted">crop state, images</text><text x="392" y="166" class="t-small t-muted">climate measurements</text>
+            <text x="14" y="42" class="t-small">slow</text><text x="14" y="206" class="t-small">fast</text><line x1="30" y1="50" x2="30" y2="190" class="stroke-muted" stroke-width="1.2" marker-end="url(#co-a5)"/>
+            <text x="570" y="42" class="t-small t-muted">Van Henten &amp;</text><text x="570" y="56" class="t-small t-muted">Bontsema (2009)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 9.</b> Time-scale decomposition: economic strategy for the slow crop, model predictive control for the fast climate, and simple loops for the actuators. Modern "autonomous greenhouse" systems follow this layered structure, whatever algorithm fills each layer.</figcaption>
+      </figure>
+
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“Optimal control means keeping the crop at its biological optimum.” The biologically fastest growth is rarely the most profitable: heat, CO₂ and electricity cost money, prices change and the season has a deadline. An economically optimal strategy deliberately accepts slower growth when inputs are expensive and pushes growth when they are cheap.</p></div>
+
+      <h2 id="rl">Reinforcement learning and the Autonomous Greenhouse Challenge</h2>
+      <p>MPC needs a model written by engineers. <strong>Reinforcement learning</strong> (RL) instead learns a control policy from experience: an agent observes the state of its environment, takes an action, receives a reward and a new state, and gradually learns which actions lead to high long-term reward (Sutton &amp; Barto, 2018). You met the idea in <a href="/lessons/machine-learning/">Lesson 10.2</a>; here is its mathematics. The environment is formalised as a <strong>Markov decision process</strong> (MDP): a set of states \(s\) (temperature, time of day, crop stage), actions \(a\) (heater off, half, full), transition probabilities \(P(s'\mid s,a)\) and rewards \(r(s,a)\). A <strong>policy</strong> \(\pi(a\mid s)\) chooses actions; its quality is the expected <strong>return</strong>, the discounted sum of future rewards.</p>
+
+      <div class="eq-box" id="eq-rl">
+        <div class="eq-head"><span class="eq-label">Return, Bellman optimality and Q-learning</span><span class="eq-num">(10.4.10)</span></div>
+        <div class="eq-main">\[ G_t = \sum_{j=0}^{\infty}\gamma^{j}\,r_{t+j+1},\qquad Q^{*}(s,a) = \mathbb E\Bigl[r + \gamma\max_{a'}Q^{*}(s',a')\Bigr],\qquad Q(s,a)\leftarrow Q(s,a) + \alpha\Bigl[r+\gamma\max_{a'}Q(s',a') - Q(s,a)\Bigr] \]</div>
+        <p class="eq-read">the return is the sum of all future rewards, each discounted by a factor \(\gamma\) per step. The optimal action value \(Q^*(s,a)\) — the best achievable return after taking action \(a\) in state \(s\) — equals the expected immediate reward plus the discounted value of acting optimally from the next state. Q-learning estimates it from experience: after each step, move the stored value a fraction \(\alpha\) towards the observed reward plus the discounted best value of the next state.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit / typical</th></tr>
+          <tr><td>\(s, a, s'\)</td><td>state, action, next state</td><td>–</td></tr>
+          <tr><td>\(r\)</td><td>reward (e.g., −energy cost − penalty for leaving the temperature band)</td><td>€ or points</td></tr>
+          <tr><td>\(\gamma\)</td><td>discount factor; \(1/(1-\gamma)\) is the effective horizon in steps</td><td>– (0.9–0.99)</td></tr>
+          <tr><td>\(Q(s,a)\)</td><td>action value: expected return of taking \(a\) in \(s\) and acting well afterwards</td><td>same as \(r\)</td></tr>
+          <tr><td>\(\alpha\)</td><td>learning rate</td><td>– (0.01–0.5)</td></tr>
+          <tr><td>\(\varepsilon\)</td><td>exploration probability in an ε-greedy policy</td><td>– (0.05–0.3)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Recursion.</strong> Split the return into the first reward and the rest: \(G_t = r_{t+1} + \gamma G_{t+1}\). Taking expectations under the best policy gives the Bellman optimality equation for \(Q^*\) (Bellman's principle: an optimal plan has optimal sub-plans).</li>
+            <li><strong>Sampling.</strong> We do not know \(P(s'\mid s,a)\), but every experienced transition \((s,a,r,s')\) is a sample of the right-hand side. The difference \(\delta = r+\gamma\max_{a'}Q(s',a') - Q(s,a)\), the <em>temporal-difference error</em>, says how surprised the agent is.</li>
+            <li><strong>Update.</strong> Moving \(Q\) a small step \(\alpha\) towards the sample, \(Q\leftarrow Q+\alpha\delta\), is a stochastic approximation of the Bellman equation. Watkins and Dayan (1992) proved that tabular Q-learning converges to \(Q^*\) if every state–action pair is tried infinitely often and \(\alpha\) decreases appropriately.</li>
+            <li><strong>Exploration.</strong> To keep trying all actions, the agent acts randomly with probability \(\varepsilon\) and greedily (\(\arg\max_a Q\)) otherwise.</li>
+            <li><strong>Example.</strong> \(Q(s,a) = -2.0\), \(r = -0.5\), \(\gamma = 0.9\), \(\max Q(s',\cdot) = -1.2\), \(\alpha = 0.1\): \(\delta = -0.5 - 1.08 + 2.0 = 0.42\), so \(Q\) becomes \(-2.0 + 0.042 = -1.958\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Tabular Q-learning needs a small, discrete state space and many trials. Real greenhouses have continuous states and one season per year, so practical RL replaces the table by a neural network (deep RL, as in the Atari-playing agent of Mnih et al., 2015) and learns in <em>simulators</em> — crop and climate models such as GreenLight (Katzin et al., 2020) — before touching a real crop. The gap between simulator and reality, safe exploration and reward design are the main open problems.</p>
+        </details>
+        <div class="eq-units">\(\gamma\) is dimensionless, so \(G\), \(Q\) and \(r\) share one unit (e.g., €) ✓; \(\alpha\) is dimensionless ✓.</div>
+        <div class="mini-calc" data-formula="Q + a*(r + g*m - Q)" data-output="Updated action value Q(s,a)" data-unit="" data-digits="4" data-plot="a" data-title="Try it — one Q-learning update">
+          <div data-var="Q" data-label="Current Q(s,a)" data-min="-10" data-max="0" data-step="0.1" data-value="-2" ></div>
+          <div data-var="r" data-label="Reward r" data-min="-5" data-max="1" data-step="0.1" data-value="-0.5"></div>
+          <div data-var="g" data-label="Discount γ" data-min="0" data-max="0.99" data-step="0.01" data-value="0.9"></div>
+          <div data-var="m" data-label="max Q(s′, ·)" data-min="-10" data-max="0" data-step="0.1" data-value="-1.2"></div>
+          <div data-var="a" data-label="Learning rate α" data-min="0" data-max="1" data-step="0.01" data-value="0.1"></div>
+        </div>
+      </div>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 240" role="img" aria-label="Reinforcement learning for greenhouse control: the agent observes a state made of climate, crop and weather information and takes an action on the actuators; the greenhouse or a simulator returns a reward made of revenue minus costs and penalties, and a new state">
+            <defs><marker id="co-a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <rect x="250" y="16" width="200" height="60" rx="12" class="fill-magenta-soft" stroke="currentColor"/><text x="350" y="42" text-anchor="middle" font-weight="650">agent</text><text x="350" y="60" text-anchor="middle" class="t-small t-muted">policy π(a | s), e.g. Q-table or neural net</text>
+            <rect x="250" y="160" width="200" height="60" rx="12" class="fill-accent-soft" stroke="currentColor"/><text x="350" y="186" text-anchor="middle" font-weight="650">environment</text><text x="350" y="204" text-anchor="middle" class="t-small t-muted">greenhouse — or a simulator first</text>
+            <path d="M450 46 C 560 60, 560 170, 452 186" class="stroke" stroke-width="1.5" fill="none" marker-end="url(#co-a6)"/>
+            <text x="560" y="100" class="t-small" font-weight="650">action a</text><text x="560" y="116" class="t-small t-muted">heating, vents, CO₂,</text><text x="560" y="130" class="t-small t-muted">lamps, spacing, harvest</text>
+            <path d="M250 190 C 140 176, 140 64, 248 50" class="stroke" stroke-width="1.5" fill="none" marker-end="url(#co-a6)"/>
+            <text x="30" y="92" class="t-small" font-weight="650">state s′ and reward r</text><text x="30" y="108" class="t-small t-muted">s: climate, crop images,</text><text x="30" y="122" class="t-small t-muted">weather forecast, prices</text><text x="30" y="140" class="t-small t-muted">r: revenue − energy − CO₂</text><text x="30" y="154" class="t-small t-muted">− penalties (risk, limits)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 10.</b> The reinforcement-learning loop applied to a greenhouse. Designing the state (what the agent may observe), the actions and above all the reward is the engineering work; the learning algorithm is the easy part.</figcaption>
+      </figure>
+
+      <figure class="figure wide" id="fig-rl">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — a Q-learning agent learns to heat a growth chamber</div>
+          <div class="fig-ctl">
+            <button class="btn btn-sm btn-primary" type="button" id="rl-t1">Train 200 days</button>
+            <button class="btn btn-sm" type="button" id="rl-t2">Train 2000 days</button>
+            <button class="btn btn-sm btn-ghost" type="button" id="rl-reset">Reset agent</button>
+          </div>
+          <div class="sliders-inline">
+            <div class="mc-var"><div class="mc-lab"><span>Learning rate α</span><output id="rl-a-out"></output></div><input id="rl-a" type="range" min="0.02" max="0.6" step="0.01" value="0.15" aria-label="Learning rate"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Exploration ε</span><output id="rl-e-out"></output></div><input id="rl-e" type="range" min="0" max="0.5" step="0.01" value="0.1" aria-label="Exploration"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Comfort weight λ</span><output id="rl-l-out"></output></div><input id="rl-l" type="range" min="0.2" max="5" step="0.1" value="1.5" aria-label="Comfort weight"></div>
+          </div>
+          <div class="rl-layout"><div id="rl-curve"></div><div id="rl-policy"></div></div>
+          <div id="rl-test" style="margin-top:6px"></div>
+          <div class="readouts" id="rl-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 11.</b> Tabular Q-learning (Eq. 10.4.10) on a simulated growth chamber (time step 15 min, one "day" = 96 steps, random outside temperatures). State: chamber temperature (0.5 °C bins), time of day (four blocks) and a cold/mild/warm outside class; actions: heater off, half, full; reward: minus the energy cost (electricity costs three times more from 06:00 to 21:00) minus λ times the squared distance outside the 19–23 °C band. Left: learning curve (return per day). Right: the greedy policy for a mild outside temperature — black = off, red = half, yellow = full power; blank cells are states visited fewer than 20 times, where the agent has not yet learned anything. Bottom: one test day with the learned policy versus a simple thermostat at 21 °C. When the page loads the agent has trained for 2000 simulated days; press “Reset agent” to see the untrained policy (it never heats — every action value is still zero), then train again. After a few thousand days the agent keeps the chamber in the band at an energy cost similar to or lower than the thermostat’s, heating harder when electricity is cheap. A thermostat is a strong baseline for such a simple task — which is why RL is reserved for problems where long-term trade-offs matter. Change λ and retrain: the reward, not the algorithm, decides the behaviour.</figcaption>
+      </figure>
+
+      <p>Can learning algorithms grow a real crop? Wageningen University &amp; Research tested this in the <strong>Autonomous Greenhouse Challenge</strong>, in which international teams remotely control a high-tech greenhouse compartment with their own algorithms, competing on net profit (and in later editions also on sustainability and autonomy) against each other and, in the first editions, against a compartment run by professional growers.</p>
+
+      <div class="timeline">
+        <div><div class="t-date">2018 · 1st edition — cucumber</div><p>Five teams each grew cucumbers in a 96 m² compartment from 14 August to 7 December 2018, setting heating, ventilation, screens, lighting, fogging, CO₂ and irrigation remotely. Methods ranged from Bayesian reinforcement learning (team Sonoma) and deep deterministic policy gradients (iGrow) to convolutional and recurrent neural networks. Only one team beat the manually operated reference: Sonoma achieved a net profit of €24.78 m⁻² against €21.18 m⁻², with the lowest use of CO₂, heat and water per kilogram (Hemming et al., 2019).</p></div>
+        <div><div class="t-date">2019–2020 · 2nd edition — cherry tomato</div><p>Five teams, six months of cherry tomato cultivation, the goal again maximum net profit. This time all AI-supported teams outperformed the human-operated reference compartment (Hemming et al., 2020); the winner was team AuTomatoes, with members from TU Delft and horticultural companies (LetsGrow.com, 2020).</p></div>
+        <div><div class="t-date">2021–2022 · 3rd edition — lettuce</div><p>After an online round on lettuce images, teams ran two lettuce cycles in six compartments, deciding climate, plant spacing and harvest time from sensor data and depth-camera images; computer vision estimated plant height and coverage (Petropoulou et al., 2023; Lesson 10.3). The winner was team Koala, from the start-up Koidra and Cornell University (Greenhouse Grower, n.d.).</p></div>
+        <div><div class="t-date">2024 · 4th edition — dwarf tomato</div><p>Six algorithms fully controlled the cultivation of dwarf tomatoes, a crop suited to robotic harvesting but with little prior cultivation data. All teams achieved a profitable strategy; the best reached a production equivalent to 45 kg m⁻² per year, higher than commercial high-wire cherry-tomato growing, mainly thanks to a much higher plant density. Measuring crop status to decide the harvest moment was the hardest part (Maree et al., 2025). Team IDEAS from Zhejiang University won (WUR, 2025).</p></div>
+        <div><div class="t-date">2026 · 5th edition</div><p>Announced by WUR for 2026.</p></div>
+      </div>
+
+      <p>How should we read these results? They show convincingly that algorithms can run a modern greenhouse remotely and that learning-based and model-based strategies can match and exceed experienced growers on profit and resource use. But they are <em>demonstrations</em>, not controlled experiments in the sense of <a href="/lessons/experimental-design/">Lesson 3.1</a>: each team had one compartment (\(n = 1\)), teams differed in many decisions at once, and the reference was a single team of growers working remotely under the same rules. It is also striking how much of the winning margin came from strategy decisions — plant density, spacing, harvest timing, cultivar-specific set-points — rather than from minute-by-minute climate control. In simulation, Morcego et al. (2023) formulated MPC and RL for greenhouse climate control in a common framework and analysed their differences and the situations in which each is preferable.</p>
+
+      <div class="callout frontier"><div class="callout-title">Frontier 2024–2026</div><p>Research is converging on <strong>hybrids</strong>: reinforcement learning to capture long-term economic consequences, MPC to handle constraints and forecasts in the short term. In a 2026 preprint, van Laatum et al. used an RL policy to supply the terminal cost and terminal region of a one-hour-horizon MPC on the GreenLight tomato model; the combination matched the performance of the high-performing guiding policy and clearly outperformed MPC with the same short horizon alone (van Laatum et al., 2026). Such controllers are also the “decide” layer of the digital twins of <a href="/lessons/digital-twins/">Lesson 10.5</a>.</p></div>
+
+      <a class="lab-link" data-lab="climate-controller" data-why="Tune on/off, PID and predictive controllers for a 3D growth chamber and compare set-point tracking, overshoot and energy use — the experiments of this lesson on a richer model."></a>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="control-optimisation-main">
+        <script type="application/json">
+        {"title":"Control, optimisation and autonomous growing","questions":[
+          {"type":"mcq","q":"Which of these is closed-loop (feedback) control?","options":["Irrigating for five minutes every two hours.","Switching the grow lights on at 06:00 and off at 22:00.","Adding acid whenever the measured pH rises above 6.2.","Setting the heating valve to 40 % for the whole night."],"answer":2,"feedback":["A timer ignores the actual water status of the substrate — open loop.","A fixed schedule ignores the actual light — open loop.","","A fixed valve position never checks the temperature — open loop."],"explain":"<p>Only the pH dosing uses a measurement of the controlled variable to decide the action.</p>"},
+          {"type":"numeric","q":"A chamber has K = 0.1 °C %⁻¹, τ = 300 s and θ = 60 s. The heater is stepped up by 40 % at t = 0. By how much has the temperature risen at t = 360 s?","answer":2.528,"tol":0.02,"unit":"°C","hint":"Use Eq. 10.4.2: KΔu[1 − e^(−(t−θ)/τ)].","explain":"<p>\\(4.0\\times(1-e^{-300/300}) = 4.0\\times0.632 = 2.53\\) °C.</p>"},
+          {"type":"numeric","q":"In a step test the output reaches 28.3 % of its final change 130 s after the step and 63.2 % after 250 s. What is the time constant τ?","answer":180,"tol":0.02,"unit":"s","explain":"<p>\\(\\tau = 1.5\\times(250-130) = 180\\) s (and \\(\\theta = 250-180 = 70\\) s).</p>"},
+          {"type":"numeric","q":"A greenhouse has an effective heat capacity of 60 kJ m⁻² K⁻¹ and a heat-loss coefficient of 8 W m⁻² K⁻¹. What is its time constant in hours?","answer":2.083,"tol":0.02,"unit":"h","explain":"<p>\\(\\tau = C/K = 60\\,000/8 = 7500\\) s = 2.08 h.</p>"},
+          {"type":"numeric","q":"An on/off heater keeps a chamber at 24 °C with a band of ±1 °C. τ = 200 s, ambient 15 °C, heater-on limit 35 °C, no dead time. What is the cycle period?","answer":81.1,"tol":0.02,"unit":"s","hint":"t_on = τ ln[(T∞ − (r−h))/(T∞ − (r+h))], t_off = τ ln[((r+h) − T_o)/((r−h) − T_o)].","explain":"<p>\\(t_{\\text{on}} = 200\\ln(12/10) = 36.5\\) s; \\(t_{\\text{off}} = 200\\ln(10/8) = 44.6\\) s; period 81.1 s.</p>"},
+          {"type":"numeric","q":"A PID controller has u₀ = 20 %, K_c = 5 % °C⁻¹, T_i = 240 s and T_d = 30 s. The error is 2 °C, its integral 120 °C s and its rate of change −0.01 °C s⁻¹. What is the output?","answer":31,"tol":0.02,"unit":"%","explain":"<p>\\(u = 20 + 5\\,(2 + 120/240 - 30\\times0.01) = 20 + 5\\times2.2 = 31\\) %.</p>"},
+          {"type":"mcq","q":"A proportional-only temperature controller leaves the chamber 0.8 °C below its set-point after the door seal starts leaking. Which change removes this steady-state offset?","options":["Increase the proportional gain a little.","Add integral action.","Add derivative action.","Sample the sensor more often."],"answer":1,"feedback":["A higher gain reduces the offset but cannot remove it (and may cause oscillation).","","Derivative action reacts to changes; at steady state it contributes nothing.","The offset is a property of the control law, not of the sampling."],"explain":"<p>At steady state the integral can only stop changing when the error is zero, so integral action drives the offset to zero.</p>"},
+          {"type":"tf","q":"In the first Autonomous Greenhouse Challenge (2018), all five AI teams achieved a higher net profit than the compartment managed by professional growers.","answer":false,"explain":"<p>Only team Sonoma beat the reference (€24.78 versus €21.18 m⁻²). In the second edition (2019–2020) all AI teams outperformed the reference.</p>"},
+          {"type":"numeric","q":"Using SIMC with τ_c = θ, compute the PI gain for a process with K = 0.2 °C %⁻¹, τ = 400 s and θ = 50 s.","answer":20,"tol":0.02,"unit":"% °C⁻¹","explain":"<p>\\(K_c = \\tau/[K(\\tau_c+\\theta)] = 400/(0.2\\times100) = 20\\) % °C⁻¹; \\(T_i = \\min(400, 400) = 400\\) s.</p>"},
+          {"type":"numeric","q":"With temperature integration, the target 24-h mean is 20 °C. The 16-hour day averaged 22 °C. What night mean is needed?","answer":16,"tol":0.02,"unit":"°C","explain":"<p>\\((24\\times20 - 16\\times22)/8 = (480-352)/8 = 16\\) °C.</p>"},
+          {"type":"multi","q":"Which statements about model predictive control are correct? (Select all that apply.)","options":["It uses a model to predict the output over a future horizon.","It can handle limits on inputs and outputs explicitly in the optimisation.","It optimises a whole input sequence but applies only the first input before re-optimising.","It guarantees the most profitable growing season possible.","It needs no model of the process."],"answer":[0,1,2],"explain":"<p>MPC is only optimal with respect to its model, forecast and cost function over the horizon — not globally for the season — and it is by definition model-based.</p>"},
+          {"type":"numeric","q":"Q-learning update: Q(s,a) = −3.0, reward r = −1.0, γ = 0.95, max Q(s′,·) = −2.5, α = 0.2. What is the new Q(s,a)?","answer":-3.075,"abstol":0.002,"hint":"Q ← Q + α[r + γ max Q(s′,·) − Q].","explain":"<p>\\(\\delta = -1.0 + 0.95\\times(-2.5) + 3.0 = -0.375\\); \\(Q = -3.0 + 0.2\\times(-0.375) = -3.075\\).</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Open-loop control</dt><dd>Control that follows a fixed plan without measuring the result (timers, schedules).</dd>
+        <dt>Feedback (closed-loop) control</dt><dd>Control that measures the controlled variable and acts on the error between set-point and measurement.</dd>
+        <dt>Feedforward control</dt><dd>Control that measures a disturbance and acts before it affects the controlled variable.</dd>
+        <dt>Set-point</dt><dd>The desired value of the controlled (process) variable.</dd>
+        <dt>Time constant</dt><dd>The time a first-order process needs to cover 63.2 % of a step change; \(\tau = C/K\) for a thermal process.</dd>
+        <dt>Dead time</dt><dd>The delay before a process output starts to respond to a change of input.</dd>
+        <dt>FOPDT model</dt><dd>First-order-plus-dead-time model with gain \(K\), time constant \(\tau\) and dead time \(\theta\), identified from a step test.</dd>
+        <dt>Hysteresis band</dt><dd>The dead band of an on/off controller that prevents rapid switching; it sets the amplitude of the resulting limit cycle.</dd>
+        <dt>PID controller</dt><dd>Controller whose output combines proportional, integral and derivative actions on the error.</dd>
+        <dt>Integral windup</dt><dd>Excessive growth of the integral term while the actuator is saturated, causing overshoot; prevented by anti-windup.</dd>
+        <dt>Cascade control</dt><dd>Nested loops in which an outer controller sets the set-point of a faster inner controller.</dd>
+        <dt>Temperature integration</dt><dd>Set-point strategy that controls the multi-hour or multi-day mean temperature, letting days run warm and nights cool.</dd>
+        <dt>Model predictive control (MPC)</dt><dd>Control that repeatedly optimises future inputs over a horizon using a model, forecasts and constraints, applying only the first input.</dd>
+        <dt>Markov decision process</dt><dd>Formal model of sequential decisions with states, actions, transition probabilities and rewards.</dd>
+        <dt>Q-learning</dt><dd>Reinforcement-learning algorithm that learns action values from experienced transitions by temporal-difference updates.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can draw the feedback loop of a greenhouse temperature controller and name its set-point, process variable, manipulated variable and disturbances.</li>
+        <li>I can derive a greenhouse time constant from the energy balance and identify K, τ and θ from a step test on my own data.</li>
+        <li>I can explain why on/off control oscillates and calculate its cycle period, and why P-only control leaves an offset.</li>
+        <li>I can implement a discrete PI(D) controller with anti-windup and derivative on measurement, and tune it with SIMC.</li>
+        <li>I can explain temperature integration, DIF and cascade control, and write the cost function and constraints of an MPC problem.</li>
+        <li>I can perform a Q-learning update and give a balanced assessment of what the Autonomous Greenhouse Challenges have shown.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Hemming, S., de Zwart, F., Elings, A., Righini, I., &amp; Petropoulou, A. (2019). Remote control of greenhouse vegetable production with artificial intelligence—greenhouse climate, irrigation, and crop production. <em>Sensors</em>, 19(8), 1807. <a href="https://doi.org/10.3390/s19081807" target="_blank" rel="noopener">doi:10.3390/s19081807</a><span class="r-why">The first Autonomous Greenhouse Challenge in detail: set-up, algorithms, climate strategies and the economics that decided the winner.</span></li>
+        <li><span class="r-type">Required · free online</span>Åström, K. J., &amp; Murray, R. M. (2021). <em>Feedback Systems: An Introduction for Scientists and Engineers</em> (2nd ed.). Princeton University Press.<span class="r-why">Chapter 1 (what feedback does) and the chapter on PID control, including windup and tuning; the authors make the book freely available online.</span></li>
+        <li><span class="r-type">Recommended</span>Skogestad, S. (2003). Simple analytic rules for model reduction and PID controller tuning. <em>Journal of Process Control</em>, 13(4), 291–309. <a href="https://doi.org/10.1016/S0959-1524(02)00062-8" target="_blank" rel="noopener">doi:10.1016/S0959-1524(02)00062-8</a><span class="r-why">Where the SIMC rules come from, with many worked examples.</span></li>
+        <li><span class="r-type">Recommended</span>Van Henten, E. J., &amp; Bontsema, J. (2009). Time-scale decomposition of an optimal control problem in greenhouse climate management. <em>Control Engineering Practice</em>, 17(1), 88–96. <a href="https://doi.org/10.1016/j.conengprac.2008.05.008" target="_blank" rel="noopener">doi:10.1016/j.conengprac.2008.05.008</a><span class="r-why">Economic optimal control of lettuce production and the hierarchical structure of Figure 9.</span></li>
+        <li><span class="r-type">Recommended · free online</span>Sutton, R. S., &amp; Barto, A. G. (2018). <em>Reinforcement Learning: An Introduction</em> (2nd ed.). MIT Press.<span class="r-why">Chapters 3 (MDPs) and 6 (temporal-difference learning and Q-learning) — the standard text, freely available from the authors.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Maree, S. C., Zhang, P., van Marrewijk, B. M., de Zwart, F., Bijlaard, M., &amp; Hemming, S. (2025). Autonomous greenhouse cultivation of dwarf tomato: Performance evaluation of intelligent algorithms for multiple-sensor feedback. <em>Sensors</em>, 25(14), 4321. <a href="https://doi.org/10.3390/s25144321" target="_blank" rel="noopener">doi:10.3390/s25144321</a><span class="r-why">The most recent Challenge: what worked, what was hard, and the data set it produced.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Åström, K. J., &amp; Hägglund, T. (2006). <em>Advanced PID Control</em>. ISA – The Instrumentation, Systems, and Automation Society.</li>
+        <li>Åström, K. J., &amp; Murray, R. M. (2021). <em>Feedback Systems: An Introduction for Scientists and Engineers</em> (2nd ed.). Princeton University Press.</li>
+        <li>Åström, K. J., &amp; Rundqwist, L. (1989). Integrator windup and how to avoid it. In <em>1989 American Control Conference</em> (pp. 1693–1698). <a href="https://doi.org/10.23919/ACC.1989.4790464" target="_blank" rel="noopener">doi:10.23919/ACC.1989.4790464</a></li>
+        <li>Cohen, G. H., &amp; Coon, G. A. (1953). Theoretical consideration of retarded control. <em>Transactions of the ASME</em>, 75(5), 827–834. <a href="https://doi.org/10.1115/1.4015451" target="_blank" rel="noopener">doi:10.1115/1.4015451</a></li>
+        <li>de Koning, A. N. M. (1988). The effect of different day/night temperature regimes on growth, development and yield of glasshouse tomatoes. <em>Journal of Horticultural Science</em>, 63(3), 465–471. <a href="https://doi.org/10.1080/14620316.1988.11515880" target="_blank" rel="noopener">doi:10.1080/14620316.1988.11515880</a></li>
+        <li>Erwin, J. E., Heins, R. D., &amp; Karlsson, M. G. (1989). Thermomorphogenesis in <em>Lilium longiflorum</em>. <em>American Journal of Botany</em>, 76(1), 47–52. <a href="https://doi.org/10.1002/j.1537-2197.1989.tb11283.x" target="_blank" rel="noopener">doi:10.1002/j.1537-2197.1989.tb11283.x</a></li>
+        <li>Greenhouse Grower. (n.d.). <em>Familiar face wins latest Autonomous Greenhouse Challenge</em>. Retrieved September 26, 2026, from <a href="https://www.greenhousegrower.com/technology/familiar-face-wins-latest-autonomous-greenhouse-challenge/" target="_blank" rel="noopener">greenhousegrower.com</a></li>
+        <li>Hemming, S., de Zwart, F., Elings, A., Petropoulou, A., &amp; Righini, I. (2020). Cherry tomato production in intelligent greenhouses—sensors and AI for control of climate, irrigation, crop yield, and quality. <em>Sensors</em>, 20(22), 6430. <a href="https://doi.org/10.3390/s20226430" target="_blank" rel="noopener">doi:10.3390/s20226430</a></li>
+        <li>Hemming, S., de Zwart, F., Elings, A., Righini, I., &amp; Petropoulou, A. (2019). Remote control of greenhouse vegetable production with artificial intelligence—greenhouse climate, irrigation, and crop production. <em>Sensors</em>, 19(8), 1807. <a href="https://doi.org/10.3390/s19081807" target="_blank" rel="noopener">doi:10.3390/s19081807</a></li>
+        <li>Iddio, E., Wang, L., Thomas, Y., McMorrow, G., &amp; Denzer, A. (2020). Energy efficient operation and modeling for greenhouses: A literature review. <em>Renewable and Sustainable Energy Reviews</em>, 117, 109480. <a href="https://doi.org/10.1016/j.rser.2019.109480" target="_blank" rel="noopener">doi:10.1016/j.rser.2019.109480</a></li>
+        <li>Katzin, D., van Mourik, S., Kempkes, F., &amp; van Henten, E. J. (2020). GreenLight – An open source model for greenhouses with supplemental lighting: Evaluation of heat requirements under LED and HPS lamps. <em>Biosystems Engineering</em>, 194, 61–81. <a href="https://doi.org/10.1016/j.biosystemseng.2020.03.010" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2020.03.010</a></li>
+        <li>Körner, O., &amp; Challa, H. (2003). Design for an improved temperature integration concept in greenhouse cultivation. <em>Computers and Electronics in Agriculture</em>, 39(1), 39–59. <a href="https://doi.org/10.1016/S0168-1699(03)00006-1" target="_blank" rel="noopener">doi:10.1016/S0168-1699(03)00006-1</a></li>
+        <li>LetsGrow.com. (2020, June 8). <em>Team AuTomatoes wins Autonomous Greenhouse Challenge</em>. <a href="https://www.letsgrow.com/our-world/team-automatoes-wins-autonomous-greenhouse-challenge/" target="_blank" rel="noopener">letsgrow.com</a></li>
+        <li>Maree, S. C., Zhang, P., van Marrewijk, B. M., de Zwart, F., Bijlaard, M., &amp; Hemming, S. (2025). Autonomous greenhouse cultivation of dwarf tomato: Performance evaluation of intelligent algorithms for multiple-sensor feedback. <em>Sensors</em>, 25(14), 4321. <a href="https://doi.org/10.3390/s25144321" target="_blank" rel="noopener">doi:10.3390/s25144321</a></li>
+        <li>Maxwell, J. C. (1868). On governors. <em>Proceedings of the Royal Society of London</em>, 16, 270–283. <a href="https://doi.org/10.1098/rspl.1867.0055" target="_blank" rel="noopener">doi:10.1098/rspl.1867.0055</a></li>
+        <li>Mayne, D. Q. (2014). Model predictive control: Recent developments and future promise. <em>Automatica</em>, 50(12), 2967–2986. <a href="https://doi.org/10.1016/j.automatica.2014.10.128" target="_blank" rel="noopener">doi:10.1016/j.automatica.2014.10.128</a></li>
+        <li>Minorsky, N. (1922). Directional stability of automatically steered bodies. <em>Journal of the American Society for Naval Engineers</em>, 34(2), 280–309. <a href="https://doi.org/10.1111/j.1559-3584.1922.tb04958.x" target="_blank" rel="noopener">doi:10.1111/j.1559-3584.1922.tb04958.x</a></li>
+        <li>Mnih, V., Kavukcuoglu, K., Silver, D., Rusu, A. A., Veness, J., Bellemare, M. G., Graves, A., Riedmiller, M., Fidjeland, A. K., Ostrovski, G., Petersen, S., Beattie, C., Sadik, A., Antonoglou, I., King, H., Kumaran, D., Wierstra, D., Legg, S., &amp; Hassabis, D. (2015). Human-level control through deep reinforcement learning. <em>Nature</em>, 518(7540), 529–533. <a href="https://doi.org/10.1038/nature14236" target="_blank" rel="noopener">doi:10.1038/nature14236</a></li>
+        <li>Morcego, B., Yin, W., Boersma, S., van Henten, E., Puig, V., &amp; Sun, C. (2023). Reinforcement learning versus model predictive control on greenhouse climate control. <em>Computers and Electronics in Agriculture</em>, 215, 108372. <a href="https://doi.org/10.1016/j.compag.2023.108372" target="_blank" rel="noopener">doi:10.1016/j.compag.2023.108372</a></li>
+        <li>Myster, J., &amp; Moe, R. (1995). Effect of diurnal temperature alternations on plant morphology in some greenhouse crops—a mini review. <em>Scientia Horticulturae</em>, 62(4), 205–215. <a href="https://doi.org/10.1016/0304-4238(95)00783-P" target="_blank" rel="noopener">doi:10.1016/0304-4238(95)00783-P</a></li>
+        <li>Petropoulou, A. S., van Marrewijk, B., de Zwart, F., Elings, A., Bijlaard, M., van Daalen, T., Jansen, G., &amp; Hemming, S. (2023). Lettuce production in intelligent greenhouses—3D imaging and computer vision for plant spacing decisions. <em>Sensors</em>, 23(6), 2929. <a href="https://doi.org/10.3390/s23062929" target="_blank" rel="noopener">doi:10.3390/s23062929</a></li>
+        <li>Qin, S. J., &amp; Badgwell, T. A. (2003). A survey of industrial model predictive control technology. <em>Control Engineering Practice</em>, 11(7), 733–764. <a href="https://doi.org/10.1016/S0967-0661(02)00186-7" target="_blank" rel="noopener">doi:10.1016/S0967-0661(02)00186-7</a></li>
+        <li>Seborg, D. E., Edgar, T. F., Mellichamp, D. A., &amp; Doyle, F. J. (2016). <em>Process Dynamics and Control</em> (4th ed.). Wiley.</li>
+        <li>Skogestad, S. (2003). Simple analytic rules for model reduction and PID controller tuning. <em>Journal of Process Control</em>, 13(4), 291–309. <a href="https://doi.org/10.1016/S0959-1524(02)00062-8" target="_blank" rel="noopener">doi:10.1016/S0959-1524(02)00062-8</a></li>
+        <li>Sutton, R. S., &amp; Barto, A. G. (2018). <em>Reinforcement Learning: An Introduction</em> (2nd ed.). MIT Press.</li>
+        <li>Van Henten, E. J. (1994). <em>Greenhouse climate management: An optimal control approach</em> [Doctoral dissertation, Wageningen Agricultural University].</li>
+        <li>Van Henten, E. J., &amp; Bontsema, J. (2009). Time-scale decomposition of an optimal control problem in greenhouse climate management. <em>Control Engineering Practice</em>, 17(1), 88–96. <a href="https://doi.org/10.1016/j.conengprac.2008.05.008" target="_blank" rel="noopener">doi:10.1016/j.conengprac.2008.05.008</a></li>
+        <li>van Laatum, B., Msaad, S., van Henten, E. J., McAllister, R. D., &amp; Boersma, S. (2026). <em>Improving greenhouse fruit-production control by integrating reinforcement learning into short-horizon model predictive control</em> (arXiv:2607.07365). arXiv. <a href="https://doi.org/10.48550/arXiv.2607.07365" target="_blank" rel="noopener">doi:10.48550/arXiv.2607.07365</a></li>
+        <li>van Straten, G., van Willigenburg, G., van Henten, E., &amp; van Ooteghem, R. (2010). <em>Optimal Control of Greenhouse Cultivation</em>. CRC Press. <a href="https://doi.org/10.1201/b10321" target="_blank" rel="noopener">doi:10.1201/b10321</a></li>
+        <li>Watkins, C. J. C. H., &amp; Dayan, P. (1992). Q-learning. <em>Machine Learning</em>, 8(3–4), 279–292. <a href="https://doi.org/10.1007/BF00992698" target="_blank" rel="noopener">doi:10.1007/BF00992698</a></li>
+        <li>Wageningen University &amp; Research. (2025, January 15). <em>Winner of the 4th Autonomous Greenhouse Challenge announced</em>. <a href="https://www.wur.nl/en/news/winner-4th-autonomous-greenhouse-challenge-announced" target="_blank" rel="noopener">wur.nl</a></li>
+        <li>Ziegler, J. G., &amp; Nichols, N. B. (1942). Optimum settings for automatic controllers. <em>Transactions of the ASME</em>, 64(8), 759–765. <a href="https://doi.org/10.1115/1.4019264" target="_blank" rel="noopener">doi:10.1115/1.4019264</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+<script type="module">
+import { Plot, linspace } from '/assets/js/plot.js';
+import { fitLM, parseTable, mulberry32, randn, mean } from '/assets/js/stats.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+
+const $ = s => document.querySelector(s);
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const segInit = (el, cb) => el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); cb(b.dataset.v); });
+const rangeFill = r => r.style.setProperty('--fill', ((+r.value - +r.min) / (+r.max - +r.min) * 100) + '%');
+function bind(id, show, cb) {
+  const r = $('#' + id), o = $('#' + id + '-out');
+  const upd = () => { rangeFill(r); if (o) o.textContent = show(+r.value); };
+  r.addEventListener('input', () => { upd(); cb && cb(); });
+  upd();
+  return { get v() { return +r.value; }, set(v) { r.value = v; upd(); }, el: r, upd };
+}
+const debounce = (fn, ms = 60) => { let t = 0; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; };
+
+/* =============================== Figure 3: step-test identification =============================== */
+{
+  let rng = mulberry32(11);
+  const ta = $('#st-data');
+  function simulate() {
+    const K = 0.08 + rng() * 0.1, t1 = 180 + rng() * 200, t2 = 20 + rng() * 40, th = 20 + rng() * 50, y0 = 17 + rng() * 3, du = 50, t0 = 60, sig = 0.05;
+    let x1 = 0, x2 = 0; const rows = ['time_s,temperature_C'];
+    for (let t = 0; t <= 1500; t++) {
+      if (t % 10 === 0) rows.push(`${t},${(y0 + x2 + sig * randn(rng)).toFixed(3)}`);
+      const u = t >= t0 + th ? du : 0;
+      x1 += (K * u - x1) / t1; x2 += (x1 - x2) / t2;
+    }
+    ta.value = rows.join('\n'); $('#st-du').value = du; $('#st-t0').value = t0;
+  }
+  const plot = new Plot('#st-plot', { x: { label: 'Time', unit: 's' }, y: { label: 'Measured output' }, legend: true, height: 300 });
+  const ro = new Readouts('#st-ro');
+  ro.add({ id: 'K', label: 'Gain K (output change per unit input)', digits: 4 }).add({ id: 'tau', label: 'Time constant τ', unit: 's', digits: 0 }).add({ id: 'th', label: 'Dead time θ', unit: 's', digits: 0 })
+    .add({ id: 'ratio', label: 'θ/τ (difficulty)', digits: 2 }).add({ id: 'rmse', label: 'Model RMSE', digits: 3 }).add({ id: 'm', label: 'Parameters from', format: v => v });
+  let D = null, method = 'sliders';
+  const sK = bind('st-K', v => fmt(v, 3), () => { method = 'sliders'; draw(); }), sT = bind('st-tau', v => fmt(v, 0) + ' s', () => { method = 'sliders'; draw(); }), sH = bind('st-th', v => fmt(v, 0) + ' s', () => { method = 'sliders'; draw(); });
+  function load() {
+    const T = parseTable(ta.value);
+    const rows = T.rows.filter(r => typeof r[0] === 'number' && typeof r[1] === 'number').sort((a, b) => a[0] - b[0]);
+    if (rows.length < 6) { ro.set('m', 'need ≥ 6 rows'); return false; }
+    const t = rows.map(r => r[0]), y = rows.map(r => r[1]), t0 = +$('#st-t0').value, du = +$('#st-du').value || 1;
+    const pre = y.filter((_, i) => t[i] <= t0), y0 = pre.length ? mean(pre) : y[0];
+    const nEnd = Math.max(3, Math.round(y.length * 0.12)), yEnd = mean(y.slice(-nEnd));
+    const span = t[t.length - 1] - t[0], Kest = (yEnd - y0) / du;
+    D = { t, y, t0, du, y0, yEnd, span };
+    const kmax = Math.max(0.01, Math.abs(Kest) * 3), setR = (s, lo, hi, st) => { s.el.min = lo; s.el.max = hi; s.el.step = st; };
+    setR(sK, (Kest < 0 ? -kmax : 0).toFixed(4), (Kest < 0 ? 0 : kmax).toFixed(4), (kmax / 300).toPrecision(2));
+    setR(sT, 1, Math.max(20, Math.round(span * 1.5)), Math.max(1, Math.round(span / 300)));
+    setR(sH, 0, Math.max(10, Math.round(span / 2)), Math.max(1, Math.round(span / 600)));
+    return true;
+  }
+  const model = (tt, [K, tau, th]) => tt <= D.t0 + th ? D.y0 : D.y0 + K * D.du * (1 - Math.exp(-(tt - D.t0 - th) / tau));
+  function twoPoint() {
+    const { t, y, t0, y0, yEnd, du } = D, dy = yEnd - y0;
+    const sm = y.map((_, i) => mean(y.slice(Math.max(0, i - 1), i + 2)));
+    const cross = f => { for (let i = 1; i < t.length; i++) { if (t[i] <= t0) continue; const a = (sm[i - 1] - y0) / dy, b = (sm[i] - y0) / dy; if (a < f && b >= f) return t[i - 1] + (f - a) / (b - a) * (t[i] - t[i - 1]) - t0; } return NaN; };
+    const t28 = cross(0.283), t63 = cross(0.632), tau = 1.5 * (t63 - t28), th = Math.max(0, t63 - tau);
+    return [dy / du, tau, th];
+  }
+  function draw() {
+    if (!D) return;
+    const p = [sK.v, sT.v, sH.v], g = linspace(D.t[0], D.t[D.t.length - 1], 300);
+    plot.scatter('d', D.t, D.y, { color: 'accent', r: 2.6, label: 'measured' });
+    plot.line('m', g, g.map(x => model(x, p)), { color: 'magenta', width: 2.4, label: 'FOPDT model' });
+    const lv = f => D.y0 + f * p[0] * D.du;
+    plot.hline('l28', lv(0.283), { color: 'amber', dash: [3, 3], label: '28.3 %' }); plot.hline('l63', lv(0.632), { color: 'amber', dash: [3, 3], label: '63.2 %' });
+    plot.vline('step', D.t0, { color: 'muted', dash: [2, 4], label: 'step' });
+    const rmse = Math.sqrt(mean(D.t.map((x, i) => (D.y[i] - model(x, p)) ** 2))), ratio = p[2] / p[1];
+    ro.set('K', p[0]); ro.set('tau', p[1]); ro.set('th', p[2]); ro.set('ratio', ratio, ratio < 0.3 ? 'ok' : ratio < 1 ? 'warn' : 'bad'); ro.set('rmse', rmse); ro.set('m', method);
+  }
+  $('#st-two').addEventListener('click', () => { if (!load()) return; const q = twoPoint(); if (q.some(v => !isFinite(v))) { ro.set('m', 'response too short or noisy'); return; } sK.set(q[0]); sT.set(q[1]); sH.set(q[2]); method = 'two-point method'; draw(); });
+  $('#st-fit').addEventListener('click', () => {
+    if (!load()) return; let p0 = twoPoint(); if (p0.some(v => !isFinite(v))) p0 = [(D.yEnd - D.y0) / D.du, D.span / 4, D.span / 20];
+    const F = fitLM(model, D.t, D.y, [p0[0], Math.max(2, p0[1]), Math.max(0, p0[2])], { bounds: [[-1e3, 1e3], [1, 1e6], [0, 1e5]] });
+    sK.set(F.params[0]); sT.set(F.params[1]); sH.set(F.params[2]); method = `least squares (τ ± ${fmt(F.se[1], 0)} s)`; draw();
+  });
+  $('#st-new').addEventListener('click', () => { simulate(); load(); sK.set((D.yEnd - D.y0) / D.du * 0.8); sT.set(D.span / 5); sH.set(20); method = 'sliders'; draw(); });
+  ['st-du', 'st-t0'].forEach(id => $('#' + id).addEventListener('change', () => { if (load()) draw(); }));
+  ta.addEventListener('change', () => { if (load()) draw(); });
+  simulate(); load(); sK.set(0.1); sT.set(200); sH.set(30); draw();
+}
+
+/* =============================== Figure 4: on/off with hysteresis =============================== */
+{
+  const plot = new Plot('#oo-plot', { x: { label: 'Time', unit: 'h', min: 0, max: 3 }, y: { label: 'Temperature', unit: '°C' }, y2: { label: 'Heater (on = 1)', min: -0.05, max: 3.3 }, legend: true, height: 300 });
+  const ro = new Readouts('#oo-ro');
+  ro.add({ id: 'mean', label: 'Mean temperature (last h)', unit: '°C', digits: 2 }).add({ id: 'swing', label: 'Peak-to-peak swing', unit: '°C', digits: 2 }).add({ id: 'per', label: 'Simulated period', unit: 's', digits: 0 })
+    .add({ id: 'eq', label: 'Eq. 10.4.3 period (θ = 0)', unit: 's', digits: 0 }).add({ id: 'sw', label: 'Switch-ons per hour', digits: 0 }).add({ id: 'duty', label: 'Duty cycle', unit: '%', digits: 0 });
+  const run = () => {
+    const h = sh.v, th = sth.v, tau = stau.v, To = sto.v, sig = sn.v, r = 22, Tinf = To + 20, n = 3 * 3600, rng = mulberry32(5);
+    const buf = new Array(Math.round(th) + 1).fill(0); let T = r - 1.5, u = 1, last = 1;
+    const xs = [], ys = [], us = [], ons = []; let lo = Infinity, hi = -Infinity, sumT = 0, cnt = 0, on = 0;
+    for (let k = 0; k <= n; k++) {
+      const m = T + sig * randn(rng);
+      if (m < r - h) u = 1; else if (m > r + h) u = 0;
+      if (u === 1 && last === 0) ons.push(k); last = u;
+      buf.push(u); const ud = buf.shift();
+      T += (To + (Tinf - To) * ud - T) / tau;
+      if (k >= 2 * 3600) { lo = Math.min(lo, T); hi = Math.max(hi, T); sumT += T; cnt++; on += ud; }
+      if (k % 10 === 0) { xs.push(k / 3600); ys.push(m); us.push(ud); }
+    }
+    plot.hregion('band', r - h, r + h, { color: 'accent', alpha: 0.12 });
+    plot.hline('sp', r, { color: 'magenta', dash: [5, 4], label: 'set-point' });
+    plot.line('T', xs, ys, { color: 'accent', width: 1.6, label: 'measured temperature' });
+    plot.line('u', xs, us, { color: 'muted', width: 1.2, step: true, y2: true, label: 'heater' });
+    const recent = ons.filter(k => k >= 3600), per = recent.length > 1 ? (recent[recent.length - 1] - recent[0]) / (recent.length - 1) : NaN;
+    const eq = (Tinf > r + h && To < r - h) ? tau * (Math.log((Tinf - (r - h)) / (Tinf - (r + h))) + Math.log((r + h - To) / (r - h - To))) : NaN;
+    ro.set('mean', sumT / cnt); ro.set('swing', hi - lo, hi - lo < 1.2 ? 'ok' : hi - lo < 2.5 ? 'warn' : 'bad'); ro.set('per', per); ro.set('eq', eq);
+    const sw = ons.filter(k => k >= 2 * 3600).length; ro.set('sw', sw, sw > 30 ? 'bad' : sw > 12 ? 'warn' : 'ok'); ro.set('duty', 100 * on / cnt);
+  };
+  const go = debounce(run, 30);
+  const sh = bind('oo-h', v => '±' + fmt(v, 2) + ' °C', go), sth = bind('oo-th', v => v + ' s', go), stau = bind('oo-tau', v => v + ' s', go), sto = bind('oo-to', v => fmt(v, 1) + ' °C', go), sn = bind('oo-n', v => fmt(v, 2) + ' °C', go);
+  run();
+}
+
+/* =============================== Figure 5: PID playground =============================== */
+{
+  const py = new Plot('#pid-y', { x: { label: 'Time', unit: 'min', min: 0, max: 60 }, y: { label: 'Temperature', unit: '°C' }, legend: true, height: 270 });
+  const pu = new Plot('#pid-u', { x: { label: 'Time', unit: 'min', min: 0, max: 60 }, y: { label: 'Controller output', unit: '%' }, legend: true, height: 210 });
+  const ro = new Readouts('#pid-ro');
+  ro.add({ id: 'iae', label: 'IAE', unit: '°C min', digits: 1 }).add({ id: 'os', label: 'Overshoot after start-up', unit: '°C', digits: 2 }).add({ id: 'st', label: 'Settling time (±0.3 °C)', unit: 'min', digits: 1 })
+    .add({ id: 'dist', label: 'Largest dip after door opens', unit: '°C', digits: 2 }).add({ id: 'en', label: 'Energy (2 kW heater)', unit: 'kWh', digits: 2 }).add({ id: 'tr', label: 'Actuator travel Σ|Δu|', unit: '%', digits: 0 }).add({ id: 'lg', label: 'Loop gain K·K_c', digits: 2 });
+  function sim() {
+    const K = sK.v, tau = sT.v, th = sH.v, Kc = sKc.v, Ti = sTi.v, Td = sTd.v, umax = sUm.v, Ts = Math.max(1, Math.round(sTs.v)), sig = sN.v, aw = $('#pid-aw').checked, dm = $('#pid-dm').checked, terms = $('#pid-terms').checked;
+    const Ta = 14, rng = mulberry32(21), buf = new Array(Math.round(th) + 1).fill(0), Nf = 10;
+    let T = Ta, I = 0, u = 0, yPrev = null, ePrev = 0, Df = 0, uPrev = 0, P = 0, iae = 0, en = 0, tr = 0, os = -Infinity, lastOut = 0, dip = 0;
+    const tx = [], ty = [], sp = [], cx = [], cu = [], cP = [], cI = [], cD = [];
+    for (let k = 0; k <= 3600; k++) {
+      const r = k < 1500 ? 22 : 24, d = k >= 2700 ? -3 : 0;
+      if (k % Ts === 0) {
+        const y = T + sig * randn(rng), e = r - y;
+        P = Kc * e;
+        let Draw = 0; if (yPrev !== null && Td > 0) Draw = dm ? -Kc * Td * (y - yPrev) / Ts : Kc * Td * (e - ePrev) / Ts;
+        const al = Td > 0 ? Td / (Td + Nf * Ts) : 0; Df = al * Df + (1 - al) * Draw;
+        const v = P + I + Df; u = clamp(v, 0, umax);
+        const dI = Kc * Ts / Ti * e;
+        if (!aw || !((v >= umax && e > 0) || (v <= 0 && e < 0))) I += dI;
+        tr += Math.abs(u - uPrev); uPrev = u; yPrev = y; ePrev = e;
+        cx.push(k / 60); cu.push(u); cP.push(P); cI.push(I); cD.push(Df);
+      }
+      buf.push(u); const ud = buf.shift();
+      T += (Ta + d + K * ud - T) / tau;
+      iae += Math.abs(r - T); en += ud / 100 * 2 / 3600;
+      if (k < 1500) { os = Math.max(os, T - 22); if (Math.abs(T - 22) > 0.3) lastOut = k; }
+      if (k >= 2700) dip = Math.max(dip, 24 - T);
+      if (k % 5 === 0) { tx.push(k / 60); ty.push(T); sp.push(r); }
+    }
+    py.line('sp', tx, sp, { color: 'magenta', dash: [6, 4], step: true, label: 'set-point' });
+    py.line('y', tx, ty, { color: 'accent', width: 2, label: 'chamber temperature' });
+    py.vline('ev1', 25, { color: 'muted', dash: [2, 4], label: 'set-point step' }); py.vline('ev2', 45, { color: 'muted', dash: [2, 4], label: 'door opened' });
+    pu.line('u', cx, cu, { color: 'water', width: 2, step: true, label: 'output u' });
+    pu.hline('um', umax, { color: 'muted', dash: [4, 4], label: 'capacity' });
+    if (terms) { pu.line('P', cx, cP, { color: 'amber', width: 1.2, label: 'P term' }); pu.line('I', cx, cI, { color: 'magenta', width: 1.4, label: 'I term' }); pu.line('D', cx, cD, { color: 'ink', width: 1, label: 'D term' }); pu.setAxis('y', { min: 'auto', max: 'auto' }); }
+    else { ['P', 'I', 'D'].forEach(id => pu.remove(id)); pu.setAxis('y', { min: 0, max: 105 }); }
+    const settle = lastOut >= 1499 ? NaN : lastOut / 60;
+    ro.set('iae', iae / 60); ro.set('os', Math.max(0, os), os < 0.3 ? 'ok' : os < 1 ? 'warn' : 'bad'); ro.set('st', settle, isFinite(settle) ? (settle < 12 ? 'ok' : 'warn') : 'bad', null);
+    ro.set('dist', dip, dip < 1 ? 'ok' : dip < 2 ? 'warn' : 'bad'); ro.set('en', en); ro.set('tr', tr, tr < 600 ? 'ok' : tr < 2000 ? 'warn' : 'bad'); ro.set('lg', K * Kc);
+  }
+  const go = debounce(sim, 25);
+  const sK = bind('pid-K', v => fmt(v, 3) + ' °C %⁻¹', go), sT = bind('pid-tau', v => v + ' s', go), sH = bind('pid-th', v => v + ' s', go);
+  const sKc = bind('pid-kc', v => fmt(v, 2) + ' % °C⁻¹', go), sTi = bind('pid-ti', v => v + ' s', go), sTd = bind('pid-td', v => v + ' s', go);
+  const sUm = bind('pid-um', v => v + ' %', go), sTs = bind('pid-ts', v => v + ' s', go), sN = bind('pid-n', v => fmt(v, 2) + ' °C', go);
+  ['pid-aw', 'pid-dm', 'pid-terms'].forEach(id => $('#' + id).addEventListener('change', go));
+  const setGains = (kc, ti, td) => { sKc.set(clamp(kc, 0, 60)); sTi.set(clamp(ti, 20, 2000)); sTd.set(clamp(td, 0, 200)); sim(); };
+  $('#pid-zn').addEventListener('click', () => { const K = sK.v, tau = sT.v, th = Math.max(sH.v, 1); setGains(1.2 * tau / (K * th), 2 * th, 0.5 * th); });
+  $('#pid-cc').addEventListener('click', () => { const K = sK.v, tau = sT.v, th = Math.max(sH.v, 1); setGains(tau / (K * th) * (0.9 + th / (12 * tau)), th * (30 + 3 * th / tau) / (9 + 20 * th / tau), 0); });
+  $('#pid-simc').addEventListener('click', () => { const K = sK.v, tau = sT.v, th = Math.max(sH.v, 1); setGains(tau / (K * 2 * th), Math.min(tau, 8 * th), 0); });
+  sim();
+}
+
+/* =============================== Figure 8: PI versus MPC over two days =============================== */
+{
+  const K = 8.4, C = 60000, tau = C / K, Qmax = 180, dtP = 60, dtM = 900, H = 48, steps = H * 3600 / dtP;
+  const To = h => 3 + 5 * Math.sin(2 * Math.PI * (h - 9) / 24);
+  const Sol = h => { const d = Math.floor(h / 24), x = h - 24 * d; return x < 6 || x > 19 ? 0 : (d === 0 ? 90 : 70) * Math.pow(Math.sin(Math.PI * (x - 6) / 13), 1.3); };
+  const price = h => { const x = h % 24; return x < 6 ? 0.06 : x < 7 ? 0.09 : x < 9 ? 0.18 : x < 16 ? 0.10 : x < 17 ? 0.14 : x < 20 ? 0.24 : x < 23 ? 0.12 : 0.07; };
+  const pT = new Plot('#mpc-T', { x: { label: 'Time', unit: 'h', min: 0, max: H }, y: { label: 'Air temperature', unit: '°C' }, legend: true, height: 280 });
+  const pQ = new Plot('#mpc-Q', { x: { label: 'Time', unit: 'h', min: 0, max: H }, y: { label: 'Heating / solar gain', unit: 'W m⁻²', min: 0, max: 200 }, y2: { label: 'Energy price', unit: '€ kWh⁻¹', min: 0, max: 0.3 }, legend: true, height: 240 });
+  const ro = new Readouts('#mpc-ro');
+  ro.add({ id: 'eP', label: 'Energy, PI', unit: 'kWh m⁻²', digits: 2 }).add({ id: 'eM', label: 'Energy, MPC', unit: 'kWh m⁻²', digits: 2 })
+    .add({ id: 'cP', label: 'Energy cost, PI', unit: '€ per 1000 m²', digits: 0 }).add({ id: 'cM', label: 'Energy cost, MPC', unit: '€ per 1000 m²', digits: 0 })
+    .add({ id: 'tP', label: 'Comfort deviation, PI', format: v => v }).add({ id: 'tM', label: 'Comfort deviation, MPC', format: v => v }).add({ id: 'mT', label: 'Mean temperature PI / MPC', format: v => v });
+  let mode = 'track';
+  // one MPC solve: returns Q plan (length N) and predicted T (length N+1)
+  function solve(T0, h0, N, fe, warm) {
+    const a = Math.exp(-dtM / tau), b = (1 - a) / K, cc = [], pr = [];
+    for (let k = 0; k < N; k++) { const hm = h0 + (k + 0.5) * dtM / 3600; cc.push((1 - a) * (To(hm) + fe + Sol(hm) / K)); pr.push(price(hm)); }
+    const wT = 1, wB = 6, wM = 12, rho = 2e-5, eco = mode === 'econ', costScale = 1000 * dtM / 3600 / 1000;
+    const L = 2 * (eco ? wB + wM : wT) / (K * K) + 8 * rho, eta = 1 / L;
+    let Q = warm && warm.length === N ? warm.slice() : new Array(N).fill(80), Y = Q.slice(), tPrev = 1;
+    const pred = q => { const T = [T0]; for (let k = 0; k < N; k++) T.push(a * T[k] + b * q[k] + cc[k]); return T; };
+    const grad = q => {
+      const T = pred(q), lam = new Array(N + 2).fill(0); let mT = 0; for (let k = 1; k <= N; k++) mT += T[k] / N;
+      const gm = eco ? -2 * wM * Math.max(0, 18 - mT) : 0;
+      for (let k = N; k >= 1; k--) {
+        let dJ = eco ? 2 * wB * (-Math.max(0, 16 - T[k]) + Math.max(0, T[k] - 21)) + gm : 2 * wT * (T[k] - 18);
+        lam[k] = dJ + a * lam[k + 1];
+      }
+      const g = new Array(N);
+      for (let j = 0; j < N; j++) {
+        g[j] = b * lam[j + 1] + (eco ? pr[j] * costScale : 0);
+        const qm = j > 0 ? q[j - 1] : (warm && warm.u0 != null ? warm.u0 : q[0]);
+        g[j] += 2 * rho * (q[j] - qm) - (j < N - 1 ? 2 * rho * (q[j + 1] - q[j]) : 0);
+      }
+      return g;
+    };
+    for (let it = 0; it < 220; it++) {   // accelerated projected gradient (FISTA)
+      const g = grad(Y), Qn = Y.map((y, j) => clamp(y - eta * g[j], 0, Qmax));
+      const tN = (1 + Math.sqrt(1 + 4 * tPrev * tPrev)) / 2, m = (tPrev - 1) / tN;
+      Y = Qn.map((q, j) => clamp(q + m * (q - Q[j]), 0, Qmax)); Q = Qn; tPrev = tN;
+    }
+    return { Q, T: pred(Q) };
+  }
+  function run() {
+    const N = sN.v, fe = sF.v, hIns = sI.v;
+    // PI baseline (SIMC-tuned for tau, 1-min sampling, anti-windup)
+    const Kp = 1 / K, th = 120, Kc = tau / (Kp * (600 + th)), Ti = Math.min(tau, 4 * (600 + th));
+    let Tpi = 16, I = 0, Tm = 16, plan = null, warm = null, Qm = 0;
+    const xs = [], yPI = [], yM = [], qPI = [], qM = [], sol = [], prc = [], tout = [];
+    let eP = 0, eM = 0, cP = 0, cM = 0, dP = 0, dM = 0, sP = 0, sM = 0;
+    for (let k = 0; k < steps; k++) {
+      const h = k * dtP / 3600;
+      // PI
+      const e = 18 - Tpi, v = Kc * e + I, q1 = clamp(v, 0, Qmax);
+      if (!((v >= Qmax && e > 0) || (v <= 0 && e < 0))) I += Kc * dtP / Ti * e;
+      // MPC every 15 min
+      if (k % (dtM / dtP) === 0) {
+        const s = solve(Tm, h, N, fe, warm);
+        Qm = s.Q[0]; warm = s.Q.slice(1).concat([s.Q[s.Q.length - 1]]); warm.u0 = Qm;
+        if (Math.abs(h - hIns) < 1e-6) plan = s.T.map((T, j) => [h + j * dtM / 3600, T]);
+      }
+      const hm = h + dtP / 7200, a1 = Math.exp(-dtP / tau), src = hm => To(hm) + Sol(hm) / K;
+      Tpi = a1 * Tpi + (1 - a1) * (src(hm) + q1 / K);
+      Tm = a1 * Tm + (1 - a1) * (src(hm) + Qm / K);
+      const kWh = dtP / 3600 / 1000, p = price(hm);
+      eP += q1 * kWh; eM += Qm * kWh; cP += q1 * kWh * p * 1000; cM += Qm * kWh * p * 1000;
+      if (mode === 'track') { dP += Math.abs(Tpi - 18) / steps; dM += Math.abs(Tm - 18) / steps; }
+      else { dP += (Math.max(0, 16 - Tpi) + Math.max(0, Tpi - 21)) * dtP / 3600; dM += (Math.max(0, 16 - Tm) + Math.max(0, Tm - 21)) * dtP / 3600; }
+      sP += Tpi / steps; sM += Tm / steps;
+      if (k % 5 === 0) { xs.push(h); yPI.push(Tpi); yM.push(Tm); qPI.push(q1); qM.push(Qm); sol.push(Sol(h)); prc.push(p); tout.push(To(h)); }
+    }
+    pT.remove('band'); pT.remove('sp');
+    if (mode === 'econ') pT.hregion('band', 16, 21, { color: 'accent', alpha: 0.1, label: 'allowed band' }); else pT.hline('sp', 18, { color: 'accent', dash: [5, 4], label: 'set-point' });
+    pT.line('to', xs, tout, { color: 'muted', width: 1, label: 'outside' });
+    pT.line('pi', xs, yPI, { color: 'water', width: 2, dash: [6, 4], label: 'PI' });
+    pT.line('mpc', xs, yM, { color: 'magenta', width: 2.2, label: mode === 'econ' ? 'economic MPC' : 'tracking MPC' });
+    if (plan) pT.line('plan', plan, { color: 'ink', width: 1.6, dash: [2, 3], label: `plan made at ${hIns} h` }); else pT.remove('plan');
+    pQ.line('sol', xs, sol, { color: 'amber', width: 1, fill: 0.12, label: 'solar gain' });
+    pQ.line('qpi', xs, qPI, { color: 'water', width: 1.6, step: true, label: 'heating, PI' });
+    pQ.line('qm', xs, qM, { color: 'magenta', width: 1.8, step: true, label: 'heating, MPC' });
+    pQ.line('pr', xs, prc, { color: 'ink', width: 1.2, dash: [3, 3], step: true, y2: true, label: 'price' });
+    ro.set('eP', eP); ro.set('eM', eM, eM <= eP ? 'ok' : 'warn'); ro.set('cP', cP); ro.set('cM', cM, cM <= cP ? 'ok' : 'warn');
+    const lab = mode === 'track' ? v => `${fmt(v, 2)} K (mean |T − 18|)` : v => `${fmt(v, 1)} K h (outside band)`;
+    ro.set('tP', lab(dP)); ro.set('tM', lab(dM)); ro.set('mT', `${fmt(sP, 1)} / ${fmt(sM, 1)} °C`);
+  }
+  const go = debounce(run, 80);
+  const sN = bind('mpc-N', v => `${v} × 15 min = ${fmt(v / 4, 2)} h`, go), sF = bind('mpc-fe', v => (v > 0 ? '+' : '') + fmt(v, 1) + ' K', go), sI = bind('mpc-ins', v => v + ' h', go);
+  segInit($('#mpc-mode'), v => { mode = v; run(); });
+  run();
+}
+
+/* =============================== Figure 11: Q-learning agent =============================== */
+{
+  const a = Math.exp(-0.25), NB = 40, NT = 4, NO = 3, NA = 3, ACT = [0, 0.5, 1], gamma = 0.97;
+  let Qt = new Float64Array(NB * NT * NO * NA), visits = new Uint32Array(NB * NT * NO), returns = [], days = 0, rng = mulberry32(3);
+  const pc = new Plot('#rl-curve', { x: { label: 'Training day (episode)', min: 0 }, y: { label: 'Return per day' }, legend: false, height: 240 });
+  const pp = new Plot('#rl-policy', { x: { label: 'Hour of day', min: 0, max: 24 }, y: { label: 'Chamber temperature', unit: '°C', min: 10, max: 30 }, legend: false, crosshair: false, height: 240 });
+  const pt = new Plot('#rl-test', { x: { label: 'Hour of the test day', unit: 'h', min: 0, max: 24 }, y: { label: 'Temperature', unit: '°C' }, y2: { label: 'Heater', min: -0.05, max: 3.2 }, legend: true, height: 260 });
+  const ro = new Readouts('#rl-ro');
+  ro.add({ id: 'days', label: 'Days trained', digits: 0 }).add({ id: 'ret', label: 'Mean return (last 100 days)', digits: 1 })
+    .add({ id: 'ac', label: 'Agent: energy cost', digits: 1 }).add({ id: 'av', label: 'Agent: K h outside 19–23 °C', digits: 1 })
+    .add({ id: 'tc', label: 'Thermostat: energy cost', digits: 1 }).add({ id: 'tv', label: 'Thermostat: K h outside band', digits: 1 });
+  const priceAt = k => { const hr = k / 4; return hr >= 6 && hr < 21 ? 3 : 1; };
+  const sIdx = (T, k, oc) => ((clamp(Math.floor((T - 10) / 0.5), 0, NB - 1) * NT + Math.min(NT - 1, Math.floor(k / 24))) * NO + oc) * NA;
+  const outside = (Tb, k) => Tb + 3 * Math.sin(2 * Math.PI * (k / 96 - 0.375));
+  const ocOf = Tb => Tb < 7 ? 0 : Tb < 12 ? 1 : 2;
+  function step(T, u, k, Tb, r) { const Tn = a * T + (1 - a) * (outside(Tb, k) + 16 * u) + 0.15 * randn(r); const dev = Math.max(0, 19 - Tn) + Math.max(0, Tn - 23); return [Tn, dev]; }
+  function greedy(s) { let best = 0; for (let j = 1; j < NA; j++) if (Qt[s + j] > Qt[s + best]) best = j; return best; }
+  function train(n) {
+    const al = sA.v, eps = sE.v, lam = sL.v;
+    for (let ep = 0; ep < n; ep++) {
+      const Tb = 2 + 14 * rng(), oc = ocOf(Tb); let T = 15 + 9 * rng(), G = 0;
+      for (let k = 0; k < 96; k++) {
+        const s = sIdx(T, k, oc), ai = rng() < eps ? Math.floor(rng() * NA) : greedy(s); visits[s / NA]++;
+        const [Tn, dev] = step(T, ACT[ai], k, Tb, rng), rew = -priceAt(k) * ACT[ai] - lam * dev * dev;
+        const s2 = sIdx(Tn, Math.min(95, k + 1), oc); let mq = Qt[s2]; for (let j = 1; j < NA; j++) mq = Math.max(mq, Qt[s2 + j]);
+        const target = k === 95 ? rew : rew + gamma * mq;
+        Qt[s + ai] += al * (target - Qt[s + ai]); G += rew; T = Tn;
+      }
+      returns.push(G); days++;
+    }
+    draw();
+  }
+  function testDay(policy) {
+    const r = mulberry32(77), Tb = 8, xs = [], ys = [], us = []; let T = 17, cost = 0, viol = 0, last = 0;
+    for (let k = 0; k < 96; k++) {
+      let u; if (policy === 'agent') u = ACT[greedy(sIdx(T, k, ocOf(Tb)))]; else { u = T < 20.5 ? 1 : T > 21.5 ? 0 : last; last = u; }
+      xs.push(k / 4); ys.push(T); us.push(u);
+      const [Tn, dev] = step(T, u, k, Tb, r); cost += priceAt(k) * u; viol += dev * 0.25; T = Tn;
+    }
+    xs.push(24); ys.push(T); us.push(us[us.length - 1]);
+    return { xs, ys, us, cost, viol };
+  }
+  function draw() {
+    const w = 50, xs = [], ys = [];
+    for (let i = 0; i < returns.length; i += Math.max(1, Math.floor(returns.length / 400))) { const lo = Math.max(0, i - w + 1); let s = 0; for (let j = lo; j <= i; j++) s += returns[j]; xs.push(i + 1); ys.push(s / (i - lo + 1)); }
+    if (xs.length) pc.line('r', xs, ys, { color: 'accent', width: 2 }); else pc.remove('r');
+    const z = []; for (let b = 0; b < NB; b++) { const row = []; for (let t = 0; t < NT; t++) { const s = ((b * NT + t) * NO + 1) * NA; row.push(visits[s / NA] < 20 ? NaN : ACT[greedy(s)]); } z.push(row); }
+    pp.heatmap('pol', { z, x0: 0, x1: 24, y0: 10, y1: 30, colormap: 'inferno', min: 0, max: 1, smooth: false });
+    pp.hregion('band', 19, 23, { color: 'water', alpha: 0.08 });
+    const A = testDay('agent'), B = testDay('thermo');
+    pt.hregion('band', 19, 23, { color: 'accent', alpha: 0.1, label: 'comfort band' });
+    pt.line('ta', A.xs, A.ys, { color: 'magenta', width: 2.2, label: 'learned policy' });
+    pt.line('tt', B.xs, B.ys, { color: 'water', width: 2, dash: [6, 4], label: 'thermostat 21 °C' });
+    pt.line('ua', A.xs, A.us, { color: 'amber', width: 1.2, step: true, y2: true, label: 'heater, agent (right axis)' });
+    const recent = returns.slice(-100);
+    ro.set('days', days); ro.set('ret', recent.length ? mean(recent) : NaN);
+    ro.set('ac', A.cost, days ? (A.cost <= B.cost ? 'ok' : 'warn') : null); ro.set('av', A.viol, days ? (A.viol <= B.viol + 1 ? 'ok' : 'warn') : null); ro.set('tc', B.cost); ro.set('tv', B.viol);
+  }
+  const sA = bind('rl-a', v => fmt(v, 2)), sE = bind('rl-e', v => fmt(v, 2)), sL = bind('rl-l', v => fmt(v, 1));
+  $('#rl-t1').addEventListener('click', () => train(200));
+  $('#rl-t2').addEventListener('click', () => train(2000));
+  $('#rl-reset').addEventListener('click', () => { Qt = new Float64Array(NB * NT * NO * NA); visits = new Uint32Array(NB * NT * NO); returns = []; days = 0; rng = mulberry32(3); draw(); });
+  train(2000);
+}
+</script>
+</body>
+</html>

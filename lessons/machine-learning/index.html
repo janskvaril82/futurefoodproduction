@@ -1,0 +1,1082 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Machine learning for food production · Future Food Production</title>
+<meta name="description" content="Supervised, unsupervised and reinforcement learning; decision trees, random forests and boosting; k-means and PCA; neural networks, gradient descent and backpropagation derived; evaluation metrics, ROC, data leakage and spatial/temporal cross-validation; applications and foundation models in agriculture.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+FFP_CALC.ppv = v => { const se = v.se / 100, sp = v.sp / 100, pi = v.prev / 100; return 100 * se * pi / (se * pi + (1 - sp) * (1 - pi)); };
+</script>
+<style>
+.fig-ctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:0 0 10px}
+.fig-ctl .seg{margin-top:0}
+.fig-ctl label.chk{display:inline-flex;gap:6px;align-items:center;font-size:.86rem;color:var(--ink-2);cursor:pointer}
+.fig-grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media (max-width:760px){.fig-grid2{grid-template-columns:1fr}}
+.fig-note{font-size:.82rem;color:var(--muted);margin:6px 0 0}
+.sliders-inline{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:4px 16px}
+.cm-table{border-collapse:collapse;font-size:.85rem;margin:6px 0 0;width:100%}
+.cm-table th,.cm-table td{border:1px solid var(--line);padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums}
+.cm-table td.tp{background:var(--accent-soft)}.cm-table td.tn{background:var(--accent-soft)}
+.cm-table td.fp,.cm-table td.fn{background:var(--danger-soft)}
+.rules{font:500 .8rem/1.5 var(--font-mono);background:var(--bg-sunk);border-radius:8px;padding:8px 12px;margin-top:8px;white-space:pre-wrap;color:var(--ink-2);max-height:180px;overflow:auto}
+</style>
+</head>
+<body data-page="lesson" data-slug="machine-learning">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Machine learning for food production</h1>
+      <p class="lead">A greenhouse produces millions of numbers a year — temperatures, humidities, light sums, irrigation volumes, images, yields. Machine learning is the craft of letting an algorithm discover patterns in such data that are too complex to write down by hand: which combination of conditions precedes a disease outbreak, how much the crop will yield next week, which berry is ripe. This lesson opens the black box. You will derive how a decision tree chooses its questions, how a neural network learns by gradient descent, and — most importantly — how to tell whether a model will work on a farm it has never seen.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Classify a food-production problem as supervised, unsupervised or reinforcement learning, and identify its features and labels (LO5).</li>
+        <li>Explain and calculate how decision trees choose splits (Gini impurity, entropy, information gain), and why random forests and gradient boosting outperform single trees (LO5).</li>
+        <li>Apply k-means clustering and principal component analysis to agricultural data and interpret the results (LO5).</li>
+        <li>Compute the forward pass of a small neural network, derive backpropagation with the chain rule, and explain learning rate and regularisation (LO5).</li>
+        <li>Evaluate classifiers and regressors with confusion matrices, precision, recall, F1, ROC/AUC and RMSE, and recognise data leakage and the need for spatial and temporal cross-validation (LO4, LO5).</li>
+        <li>Critically assess published applications of machine learning, foundation models and large language models in agriculture (LO5, LO1).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="what-is-ml">What machine learning is — and the three ways machines learn</h2>
+      <p class="lede-drop">In <a href="/lessons/data-to-models/">Lesson 10.1</a> you chose a model (a logistic curve) and let least squares find its three parameters. Machine learning pushes the same idea further: the model family is so flexible — thousands or millions of parameters — that it can represent almost any relationship, and the data decide its shape. A useful working definition: <em>machine learning is the estimation of a function from examples, with the explicit goal of performing well on new examples</em>. Everything else — trees, forests, neural networks — is a choice of function family and fitting algorithm.</p>
+      <p>Three settings are distinguished by what the data contain:</p>
+      <ul>
+        <li><strong>Supervised learning.</strong> Each example has inputs (<em>features</em>, \(\mathbf x\)) and a known answer (<em>label</em> or target, \(y\)). The algorithm learns \(\hat y = f(\mathbf x)\). If \(y\) is a number (yield in kg m⁻², days to harvest) the task is <strong>regression</strong>; if it is a category (healthy/diseased, ripe/unripe, grade A/B/C) it is <strong>classification</strong>.</li>
+        <li><strong>Unsupervised learning.</strong> There are no labels; the algorithm looks for structure — groups of similar greenhouse compartments (clustering), a few combined variables that summarise a 200-band spectrum (dimensionality reduction), or sensor readings that do not fit the usual pattern (anomaly detection, see the <a href="/laboratories/sensor-anomaly/">sensor anomaly lab</a>).</li>
+        <li><strong>Reinforcement learning.</strong> An <em>agent</em> takes actions (open vents, switch on lamps) in an environment, receives a reward (profit, penalty for leaving the temperature band) and learns a <em>policy</em> that maximises long-term reward. It is the machine-learning route to autonomous control, covered in <a href="/lessons/control-optimisation/">Lesson 10.4</a>.</li>
+      </ul>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 250" role="img" aria-label="Three learning settings: supervised learning maps labelled examples to predictions, unsupervised learning finds groups in unlabelled data, reinforcement learning is an agent-environment loop with actions and rewards">
+            <defs><marker id="ml-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <g>
+              <rect x="10" y="10" width="220" height="230" rx="12" class="fill-sunk" stroke="currentColor" stroke-width=".8"/>
+              <text x="120" y="34" text-anchor="middle" font-weight="650">Supervised</text>
+              <g class="t-small t-mono"><text x="26" y="62">DLI  T   CO₂ │ yield</text><text x="26" y="80">14  21  800 │ 3.1</text><text x="26" y="98">17  23  900 │ 3.6</text><text x="26" y="116">11  19  600 │ 2.4</text></g>
+              <line x1="120" y1="126" x2="120" y2="158" class="stroke" stroke-width="1.5" marker-end="url(#ml-a)"/>
+              <rect x="60" y="162" width="120" height="30" rx="8" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="120" y="182" text-anchor="middle" class="t-small">learn ŷ = f(x)</text>
+              <text x="120" y="216" text-anchor="middle" class="t-small t-muted">features + labels</text><text x="120" y="230" text-anchor="middle" class="t-small t-muted">regression · classification</text>
+            </g>
+            <g>
+              <rect x="250" y="10" width="220" height="230" rx="12" class="fill-sunk" stroke="currentColor" stroke-width=".8"/>
+              <text x="360" y="34" text-anchor="middle" font-weight="650">Unsupervised</text>
+              <g class="fill-accent"><circle cx="300" cy="80" r="5"/><circle cx="312" cy="92" r="5"/><circle cx="292" cy="98" r="5"/><circle cx="308" cy="74" r="5"/></g>
+              <g class="fill-magenta"><circle cx="400" cy="70" r="5"/><circle cx="414" cy="84" r="5"/><circle cx="392" cy="88" r="5"/><circle cx="420" cy="66" r="5"/></g>
+              <g class="fill-water"><circle cx="352" cy="140" r="5"/><circle cx="366" cy="150" r="5"/><circle cx="344" cy="156" r="5"/><circle cx="360" cy="130" r="5"/></g>
+              <ellipse cx="302" cy="86" rx="26" ry="22" class="stroke-accent" stroke-dasharray="4 3"/><ellipse cx="406" cy="77" rx="26" ry="22" class="stroke-magenta" stroke-dasharray="4 3"/><ellipse cx="356" cy="144" rx="26" ry="22" class="stroke-water" stroke-dasharray="4 3"/>
+              <text x="360" y="216" text-anchor="middle" class="t-small t-muted">features only, no labels</text><text x="360" y="230" text-anchor="middle" class="t-small t-muted">clustering · PCA · anomalies</text>
+            </g>
+            <g>
+              <rect x="490" y="10" width="220" height="230" rx="12" class="fill-sunk" stroke="currentColor" stroke-width=".8"/>
+              <text x="600" y="34" text-anchor="middle" font-weight="650">Reinforcement</text>
+              <rect x="545" y="52" width="110" height="34" rx="8" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/><text x="600" y="74" text-anchor="middle" class="t-small">agent (policy)</text>
+              <rect x="545" y="140" width="110" height="34" rx="8" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/><text x="600" y="162" text-anchor="middle" class="t-small">greenhouse</text>
+              <path d="M655 69 C 690 80, 690 140, 658 155" class="stroke" stroke-width="1.4" marker-end="url(#ml-a)"/><text x="684" y="112" class="t-small">action</text>
+              <path d="M545 157 C 510 140, 510 84, 542 72" class="stroke" stroke-width="1.4" marker-end="url(#ml-a)"/><text x="496" y="104" class="t-small">state,</text><text x="496" y="118" class="t-small">reward</text>
+              <text x="600" y="216" text-anchor="middle" class="t-small t-muted">learn by trial and reward</text><text x="600" y="230" text-anchor="middle" class="t-small t-muted">control · scheduling</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The three learning settings. Most applications in food production today are supervised (yield prediction, disease recognition, quality grading); unsupervised methods explore and compress data; reinforcement learning is used for sequential decisions such as climate control.</figcaption>
+      </figure>
+
+      <p>Whatever the algorithm, a machine-learning project follows the same workflow (Figure 2). The steps that decide success are rarely the algorithm itself: they are the definition of the question, the quality and representativeness of the data, the choice of features, and above all an honest validation on data the model has never seen.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 150" role="img" aria-label="Machine learning workflow: define question, collect and label data, engineer features, split data, train and tune on training and validation sets, test once on held-out test set, deploy and monitor for drift">
+            <defs><marker id="ml-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <g class="t-small" text-anchor="middle">
+              <rect x="6" y="40" width="88" height="50" rx="9" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="50" y="62">define the</text><text x="50" y="77">question</text>
+              <rect x="108" y="40" width="88" height="50" rx="9" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="152" y="62">collect &amp;</text><text x="152" y="77">label data</text>
+              <rect x="210" y="40" width="88" height="50" rx="9" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="254" y="62">features &amp;</text><text x="254" y="77">cleaning</text>
+              <rect x="312" y="40" width="88" height="50" rx="9" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="356" y="62">split: train /</text><text x="356" y="77">valid. / test</text>
+              <rect x="414" y="40" width="88" height="50" rx="9" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/><text x="458" y="62">train &amp; tune</text><text x="458" y="77">(CV)</text>
+              <rect x="516" y="40" width="88" height="50" rx="9" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/><text x="560" y="62">test once</text><text x="560" y="77">(held out)</text>
+              <rect x="618" y="40" width="96" height="50" rx="9" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="666" y="62">deploy &amp;</text><text x="666" y="77">monitor drift</text>
+            </g>
+            <g class="stroke" stroke-width="1.3"><line x1="94" y1="65" x2="106" y2="65" marker-end="url(#ml-b)"/><line x1="196" y1="65" x2="208" y2="65" marker-end="url(#ml-b)"/><line x1="298" y1="65" x2="310" y2="65" marker-end="url(#ml-b)"/><line x1="400" y1="65" x2="412" y2="65" marker-end="url(#ml-b)"/><line x1="502" y1="65" x2="514" y2="65" marker-end="url(#ml-b)"/><line x1="604" y1="65" x2="616" y2="65" marker-end="url(#ml-b)"/></g>
+            <path d="M666 92 C 660 130, 160 136, 152 94" class="stroke-muted" stroke-dasharray="4 3" marker-end="url(#ml-b)"/>
+            <text x="400" y="126" class="t-small t-muted" text-anchor="middle">new season, new cultivar, new sensor → retrain</text>
+            <text x="356" y="28" class="t-small" text-anchor="middle" style="fill:var(--amber)">split BEFORE any tuning</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> The machine-learning workflow. The test set is touched once, at the end; all tuning uses training data and cross-validation. After deployment, performance must be monitored because greenhouses, cultivars and sensors change (“data drift”).</figcaption>
+      </figure>
+
+      <table>
+        <caption>Table 1. Typical machine-learning tasks in food production.</caption>
+        <thead><tr><th>Task</th><th>Setting</th><th>Features (x)</th><th>Label (y)</th></tr></thead>
+        <tbody>
+          <tr><td>Weekly tomato yield forecast</td><td>Supervised regression</td><td>Past light sums, temperatures, fruit counts, crop registration data</td><td>kg m⁻² next week</td></tr>
+          <tr><td>Downy-mildew risk on lettuce</td><td>Supervised classification</td><td>Leaf-wetness hours, temperature, humidity</td><td>Infection yes/no</td></tr>
+          <tr><td>Grading strawberries</td><td>Supervised classification (images)</td><td>Pixels of a photo</td><td>Grade A, B, reject</td></tr>
+          <tr><td>Grouping greenhouse compartments by energy behaviour</td><td>Unsupervised clustering</td><td>Daily heat, electricity and CO₂ use profiles</td><td>—</td></tr>
+          <tr><td>Detecting a drifting pH probe</td><td>Unsupervised anomaly detection</td><td>Sensor time series</td><td>—</td></tr>
+          <tr><td>Heating and ventilation strategy</td><td>Reinforcement learning</td><td>Climate state, weather forecast, prices</td><td>Reward = profit − penalties</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="trees">Decision trees, random forests and boosting</h2>
+      <p>A decision tree predicts by asking a sequence of yes/no questions about the features: <em>Was the leaf wet for at least 6 hours? If so, was the mean temperature between 11 and 22 °C?</em> Each question splits the data into two groups; each final group (a <em>leaf</em> of the tree) predicts the majority class or the mean value of its training examples. Trees are popular in agriculture because they handle mixed feature types, need no scaling, capture interactions and thresholds (biology is full of thresholds) and can be read by a grower.</p>
+      <p>How does the algorithm choose a question? It tries every feature and every possible threshold, and picks the split that makes the two resulting groups as <em>pure</em> as possible. Purity is measured by an impurity function.</p>
+
+      <div class="eq-box" id="eq-gini">
+        <div class="eq-head"><span class="eq-label">Impurity and information gain</span><span class="eq-num">(10.2.1)</span></div>
+        <div class="eq-main">\[ G = 1-\sum_{c=1}^{C} p_c^{2}, \qquad H = -\sum_{c=1}^{C} p_c\log_2 p_c, \qquad \Delta I = I_{\text{parent}} - \frac{n_L}{n}I_L - \frac{n_R}{n}I_R \]</div>
+        <p class="eq-read">the Gini impurity of a group is one minus the sum of the squared class proportions; the entropy is minus the sum of each proportion times its base-2 logarithm. A split is scored by its gain: the impurity of the parent minus the size-weighted impurities of the left and right children. The tree chooses the split with the largest gain.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(p_c\)</td><td>fraction of examples in the group that belong to class \(c\)</td><td>–</td></tr>
+          <tr><td>\(G\)</td><td>Gini impurity: probability that two randomly drawn examples (with replacement) belong to different classes</td><td>– (0 to 0.5 for two classes)</td></tr>
+          <tr><td>\(H\)</td><td>entropy: average number of yes/no questions needed to identify the class</td><td>bit (0 to 1 for two classes)</td></tr>
+          <tr><td>\(n, n_L, n_R\)</td><td>number of examples in parent, left and right child</td><td>–</td></tr>
+          <tr><td>\(\Delta I\)</td><td>information gain (impurity decrease) of the split, with \(I = G\) or \(H\)</td><td>– or bit</td></tr>
+        </table>
+        <details><summary>Where do these formulas come from?</summary>
+          <ol class="steps">
+            <li><strong>Gini.</strong> Draw two examples at random with replacement. The probability both are class \(c\) is \(p_c^2\); the probability they are the same class is \(\sum p_c^2\); the probability they differ is \(1-\sum p_c^2\). A pure group has \(G=0\); two equally mixed classes give \(G = 1-0.25-0.25 = 0.5\).</li>
+            <li><strong>Entropy</strong> comes from Shannon's information theory: an event of probability \(p\) carries \(-\log_2 p\) bits of information; entropy is the expected information. A 50/50 group has \(H = 1\) bit.</li>
+            <li><strong>Weighting.</strong> The children are weighted by their sizes so that splitting off a single pure example (which trivially has zero impurity) is not rewarded.</li>
+            <li><strong>Regression trees</strong> use the variance of \(y\) within each group as impurity; the “gain” is then the reduction in sum of squared errors — least squares again.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The greedy search finds the best split <em>at each step</em>, not the best tree overall. A tree allowed to grow until every leaf is pure will memorise the training data (over-fitting); depth limits, a minimum number of examples per leaf, or pruning are needed. Small changes in the data can change the first split and hence the whole tree — trees are high-variance models.</p>
+        </details>
+        <div class="eq-units">Proportions are dimensionless, so \(G\) is dimensionless; \(H\) is in bits because the logarithm is base 2 (use natural logarithms for nats) ✓.</div>
+        <div class="mini-calc" data-formula="1 - p*p - (1-p)*(1-p)" data-output="Gini impurity (two classes)" data-unit="" data-digits="3" data-plot="p" data-ymin="0" data-ymax="0.55" data-title="Try it — impurity of a two-class group">
+          <div data-var="p" data-label="Fraction diseased p" data-min="0" data-max="1" data-step="0.01" data-value="0.4"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">Scoring a split for downy-mildew risk</span></div>
+        <div class="we-problem"><p>On 20 days a lettuce greenhouse recorded whether downy mildew (<em>Bremia lactucae</em>) infections occurred: 8 days yes, 12 days no. A candidate split “leaf wetness ≥ 6 h” sends 9 days left (7 infection, 2 no infection) and 11 days right (1 infection, 10 no infection). Compute the Gini impurities, the gain, and the gain measured with entropy.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Parent.</strong> \(p = 8/20 = 0.4\): \(G = 1-0.4^2-0.6^2 = 0.480\).</li>
+            <li><strong>Left child.</strong> \(p = 7/9\): \(G_L = 1-(7/9)^2-(2/9)^2 = 1-0.605-0.049 = 0.346\).</li>
+            <li><strong>Right child.</strong> \(p = 1/11\): \(G_R = 1-(1/11)^2-(10/11)^2 = 0.165\).</li>
+            <li><strong>Weighted children.</strong> \(\frac{9}{20}0.346+\frac{11}{20}0.165 = 0.156+0.091 = 0.246\). <strong>Gain</strong> = 0.480 − 0.246 = 0.234.</li>
+            <li><strong>Entropy version.</strong> \(H = 0.971\) bit (parent), 0.764 (left), 0.439 (right); weighted 0.586; gain 0.385 bit. Both criteria rank splits almost identically in practice; Gini is slightly cheaper to compute.</li>
+          </ol>
+          <span class="answer">Gini gain ≈ 0.23 (0.480 → 0.246); entropy gain ≈ 0.39 bit</span>
+        </div></details>
+      </div>
+
+      <figure class="figure wide" id="fig-tree">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — grow a decision tree</div>
+          <div class="fig-ctl">
+            <div class="seg" id="dt-mode" role="group" aria-label="Mode"><button type="button" data-v="manual" aria-pressed="true">You choose the first split</button><button type="button" data-v="auto">Algorithm grows the tree</button></div>
+            <div class="seg" id="dt-feat" role="group" aria-label="Feature"><button type="button" data-v="0" aria-pressed="true">Leaf wetness</button><button type="button" data-v="1">Temperature</button></div>
+          </div>
+          <div class="sliders-inline">
+            <div class="mc-var" id="dt-th-wrap"><div class="mc-lab"><span>Threshold</span><output id="dt-th-out"></output></div><input id="dt-th" type="range" min="0" max="16" step="0.1" value="3" aria-label="Threshold"></div>
+            <div class="mc-var" id="dt-depth-wrap"><div class="mc-lab"><span>Maximum depth</span><output id="dt-depth-out">2</output></div><input id="dt-depth" type="range" min="1" max="8" step="1" value="2" aria-label="Maximum depth"></div>
+          </div>
+          <div class="fig-ctl"><button class="btn btn-sm" type="button" id="dt-best">Find the best first split</button></div>
+          <div class="fig-grid2"><div id="dt-plot"></div><div><div id="dt-acc"></div><div class="rules" id="dt-rules"></div></div></div>
+          <div class="readouts" id="dt-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> 160 greenhouse days (filled: infection, magenta; no infection, green) as a function of leaf-wetness duration and mean temperature (simulated with a known infection window plus random noise). Left: data and the tree's decision regions. Choose a feature and move the threshold to maximise the Gini gain — then compare with the algorithm. In “grow the tree” mode, increase the depth: training accuracy keeps rising, while accuracy on 600 new days levels off and then declines (right) — the tree starts to memorise noise.</figcaption>
+      </figure>
+
+      <h3>Random forests: the wisdom of many noisy trees</h3>
+      <p>Because a single deep tree has low bias but high variance, Breiman (2001) proposed averaging many of them. A <strong>random forest</strong> grows hundreds of trees, each on a <em>bootstrap sample</em> of the data (drawn with replacement) and each allowed to consider only a random subset of features at every split. The randomness makes the trees different from each other; averaging their predictions (regression) or taking a majority vote (classification) cancels much of their individual variance.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 200" role="img" aria-label="Random forest: bootstrap samples of the training data each grow a different tree; their predictions are averaged or voted">
+            <defs><marker id="ml-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <rect x="10" y="80" width="100" height="40" rx="8" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="60" y="104" text-anchor="middle" class="t-small">training data</text>
+            <g class="t-small" text-anchor="middle">
+              <rect x="160" y="14" width="100" height="30" rx="7" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="210" y="33">bootstrap 1</text>
+              <rect x="160" y="85" width="100" height="30" rx="7" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="210" y="104">bootstrap 2</text>
+              <rect x="160" y="156" width="100" height="30" rx="7" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="210" y="175">bootstrap B</text>
+            </g>
+            <g class="stroke" stroke-width="1.2"><line x1="110" y1="95" x2="158" y2="30" marker-end="url(#ml-c)"/><line x1="110" y1="100" x2="158" y2="100" marker-end="url(#ml-c)"/><line x1="110" y1="105" x2="158" y2="170" marker-end="url(#ml-c)"/></g>
+            <g id="tree-icon">
+              <g transform="translate(300,6)"><line x1="40" y1="8" x2="18" y2="26" class="stroke"/><line x1="40" y1="8" x2="62" y2="26" class="stroke"/><line x1="18" y1="26" x2="8" y2="40" class="stroke"/><line x1="18" y1="26" x2="28" y2="40" class="stroke"/><circle cx="40" cy="8" r="5" class="fill-accent"/><circle cx="18" cy="26" r="5" class="fill-accent"/><circle cx="62" cy="26" r="5" class="fill-magenta"/><circle cx="8" cy="40" r="4" class="fill-accent"/><circle cx="28" cy="40" r="4" class="fill-magenta"/></g>
+              <g transform="translate(300,78)"><line x1="40" y1="8" x2="18" y2="26" class="stroke"/><line x1="40" y1="8" x2="62" y2="26" class="stroke"/><line x1="62" y1="26" x2="52" y2="40" class="stroke"/><line x1="62" y1="26" x2="72" y2="40" class="stroke"/><circle cx="40" cy="8" r="5" class="fill-accent"/><circle cx="18" cy="26" r="5" class="fill-accent"/><circle cx="62" cy="26" r="5" class="fill-magenta"/><circle cx="52" cy="40" r="4" class="fill-magenta"/><circle cx="72" cy="40" r="4" class="fill-accent"/></g>
+              <g transform="translate(300,150)"><line x1="40" y1="8" x2="18" y2="26" class="stroke"/><line x1="40" y1="8" x2="62" y2="26" class="stroke"/><circle cx="40" cy="8" r="5" class="fill-accent"/><circle cx="18" cy="26" r="5" class="fill-magenta"/><circle cx="62" cy="26" r="5" class="fill-accent"/></g>
+            </g>
+            <g class="stroke" stroke-width="1.2"><line x1="260" y1="29" x2="296" y2="29" marker-end="url(#ml-c)"/><line x1="260" y1="100" x2="296" y2="100" marker-end="url(#ml-c)"/><line x1="260" y1="171" x2="296" y2="171" marker-end="url(#ml-c)"/>
+              <line x1="385" y1="30" x2="468" y2="92" marker-end="url(#ml-c)"/><line x1="385" y1="100" x2="468" y2="100" marker-end="url(#ml-c)"/><line x1="385" y1="170" x2="468" y2="108" marker-end="url(#ml-c)"/></g>
+            <text x="330" y="134" class="t-small t-muted">⋮</text>
+            <rect x="472" y="78" width="120" height="44" rx="9" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/><text x="532" y="97" text-anchor="middle" class="t-small">average / vote</text><text x="532" y="112" text-anchor="middle" class="t-small t-muted">(B = 100–1000)</text>
+            <line x1="592" y1="100" x2="630" y2="100" class="stroke" stroke-width="1.2" marker-end="url(#ml-c)"/><text x="636" y="104" class="t-small">ŷ</text>
+            <text x="300" y="196" class="t-small t-muted">random feature subset at each split</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 4.</b> A random forest. Bootstrap samples and random feature subsets make the trees diverse; averaging diverse, individually noisy trees gives a stable, accurate prediction.</figcaption>
+      </figure>
+
+      <div class="eq-box" id="eq-forest">
+        <div class="eq-head"><span class="eq-label">Variance of an average of correlated trees</span><span class="eq-num">(10.2.2)</span></div>
+        <div class="eq-main">\[ \operatorname{Var}\Bigl[\frac1B\sum_{b=1}^{B}\hat f_b(\mathbf x)\Bigr] = \rho\,\sigma^{2} + \frac{1-\rho}{B}\,\sigma^{2} \]</div>
+        <p class="eq-read">the variance of the forest's prediction equals the correlation between trees times the variance of a single tree, plus the remaining uncorrelated part divided by the number of trees. Adding trees removes the second term; only making the trees less correlated reduces the first.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(B\)</td><td>number of trees</td><td>–</td></tr>
+          <tr><td>\(\sigma^2\)</td><td>variance of one tree's prediction (over random training samples)</td><td>unit of \(y\) squared</td></tr>
+          <tr><td>\(\rho\)</td><td>pairwise correlation between the predictions of two trees</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>\(\operatorname{Var}[\frac1B\sum_b \hat f_b] = \frac{1}{B^2}\bigl[\sum_b \operatorname{Var}\hat f_b + \sum_{b\neq c}\operatorname{Cov}(\hat f_b,\hat f_c)\bigr]\).</li>
+            <li>With identical variances \(\sigma^2\) and pairwise covariances \(\rho\sigma^2\): \(\frac{1}{B^2}[B\sigma^2 + B(B-1)\rho\sigma^2] = \frac{\sigma^2}{B} + \frac{B-1}{B}\rho\sigma^2\).</li>
+            <li>Rearranging: \(\rho\sigma^2 + \frac{1-\rho}{B}\sigma^2\) ∎. This is why random forests restrict the features available at each split: it lowers \(\rho\) (Hastie et al., 2009, ch. 15).</li>
+          </ol>
+        </details>
+        <details><summary>Gradient boosting: trees in series instead of in parallel</summary>
+          <p>Boosting builds trees one after another. Each new shallow tree \(h_m\) is fitted to the <em>residuals</em> (more generally the negative gradient of the loss) of the current ensemble, and added with a small learning rate \(\nu\): \(F_m(\mathbf x) = F_{m-1}(\mathbf x) + \nu\,h_m(\mathbf x)\) (Friedman, 2001). Where forests reduce variance, boosting reduces bias step by step. Implementations such as XGBoost (Chen &amp; Guestrin, 2016) and LightGBM are often the most accurate methods for tabular sensor and climate data — and they need careful early stopping to avoid over-fitting.</p>
+        </details>
+        <div class="eq-units">Both terms are \(\sigma^2\) multiplied by dimensionless factors → unit of \(y\) squared ✓.</div>
+        <div class="mini-calc" data-formula="rho + (1-rho)/B" data-output="Forest variance ÷ single-tree variance" data-unit="" data-digits="3" data-plot="B" data-ymin="0" data-ymax="1" data-title="Try it — why more trees help, but only so much">
+          <div data-var="B" data-label="Number of trees B" data-min="1" data-max="500" data-step="1" data-value="100"></div>
+          <div data-var="rho" data-label="Correlation between trees ρ" data-min="0" data-max="1" data-step="0.01" data-value="0.3"></div>
+        </div>
+      </div>
+
+      <h2 id="unsupervised">Unsupervised learning: k-means clustering and PCA</h2>
+      <p>Imagine you have extracted the colour of 150 lettuce leaves from photos, expressed in the CIELAB colour space (<a href="/lessons/computer-vision/">Lesson 10.3</a>): \(a^*\) runs from green (negative) to red (positive), \(b^*\) from blue to yellow. Nobody has labelled the leaves. Are there natural groups — healthy green, chlorotic (yellowish, e.g. nitrogen deficiency), necrotic (brown)? <strong>k-means</strong> finds \(k\) groups by placing \(k\) centres so that every point is as close as possible to its nearest centre.</p>
+
+      <div class="eq-box" id="eq-kmeans">
+        <div class="eq-head"><span class="eq-label">k-means objective and Lloyd's algorithm</span><span class="eq-num">(10.2.3)</span></div>
+        <div class="eq-main">\[ J = \sum_{i=1}^{n}\bigl\lVert \mathbf x_i - \boldsymbol\mu_{c(i)}\bigr\rVert^{2}, \qquad c(i) = \arg\min_k \lVert\mathbf x_i-\boldsymbol\mu_k\rVert, \qquad \boldsymbol\mu_k = \frac{1}{n_k}\sum_{i:\,c(i)=k}\mathbf x_i \]</div>
+        <p class="eq-read">the within-cluster sum of squares \(J\) (“inertia”) adds the squared distance of every point to the centre of its cluster. Lloyd's algorithm alternates two steps: assign each point to its nearest centre; move each centre to the mean of its points. Each step can only decrease \(J\).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\mathbf x_i\)</td><td>feature vector of point \(i\) (e.g., \(a^*, b^*\))</td><td>feature units</td></tr>
+          <tr><td>\(\boldsymbol\mu_k\)</td><td>centre (centroid) of cluster \(k\)</td><td>feature units</td></tr>
+          <tr><td>\(c(i)\)</td><td>cluster assigned to point \(i\)</td><td>–</td></tr>
+          <tr><td>\(J\)</td><td>inertia (within-cluster sum of squares)</td><td>feature units squared</td></tr>
+        </table>
+        <details><summary>Why the algorithm converges</summary>
+          <ol class="steps">
+            <li>Assignment step: for fixed centres, giving each point its nearest centre minimises each term of \(J\) separately.</li>
+            <li>Update step: for fixed assignments, the point that minimises \(\sum\lVert\mathbf x_i-\boldsymbol\mu\rVert^2\) is the mean (set the gradient \(-2\sum(\mathbf x_i-\boldsymbol\mu)\) to zero — least squares once more).</li>
+            <li>\(J\) never increases and there are finitely many assignments, so the algorithm stops — but possibly in a <em>local</em> minimum. Run it from several random starts and keep the lowest \(J\) (Lloyd, 1982).</li>
+            <li>\(J\) always decreases as \(k\) grows (with \(k=n\), \(J=0\)); choose \(k\) where the decrease flattens (the “elbow”) or with domain knowledge.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>k-means assumes roughly spherical clusters of similar size and uses Euclidean distance, so <strong>features must be on comparable scales</strong> — standardise them first (temperature in °C and CO₂ in ppm would otherwise let CO₂ dominate). It is sensitive to outliers.</p>
+        </details>
+        <div class="eq-units">Squared distances in feature units; if features have different units they must be standardised to be dimensionless before adding ✓.</div>
+      </div>
+
+      <figure class="figure wide" id="fig-kmeans">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — k-means on leaf colours, step by step</div>
+          <div class="fig-ctl">
+            <button class="btn btn-sm btn-primary" type="button" id="km-step">Step (assign)</button>
+            <button class="btn btn-sm" type="button" id="km-run">Run to convergence</button>
+            <button class="btn btn-sm btn-ghost" type="button" id="km-init">New random start</button>
+            <div class="mc-var" style="min-width:200px"><div class="mc-lab"><span>Number of clusters k</span><output id="km-k-out">3</output></div><input id="km-k" type="range" min="2" max="6" step="1" value="3" aria-label="Number of clusters"></div>
+          </div>
+          <div class="fig-grid2"><div id="km-plot"></div><div id="km-elbow"></div></div>
+          <div class="readouts" id="km-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 5.</b> 150 leaves described by their CIELAB \(a^*\) (green–red) and \(b^*\) (blue–yellow) colour coordinates (simulated around typical healthy, chlorotic and necrotic tissue). Step through Lloyd's algorithm: points are coloured by their nearest centre (◆). Right: the lowest inertia found for each \(k\) (best of 8 random starts) — the elbow suggests how many natural groups exist.</figcaption>
+      </figure>
+
+      <p><strong>Principal component analysis</strong> (PCA) addresses a different problem: too many correlated features. A hyperspectral camera records reflectance in 200 or more bands; neighbouring bands are almost perfectly correlated. PCA rotates the coordinate system so that the first new axis (principal component, PC1) points in the direction of greatest variance, PC2 in the direction of greatest remaining variance at right angles to PC1, and so on (Jolliffe &amp; Cadima, 2016). Often two or three components capture most of the information, which can then be plotted, clustered or fed to a regression.</p>
+
+      <div class="eq-box" id="eq-pca">
+        <div class="eq-head"><span class="eq-label">Principal components</span><span class="eq-num">(10.2.4)</span></div>
+        <div class="eq-main">\[ \mathbf S\,\mathbf v_k = \lambda_k\,\mathbf v_k, \qquad z_{ik} = \mathbf v_k^{\mathsf T}(\mathbf x_i - \bar{\mathbf x}), \qquad \text{fraction explained by PC}_k = \frac{\lambda_k}{\sum_j\lambda_j} \]</div>
+        <p class="eq-read">the principal directions are the eigenvectors of the covariance matrix of the (standardised) data; each eigenvalue is the variance of the data along its direction. The score of a sample on a component is the projection of its centred feature vector onto that direction.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\mathbf S\)</td><td>covariance (or, for standardised data, correlation) matrix of the features</td><td>–</td></tr>
+          <tr><td>\(\mathbf v_k\)</td><td>\(k\)-th principal direction (unit-length eigenvector, “loadings”)</td><td>–</td></tr>
+          <tr><td>\(\lambda_k\)</td><td>variance along direction \(k\)</td><td>–</td></tr>
+          <tr><td>\(z_{ik}\)</td><td>score of sample \(i\) on component \(k\)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The variance of the projections onto a unit vector \(\mathbf v\) is \(\mathbf v^{\mathsf T}\mathbf S\mathbf v\). We want to maximise it subject to \(\mathbf v^{\mathsf T}\mathbf v = 1\).</li>
+            <li>Lagrangian: \(\mathbf v^{\mathsf T}\mathbf S\mathbf v - \lambda(\mathbf v^{\mathsf T}\mathbf v - 1)\). Setting the gradient to zero: \(2\mathbf S\mathbf v - 2\lambda\mathbf v = 0\), i.e. \(\mathbf S\mathbf v = \lambda\mathbf v\) — an eigenvalue problem.</li>
+            <li>At the solution the variance is \(\mathbf v^{\mathsf T}\mathbf S\mathbf v = \lambda\): pick the eigenvector with the largest eigenvalue as PC1. Later components are the remaining eigenvectors, automatically orthogonal because \(\mathbf S\) is symmetric.</li>
+            <li>Two standardised variables with correlation \(\rho\) have correlation matrix \(\begin{pmatrix}1&amp;\rho\\\rho&amp;1\end{pmatrix}\) with eigenvalues \(1\pm\rho\): PC1 explains \((1+|\rho|)/2\) of the variance.</li>
+          </ol>
+        </details>
+        <div class="eq-units">For standardised features every variable has unit variance and the eigenvalues are dimensionless; the fractions sum to 1 ✓.</div>
+        <div class="mini-calc" data-formula="100*(1+abs(rho))/2" data-output="Variance explained by PC1 (two standardised variables)" data-unit="%" data-digits="1" data-plot="rho" data-ymin="50" data-ymax="100" data-title="Try it — correlated features compress well">
+          <div data-var="rho" data-label="Correlation ρ between the two features" data-min="-1" data-max="1" data-step="0.01" data-value="0.9"></div>
+        </div>
+      </div>
+
+      <h2 id="neural-networks">Neural networks: neurons, layers and the forward pass</h2>
+      <p>An artificial neuron is a very small model: it multiplies its inputs by weights, adds a bias and passes the sum through a non-linear <strong>activation function</strong>. Rosenblatt's perceptron (1958) used a step function and could separate two classes with a straight line. Stacking neurons in layers, each feeding the next, gives a <strong>multilayer network</strong> that can approximate practically any smooth function — provided it has enough neurons and data.</p>
+
+      <div class="eq-box" id="eq-neuron">
+        <div class="eq-head"><span class="eq-label">Artificial neuron and activation functions</span><span class="eq-num">(10.2.5)</span></div>
+        <div class="eq-main">\[ a = \varphi\Bigl(\sum_{j=1}^{m} w_j x_j + b\Bigr) = \varphi(z), \qquad \sigma(z) = \frac{1}{1+e^{-z}}, \quad \tanh(z) = \frac{e^{z}-e^{-z}}{e^{z}+e^{-z}}, \quad \text{ReLU}(z) = \max(0,z) \]</div>
+        <p class="eq-read">a neuron's output is an activation function applied to the weighted sum of its inputs plus a bias. The sigmoid squashes any number into the range 0 to 1 (useful for probabilities), tanh into −1 to 1, and the rectified linear unit passes positive sums unchanged and sets negative sums to zero.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_j\)</td><td>input \(j\) (a standardised feature or the output of a previous neuron)</td><td>– (standardised)</td></tr>
+          <tr><td>\(w_j\)</td><td>weight of input \(j\)</td><td>–</td></tr>
+          <tr><td>\(b\)</td><td>bias (shifts the threshold)</td><td>–</td></tr>
+          <tr><td>\(z\)</td><td>pre-activation (weighted sum)</td><td>–</td></tr>
+          <tr><td>\(\varphi\)</td><td>activation function</td><td>–</td></tr>
+        </table>
+        <details><summary>Why a non-linear activation is essential</summary>
+          <ol class="steps">
+            <li>Without \(\varphi\), a layer computes \(\mathbf W\mathbf x+\mathbf b\), a linear function; two layers compute \(\mathbf W_2(\mathbf W_1\mathbf x+\mathbf b_1)+\mathbf b_2 = (\mathbf W_2\mathbf W_1)\mathbf x + \dots\) — still linear. Depth would add nothing.</li>
+            <li>With a non-linear \(\varphi\), each hidden neuron contributes a “bent” piece (a smoothed step for sigmoid/tanh, a hinge for ReLU); a weighted sum of many such pieces can approximate any continuous curve — the universal approximation property.</li>
+            <li>Derivatives, needed for learning: \(\sigma'(z) = \sigma(z)(1-\sigma(z))\) (at most 0.25), \(\tanh'(z) = 1-\tanh^2 z\), \(\text{ReLU}'(z) = 1\) for \(z&gt;0\) and 0 otherwise. The small maximum slope of the sigmoid makes gradients shrink layer after layer (“vanishing gradients”), one reason ReLU dominates deep networks (Goodfellow et al., 2016).</li>
+          </ol>
+        </details>
+        <div class="eq-units">Inputs are standardised (dimensionless), so weights and biases are dimensionless and so is \(z\); the activation of a dimensionless number is dimensionless ✓.</div>
+        <div class="mini-calc" data-formula="1/(1+exp(-(w1*x1 + w2*x2 + b)))" data-output="Sigmoid neuron output a" data-unit="" data-digits="4" data-plot="x1" data-ymin="0" data-ymax="1" data-title="Try it — one sigmoid neuron with two inputs">
+          <div data-var="x1" data-label="Input x₁ (standardised DLI)" data-min="-3" data-max="3" data-step="0.05" data-value="0.8"></div>
+          <div data-var="x2" data-label="Input x₂ (standardised VPD)" data-min="-3" data-max="3" data-step="0.05" data-value="-0.5"></div>
+          <div data-var="w1" data-label="Weight w₁" data-min="-3" data-max="3" data-step="0.05" data-value="1.2"></div>
+          <div data-var="w2" data-label="Weight w₂" data-min="-3" data-max="3" data-step="0.05" data-value="0.6"></div>
+          <div data-var="b" data-label="Bias b" data-min="-3" data-max="3" data-step="0.05" data-value="0.1"></div>
+        </div>
+      </div>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 280" role="img" aria-label="A neural network with three inputs (DLI, temperature, CO2), a hidden layer of four neurons and one output (yield), with weights on connections; inset shows one neuron computing a weighted sum and activation">
+            <defs><marker id="ml-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <g class="stroke-muted" stroke-width="1">
+              <line x1="92" y1="70" x2="238" y2="46"/><line x1="92" y1="70" x2="238" y2="106"/><line x1="92" y1="70" x2="238" y2="166"/><line x1="92" y1="70" x2="238" y2="226"/>
+              <line x1="92" y1="140" x2="238" y2="46"/><line x1="92" y1="140" x2="238" y2="106"/><line x1="92" y1="140" x2="238" y2="166"/><line x1="92" y1="140" x2="238" y2="226"/>
+              <line x1="92" y1="210" x2="238" y2="46"/><line x1="92" y1="210" x2="238" y2="106"/><line x1="92" y1="210" x2="238" y2="166"/><line x1="92" y1="210" x2="238" y2="226"/>
+              <line x1="262" y1="46" x2="388" y2="136"/><line x1="262" y1="106" x2="388" y2="138"/><line x1="262" y1="166" x2="388" y2="142"/><line x1="262" y1="226" x2="388" y2="144"/>
+            </g>
+            <line x1="92" y1="70" x2="238" y2="46" class="stroke-magenta" stroke-width="2.4"/><text x="150" y="48" class="t-small" style="fill:var(--magenta)">w₁₁</text>
+            <g class="t-small" text-anchor="end"><text x="66" y="74">DLI</text><text x="66" y="144">T</text><text x="66" y="214">CO₂</text></g>
+            <circle cx="80" cy="70" r="12" class="fill-water-soft" stroke="currentColor"/><circle cx="80" cy="140" r="12" class="fill-water-soft" stroke="currentColor"/><circle cx="80" cy="210" r="12" class="fill-water-soft" stroke="currentColor"/>
+            <circle cx="250" cy="46" r="12" class="fill-accent-soft" stroke="currentColor"/><circle cx="250" cy="106" r="12" class="fill-accent-soft" stroke="currentColor"/><circle cx="250" cy="166" r="12" class="fill-accent-soft" stroke="currentColor"/><circle cx="250" cy="226" r="12" class="fill-accent-soft" stroke="currentColor"/>
+            <circle cx="400" cy="140" r="12" class="fill-magenta-soft" stroke="currentColor"/><text x="420" y="144" class="t-small">ŷ yield</text>
+            <g class="t-small t-muted" text-anchor="middle"><text x="80" y="262">input layer</text><text x="250" y="262">hidden layer (tanh)</text><text x="400" y="262">output (linear)</text></g>
+            <rect x="478" y="40" width="210" height="190" rx="12" class="fill-sunk" stroke="currentColor" stroke-width=".8"/>
+            <text x="583" y="62" text-anchor="middle" class="t-small" font-weight="650">inside one hidden neuron</text>
+            <g class="t-small t-mono"><text x="494" y="92">z = w₁₁·DLI + w₁₂·T</text><text x="494" y="108">    + w₁₃·CO₂ + b₁</text><text x="494" y="134">h = tanh(z)</text></g>
+            <path d="M500 200 C 540 200, 555 200, 583 170 C 610 140, 625 140, 668 140" class="stroke-accent" stroke-width="2.2"/>
+            <line x1="494" y1="170" x2="676" y2="170" class="stroke-muted" stroke-dasharray="3 3"/>
+            <text x="494" y="218" class="t-small t-muted">z →</text><text x="660" y="132" class="t-small t-muted">+1</text><text x="660" y="212" class="t-small t-muted">−1</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 6.</b> A 3–4–1 network for yield prediction: every input connects to every hidden neuron (12 weights + 4 biases) and every hidden neuron to the output (4 weights + 1 bias) — 21 parameters. The forward pass computes each layer from the previous one.</figcaption>
+      </figure>
+
+      <p>In matrix form the forward pass of a network with one hidden layer is \(\mathbf h = \varphi(\mathbf W_1\mathbf x + \mathbf b_1)\), \(\hat y = \mathbf w_2^{\mathsf T}\mathbf h + b_2\). A network with 3 inputs, 4 hidden neurons and 1 output has \(3\times4+4+4+1 = 21\) parameters; image networks (Lesson 10.3) have millions. Training means finding the parameter values that minimise a <strong>loss function</strong> on the training data.</p>
+
+      <div class="eq-box" id="eq-loss">
+        <div class="eq-head"><span class="eq-label">Loss functions for regression and classification</span><span class="eq-num">(10.2.6)</span></div>
+        <div class="eq-main">\[ L_{\text{MSE}} = \frac1n\sum_{i=1}^{n}(y_i-\hat y_i)^2, \qquad L_{\text{CE}} = -\frac1n\sum_{i=1}^{n}\bigl[y_i\ln\hat p_i + (1-y_i)\ln(1-\hat p_i)\bigr] \]</div>
+        <p class="eq-read">for regression the loss is the mean squared error — the SSE of Lesson 10.1 divided by \(n\). For binary classification, where the network outputs a probability \(\hat p_i\) that example \(i\) is positive, the loss is the binary cross-entropy: minus the average log-probability that the model assigned to the correct answer.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(y_i\)</td><td>true value (regression) or class 0/1 (classification)</td><td>unit of \(y\) / –</td></tr>
+          <tr><td>\(\hat p_i\)</td><td>predicted probability of class 1 (sigmoid output)</td><td>–</td></tr>
+          <tr><td>\(L\)</td><td>loss averaged over the training examples</td><td>unit² / nat</td></tr>
+        </table>
+        <details><summary>Why cross-entropy for probabilities?</summary>
+          <p>Cross-entropy is the negative log-likelihood of Bernoulli (yes/no) observations, just as MSE is the negative log-likelihood of Gaussian noise (Lesson 10.1, Eq. 10.1.1). It punishes confident mistakes severely: predicting \(\hat p=0.01\) for a diseased plant costs \(-\ln 0.01 = 4.6\), while \(\hat p=0.4\) costs 0.92. Combined with a sigmoid output, its gradient with respect to the pre-activation is simply \(\hat p-y\) — as simple as for MSE.</p>
+        </details>
+        <div class="eq-units">MSE: (unit of \(y\))². Cross-entropy: logarithms of dimensionless probabilities → dimensionless (nats) ✓.</div>
+        <div class="mini-calc" data-formula="-log(p)" data-output="Cross-entropy loss for one positive example" data-unit="nat" data-digits="3" data-plot="p" data-ymin="0" data-ymax="5" data-title="Try it — the cost of confident mistakes">
+          <div data-var="p" data-label="Predicted probability of the true class p̂" data-min="0.01" data-max="1" data-step="0.01" data-value="0.4"></div>
+        </div>
+      </div>
+
+      <h2 id="training">Learning: gradient descent, backpropagation and regularisation</h2>
+      <p>A loss function of thousands of parameters cannot be minimised with normal equations. Instead, networks are trained by <strong>gradient descent</strong>: compute the slope of the loss with respect to every parameter, and take a small step downhill. Repeat many times.</p>
+
+      <div class="eq-box" id="eq-gd">
+        <div class="eq-head"><span class="eq-label">Gradient descent (with momentum)</span><span class="eq-num">(10.2.7)</span></div>
+        <div class="eq-main">\[ \boldsymbol\theta_{t+1} = \boldsymbol\theta_t - \eta\,\nabla_{\boldsymbol\theta}L(\boldsymbol\theta_t), \qquad \text{momentum: } \mathbf v_{t+1} = \mu\mathbf v_t - \eta\nabla L,\ \ \boldsymbol\theta_{t+1} = \boldsymbol\theta_t+\mathbf v_{t+1} \]</div>
+        <p class="eq-read">the new parameters equal the old ones minus the learning rate times the gradient of the loss. With momentum, the step accumulates a fraction \(\mu\) of the previous step, like a ball rolling downhill, which speeds progress along long shallow valleys.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\boldsymbol\theta\)</td><td>all parameters (weights and biases)</td><td>–</td></tr>
+          <tr><td>\(\eta\)</td><td>learning rate (step size)</td><td>(unit of θ)²/(unit of L)</td></tr>
+          <tr><td>\(\nabla L\)</td><td>gradient: vector of partial derivatives \(\partial L/\partial\theta_j\)</td><td>(unit of L)/(unit of θ)</td></tr>
+          <tr><td>\(\mu\)</td><td>momentum coefficient, typically 0.9</td><td>–</td></tr>
+        </table>
+        <details><summary>How large may the learning rate be? A one-parameter analysis</summary>
+          <ol class="steps">
+            <li>Take a quadratic loss \(L = a(\theta-\theta^*)^2\) with curvature \(2a\). Its gradient is \(2a(\theta-\theta^*)\).</li>
+            <li>One step: \(\theta_{t+1}-\theta^* = (\theta_t-\theta^*)(1-2a\eta)\). The error is multiplied by \(1-2a\eta\) each iteration.</li>
+            <li>Convergence requires \(|1-2a\eta|&lt;1\), i.e. \(0&lt;\eta&lt;1/a\). The fastest convergence is at \(\eta = 1/(2a)\) (one step!). For \(\eta&gt;1/a\) the iterates oscillate with growing amplitude — divergence.</li>
+            <li>With many parameters the loss has a different curvature in every direction. The learning rate must suit the <em>steepest</em> direction, so progress along <em>flat</em> directions is slow. The ratio of the largest to the smallest curvature (condition number) determines how slowly plain gradient descent converges — which is why inputs are standardised and why adaptive methods such as Adam scale each parameter's step individually.</li>
+          </ol>
+        </details>
+        <details><summary>Stochastic and mini-batch gradient descent</summary>
+          <p>Computing the exact gradient over millions of images is expensive. Stochastic gradient descent estimates it from a random <em>mini-batch</em> of, say, 32 examples. The noisy steps are cheap and, surprisingly, the noise helps to escape poor local minima. One pass through the whole training set is an <em>epoch</em>.</p>
+        </details>
+        <div class="eq-units">\(\eta\,\partial L/\partial\theta\) must have the unit of \(\theta\): [η] = [θ]²/[L]. For standardised networks everything is dimensionless ✓.</div>
+        <div class="mini-calc" data-formula="abs(1 - 2*a*eta)" data-output="Error multiplier per step |1 − 2aη| (must be < 1)" data-unit="" data-digits="3" data-plot="eta" data-ymin="0" data-ymax="2" data-title="Try it — stable, fast or divergent?">
+          <div data-var="eta" data-label="Learning rate η" data-min="0.01" data-max="1.5" data-step="0.01" data-value="0.3"></div>
+          <div data-var="a" data-label="Curvature parameter a" data-min="0.2" data-max="3" data-step="0.05" data-value="1"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="fig-gd">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — watch gradient descent</div>
+          <div class="fig-ctl">
+            <div class="seg" id="gd-std" role="group" aria-label="Feature scaling"><button type="button" data-v="raw" aria-pressed="true">Raw DLI</button><button type="button" data-v="std">Standardised DLI</button></div>
+            <button class="btn btn-sm btn-primary" type="button" id="gd-step">Step</button>
+            <button class="btn btn-sm" type="button" id="gd-run">Run 150 steps</button>
+            <button class="btn btn-sm btn-ghost" type="button" id="gd-reset">Reset</button>
+          </div>
+          <div class="sliders-inline">
+            <div class="mc-var"><div class="mc-lab"><span>Learning rate η</span><output id="gd-eta-out"></output></div><input id="gd-eta" type="range" min="-4" max="0" step="0.01" value="-2.52" aria-label="Learning rate (log scale)"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Momentum μ</span><output id="gd-mu-out"></output></div><input id="gd-mu" type="range" min="0" max="0.95" step="0.05" value="0" aria-label="Momentum"></div>
+          </div>
+          <div class="fig-grid2"><div id="gd-heat"></div><div id="gd-fit"></div></div>
+          <div id="gd-loss" style="margin-top:8px"></div>
+          <div class="readouts" id="gd-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 7.</b> Fitting fresh mass = \(w\cdot\)DLI + \(b\) by gradient descent on the mean squared error. Left: the loss landscape over \((w, b)\) (log colour scale; <b>click to choose a start</b>). With raw DLI (6–24 mol m⁻² d⁻¹) the valley is long and narrow: a learning rate small enough for the steep direction crawls along the flat one, and a slightly larger one diverges. Standardising the input makes the bowl round and gradient descent fast. Momentum helps in the narrow valley.</figcaption>
+      </figure>
+
+      <p>For a network, the gradient with respect to every weight is computed by <strong>backpropagation</strong> (Rumelhart et al., 1986): the chain rule of calculus applied systematically from the output backwards, reusing intermediate results so that the cost of the whole gradient is only about twice the cost of one forward pass.</p>
+
+      <div class="eq-box" id="eq-backprop">
+        <div class="eq-head"><span class="eq-label">Backpropagation for a one-hidden-layer network</span><span class="eq-num">(10.2.8)</span></div>
+        <div class="eq-main">\[ \delta_{\text{out}} = \hat y - y, \quad \frac{\partial L}{\partial w_{2,j}} = \delta_{\text{out}}\,h_j, \quad \delta_j = \delta_{\text{out}}\,w_{2,j}\,\varphi'(z_j), \quad \frac{\partial L}{\partial w_{1,jk}} = \delta_j\,x_k, \quad \frac{\partial L}{\partial b_{1,j}} = \delta_j \]</div>
+        <p class="eq-read">for the loss \(L=\tfrac12(\hat y-y)^2\), the error signal at the output is the prediction error. Each output weight's gradient is that error times the activity of the hidden neuron it connects. The error is then sent backwards: each hidden neuron receives the output error times its outgoing weight times the slope of its activation function; its incoming weights' gradients are that hidden error times the inputs.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(z_j,\ h_j\)</td><td>pre-activation and activation of hidden neuron \(j\): \(h_j=\varphi(z_j)\), \(z_j=\sum_k w_{1,jk}x_k+b_{1,j}\)</td><td>–</td></tr>
+          <tr><td>\(w_{2,j}\)</td><td>weight from hidden neuron \(j\) to the output</td><td>–</td></tr>
+          <tr><td>\(\delta\)</td><td>“error signal”: derivative of the loss with respect to a pre-activation</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation with the chain rule</summary>
+          <ol class="steps">
+            <li>Output: \(\hat y = \sum_j w_{2,j}h_j + b_2\) and \(L = \tfrac12(\hat y-y)^2\). So \(\partial L/\partial\hat y = \hat y - y \equiv \delta_{\text{out}}\).</li>
+            <li>Output weights: \(\partial L/\partial w_{2,j} = (\partial L/\partial\hat y)(\partial\hat y/\partial w_{2,j}) = \delta_{\text{out}}h_j\); and \(\partial L/\partial b_2 = \delta_{\text{out}}\).</li>
+            <li>Hidden activation: \(\partial L/\partial h_j = \delta_{\text{out}}w_{2,j}\). Through the activation: \(\partial L/\partial z_j = \delta_{\text{out}}w_{2,j}\varphi'(z_j) \equiv \delta_j\).</li>
+            <li>Input weights: \(z_j\) depends on \(w_{1,jk}\) with slope \(x_k\), so \(\partial L/\partial w_{1,jk} = \delta_j x_k\), and \(\partial L/\partial b_{1,j} = \delta_j\).</li>
+            <li>Deeper networks repeat step 3 layer by layer: each layer's \(\delta\) is the next layer's \(\delta\) multiplied by the connecting weights and the local activation slope. Products of many slopes below 1 shrink — the vanishing-gradient problem.</li>
+          </ol>
+        </details>
+        <div class="eq-units">With standardised variables all quantities are dimensionless; in general \([\partial L/\partial w] = [L]/[w]\), which the chain rule preserves at every step ✓.</div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">One step of backpropagation by hand</span></div>
+        <div class="we-problem"><p>A tiny network has one input, one sigmoid hidden neuron and a linear output: \(h = \sigma(w_1x + b_1)\), \(\hat y = w_2h + b_2\). Parameters: \(w_1 = 0.5\), \(b_1 = 0\), \(w_2 = 1.2\), \(b_2 = 0.1\). A training example has standardised DLI \(x = 1.0\) and standardised yield \(y = 0.6\). Using \(L = \tfrac12(\hat y-y)^2\) and learning rate \(\eta = 0.5\), perform one forward pass, compute all four gradients and update the parameters. Does the loss fall?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Forward.</strong> \(z = 0.5\times1.0 + 0 = 0.5\); \(h = 1/(1+e^{-0.5}) = 0.6225\); \(\hat y = 1.2\times0.6225 + 0.1 = 0.8470\); \(L = \tfrac12(0.2470)^2 = 0.0305\).</li>
+            <li><strong>Output error.</strong> \(\delta_{\text{out}} = 0.8470 - 0.6 = 0.2470\). Gradients: \(\partial L/\partial w_2 = 0.2470\times0.6225 = 0.1537\); \(\partial L/\partial b_2 = 0.2470\).</li>
+            <li><strong>Back through the hidden neuron.</strong> \(\sigma'(z) = h(1-h) = 0.6225\times0.3775 = 0.2350\). \(\delta_1 = 0.2470\times1.2\times0.2350 = 0.0696\). Gradients: \(\partial L/\partial w_1 = 0.0696\times1.0 = 0.0696\); \(\partial L/\partial b_1 = 0.0696\).</li>
+            <li><strong>Update.</strong> \(w_2 = 1.2 - 0.5\times0.1537 = 1.1231\); \(b_2 = 0.1 - 0.5\times0.2470 = -0.0235\); \(w_1 = 0.5 - 0.5\times0.0696 = 0.4652\); \(b_1 = -0.0348\).</li>
+            <li><strong>Check.</strong> New forward pass: \(h = \sigma(0.4652-0.0348) = \sigma(0.4304) = 0.6060\), \(\hat y = 1.1231\times0.6060 - 0.0235 = 0.6571\); \(L = \tfrac12(0.0571)^2 = 0.0016\). The loss fell from 0.0305 to 0.0016 in one step ✓ (a learning rate this large is fine for one example, but would be too aggressive for a real data set).</li>
+          </ol>
+          <span class="answer">Gradients: ∂L/∂w₂ = 0.154, ∂L/∂b₂ = 0.247, ∂L/∂w₁ = ∂L/∂b₁ = 0.070; loss 0.031 → 0.0016</span>
+        </div></details>
+      </div>
+
+      <p>A network with many parameters and few data will memorise noise. <strong>Regularisation</strong> restrains it. The most common form adds a penalty on large weights to the loss.</p>
+
+      <div class="eq-box" id="eq-l2">
+        <div class="eq-head"><span class="eq-label">L2 regularisation (weight decay)</span><span class="eq-num">(10.2.9)</span></div>
+        <div class="eq-main">\[ L_{\text{reg}} = L + \lambda\sum_j w_j^{2} \quad\Rightarrow\quad w_j \leftarrow (1-2\eta\lambda)\,w_j - \eta\frac{\partial L}{\partial w_j} \]</div>
+        <p class="eq-read">the regularised loss adds lambda times the sum of squared weights. In the gradient step this shrinks every weight by a constant factor before the usual update — hence “weight decay”. Large weights, which make sharp, wiggly functions, become expensive.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\lambda\)</td><td>regularisation strength (tuned by cross-validation)</td><td>(unit of L)/(unit of w)²</td></tr>
+          <tr><td>\(1-2\eta\lambda\)</td><td>shrinkage factor per step</td><td>–</td></tr>
+        </table>
+        <details><summary>Other ways to fight over-fitting</summary>
+          <ul>
+            <li><strong>Early stopping:</strong> monitor the loss on a validation set and stop when it starts to rise (Figure 8 shows this moment).</li>
+            <li><strong>Dropout:</strong> randomly switch off a fraction of neurons in each training step so that no neuron can rely on a particular partner.</li>
+            <li><strong>Data augmentation:</strong> for images, add rotated, flipped, re-coloured copies (Lesson 10.3).</li>
+            <li><strong>More data</strong> and <strong>simpler models</strong> — often the most effective of all.</li>
+          </ul>
+        </details>
+        <div class="eq-units">\(\lambda w^2\) must have the unit of \(L\); \(2\eta\lambda\) is dimensionless because \([\eta]=[w]^2/[L]\) ✓.</div>
+        <div class="mini-calc" data-formula="pow(1-2*eta*lam, n)" data-output="Fraction of a weight left after n steps (no data gradient)" data-unit="" data-digits="3" data-plot="n" data-ymin="0" data-ymax="1" data-title="Try it — how fast weight decay shrinks an unused weight">
+          <div data-var="n" data-label="Number of steps n" data-min="0" data-max="5000" data-step="10" data-value="1000"></div>
+          <div data-var="eta" data-label="Learning rate η" data-min="0.001" data-max="0.1" data-step="0.001" data-value="0.01"></div>
+          <div data-var="lam" data-label="Regularisation λ" data-min="0" data-max="0.1" data-step="0.001" data-value="0.01"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="fig-nn">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — train a neural network in your browser</div>
+          <div class="fig-ctl">
+            <button class="btn btn-sm btn-primary" type="button" id="nn-play">Pause</button>
+            <button class="btn btn-sm" type="button" id="nn-reset">Re-initialise weights</button>
+            <button class="btn btn-sm btn-ghost" type="button" id="nn-data">New data</button>
+          </div>
+          <div class="sliders-inline">
+            <div class="mc-var"><div class="mc-lab"><span>Hidden neurons</span><output id="nn-h-out"></output></div><input id="nn-h" type="range" min="1" max="40" step="1" value="30" aria-label="Hidden neurons"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Learning rate (Adam)</span><output id="nn-lr-out"></output></div><input id="nn-lr" type="range" min="-4" max="-1" step="0.05" value="-1.7" aria-label="Learning rate (log scale)"></div>
+            <div class="mc-var"><div class="mc-lab"><span>L2 penalty λ</span><output id="nn-l2-out"></output></div><input id="nn-l2" type="range" min="0" max="0.05" step="0.0005" value="0" aria-label="L2 penalty"></div>
+          </div>
+          <div class="fig-grid2"><div id="nn-fit"></div><div id="nn-loss"></div></div>
+          <div class="readouts" id="nn-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 8.</b> A 1–H–1 tanh network learns fresh mass per lettuce head as a function of DLI from 20 noisy training plants (filled). Hollow points are 20 validation plants never used for training. Right: training and validation loss on a log scale. With many neurons and no penalty, the validation loss eventually rises while the training loss keeps falling — stop early, or add an L2 penalty and watch the wiggles disappear. (Simulated data from a saturating light response plus noise.)</figcaption>
+      </figure>
+
+      <a class="lab-link" data-lab="neural-network" data-why="Train a neural network on climate and yield data with several inputs, change the architecture and regularisation, and watch the loss curves and over-fitting in real time."></a>
+
+      <h2 id="evaluation">Evaluating models: confusion matrices, precision, recall and ROC</h2>
+      <p>For regression you already know RMSE, MAE and \(R^2\) (Lesson 10.1). For classification, the starting point is the <strong>confusion matrix</strong>, which counts the four possible outcomes when a model decides “diseased” or “healthy”: true positives (TP), false positives (FP), true negatives (TN) and false negatives (FN). All common metrics are ratios of these counts.</p>
+
+      <div class="eq-box" id="eq-metrics">
+        <div class="eq-head"><span class="eq-label">Classification metrics</span><span class="eq-num">(10.2.10)</span></div>
+        <div class="eq-main">\[ \text{precision} = \frac{TP}{TP+FP},\quad \text{recall} = \frac{TP}{TP+FN},\quad \text{specificity} = \frac{TN}{TN+FP},\quad F_1 = \frac{2\,\text{precision}\cdot\text{recall}}{\text{precision}+\text{recall}},\quad \text{precision} = \frac{\text{se}\,\pi}{\text{se}\,\pi+(1-\text{sp})(1-\pi)} \]</div>
+        <p class="eq-read">precision is the fraction of plants flagged as diseased that really are; recall (sensitivity) is the fraction of diseased plants that were flagged; specificity is the fraction of healthy plants correctly passed; F1 is the harmonic mean of precision and recall. The last formula (Bayes' theorem) shows that precision depends on the prevalence \(\pi\) of disease, not only on the classifier.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>TP, FP, TN, FN</td><td>counts of true/false positives/negatives</td><td>–</td></tr>
+          <tr><td>se, sp</td><td>sensitivity (= recall) and specificity</td><td>–</td></tr>
+          <tr><td>\(\pi\)</td><td>prevalence: fraction of positives in the population</td><td>–</td></tr>
+          <tr><td>ROC, AUC</td><td>receiver operating characteristic curve (recall against 1 − specificity for all thresholds) and the area under it</td><td>–</td></tr>
+        </table>
+        <details><summary>Why accuracy misleads, and what the ROC curve shows</summary>
+          <ol class="steps">
+            <li>Accuracy \((TP+TN)/N\) rewards predicting the majority class. If 2 % of plants are diseased, a model that always says “healthy” is 98 % accurate — and useless.</li>
+            <li>Most classifiers output a score (e.g., a probability) and call a plant positive above a threshold. Lowering the threshold raises recall and lowers specificity. The ROC curve plots recall against 1 − specificity for every threshold; a random guess gives the diagonal, a perfect classifier the top-left corner (Fawcett, 2006).</li>
+            <li>AUC equals the probability that a randomly chosen positive gets a higher score than a randomly chosen negative. It is threshold-free and prevalence-free — which is both its strength and its weakness: the grower still has to choose a threshold for the actual prevalence and the actual costs of each error.</li>
+            <li>Derivation of the Bayes form: \(TP = \text{se}\,\pi N\) and \(FP = (1-\text{sp})(1-\pi)N\); substitute into precision = TP/(TP + FP) and cancel \(N\).</li>
+          </ol>
+        </details>
+        <div class="eq-units">All metrics are ratios of counts → dimensionless, between 0 and 1 (often quoted in %) ✓.</div>
+        <div class="mini-calc" data-fn="ppv" data-output="Precision (positive predictive value)" data-unit="%" data-digits="1" data-plot="prev" data-ymin="0" data-ymax="100" data-title="Try it — the base-rate effect">
+          <div data-var="prev" data-label="Prevalence π" data-min="0.2" data-max="50" data-step="0.1" data-value="2" data-unit="%"></div>
+          <div data-var="se" data-label="Sensitivity (recall)" data-min="50" data-max="100" data-step="0.5" data-value="95" data-unit="%"></div>
+          <div data-var="sp" data-label="Specificity" data-min="50" data-max="99.9" data-step="0.1" data-value="95" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">A 95 % accurate disease detector that is mostly wrong</span></div>
+        <div class="we-problem"><p>A camera system in a lettuce greenhouse flags plants with early downy-mildew symptoms. On a validation set it has recall 0.95 and specificity 0.95. In the greenhouse, 2 % of plants are infected. For 10 000 plants, construct the confusion matrix and calculate accuracy, precision and F1. What should the grower do with a flagged plant?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Split the population.</strong> 2 % of 10 000 = 200 infected, 9 800 healthy.</li>
+            <li><strong>Infected plants.</strong> TP = 0.95 × 200 = 190; FN = 10.</li>
+            <li><strong>Healthy plants.</strong> TN = 0.95 × 9 800 = 9 310; FP = 490.</li>
+            <li><strong>Metrics.</strong> Accuracy = (190 + 9 310)/10 000 = 0.95. Precision = 190/(190 + 490) = 0.279. F1 = 2 × 0.279 × 0.95/(0.279 + 0.95) = 0.432.</li>
+            <li><strong>Interpretation.</strong> Of 680 flagged plants only 190 (28 %) are really infected. The system is excellent as a <em>screening</em> tool — it finds 95 % of infections and reduces the plants to inspect from 10 000 to 680 — but a flagged plant should be confirmed by a person before being discarded.</li>
+          </ol>
+          <span class="answer">Accuracy 0.95, precision 0.28, recall 0.95, F1 0.43 — screen, then confirm</span>
+        </div></details>
+      </div>
+
+      <figure class="figure wide" id="fig-roc">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — threshold, confusion matrix and ROC curve</div>
+          <div class="sliders-inline">
+            <div class="mc-var"><div class="mc-lab"><span>Threshold on the model score</span><output id="roc-t-out"></output></div><input id="roc-t" type="range" min="-3" max="6" step="0.05" value="1.6" aria-label="Threshold"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Class separation d′</span><output id="roc-d-out"></output></div><input id="roc-d" type="range" min="0" max="4" step="0.05" value="3.3" aria-label="Separation"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Prevalence of disease</span><output id="roc-p-out"></output></div><input id="roc-p" type="range" min="0.5" max="50" step="0.5" value="2" aria-label="Prevalence"></div>
+          </div>
+          <div class="fig-grid2"><div id="roc-dens"></div><div id="roc-curve"></div></div>
+          <div class="fig-grid2"><div><table class="cm-table" id="roc-cm"></table></div><div class="readouts" id="roc-ro" style="margin:6px 0 0"></div></div>
+        </div>
+        <figcaption><b>Figure 9.</b> A classifier gives each plant a score; healthy plants' scores are normally distributed around 0, infected plants' around \(d'\). Left: score distributions scaled by prevalence (so areas are proportional to numbers of plants), with false positives shaded amber and true positives magenta. Right: the ROC curve and the current operating point. The table counts outcomes per 10 000 plants.</figcaption>
+      </figure>
+
+      <h2 id="leakage">Data leakage and spatial and temporal cross-validation</h2>
+      <p>The most common reason a published agricultural model fails in practice is not the algorithm but the validation. <strong>Data leakage</strong> occurs when information about the test data sneaks into training, making the estimated performance too optimistic (Kaufman et al., 2012). Kapoor and Narayanan (2023) found leakage in 294 papers across 17 scientific fields and classified it into eight types — from obvious errors (tuning on the test set) to subtle ones (the test set is not independent of the training set). Typical forms in food production:</p>
+      <ul>
+        <li><strong>Temporal leakage:</strong> random splitting of a time series. Yesterday's and tomorrow's measurements are in the training set, so predicting today is easy interpolation — unlike forecasting next week.</li>
+        <li><strong>Spatial leakage:</strong> neighbouring field plots, benches or pixels are similar (spatial autocorrelation). A random split puts near-duplicates in training and test. Ploton et al. (2020) showed that a random-forest biomass map that appeared to explain more than half of the variation under random cross-validation had almost no predictive power when validated with spatially separate data.</li>
+        <li><strong>Group leakage:</strong> several images of the same plant, leaf or greenhouse compartment appear in both training and test sets. The model learns to recognise the plant (or the background, or the camera), not the disease.</li>
+        <li><strong>Preprocessing leakage:</strong> standardising, imputing or selecting features using the whole data set before splitting.</li>
+      </ul>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 230" role="img" aria-label="Three ways to split data: random split mixes test points among training points; blocked temporal split tests on contiguous time blocks; spatial or group split holds out whole compartments">
+            <text x="10" y="24" font-weight="650" class="t-small">Random k-fold</text>
+            <g stroke="currentColor" stroke-width=".5">
+              <rect x="150" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="168" y="12" width="16" height="16" class="fill-magenta"/><rect x="186" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="204" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="222" y="12" width="16" height="16" class="fill-magenta"/><rect x="240" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="258" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="276" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="294" y="12" width="16" height="16" class="fill-magenta"/><rect x="312" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="330" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="348" y="12" width="16" height="16" class="fill-magenta"/><rect x="366" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="384" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="402" y="12" width="16" height="16" class="fill-accent-soft"/><rect x="420" y="12" width="16" height="16" class="fill-magenta"/>
+            </g>
+            <text x="450" y="24" class="t-small t-muted">test days surrounded by training days → optimistic</text>
+            <text x="10" y="74" font-weight="650" class="t-small">Blocked in time</text>
+            <g stroke="currentColor" stroke-width=".5">
+              <rect x="150" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="168" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="186" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="204" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="222" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="240" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="258" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="276" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="294" y="62" width="16" height="16" class="fill-magenta"/><rect x="312" y="62" width="16" height="16" class="fill-magenta"/><rect x="330" y="62" width="16" height="16" class="fill-magenta"/><rect x="348" y="62" width="16" height="16" class="fill-magenta"/><rect x="366" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="384" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="402" y="62" width="16" height="16" class="fill-accent-soft"/><rect x="420" y="62" width="16" height="16" class="fill-accent-soft"/>
+            </g>
+            <text x="450" y="74" class="t-small t-muted">contiguous test block (+ optional gap)</text>
+            <text x="10" y="124" font-weight="650" class="t-small">Forward chaining</text>
+            <g stroke="currentColor" stroke-width=".5">
+              <rect x="150" y="112" width="16" height="16" class="fill-accent-soft"/><rect x="168" y="112" width="16" height="16" class="fill-accent-soft"/><rect x="186" y="112" width="16" height="16" class="fill-accent-soft"/><rect x="204" y="112" width="16" height="16" class="fill-accent-soft"/><rect x="222" y="112" width="16" height="16" class="fill-accent-soft"/><rect x="240" y="112" width="16" height="16" class="fill-accent-soft"/><rect x="258" y="112" width="16" height="16" class="fill-accent-soft"/><rect x="276" y="112" width="16" height="16" class="fill-accent-soft"/><rect x="294" y="112" width="16" height="16" class="fill-accent-soft"/><rect x="312" y="112" width="16" height="16" class="fill-accent-soft"/><rect x="330" y="112" width="16" height="16" class="fill-magenta"/><rect x="348" y="112" width="16" height="16" class="fill-magenta"/><rect x="366" y="112" width="16" height="16" class="fill-sunk"/><rect x="384" y="112" width="16" height="16" class="fill-sunk"/><rect x="402" y="112" width="16" height="16" class="fill-sunk"/><rect x="420" y="112" width="16" height="16" class="fill-sunk"/>
+            </g>
+            <text x="450" y="124" class="t-small t-muted">train on the past, test on the future</text>
+            <text x="10" y="176" font-weight="650" class="t-small">Leave-group-out</text>
+            <g stroke="currentColor" stroke-width=".8">
+              <rect x="150" y="152" width="90" height="50" rx="6" class="fill-accent-soft"/><rect x="250" y="152" width="90" height="50" rx="6" class="fill-magenta"/><rect x="350" y="152" width="90" height="50" rx="6" class="fill-accent-soft"/>
+            </g>
+            <g class="t-small" text-anchor="middle"><text x="195" y="181">compartment A</text><text x="295" y="181" style="fill:#fff">compartment B</text><text x="395" y="181">compartment C</text></g>
+            <text x="450" y="174" class="t-small t-muted">whole greenhouse / field / plant held out</text>
+            <rect x="150" y="212" width="12" height="12" class="fill-accent-soft" stroke="currentColor" stroke-width=".5"/><text x="168" y="222" class="t-small">training</text>
+            <rect x="240" y="212" width="12" height="12" class="fill-magenta" stroke="currentColor" stroke-width=".5"/><text x="258" y="222" class="t-small">test</text>
+            <rect x="310" y="212" width="12" height="12" class="fill-sunk" stroke="currentColor" stroke-width=".5"/><text x="328" y="222" class="t-small">not yet available</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 10.</b> Splitting strategies. The split must mimic how the model will be used: forecasting the future → test on later time blocks; a new farm or greenhouse → hold out whole groups (Roberts et al., 2017; Meyer et al., 2018).</figcaption>
+      </figure>
+
+      <figure class="figure wide" id="fig-leak">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — how random cross-validation fools you</div>
+          <div class="fig-ctl">
+            <div class="mc-var" style="min-width:260px;flex:1"><div class="mc-lab"><span>Slow drift between days (autocorrelation)</span><output id="lk-d-out"></output></div><input id="lk-d" type="range" min="0" max="0.3" step="0.01" value="0.12" aria-label="Drift strength"></div>
+            <button class="btn btn-sm" type="button" id="lk-new">New simulation</button>
+          </div>
+          <div class="fig-grid2"><div id="lk-series"></div><div id="lk-bars"></div></div>
+        </div>
+        <figcaption><b>Figure 11.</b> Daily yield in three greenhouse compartments over 150 days (simulated: a weak temperature effect plus a slowly drifting, compartment-specific component, e.g. crop age and pests). A 5-nearest-neighbour model uses day number and temperature. Random 5-fold cross-validation reports a small error because each test day has training neighbours on both sides; validation in time blocks and leave-one-compartment-out (“leave-group”) come much closer to the true error on a new season. Set the drift to zero and the difference vanishes.</figcaption>
+      </figure>
+
+      <div class="callout warn"><div class="callout-title">Checklist before you trust a reported accuracy</div><p>Ask: (1) Was the test set collected independently — different plants, dates, greenhouses or fields from the training set? (2) Were all preprocessing and tuning steps done inside the training folds? (3) Is the metric appropriate for the class balance and the decision (precision/recall rather than accuracy)? (4) Is there a simple baseline (yesterday's value, a linear model) to compare with? Kapoor and Narayanan (2023) showed that, once leakage was corrected, complex models in a well-known prediction task were no better than decades-old logistic regression.</p></div>
+
+      <h2 id="applications">Applications in food production — and the age of foundation models</h2>
+      <p>Machine learning in agriculture has grown from a niche to a large literature. Liakos et al. (2018) organised applications into crop management (yield prediction, disease and weed detection, crop quality, species recognition), livestock management, water management and soil management. Kamilaris and Prenafeta-Boldú (2018) surveyed 40 deep-learning studies and found that deep learning generally outperformed the image-processing techniques used before. For yield prediction, a systematic review of 50 machine-learning studies found temperature, rainfall and soil type to be the most used features and artificial neural networks the most applied algorithm; among 30 deep-learning studies, convolutional neural networks were the most common (van Klompenburg et al., 2020).</p>
+
+      <table>
+        <caption>Table 2. Four application families, what makes them work, and what typically goes wrong.</caption>
+        <thead><tr><th>Application</th><th>Typical model</th><th>What works</th><th>Typical pitfall</th></tr></thead>
+        <tbody>
+          <tr><td>Yield prediction (field and greenhouse)</td><td>Gradient boosting, random forests, neural networks, hybrids with crop models</td><td>Rich weather and management records; many seasons</td><td>Few seasons → temporal leakage; extrapolation to new climates</td></tr>
+          <tr><td>Disease and pest detection</td><td>Convolutional neural networks on images</td><td>Transfer learning from large image collections</td><td>Lab images do not transfer to field conditions (domain shift, Lesson 10.3)</td></tr>
+          <tr><td>Demand and price forecasting</td><td>Time-series models, boosting with calendar features</td><td>Long sales histories; promotions and weather as features</td><td>Structural breaks (pandemics, new competitors)</td></tr>
+          <tr><td>Quality grading and sorting</td><td>CNNs, spectral models (NIR, hyperspectral)</td><td>Controlled imaging conditions on a conveyor</td><td>Label noise: human graders disagree</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Foundation models and large language models (2024–2026)</h3>
+      <p>A <strong>foundation model</strong> is a very large network pre-trained on broad data (text, images or both) that can be adapted to many tasks with little task-specific data. Large language models (LLMs) such as the GPT family are the best-known examples; vision foundation models such as Segment Anything (Kirillov et al., 2023) segment objects — including leaves, fruits and weeds — without task-specific training. Li et al. (2024) review the opportunities in smart agriculture: fewer labelled examples, multimodal inputs (images, text, sensor data) and natural-language interfaces for farmers.</p>
+      <p>The evidence so far is mixed and calls for critical reading:</p>
+      <ul>
+        <li><strong>Knowledge tests.</strong> Silva et al. (2023) found that GPT-4 answered 93 % of questions correctly on exams used to renew agronomist certifications, outperforming earlier models. Passing an exam, however, is not the same as giving correct, local, timely advice for a specific field.</li>
+        <li><strong>Extension services.</strong> Tzachor et al. (2023) examined GPT for agricultural extension, tested it on technical advice for Nigerian cassava farmers, documented shortcomings and proposed a design process with human experts in the loop. Digital Green's Farmer.Chat, a generative-AI advisory chatbot, reported engaging more than 15 000 farmers and answering over 300 000 queries in four countries (Singh et al., 2024) — a self-reported deployment study rather than an independent impact evaluation.</li>
+        <li><strong>Known failure modes.</strong> LLMs can produce fluent but wrong answers (“hallucinations”), are weaker in local languages and for local crop varieties that are rare in their training text, may give outdated pesticide advice, and blur responsibility when advice causes harm. Their energy use and the concentration of models in a few companies raise the governance questions discussed in <a href="/lessons/digital-twins/">Lesson 10.5</a>.</li>
+      </ul>
+      <div class="callout frontier"><div class="callout-title">Frontier</div><p>Research directions in 2025–2026 include retrieval-augmented LLM advisors that quote verified extension documents, multimodal models that combine a photo of a leaf with a farmer's question, and vision foundation models fine-tuned for plant phenotyping. The evaluation principles of this lesson apply unchanged: independent test data, appropriate metrics, comparison with simple baselines and with human experts, and monitoring after deployment.</p></div>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“Deep learning always beats simpler methods.” For images, sound and text — data with spatial or sequential structure and millions of examples — deep networks dominate (LeCun et al., 2015). For tabular data such as climate records and management logs, gradient-boosted trees are frequently as good or better, need less data and tuning, and are easier to explain. Always compare with a simple baseline.</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="machine-learning-main">
+        <script type="application/json">
+        {"title":"Machine learning for food production","questions":[
+          {"type":"mcq","q":"A startup wants to group 300 greenhouses by their daily energy-use profiles, without any labels, to design tailored advice. Which setting is this?","options":["Supervised regression","Supervised classification","Unsupervised clustering","Reinforcement learning"],"answer":2,"feedback":["There is no numerical target to predict.","There are no given class labels.","","No agent takes actions and receives rewards here."],"explain":"<p>Grouping unlabelled examples by similarity is clustering, e.g. with k-means on standardised profile features.</p>"},
+          {"type":"numeric","q":"A node contains 30 greenhouse days: 12 with infection and 18 without. What is its Gini impurity?","answer":0.48,"abstol":0.005,"explain":"<p>\\(p = 0.4\\): \\(G = 1 - 0.4^2 - 0.6^2 = 0.48\\).</p>"},
+          {"type":"numeric","q":"A split of a node with Gini 0.50 (n = 40) gives a left child of 10 examples with Gini 0.18 and a right child of 30 examples with Gini 0.42. What is the Gini gain?","answer":0.14,"abstol":0.005,"hint":"Gain = parent − (n_L/n)·G_L − (n_R/n)·G_R.","explain":"<p>\\(0.50 - 0.25\\times0.18 - 0.75\\times0.42 = 0.50 - 0.045 - 0.315 = 0.14\\).</p>"},
+          {"type":"numeric","q":"Trees in a random forest have prediction variance σ² = 4 (kg m⁻²)² and pairwise correlation ρ = 0.25. What is the variance of the average of B = 200 trees?","answer":1.015,"tol":0.01,"unit":"(kg m⁻²)²","explain":"<p>\\(\\rho\\sigma^2 + (1-\\rho)\\sigma^2/B = 0.25\\times4 + 0.75\\times4/200 = 1 + 0.015 = 1.015\\).</p>"},
+          {"type":"numeric","q":"A ReLU neuron has weights w = (0.8, −1.5), bias b = 0.2 and receives inputs x = (1.0, 0.4). What is its output?","answer":0.4,"abstol":0.005,"explain":"<p>\\(z = 0.8\\times1.0 - 1.5\\times0.4 + 0.2 = 0.4\\); ReLU(0.4) = 0.4.</p>"},
+          {"type":"mcq","q":"Plain gradient descent on MSE with raw inputs (DLI in mol m⁻² d⁻¹ from 6 to 24) converges very slowly in one direction and diverges if you raise the learning rate. What is the best remedy?","options":["Use a smaller learning rate.","Standardise the input feature.","Use more training epochs with the same settings.","Switch from MSE to cross-entropy."],"answer":1,"feedback":["A smaller rate avoids divergence but makes the slow direction even slower.","","More epochs help only slowly; the conditioning problem remains.","Cross-entropy is for classification, not regression."],"explain":"<p>Standardising makes the curvatures of the loss similar in all directions (a round bowl), so one learning rate suits all parameters.</p>"},
+          {"type":"numeric","q":"For a quadratic loss L = a(θ − θ*)² with a = 2, what is the largest learning rate for which gradient descent still converges?","answer":0.5,"abstol":0.005,"hint":"Convergence requires |1 − 2aη| < 1.","explain":"<p>\\(\\eta &lt; 1/a = 0.5\\).</p>"},
+          {"type":"numeric","q":"A tomato-grading camera flags 300 fruits as defective. 240 of them truly are defective, and it missed 60 defective fruits. What is the F1 score?","answer":0.8,"abstol":0.005,"explain":"<p>Precision = 240/300 = 0.8; recall = 240/(240 + 60) = 0.8; F1 = 0.8.</p>"},
+          {"type":"multi","q":"Which of the following are examples of data leakage? (Select all that apply.)","options":["Standardising all features using the mean and SD of the whole data set before splitting.","Putting different photos of the same plant in the training and test sets.","Testing a yield model on the last season after training on earlier seasons.","Randomly splitting daily sensor records from one greenhouse into training and test days."],"answer":[0,1,3],"explain":"<p>Forward-in-time testing (option 3) is the correct way to evaluate a forecasting model.</p>"},
+          {"type":"tf","q":"An AUC of 0.95 guarantees that most plants flagged as diseased are really diseased.","answer":false,"explain":"<p>Precision depends on prevalence and on the chosen threshold. With 2 % prevalence, even an excellent classifier can have precision below 30 % (Worked example 3).</p>"},
+          {"type":"mcq","q":"Which statement about large language models as agricultural advisers is best supported by the studies discussed in this lesson?","options":["They have been shown in independent trials to increase yields worldwide.","They can pass agronomy certification exams but need expert oversight because they can give wrong or non-local advice.","They cannot be used in low-income countries.","They make crop models obsolete."],"answer":1,"feedback":["No such independent global evidence exists.","","Deployments such as Farmer.Chat operate in low- and middle-income countries.","LLMs produce text; they do not simulate crop physiology."],"explain":"<p>Silva et al. (2023) report 93 % on certification questions; Tzachor et al. (2023) document shortcomings and recommend human experts in the loop.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Feature</dt><dd>An input variable used by a model (e.g., DLI, temperature, a pixel value).</dd>
+        <dt>Label</dt><dd>The known answer for a training example (e.g., yield, disease class).</dd>
+        <dt>Supervised learning</dt><dd>Learning a mapping from features to labels from labelled examples (regression or classification).</dd>
+        <dt>Unsupervised learning</dt><dd>Finding structure (clusters, components, anomalies) in data without labels.</dd>
+        <dt>Reinforcement learning</dt><dd>Learning a policy for sequential decisions from rewards received by an acting agent.</dd>
+        <dt>Gini impurity</dt><dd>\(1-\sum p_c^2\): probability that two random examples from a node belong to different classes.</dd>
+        <dt>Random forest</dt><dd>An ensemble of decision trees trained on bootstrap samples with random feature subsets, averaged to reduce variance.</dd>
+        <dt>Gradient boosting</dt><dd>An ensemble that adds shallow trees sequentially, each fitted to the residuals of the current model.</dd>
+        <dt>k-means</dt><dd>Clustering that minimises within-cluster squared distances by alternating assignment and centroid updates.</dd>
+        <dt>Principal component analysis</dt><dd>Rotation of standardised data onto orthogonal directions of maximum variance (eigenvectors of the covariance matrix).</dd>
+        <dt>Activation function</dt><dd>The non-linear function (sigmoid, tanh, ReLU) applied to a neuron's weighted input sum.</dd>
+        <dt>Backpropagation</dt><dd>Efficient computation of loss gradients in a network by applying the chain rule from the output layer backwards.</dd>
+        <dt>Learning rate</dt><dd>Step size of gradient descent; too small is slow, too large diverges.</dd>
+        <dt>Precision / recall</dt><dd>Fraction of predicted positives that are correct / fraction of actual positives that are found.</dd>
+        <dt>Data leakage</dt><dd>Information from the test data influencing training, producing over-optimistic performance estimates.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can state the features and label of a food-production prediction problem and say which learning setting it belongs to.</li>
+        <li>I can calculate Gini impurity and information gain for a candidate split and explain why forests beat single trees.</li>
+        <li>I can run k-means by hand for a few points and explain what the first principal component represents.</li>
+        <li>I can compute a neuron's output and one backpropagation step for a tiny network, and explain the role of the learning rate.</li>
+        <li>I can build a confusion matrix, compute precision, recall and F1, and explain why accuracy misleads for rare diseases.</li>
+        <li>I can spot data leakage in a study and propose a temporal or grouped validation that matches the intended use.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Liakos, K. G., Busato, P., Moshou, D., Pearson, S., &amp; Bochtis, D. (2018). Machine learning in agriculture: a review. <em>Sensors</em>, 18(8), 2674. <a href="https://doi.org/10.3390/s18082674" target="_blank" rel="noopener">doi:10.3390/s18082674</a><span class="r-why">A structured overview of where machine learning is used in crop, livestock, water and soil management; read sections 1–3 and skim the tables.</span></li>
+        <li><span class="r-type">Required · open access</span>Kapoor, S., &amp; Narayanan, A. (2023). Leakage and the reproducibility crisis in machine-learning-based science. <em>Patterns</em>, 4(9), 100804. <a href="https://doi.org/10.1016/j.patter.2023.100804" target="_blank" rel="noopener">doi:10.1016/j.patter.2023.100804</a><span class="r-why">The eight types of leakage, with examples — the best defence against over-optimistic claims.</span></li>
+        <li><span class="r-type">Recommended</span>Kamilaris, A., &amp; Prenafeta-Boldú, F. X. (2018). Deep learning in agriculture: a survey. <em>Computers and Electronics in Agriculture</em>, 147, 70–90. <a href="https://doi.org/10.1016/j.compag.2018.02.016" target="_blank" rel="noopener">doi:10.1016/j.compag.2018.02.016</a><span class="r-why">Forty deep-learning applications compared, with the data sets and metrics used.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Roberts, D. R., et al. (2017). Cross-validation strategies for data with temporal, spatial, hierarchical, or phylogenetic structure. <em>Ecography</em>, 40(8), 913–929. <a href="https://doi.org/10.1111/ecog.02881" target="_blank" rel="noopener">doi:10.1111/ecog.02881</a><span class="r-why">Why and how to block cross-validation folds in structured data.</span></li>
+        <li><span class="r-type">Recommended · free online</span>Goodfellow, I., Bengio, Y., &amp; Courville, A. (2016). <em>Deep Learning</em>. MIT Press. <a href="https://www.deeplearningbook.org" target="_blank" rel="noopener">deeplearningbook.org</a><span class="r-why">Chapter 6 (feed-forward networks and back-propagation) and Chapter 7 (regularisation) for depth beyond this lesson.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Breiman, L. (2001). Random forests. <em>Machine Learning</em>, 45(1), 5–32. <a href="https://doi.org/10.1023/A:1010933404324" target="_blank" rel="noopener">doi:10.1023/A:1010933404324</a></li>
+        <li>Chen, T., &amp; Guestrin, C. (2016). XGBoost: A scalable tree boosting system. In <em>Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining</em> (pp. 785–794). <a href="https://doi.org/10.1145/2939672.2939785" target="_blank" rel="noopener">doi:10.1145/2939672.2939785</a></li>
+        <li>Fawcett, T. (2006). An introduction to ROC analysis. <em>Pattern Recognition Letters</em>, 27(8), 861–874. <a href="https://doi.org/10.1016/j.patrec.2005.10.010" target="_blank" rel="noopener">doi:10.1016/j.patrec.2005.10.010</a></li>
+        <li>Friedman, J. H. (2001). Greedy function approximation: A gradient boosting machine. <em>The Annals of Statistics</em>, 29(5), 1189–1232. <a href="https://doi.org/10.1214/aos/1013203451" target="_blank" rel="noopener">doi:10.1214/aos/1013203451</a></li>
+        <li>Goodfellow, I., Bengio, Y., &amp; Courville, A. (2016). <em>Deep Learning</em>. MIT Press. <a href="https://www.deeplearningbook.org" target="_blank" rel="noopener">https://www.deeplearningbook.org</a></li>
+        <li>Hastie, T., Tibshirani, R., &amp; Friedman, J. (2009). <em>The Elements of Statistical Learning</em> (2nd ed.). Springer. <a href="https://doi.org/10.1007/978-0-387-84858-7" target="_blank" rel="noopener">doi:10.1007/978-0-387-84858-7</a></li>
+        <li>Jolliffe, I. T., &amp; Cadima, J. (2016). Principal component analysis: A review and recent developments. <em>Philosophical Transactions of the Royal Society A</em>, 374(2065), 20150202. <a href="https://doi.org/10.1098/rsta.2015.0202" target="_blank" rel="noopener">doi:10.1098/rsta.2015.0202</a></li>
+        <li>Kamilaris, A., &amp; Prenafeta-Boldú, F. X. (2018). Deep learning in agriculture: A survey. <em>Computers and Electronics in Agriculture</em>, 147, 70–90. <a href="https://doi.org/10.1016/j.compag.2018.02.016" target="_blank" rel="noopener">doi:10.1016/j.compag.2018.02.016</a></li>
+        <li>Kapoor, S., &amp; Narayanan, A. (2023). Leakage and the reproducibility crisis in machine-learning-based science. <em>Patterns</em>, 4(9), 100804. <a href="https://doi.org/10.1016/j.patter.2023.100804" target="_blank" rel="noopener">doi:10.1016/j.patter.2023.100804</a></li>
+        <li>Kaufman, S., Rosset, S., Perlich, C., &amp; Stitelman, O. (2012). Leakage in data mining: Formulation, detection, and avoidance. <em>ACM Transactions on Knowledge Discovery from Data</em>, 6(4), 1–21. <a href="https://doi.org/10.1145/2382577.2382579" target="_blank" rel="noopener">doi:10.1145/2382577.2382579</a></li>
+        <li>Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao, T., Whitehead, S., Berg, A. C., Lo, W.-Y., Dollár, P., &amp; Girshick, R. (2023). Segment anything. In <em>Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)</em> (pp. 3992–4003). <a href="https://doi.org/10.1109/ICCV51070.2023.00371" target="_blank" rel="noopener">doi:10.1109/ICCV51070.2023.00371</a></li>
+        <li>LeCun, Y., Bengio, Y., &amp; Hinton, G. (2015). Deep learning. <em>Nature</em>, 521(7553), 436–444. <a href="https://doi.org/10.1038/nature14539" target="_blank" rel="noopener">doi:10.1038/nature14539</a></li>
+        <li>Li, J., Xu, M., Xiang, L., Chen, D., Zhuang, W., Yin, X., &amp; Li, Z. (2024). Foundation models in smart agriculture: Basics, opportunities, and challenges. <em>Computers and Electronics in Agriculture</em>, 222, 109032. <a href="https://doi.org/10.1016/j.compag.2024.109032" target="_blank" rel="noopener">doi:10.1016/j.compag.2024.109032</a></li>
+        <li>Liakos, K. G., Busato, P., Moshou, D., Pearson, S., &amp; Bochtis, D. (2018). Machine learning in agriculture: A review. <em>Sensors</em>, 18(8), 2674. <a href="https://doi.org/10.3390/s18082674" target="_blank" rel="noopener">doi:10.3390/s18082674</a></li>
+        <li>Lloyd, S. (1982). Least squares quantization in PCM. <em>IEEE Transactions on Information Theory</em>, 28(2), 129–137. <a href="https://doi.org/10.1109/TIT.1982.1056489" target="_blank" rel="noopener">doi:10.1109/TIT.1982.1056489</a></li>
+        <li>Meyer, H., Reudenbach, C., Hengl, T., Katurji, M., &amp; Nauss, T. (2018). Improving performance of spatio-temporal machine learning models using forward feature selection and target-oriented validation. <em>Environmental Modelling &amp; Software</em>, 101, 1–9. <a href="https://doi.org/10.1016/j.envsoft.2017.12.001" target="_blank" rel="noopener">doi:10.1016/j.envsoft.2017.12.001</a></li>
+        <li>Ploton, P., Mortier, F., Réjou-Méchain, M., Barbier, N., Picard, N., Rossi, V., Dormann, C., Cornu, G., Viennois, G., Bayol, N., Lyapustin, A., Gourlet-Fleury, S., &amp; Pélissier, R. (2020). Spatial validation reveals poor predictive performance of large-scale ecological mapping models. <em>Nature Communications</em>, 11, 4540. <a href="https://doi.org/10.1038/s41467-020-18321-y" target="_blank" rel="noopener">doi:10.1038/s41467-020-18321-y</a></li>
+        <li>Roberts, D. R., Bahn, V., Ciuti, S., Boyce, M. S., Elith, J., Guillera-Arroita, G., Hauenstein, S., Lahoz-Monfort, J. J., Schröder, B., Thuiller, W., Warton, D. I., Wintle, B. A., Hartig, F., &amp; Dormann, C. F. (2017). Cross-validation strategies for data with temporal, spatial, hierarchical, or phylogenetic structure. <em>Ecography</em>, 40(8), 913–929. <a href="https://doi.org/10.1111/ecog.02881" target="_blank" rel="noopener">doi:10.1111/ecog.02881</a></li>
+        <li>Rosenblatt, F. (1958). The perceptron: A probabilistic model for information storage and organization in the brain. <em>Psychological Review</em>, 65(6), 386–408. <a href="https://doi.org/10.1037/h0042519" target="_blank" rel="noopener">doi:10.1037/h0042519</a></li>
+        <li>Rumelhart, D. E., Hinton, G. E., &amp; Williams, R. J. (1986). Learning representations by back-propagating errors. <em>Nature</em>, 323(6088), 533–536. <a href="https://doi.org/10.1038/323533a0" target="_blank" rel="noopener">doi:10.1038/323533a0</a></li>
+        <li>Silva, B., Nunes, L., Estevão, R., Aski, V., &amp; Chandra, R. (2023). <em>GPT-4 as an agronomist assistant? Answering agriculture exams using large language models</em> (arXiv:2310.06225). arXiv. <a href="https://doi.org/10.48550/arXiv.2310.06225" target="_blank" rel="noopener">doi:10.48550/arXiv.2310.06225</a></li>
+        <li>Singh, N., Wang'ombe, J., Okanga, N., Zelenska, T., Repishti, J., G K, J., Mishra, S., Manokaran, R., Singh, V., Rafiq, M. I., Gandhi, R., &amp; Nambi, A. (2024). <em>Farmer.Chat: Scaling AI-powered agricultural services for smallholder farmers</em> (arXiv:2409.08916). arXiv. <a href="https://doi.org/10.48550/arXiv.2409.08916" target="_blank" rel="noopener">doi:10.48550/arXiv.2409.08916</a></li>
+        <li>Tzachor, A., Devare, M., Richards, C., Pypers, P., Ghosh, A., Koo, J., Johal, S., &amp; King, B. (2023). Large language models and agricultural extension services. <em>Nature Food</em>, 4(11), 941–948. <a href="https://doi.org/10.1038/s43016-023-00867-x" target="_blank" rel="noopener">doi:10.1038/s43016-023-00867-x</a></li>
+        <li>van Klompenburg, T., Kassahun, A., &amp; Catal, C. (2020). Crop yield prediction using machine learning: A systematic literature review. <em>Computers and Electronics in Agriculture</em>, 177, 105709. <a href="https://doi.org/10.1016/j.compag.2020.105709" target="_blank" rel="noopener">doi:10.1016/j.compag.2020.105709</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, BarChart, linspace } from '/assets/js/plot.js';
+import { mulberry32, randn, normCdf, mean, sd } from '/assets/js/stats.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+import { withAlpha, palette } from '/assets/js/colors.js';
+
+const $ = s => document.querySelector(s);
+const segInit = (el, cb) => el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); cb(b.dataset.v); });
+const rangeFill = r => r.style.setProperty('--fill', ((+r.value - +r.min) / (+r.max - +r.min) * 100) + '%');
+const hexA = (c, a) => withAlpha(c && c.startsWith('#') ? c : '#888888', a);
+
+/* ============================ Figure 3: decision tree ============================ */
+{
+  const infect = (w, T, r) => { const p = (w >= 6 && T >= 11 && T <= 22) ? 0.9 : (w >= 4 && T >= 9 && T <= 24) ? 0.25 : 0.04; return r() < p ? 1 : 0; };
+  const mk = (n, seed) => { const r = mulberry32(seed); const X = [], Y = []; for (let i = 0; i < n; i++) { const w = +(r() * 16).toFixed(1), T = +(8 + r() * 20).toFixed(1); X.push([w, T]); Y.push(infect(w, T, r)); } return { X, Y }; };
+  const tr = mk(160, 5), te = mk(600, 77);
+  const FN = ['Leaf wetness', 'Temperature'], FU = ['h', '°C'], RANGE = [[0, 16], [8, 28]];
+  const gini = ys => { const n = ys.length; if (!n) return 0; const p = ys.reduce((a, b) => a + b, 0) / n; return 1 - p * p - (1 - p) * (1 - p); };
+  const MINLEAF = 3;
+  function bestSplit(idx) {
+    let best = null; const parent = gini(idx.map(i => tr.Y[i]));
+    for (const f of [0, 1]) {
+      const vals = [...new Set(idx.map(i => tr.X[i][f]))].sort((a, b) => a - b);
+      for (let k = 1; k < vals.length; k++) {
+        const th = (vals[k - 1] + vals[k]) / 2; const L = [], R = [];
+        idx.forEach(i => (tr.X[i][f] < th ? L : R).push(tr.Y[i]));
+        if (L.length < MINLEAF || R.length < MINLEAF) continue;
+        const w = (L.length * gini(L) + R.length * gini(R)) / idx.length;
+        if (!best || w < best.w - 1e-12) best = { f, th, w, gain: parent - w };
+      }
+    }
+    return best;
+  }
+  function leaf(idx, box) { const p = idx.length ? mean(idx.map(i => tr.Y[i])) : 0; return { leaf: true, p, n: idx.length, box }; }
+  function grow(idx, depth, box) {
+    const node = leaf(idx, box);
+    if (depth === 0 || gini(idx.map(i => tr.Y[i])) === 0) return node;
+    const s = bestSplit(idx); if (!s || s.gain < 1e-9) return node;
+    return split(idx, s.f, s.th, depth, box, true);
+  }
+  function split(idx, f, th, depth, box, rec) {
+    const L = idx.filter(i => tr.X[i][f] < th), R = idx.filter(i => tr.X[i][f] >= th);
+    const bl = box.map(b => b.slice()), br = box.map(b => b.slice()); bl[f][1] = th; br[f][0] = th;
+    return { leaf: false, f, th, n: idx.length, left: rec ? grow(L, depth - 1, bl) : leaf(L, bl), right: rec ? grow(R, depth - 1, br) : leaf(R, br) };
+  }
+  const predict = (nd, x) => nd.leaf ? (nd.p >= 0.5 ? 1 : 0) : predict(x[nd.f] < nd.th ? nd.left : nd.right, x);
+  const leaves = nd => nd.leaf ? [nd] : [...leaves(nd.left), ...leaves(nd.right)];
+  const acc = (tree, D) => mean(D.X.map((x, i) => predict(tree, x) === D.Y[i] ? 1 : 0));
+  function rules(nd, pre = '') { if (nd.leaf) return `${pre}→ ${nd.p >= 0.5 ? 'INFECTION' : 'no infection'} (${Math.round(nd.p * nd.n)}/${nd.n} infected)\n`; const u = FU[nd.f]; return `${pre}if ${FN[nd.f]} < ${nd.th.toFixed(1)} ${u}:\n` + rules(nd.left, pre + '   ') + `${pre}else (≥ ${nd.th.toFixed(1)} ${u}):\n` + rules(nd.right, pre + '   '); }
+  const all = tr.X.map((_, i) => i); const BOX = [[0, 16], [8, 28]];
+  let mode = 'manual', feat = 0;
+  const plot = new Plot('#dt-plot', { x: { label: 'Leaf wetness duration', unit: 'h', min: 0, max: 16 }, y: { label: 'Mean temperature', unit: '°C', min: 8, max: 28 }, crosshair: false, height: 320 });
+  const accPlot = new Plot('#dt-acc', { x: { label: 'Tree depth', min: 1, max: 8 }, y: { label: 'Accuracy', unit: '%', min: 50, max: 100 }, height: 230 });
+  const DEP = [1, 2, 3, 4, 5, 6, 7, 8]; const trees = DEP.map(d => grow(all, d, BOX));
+  accPlot.line('tr', DEP, trees.map(t => 100 * acc(t, tr)), { color: 'accent', width: 2.4, label: 'Training (160 days)' });
+  accPlot.line('te', DEP, trees.map(t => 100 * acc(t, te)), { color: 'magenta', width: 2.4, label: 'New days (600)' });
+  const ro = new Readouts('#dt-ro');
+  ro.add({ id: 'g0', label: 'Gini of all 160 days', digits: 3 }).add({ id: 'gw', label: 'Weighted Gini after first split', digits: 3 }).add({ id: 'gain', label: 'Gini gain of first split', digits: 3 })
+    .add({ id: 'atr', label: 'Training accuracy', unit: '%', digits: 1 }).add({ id: 'ate', label: 'Accuracy on new days', unit: '%', digits: 1 });
+  const th = $('#dt-th'), dep = $('#dt-depth');
+  function setRange() { th.min = RANGE[feat][0]; th.max = RANGE[feat][1]; }
+  function upd() {
+    rangeFill(th); rangeFill(dep); $('#dt-th-out').textContent = (+th.value).toFixed(1) + ' ' + FU[feat]; $('#dt-depth-out').textContent = dep.value;
+    $('#dt-th-wrap').style.opacity = mode === 'manual' ? 1 : 0.45; th.disabled = mode !== 'manual';
+    $('#dt-depth-wrap').style.opacity = mode === 'auto' ? 1 : 0.45; dep.disabled = mode !== 'auto';
+    const tree = mode === 'manual' ? split(all, feat, +th.value, 1, BOX, false) : trees[+dep.value - 1];
+    const P = palette();
+    plot.custom('regions', (ctx, p) => {
+      leaves(tree).forEach(lf => { const [[x0, x1], [y0, y1]] = lf.box; const c = lf.p >= 0.5 ? P.magenta : P.accent; ctx.fillStyle = hexA(c, 0.08 + 0.22 * Math.abs(lf.p - 0.5) * 2); ctx.fillRect(p.px(x0), p.py(y1), p.px(x1) - p.px(x0), p.py(y0) - p.py(y1)); ctx.strokeStyle = hexA(P.ink, 0.35); ctx.lineWidth = 1; ctx.strokeRect(p.px(x0), p.py(y1), p.px(x1) - p.px(x0), p.py(y0) - p.py(y1)); });
+    });
+    plot.scatter('no', tr.X.filter((_, i) => !tr.Y[i]).map(x => x[0]), tr.X.filter((_, i) => !tr.Y[i]).map(x => x[1]), { color: 'accent', r: 4, label: 'No infection' });
+    plot.scatter('yes', tr.X.filter((_, i) => tr.Y[i]).map(x => x[0]), tr.X.filter((_, i) => tr.Y[i]).map(x => x[1]), { color: 'magenta', r: 4.5, shape: 'diamond', label: 'Infection' });
+    const g0 = gini(tr.Y); ro.set('g0', g0);
+    const root = tree.leaf ? null : tree;
+    if (root) { const L = all.filter(i => tr.X[i][root.f] < root.th).map(i => tr.Y[i]), R = all.filter(i => tr.X[i][root.f] >= root.th).map(i => tr.Y[i]); const w = (L.length * gini(L) + R.length * gini(R)) / all.length; ro.set('gw', w); ro.set('gain', g0 - w, g0 - w > 0.12 ? 'ok' : g0 - w > 0.05 ? 'warn' : 'bad'); }
+    const a1 = 100 * acc(tree, tr), a2 = 100 * acc(tree, te); ro.set('atr', a1); ro.set('ate', a2, a2 > 82 ? 'ok' : a2 > 72 ? 'warn' : 'bad');
+    accPlot.vline('cur', mode === 'auto' ? +dep.value : 1, { color: 'amber' });
+    const nl = leaves(tree).length; $('#dt-rules').textContent = nl <= 10 ? rules(tree) : `Tree with ${nl} leaves — too many rules to read comfortably. That is one symptom of over-fitting.`;
+  }
+  segInit($('#dt-mode'), v => { mode = v; upd(); });
+  segInit($('#dt-feat'), v => { feat = +v; setRange(); th.value = feat ? 18 : 3; upd(); });
+  th.addEventListener('input', upd); dep.addEventListener('input', upd);
+  $('#dt-best').addEventListener('click', () => { const s = bestSplit(all); feat = s.f; $('#dt-feat').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.v === feat)); setRange(); th.value = s.th; mode = 'manual'; $('#dt-mode').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === 'manual')); upd(); });
+  setRange(); upd();
+}
+
+/* ============================ Figure 5: k-means ============================ */
+{
+  const r0 = mulberry32(3); const PTS = [];
+  [[-18, 32, 3.5, 60], [-7, 47, 3.5, 50], [6, 22, 4, 40]].forEach(([a, b, s, n]) => { for (let i = 0; i < n; i++) PTS.push([a + s * randn(r0), b + s * randn(r0)]); });
+  let k = 3, C = [], A = PTS.map(() => -1), phase = 'assign', it = 0, rng = mulberry32(42), changed = NaN;
+  const d2 = (p, c) => (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2;
+  const inertia = (Cs, As) => PTS.reduce((s, p, i) => s + (As[i] >= 0 ? d2(p, Cs[As[i]]) : 0), 0);
+  function init() { C = []; const used = new Set(); while (C.length < k) { const i = Math.floor(rng() * PTS.length); if (!used.has(i)) { used.add(i); C.push(PTS[i].slice()); } } A = PTS.map(() => -1); phase = 'assign'; it = 0; changed = NaN; }
+  function assign() { let ch = 0; PTS.forEach((p, i) => { let b = 0; C.forEach((c, j) => { if (d2(p, c) < d2(p, C[b])) b = j; }); if (b !== A[i]) ch++; A[i] = b; }); changed = ch; }
+  function update() { C = C.map((c, j) => { const m = PTS.filter((_, i) => A[i] === j); return m.length ? [mean(m.map(p => p[0])), mean(m.map(p => p[1]))] : c; }); }
+  function step() { if (phase === 'assign') { assign(); phase = 'update'; } else { update(); phase = 'assign'; it++; } draw(); }
+  const plot = new Plot('#km-plot', { x: { label: 'a* (green → red)', min: -32, max: 18 }, y: { label: 'b* (blue → yellow)', min: 8, max: 62 }, crosshair: false, legend: false, height: 320 });
+  const elbow = new Plot('#km-elbow', { x: { label: 'Number of clusters k', min: 1, max: 8 }, y: { label: 'Best inertia J', min: 0 }, height: 320 });
+  const ro = new Readouts('#km-ro');
+  ro.add({ id: 'it', label: 'Iterations', digits: 0 }).add({ id: 'J', label: 'Inertia J', digits: 0 }).add({ id: 'ch', label: 'Points that changed cluster', digits: 0 }).add({ id: 'next', label: 'Next step', format: v => v });
+  function draw() {
+    for (let j = 0; j < 6; j++) { const ii = PTS.map((_, i) => i).filter(i => A[i] === j); if (ii.length) plot.scatter('c' + j, ii.map(i => PTS[i][0]), ii.map(i => PTS[i][1]), { color: 'c' + [0, 2, 3, 1, 4, 5][j], r: 4 }); else plot.remove('c' + j); }
+    const un = PTS.map((_, i) => i).filter(i => A[i] < 0); if (un.length) plot.scatter('u', un.map(i => PTS[i][0]), un.map(i => PTS[i][1]), { color: 'muted', r: 3.5, hollow: true }); else plot.remove('u');
+    for (let j = 0; j < 6; j++) { if (j < C.length) plot.scatter('m' + j, [C[j][0]], [C[j][1]], { color: 'c' + [0, 2, 3, 1, 4, 5][j], r: 9, shape: 'diamond' }); else plot.remove('m' + j); }
+    ro.set('it', it); ro.set('J', A[0] >= 0 ? inertia(C, A) : NaN); ro.set('ch', changed, changed === 0 ? 'ok' : null); ro.set('next', phase === 'assign' ? 'assign points' : 'move centres');
+    $('#km-step').textContent = phase === 'assign' ? 'Step (assign)' : 'Step (update centres)';
+  }
+  function runKM(kk, seed) { const r = mulberry32(seed); let Cs = []; const used = new Set(); while (Cs.length < kk) { const i = Math.floor(r() * PTS.length); if (!used.has(i)) { used.add(i); Cs.push(PTS[i].slice()); } } let As = PTS.map(() => 0); for (let t = 0; t < 100; t++) { let ch = 0; PTS.forEach((p, i) => { let b = 0; Cs.forEach((c, j) => { if (d2(p, c) < d2(p, Cs[b])) b = j; }); if (b !== As[i]) ch++; As[i] = b; }); Cs = Cs.map((c, j) => { const m = PTS.filter((_, i) => As[i] === j); return m.length ? [mean(m.map(p => p[0])), mean(m.map(p => p[1]))] : c; }); if (!ch && t) break; } return inertia(Cs, As); }
+  const KS = [1, 2, 3, 4, 5, 6, 7, 8]; elbow.line('J', KS, KS.map(kk => Math.min(...[1, 2, 3, 4, 5, 6, 7, 8].map(s => runKM(kk, s * 31 + kk)))), { color: 'water', width: 2.4, label: 'Best of 8 starts' });
+  elbow.scatter('Jp', KS, KS.map(kk => Math.min(...[1, 2, 3, 4, 5, 6, 7, 8].map(s => runKM(kk, s * 31 + kk)))), { color: 'water', r: 4 });
+  const kEl = $('#km-k');
+  kEl.addEventListener('input', () => { k = +kEl.value; $('#km-k-out').textContent = k; rangeFill(kEl); elbow.vline('k', k, { color: 'amber' }); init(); draw(); });
+  $('#km-step').addEventListener('click', step);
+  $('#km-run').addEventListener('click', () => { for (let t = 0; t < 200; t++) { assign(); update(); it++; phase = 'assign'; if (changed === 0) break; } draw(); });
+  $('#km-init').addEventListener('click', () => { init(); draw(); });
+  rangeFill(kEl); elbow.vline('k', 3, { color: 'amber' }); init(); draw();
+}
+
+/* ============================ Figure 7: gradient descent ============================ */
+{
+  const r = mulberry32(8); const X = [], Y = [];
+  for (let i = 0; i < 26; i++) { const x = 6 + 18 * r(); X.push(x); Y.push(8 * x + 20 + 12 * randn(r)); }
+  const mx = mean(X), sx = sd(X);
+  let std = false;
+  const feat = () => std ? X.map(x => (x - mx) / sx) : X;
+  const loss = (w, b) => { const F = feat(); let s = 0; for (let i = 0; i < F.length; i++) s += (Y[i] - w * F[i] - b) ** 2; return s / F.length; };
+  const grad = (w, b) => { const F = feat(); let gw = 0, gb = 0; for (let i = 0; i < F.length; i++) { const e = Y[i] - w * F[i] - b; gw += -2 * F[i] * e; gb += -2 * e; } return [gw / F.length, gb / F.length]; };
+  const ols = () => { const F = feat(); const m = mean(F), my = mean(Y); let sxy = 0, sxx = 0; F.forEach((f, i) => { sxy += (f - m) * (Y[i] - my); sxx += (f - m) ** 2; }); const w = sxy / sxx; return [w, my - w * m]; };
+  let RNG, th, v, path, it, status, hist;
+  const heat = new Plot('#gd-heat', { x: { label: 'Slope w' }, y: { label: 'Intercept b' }, legend: false, crosshair: false, height: 300 });
+  const fit = new Plot('#gd-fit', { x: { label: 'DLI', unit: 'mol m⁻² d⁻¹', min: 4, max: 26 }, y: { label: 'Fresh mass', unit: 'g', min: 0, max: 260 }, height: 300 });
+  const lp = new Plot('#gd-loss', { x: { label: 'Iteration', min: 0 }, y: { label: 'MSE', unit: 'g²', log: true }, legend: false, height: 160 });
+  fit.scatter('d', X, Y, { color: 'ink', r: 4, label: 'Lettuce heads' });
+  const ro = new Readouts('#gd-ro');
+  ro.add({ id: 'it', label: 'Iteration', digits: 0 }).add({ id: 'L', label: 'MSE', unit: 'g²', digits: 1 }).add({ id: 'w', label: 'Slope w', digits: 3 }).add({ id: 'b', label: 'Intercept b', digits: 2 }).add({ id: 'st', label: 'Status', format: v => v });
+  const etaEl = $('#gd-eta'), muEl = $('#gd-mu');
+  function setup() {
+    const [w0, b0] = ols();
+    RNG = std ? { w: [w0 - 70, w0 + 70], b: [b0 - 120, b0 + 120] } : { w: [w0 - 14, w0 + 14], b: [b0 - 220, b0 + 220] };
+    const NX = 80, NY = 60, z = [];
+    for (let j = 0; j < NY; j++) { const row = []; const b = RNG.b[0] + (RNG.b[1] - RNG.b[0]) * j / (NY - 1); for (let i = 0; i < NX; i++) { const w = RNG.w[0] + (RNG.w[1] - RNG.w[0]) * i / (NX - 1); row.push(Math.log10(loss(w, b))); } z.push(row); }
+    heat.setAxis('x', { min: RNG.w[0], max: RNG.w[1], label: std ? "Slope w′ (per SD of DLI)" : 'Slope w (g per mol m⁻² d⁻¹)' }); heat.setAxis('y', { min: RNG.b[0], max: RNG.b[1], label: std ? "Intercept b′ (g)" : 'Intercept b (g)' });
+    heat.heatmap('h', { z, x0: RNG.w[0], x1: RNG.w[1], y0: RNG.b[0], y1: RNG.b[1], colormap: 'viridis' });
+    heat.point('opt', w0, b0, { color: '#ffffff', r: 4 });
+    reset([RNG.w[0] + 0.12 * (RNG.w[1] - RNG.w[0]), RNG.b[0] + 0.1 * (RNG.b[1] - RNG.b[0])]);
+  }
+  function reset(p) { th = p.slice(); v = [0, 0]; path = [th.slice()]; it = 0; status = 'ready'; hist = [[0, loss(...th)]]; draw(); }
+  function step() {
+    if (status === 'diverged') return;
+    const eta = Math.pow(10, +etaEl.value), mu = +muEl.value; const g = grad(...th);
+    v = [mu * v[0] - eta * g[0], mu * v[1] - eta * g[1]]; th = [th[0] + v[0], th[1] + v[1]]; it++;
+    const L = loss(...th); hist.push([it, L]);
+    if (!isFinite(L) || L > 1e9) status = 'diverged'; else status = L < loss(...ols()) * 1.01 ? 'converged' : 'descending';
+    path.push(th.slice());
+  }
+  function draw() {
+    const pp = path.map(p => [Math.max(RNG.w[0] - 1e3, Math.min(RNG.w[1] + 1e3, p[0])), Math.max(RNG.b[0] - 1e4, Math.min(RNG.b[1] + 1e4, p[1]))]);
+    heat.line('path', pp.map(p => p[0]), pp.map(p => p[1]), { color: '#ffffff', width: 1.8 });
+    heat.point('cur', pp[pp.length - 1][0], pp[pp.length - 1][1], { color: '#ff7a6e', r: 5 });
+    const g = [4, 26]; const F = x => std ? (x - mx) / sx : x;
+    if (isFinite(th[0]) && isFinite(th[1])) fit.line('l', g, g.map(x => th[0] * F(x) + th[1]), { color: 'magenta', width: 2.4, label: 'Current line' });
+    lp.line('L', hist.map(h => h[0]), hist.map(h => Math.min(1e12, h[1])), { color: 'water', width: 2 });
+    lp.setAxis('x', { min: 0, max: Math.max(10, it) });
+    ro.set('it', it); ro.set('L', loss(...th)); ro.set('w', th[0]); ro.set('b', th[1]);
+    ro.set('st', status, status === 'converged' ? 'ok' : status === 'diverged' ? 'bad' : null);
+    $('#gd-eta-out').textContent = fmt(Math.pow(10, +etaEl.value), 4); $('#gd-mu-out').textContent = (+muEl.value).toFixed(2); rangeFill(etaEl); rangeFill(muEl);
+  }
+  heat.on('click', e => { if (e.inside) reset([e.x, e.y]); });
+  segInit($('#gd-std'), val => { std = val === 'std'; etaEl.value = std ? -1 : -2.52; setup(); });
+  let runT; $('#gd-step').addEventListener('click', () => { step(); draw(); });
+  $('#gd-run').addEventListener('click', () => { clearInterval(runT); let k = 0; runT = setInterval(() => { for (let q = 0; q < 5; q++) step(); draw(); k += 5; if (k >= 150 || status === 'diverged') clearInterval(runT); }, 40); });
+  $('#gd-reset').addEventListener('click', () => { clearInterval(runT); reset(path[0]); });
+  etaEl.addEventListener('input', draw); muEl.addEventListener('input', draw);
+  setup();
+}
+
+/* ============================ Figure 8: neural network ============================ */
+{
+  const truth = x => 190 * (1 - Math.exp(-(x - 2) / 10));
+  let seed = 4, TR, VA;
+  const gen = () => { const r = mulberry32(seed); const mk = n => { const x = [], y = []; for (let i = 0; i < n; i++) { const xx = 4 + 28 * r(); x.push(xx); y.push(truth(xx) + 14 * randn(r)); } return { x, y }; }; TR = mk(20); VA = mk(20); };
+  gen();
+  const XM = 18, XS = 8, YM = 120, YS = 50;
+  let H, P, M, V, t, epoch, hist, playing = true;
+  const hEl = $('#nn-h'), lrEl = $('#nn-lr'), l2El = $('#nn-l2');
+  function init() {
+    H = +hEl.value; const r = mulberry32(seed * 7 + H);
+    P = { W1: Array.from({ length: H }, () => 1.5 * randn(r)), b1: Array.from({ length: H }, () => 1.5 * randn(r)), W2: Array.from({ length: H }, () => randn(r) / Math.sqrt(H)), b2: 0 };
+    M = { W1: Array(H).fill(0), b1: Array(H).fill(0), W2: Array(H).fill(0), b2: 0 }; V = { W1: Array(H).fill(0), b1: Array(H).fill(0), W2: Array(H).fill(0), b2: 0 };
+    t = 0; epoch = 0; hist = [];
+  }
+  const fwd = x => { const s = (x - XM) / XS; let y = P.b2; for (let j = 0; j < H; j++) y += P.W2[j] * Math.tanh(P.W1[j] * s + P.b1[j]); return y * YS + YM; };
+  const mse = D => mean(D.x.map((x, i) => (D.y[i] - fwd(x)) ** 2));
+  function trainEpoch() {
+    const lr = Math.pow(10, +lrEl.value), lam = +l2El.value, n = TR.x.length;
+    const G = { W1: Array(H).fill(0), b1: Array(H).fill(0), W2: Array(H).fill(0), b2: 0 };
+    for (let i = 0; i < n; i++) {
+      const s = (TR.x[i] - XM) / XS, yt = (TR.y[i] - YM) / YS; const h = new Array(H); let y = P.b2;
+      for (let j = 0; j < H; j++) { h[j] = Math.tanh(P.W1[j] * s + P.b1[j]); y += P.W2[j] * h[j]; }
+      const d = 2 * (y - yt) / n; G.b2 += d;
+      for (let j = 0; j < H; j++) { G.W2[j] += d * h[j]; const dj = d * P.W2[j] * (1 - h[j] * h[j]); G.W1[j] += dj * s; G.b1[j] += dj; }
+    }
+    for (let j = 0; j < H; j++) { G.W1[j] += 2 * lam * P.W1[j]; G.W2[j] += 2 * lam * P.W2[j]; }
+    t++; const b1c = 1 - Math.pow(0.9, t), b2c = 1 - Math.pow(0.999, t);
+    const upd = (k, j) => { const g = j == null ? G[k] : G[k][j]; if (j == null) { M[k] = 0.9 * M[k] + 0.1 * g; V[k] = 0.999 * V[k] + 0.001 * g * g; P[k] -= lr * (M[k] / b1c) / (Math.sqrt(V[k] / b2c) + 1e-8); } else { M[k][j] = 0.9 * M[k][j] + 0.1 * g; V[k][j] = 0.999 * V[k][j] + 0.001 * g * g; P[k][j] -= lr * (M[k][j] / b1c) / (Math.sqrt(V[k][j] / b2c) + 1e-8); } };
+    for (let j = 0; j < H; j++) { upd('W1', j); upd('b1', j); upd('W2', j); } upd('b2');
+    epoch++;
+  }
+  const fitP = new Plot('#nn-fit', { x: { label: 'DLI', unit: 'mol m⁻² d⁻¹', min: 2, max: 34 }, y: { label: 'Fresh mass per head', unit: 'g', min: 0, max: 260 }, height: 300 });
+  const lossP = new Plot('#nn-loss', { x: { label: 'Epoch', min: 0 }, y: { label: 'Mean squared error', unit: 'g²', log: true, min: 5, max: 20000 }, height: 300 });
+  const ro = new Readouts('#nn-ro');
+  ro.add({ id: 'ep', label: 'Epochs', digits: 0 }).add({ id: 'tr', label: 'Training RMSE', unit: 'g', digits: 1 }).add({ id: 'va', label: 'Validation RMSE', unit: 'g', digits: 1 }).add({ id: 'np', label: 'Parameters', digits: 0 });
+  function draw() {
+    const g = linspace(2, 34, 200);
+    fitP.line('truth', g, g.map(truth), { color: 'muted', dash: [5, 4], width: 1.4, label: 'True response' });
+    fitP.line('nn', g, g.map(fwd), { color: 'magenta', width: 2.6, label: 'Network' });
+    fitP.scatter('va', VA.x, VA.y, { color: 'ink', r: 4, hollow: true, label: 'Validation' });
+    fitP.scatter('tr', TR.x, TR.y, { color: 'accent', r: 4.5, label: 'Training' });
+    lossP.line('tr', hist.map(h => h[0]), hist.map(h => h[1]), { color: 'accent', width: 2, label: 'Training' });
+    lossP.line('va', hist.map(h => h[0]), hist.map(h => h[2]), { color: 'ink', width: 2, label: 'Validation' });
+    lossP.setAxis('x', { min: 0, max: Math.max(100, epoch) });
+    const a = Math.sqrt(mse(TR)), b = Math.sqrt(mse(VA));
+    ro.set('ep', epoch); ro.set('tr', a); ro.set('va', b, b < 17 ? 'ok' : b < 25 ? 'warn' : 'bad'); ro.set('np', 3 * H + 1);
+    $('#nn-h-out').textContent = hEl.value; $('#nn-lr-out').textContent = fmt(Math.pow(10, +lrEl.value), 4); $('#nn-l2-out').textContent = (+l2El.value).toFixed(4);
+    [hEl, lrEl, l2El].forEach(rangeFill);
+  }
+  function loop() {
+    if (playing) { for (let k = 0; k < 25; k++) { trainEpoch(); if (epoch % 25 === 0) hist.push([epoch, mse(TR), mse(VA)]); } draw(); if (epoch >= 12000) { playing = false; $('#nn-play').textContent = 'Continue'; } }
+    requestAnimationFrame(loop);
+  }
+  $('#nn-play').addEventListener('click', e => { playing = !playing; e.currentTarget.textContent = playing ? 'Pause' : 'Continue'; });
+  $('#nn-reset').addEventListener('click', () => { init(); draw(); });
+  $('#nn-data').addEventListener('click', () => { seed++; gen(); init(); draw(); });
+  hEl.addEventListener('input', () => { init(); draw(); });
+  lrEl.addEventListener('input', draw); l2El.addEventListener('input', draw);
+  init(); draw(); requestAnimationFrame(loop);
+}
+
+/* ============================ Figure 9: threshold, confusion matrix, ROC ============================ */
+{
+  const tEl = $('#roc-t'), dEl = $('#roc-d'), pEl = $('#roc-p');
+  const dens = new Plot('#roc-dens', { x: { label: 'Model score', min: -4, max: 8 }, y: { label: 'Density × prevalence', min: 0 }, height: 280 });
+  const roc = new Plot('#roc-curve', { x: { label: 'False-positive rate (1 − specificity)', min: 0, max: 1 }, y: { label: 'True-positive rate (recall)', min: 0, max: 1 }, height: 280 });
+  const ro = new Readouts('#roc-ro');
+  ro.add({ id: 'acc', label: 'Accuracy', unit: '%', digits: 1 }).add({ id: 'prec', label: 'Precision', unit: '%', digits: 1 }).add({ id: 'rec', label: 'Recall', unit: '%', digits: 1 }).add({ id: 'spec', label: 'Specificity', unit: '%', digits: 1 }).add({ id: 'f1', label: 'F1', digits: 3 }).add({ id: 'auc', label: 'AUC', digits: 3 });
+  const npdf = (x, m) => Math.exp(-0.5 * (x - m) ** 2) / Math.sqrt(2 * Math.PI);
+  function upd() {
+    const T = +tEl.value, d = +dEl.value, pi = +pEl.value / 100;
+    $('#roc-t-out').textContent = T.toFixed(2); $('#roc-d-out').textContent = d.toFixed(2); $('#roc-p-out').textContent = (+pEl.value).toFixed(1) + ' %'; [tEl, dEl, pEl].forEach(rangeFill);
+    const xs = linspace(-4, 8, 300);
+    const hN = xs.map(x => (1 - pi) * npdf(x, 0)), hP = xs.map(x => pi * npdf(x, d));
+    const P = palette();
+    dens.custom('shade', (ctx, p) => {
+      const fillUnder = (ys, col) => { ctx.fillStyle = col; ctx.beginPath(); let st = false; xs.forEach((x, i) => { if (x < T) return; const X = p.px(x), Y = p.py(ys[i]); if (!st) { ctx.moveTo(X, p.py(0)); st = true; } ctx.lineTo(X, Y); }); ctx.lineTo(p.px(8), p.py(0)); ctx.closePath(); ctx.fill(); };
+      fillUnder(hN, hexA(P.amber, 0.35)); fillUnder(hP, hexA(P.magenta, 0.4));
+    });
+    dens.line('n', xs, hN, { color: 'accent', width: 2.2, label: 'Healthy' });
+    dens.line('p', xs, hP, { color: 'magenta', width: 2.2, label: 'Infected' });
+    dens.vline('t', T, { color: 'ink', label: 'threshold' });
+    const tpr = 1 - normCdf(T - d), fpr = 1 - normCdf(T);
+    const ts = linspace(-6, 10, 200); roc.line('roc', ts.map(t => 1 - normCdf(t)), ts.map(t => 1 - normCdf(t - d)), { color: 'water', width: 2.4, label: 'ROC' });
+    roc.line('diag', [0, 1], [0, 1], { color: 'muted', dash: [4, 4], width: 1, label: 'Random guess' });
+    roc.point('op', fpr, tpr, { color: 'magenta', r: 6, label: 'operating point' });
+    const N = 10000, TP = N * pi * tpr, FN = N * pi * (1 - tpr), FP = N * (1 - pi) * fpr, TN = N * (1 - pi) * (1 - fpr);
+    const f0 = v => Math.round(v).toLocaleString('en-GB');
+    $('#roc-cm').innerHTML = `<tr><th></th><th>Flagged infected</th><th>Passed as healthy</th></tr><tr><th>Infected (${f0(N * pi)})</th><td class="tp">TP ${f0(TP)}</td><td class="fn">FN ${f0(FN)}</td></tr><tr><th>Healthy (${f0(N * (1 - pi))})</th><td class="fp">FP ${f0(FP)}</td><td class="tn">TN ${f0(TN)}</td></tr>`;
+    const prec = TP / (TP + FP), rec = tpr, f1 = 2 * prec * rec / (prec + rec);
+    ro.set('acc', 100 * (TP + TN) / N); ro.set('prec', 100 * prec, prec > 0.7 ? 'ok' : prec > 0.4 ? 'warn' : 'bad'); ro.set('rec', 100 * rec, rec > 0.8 ? 'ok' : rec > 0.5 ? 'warn' : 'bad'); ro.set('spec', 100 * (1 - fpr)); ro.set('f1', f1); ro.set('auc', normCdf(d / Math.SQRT2));
+  }
+  [tEl, dEl, pEl].forEach(e => e.addEventListener('input', upd)); upd();
+}
+
+/* ============================ Figure 11: leakage ============================ */
+{
+  const dEl = $('#lk-d'); let seed = 9;
+  const series = new Plot('#lk-series', { x: { label: 'Day', min: 0, max: 150 }, y: { label: 'Daily yield', unit: 'kg' }, height: 280 });
+  const bars = new BarChart('#lk-bars', { y: { label: 'Estimated RMSE', unit: 'kg', min: 0 }, height: 280 });
+  function simulate(s, drift) {
+    const r = mulberry32(s); const rows = [];
+    for (let c = 0; c < 3; c++) { let dr = 0; for (let t = 0; t < 150; t++) { dr = 0.97 * dr + drift * randn(r) * 3; const T = 20 + 3 * Math.sin(2 * Math.PI * t / 60 + c) + randn(r); rows.push({ c, t, T, y: 5 + 0.15 * (T - 20) + dr + 0.3 * randn(r) }); } }
+    return rows;
+  }
+  const knn = (train, q, k = 5) => { const d = train.map(p => [((p.t - q.t) / 43) ** 2 + ((p.T - q.T) / 2.3) ** 2, p.y]).sort((a, b) => a[0] - b[0]); return mean(d.slice(0, k).map(x => x[1])); };
+  const rmse = (train, test) => Math.sqrt(mean(test.map(q => (q.y - knn(train, q)) ** 2)));
+  function run() {
+    const drift = +dEl.value; $('#lk-d-out').textContent = drift.toFixed(2); rangeFill(dEl);
+    const D = simulate(seed, drift);
+    const r = mulberry32(seed + 1); const fold = D.map(() => Math.floor(r() * 5));
+    let e1 = [], e2 = [], e3 = [];
+    for (let f = 0; f < 5; f++) { e1.push(rmse(D.filter((_, i) => fold[i] !== f), D.filter((_, i) => fold[i] === f)) ** 2); const blk = p => Math.floor(p.t / 30) === f; e2.push(rmse(D.filter(p => !blk(p)), D.filter(blk)) ** 2); }
+    for (let c = 0; c < 3; c++) e3.push(rmse(D.filter(p => p.c !== c), D.filter(p => p.c === c)) ** 2);
+    const NEW = simulate(seed + 1000, drift); const eTrue = rmse(D, NEW);
+    const cols = ['c0', 'c1', 'c2'];
+    for (let c = 0; c < 3; c++) { const s = D.filter(p => p.c === c); series.line('s' + c, s.map(p => p.t), s.map(p => p.y), { color: cols[c], width: 1.6, label: 'Compartment ' + 'ABC'[c] }); }
+    bars.set(['Random', 'Time blocks', 'Leave-group', 'New season'], [{ label: 'RMSE', values: [Math.sqrt(mean(e1)), Math.sqrt(mean(e2)), Math.sqrt(mean(e3)), eTrue], colors: ['danger', 'water', 'water', 'ink'], format: v => v.toFixed(2) }]);
+  }
+  dEl.addEventListener('input', run); $('#lk-new').addEventListener('click', () => { seed += 11; run(); });
+  run();
+}
+</script>
+</body>
+</html>

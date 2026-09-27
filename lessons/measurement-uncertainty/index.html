@@ -1,0 +1,1288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calibration, uncertainty and data quality · Future Food Production</title>
+<meta name="description" content="Accuracy, precision, trueness and resolution; systematic and random errors; calibration curves by least squares with residuals and inverse prediction; the GUM framework (Type A and B, propagation, expanded uncertainty) applied to DLI and VPD; drift and recalibration; sampling theorem and aliasing; moving-average, exponential, median and Kalman filters; quality flags and metadata.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator helpers for this lesson (defined before site.js builds the mini-calcs) */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  /* error function, Abramowitz & Stegun 7.1.26 (|error| < 1.5e-7) */
+  function erf(x) { var s = x < 0 ? -1 : 1; x = Math.abs(x); var t = 1 / (1 + 0.3275911 * x); var y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return s * y; }
+  /* Eq. 9.3.4: coverage probability of k standard uncertainties for a normal distribution, in % */
+  FFP_CALC.coverage = function (v) { return 100 * erf(v.k / Math.SQRT2); };
+  /* Eq. 9.3.5: standard uncertainty of the slope for n equally spaced points over a range R */
+  FFP_CALC.slopeU = function (v) { var n = Math.round(v.n); var Sxx = n * (n + 1) * v.R * v.R / (12 * (n - 1)); return v.s / Math.sqrt(Sxx); };
+  /* Eq. 9.3.6: standard uncertainty of an inverse prediction (d = distance of x0 from the mean of the calibration x values) */
+  FFP_CALC.invPred = function (v) { var n = Math.round(v.n), m = Math.round(v.m); var Sxx = n * (n + 1) * v.R * v.R / (12 * (n - 1)); return v.s / Math.abs(v.b) * Math.sqrt(1 / m + 1 / n + v.d * v.d / Sxx); };
+  /* Eq. 9.3.7: longest recalibration interval (years) */
+  FFP_CALC.recal = function (v) { var q = Math.pow(v.U / v.k, 2) - v.u0 * v.u0; return q > 0 ? Math.sqrt(3 * q) / v.r : 0; };
+  /* Eq. 9.3.8: apparent (alias) period of a sinusoid of period P sampled every dt */
+  FFP_CALC.alias = function (v) { var f = 1 / v.P, fs = 1 / v.dt; var fa = Math.abs(f - fs * Math.round(f / fs)); return fa < 1e-9 ? Infinity : 1 / fa; };
+  /* Eq. 9.3.9: noise standard deviation after exponential smoothing, % of raw */
+  FFP_CALC.emaNoise = function (v) { return 100 * Math.sqrt(v.alpha / (2 - v.alpha)); };
+  /* Eq. 9.3.10: steady-state Kalman gain of the random-walk filter */
+  FFP_CALC.kalmanK = function (v) { var Q = v.sw * v.sw, R = v.sv * v.sv; var Pm = (Q + Math.sqrt(Q * Q + 4 * Q * R)) / 2; return Pm / (Pm + R); };
+})();
+</script>
+<style>
+  .fx-ctl { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); column-gap: 22px; margin-bottom: 6px; }
+  .fx-note { font-size: .82rem; color: var(--muted); margin: 6px 0 0; }
+  .fx-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 10px; }
+  .fx-row .seg { flex: 1 1 260px; }
+  .fx-two { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .fx-two { grid-template-columns: 1fr; } }
+  .fx-sub { font: 600 .74rem var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 8px 0 2px; }
+  .fx-legend-toggles { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: .84rem; margin: 2px 0 8px; }
+  .fx-legend-toggles label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .fx-legend-toggles i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+  .quiz [hidden] { display: none !important; } /* local workaround: .btn display overrides the hidden attribute */
+</style>
+</head>
+<body data-page="lesson" data-slug="measurement-uncertainty">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Calibration, uncertainty and data quality</h1>
+      <p class="lead">Your logger says that the nutrient solution is at 21.37 °C, that yesterday's daily light integral was 14.4 mol m⁻² d⁻¹ and that the vapour pressure deficit is 0.90 kPa. How sure are you — to the nearest degree, tenth, or hundredth? A number without an uncertainty cannot be compared with another number, cannot be used to decide whether a treatment worked, and cannot be trusted by a controller. This lesson teaches you the internationally agreed way to put an honest ± on every value, to calibrate a sensor with least squares, to keep a sensor honest over months, and to turn a raw, noisy stream of samples into data that others can use.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Distinguish accuracy, trueness, precision and resolution, and classify errors as systematic, random or gross (LO4, LO5).</li>
+        <li>Evaluate standard uncertainties by Type A (statistical) and Type B methods, combine them with the law of propagation of uncertainty — which you can derive from a first-order Taylor expansion — and report an expanded uncertainty with k = 2 (LO3, LO4).</li>
+        <li>Estimate the uncertainty of derived quantities in your project — the DLI from a PAR sensor and the VPD from temperature and humidity sensors — and identify the dominant contributions (LO3, LO5).</li>
+        <li>Build a calibration curve by least-squares regression, judge it by its residuals, and convert a new reading into a calibrated value with its uncertainty (inverse prediction) (LO4, LO5).</li>
+        <li>Choose sampling intervals with the Nyquist criterion, recognise aliasing, and apply moving-average, exponential, median and one-dimensional Kalman filters (LO5).</li>
+        <li>Plan recalibration intervals, apply quality-control flags and record the metadata that make your project's sensor data reusable (LO4, LO5).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="why">Why every number needs an uncertainty</h2>
+      <p class="lede-drop">Imagine two project groups that share a greenhouse compartment. One group's logger reports a nutrient-solution temperature of 21.4 °C, the other's 20.8 °C. Which is right? Possibly both: if the first reading is uncertain by ±0.5 °C and the second by ±0.4 °C, the two values are consistent with each other. Possibly neither. Without an uncertainty the question cannot even be asked. This is why the international <em>Guide to the Expression of Uncertainty in Measurement</em> — universally called the GUM — treats a measurement result as complete only when it is accompanied by a quantitative statement of its uncertainty (JCGM, 2008a).</p>
+      <p>In <a href="/lessons/sensor-physics/">Lesson 9.1</a> you followed a measurement through the chain from measurand to stored value and saw that every stage adds error; in <a href="/lessons/electrochemical-sensors/">Lesson 9.2</a> you calibrated pH electrodes and compensated conductivity for temperature. This lesson turns those insights into numbers. It gives you three tools that you will use in the course project and long after it: a <strong>vocabulary</strong> (accuracy, trueness, precision, resolution); a <strong>method</strong> — the GUM framework and calibration by regression — for attaching a defensible ± to any value, including derived quantities such as the daily light integral and the vapour pressure deficit; and a <strong>toolbox for time series</strong> — sampling, filtering, quality flags and metadata — that keeps a stream of numbers trustworthy long after installation.</p>
+      <p>The words matter, because everyday language uses them loosely. The definitions below follow the International Vocabulary of Metrology (JCGM, 2012), the dictionary used by every national metrology institute and accredited laboratory.</p>
+      <dl class="kv">
+        <dt>Measurand</dt><dd>The quantity intended to be measured, defined completely enough for the purpose: "temperature of the nutrient solution at 10 cm depth in tank A, averaged over 1 min", not just "temperature".</dd>
+        <dt>Measurement error</dt><dd>Measured value minus the true (reference) value. It is never known exactly — if it were, you would correct it.</dd>
+        <dt>Systematic error</dt><dd>The component of error that stays constant, or varies predictably, in replicate measurements: a calibration offset, a sensor warmed by the sun. Its estimate is the <strong>bias</strong>.</dd>
+        <dt>Random error</dt><dd>The component that varies unpredictably between replicate measurements: electrical noise, turbulence, quantisation. It averages out; bias does not.</dd>
+        <dt>Trueness</dt><dd>Closeness of the <em>average</em> of infinitely many replicate values to the reference value — the absence of systematic error.</dd>
+        <dt>Precision</dt><dd>Closeness of replicate values to each other — the absence of random error. <em>Repeatability</em> is precision under the same conditions (same sensor, operator, place, short time); <em>reproducibility</em> under changed conditions.</dd>
+        <dt>Accuracy</dt><dd>Closeness of a single measured value to the true value. An accurate measurement is both true and precise. Accuracy is a qualitative idea; uncertainty is its quantitative replacement.</dd>
+        <dt>Resolution</dt><dd>The smallest change in the measurand that causes a perceptible change in the indication — one ADC step or one displayed digit (Lesson 9.1, Eq. 9.1.4).</dd>
+        <dt>Measurement uncertainty</dt><dd>A non-negative parameter that characterises the dispersion of the values that could reasonably be attributed to the measurand, usually expressed as a standard deviation (the <strong>standard uncertainty</strong> \(u\)) or as a multiple of it (the <strong>expanded uncertainty</strong> \(U = ku\)).</dd>
+      </dl>
+
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 800 268" role="img" aria-label="Four targets illustrating true and precise, precise but biased, true but imprecise, and neither true nor precise measurements">
+            <defs><marker id="mu-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g transform="translate(100,112)">
+              <circle r="72" class="fill-sunk" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <circle r="48" class="fill-bg" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <circle r="24" class="fill-accent-soft" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <line x1="-78" y1="0" x2="78" y2="0" class="stroke-muted" stroke-width=".7" stroke-dasharray="3 3"/>
+              <line x1="0" y1="-78" x2="0" y2="78" class="stroke-muted" stroke-width=".7" stroke-dasharray="3 3"/>
+              <circle r="3" class="fill-accent"/>
+            </g>            <g transform="translate(300,112)">
+              <circle r="72" class="fill-sunk" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <circle r="48" class="fill-bg" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <circle r="24" class="fill-accent-soft" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <line x1="-78" y1="0" x2="78" y2="0" class="stroke-muted" stroke-width=".7" stroke-dasharray="3 3"/>
+              <line x1="0" y1="-78" x2="0" y2="78" class="stroke-muted" stroke-width=".7" stroke-dasharray="3 3"/>
+              <circle r="3" class="fill-accent"/>
+            </g>            <g transform="translate(500,112)">
+              <circle r="72" class="fill-sunk" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <circle r="48" class="fill-bg" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <circle r="24" class="fill-accent-soft" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <line x1="-78" y1="0" x2="78" y2="0" class="stroke-muted" stroke-width=".7" stroke-dasharray="3 3"/>
+              <line x1="0" y1="-78" x2="0" y2="78" class="stroke-muted" stroke-width=".7" stroke-dasharray="3 3"/>
+              <circle r="3" class="fill-accent"/>
+            </g>            <g transform="translate(700,112)">
+              <circle r="72" class="fill-sunk" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <circle r="48" class="fill-bg" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <circle r="24" class="fill-accent-soft" stroke="var(--line-strong)" stroke-width="1.2"/>
+              <line x1="-78" y1="0" x2="78" y2="0" class="stroke-muted" stroke-width=".7" stroke-dasharray="3 3"/>
+              <line x1="0" y1="-78" x2="0" y2="78" class="stroke-muted" stroke-width=".7" stroke-dasharray="3 3"/>
+              <circle r="3" class="fill-accent"/>
+            </g>            <text x="100" y="18" text-anchor="middle" font-weight="600">(a) true and precise</text>
+            <text x="300" y="18" text-anchor="middle" font-weight="600">(b) precise, not true</text>
+            <text x="500" y="18" text-anchor="middle" font-weight="600">(c) true, not precise</text>
+            <text x="700" y="18" text-anchor="middle" font-weight="600">(d) neither</text>
+            <g transform="translate(100,112)" class="fill-magenta">
+              <circle cx="0" cy="0" r="4.2"/><circle cx="6" cy="-4" r="4.2"/><circle cx="-5" cy="5" r="4.2"/><circle cx="4" cy="7" r="4.2"/><circle cx="-7" cy="-3" r="4.2"/><circle cx="2" cy="-8" r="4.2"/><circle cx="-2" cy="2" r="4.2"/><circle cx="8" cy="2" r="4.2"/>
+            </g>
+            <g transform="translate(300,112)">
+              <line x1="0" y1="0" x2="25" y2="-22" class="stroke" stroke-width="1.6" marker-end="url(#mu-a1)"/>
+              <g class="fill-magenta"><circle cx="31" cy="-28" r="4.2"/><circle cx="37" cy="-24" r="4.2"/><circle cx="26" cy="-22" r="4.2"/><circle cx="33" cy="-34" r="4.2"/><circle cx="24" cy="-31" r="4.2"/><circle cx="39" cy="-30" r="4.2"/><circle cx="29" cy="-37" r="4.2"/><circle cx="36" cy="-20" r="4.2"/></g>
+              <rect x="-50" y="-47" width="40" height="17" rx="4" class="fill-bg"/>
+              <text x="-30" y="-34" text-anchor="middle" class="t-small" font-weight="600">bias</text>
+            </g>
+            <g transform="translate(500,112)">
+              <circle r="54" fill="none" class="stroke-magenta" stroke-width="1.2" stroke-dasharray="4 4"/>
+              <g class="fill-magenta"><circle cx="-40" cy="10" r="4.2"/><circle cx="35" cy="-30" r="4.2"/><circle cx="20" cy="40" r="4.2"/><circle cx="-25" cy="-45" r="4.2"/><circle cx="48" cy="12" r="4.2"/><circle cx="-10" cy="-15" r="4.2"/><circle cx="5" cy="25" r="4.2"/><circle cx="-45" cy="-20" r="4.2"/></g>
+            </g>
+            <g transform="translate(700,112)" class="fill-magenta">
+              <circle cx="-55" cy="5" r="4.2"/><circle cx="-10" cy="50" r="4.2"/><circle cx="-40" cy="45" r="4.2"/><circle cx="-5" cy="10" r="4.2"/><circle cx="-60" cy="35" r="4.2"/><circle cx="-25" cy="-5" r="4.2"/><circle cx="-35" cy="60" r="4.2"/><circle cx="-15" cy="30" r="4.2"/>
+            </g>
+            <g class="t-small">
+              <text x="100" y="212" text-anchor="middle">small bias, small spread</text><text x="100" y="228" text-anchor="middle" class="t-muted">= accurate</text>
+              <text x="300" y="212" text-anchor="middle">systematic error dominates</text><text x="300" y="228" text-anchor="middle" class="t-muted">averaging does not help</text>
+              <text x="500" y="212" text-anchor="middle">random error dominates</text><text x="500" y="228" text-anchor="middle" class="t-muted">averaging helps</text>
+              <text x="700" y="212" text-anchor="middle">bias and spread</text><text x="700" y="228" text-anchor="middle" class="t-muted">calibrate, then average</text>
+            </g>
+            <text x="400" y="258" text-anchor="middle" class="t-small t-muted">centre of each target = true value of the measurand; dots = replicate readings</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Trueness and precision are independent properties. Case (b) is the most dangerous in practice: the readings agree beautifully with each other, so nobody suspects that all of them are wrong. Only a comparison with a reference — a calibration — reveals the bias.</figcaption>
+      </figure>
+
+      <div class="callout key"><div class="callout-title">Key idea: error versus uncertainty</div><p>An <strong>error</strong> is a single, unknowable difference between your value and the truth. An <strong>uncertainty</strong> is a quantified range that expresses your remaining doubt. You <em>correct</em> the errors you know about (subtract a measured bias, compensate for temperature), and you <em>state</em> the uncertainty that remains. A complete result therefore looks like "14.4 ± 1.0 mol m⁻² d⁻¹ (k = 2)", never just "14.4".</p></div>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"My readings are very stable, so my sensor must be accurate." Stability is precision, not trueness. A humidity sensor that has drifted 4 %RH high reads just as steadily as a new one. The ten stable readings in case (b) of Figure 1 carry exactly the same systematic error, and averaging them removes none of it.</p></div>
+
+      <h2 id="type-a">Errors and repeated readings: Type A evaluation</h2>
+      <p>A simple but powerful way to think about any reading \(x_i\) is the <strong>error model</strong> \(x_i = x_{\text{true}} + b + \varepsilon_i\): the true value, plus a bias \(b\) that is the same in every replicate, plus a random error \(\varepsilon_i\) that differs from reading to reading, with mean zero and standard deviation \(\sigma\). A third category, <strong>gross errors</strong> (blunders), does not fit the model at all: a probe lifted out of the tank, a loose connector, condensation on a humidity sensor, a number typed in the wrong column. Gross errors are not "uncertainty" — they are mistakes to be detected and removed, and the quality-control tests of the last section of this lesson are designed to catch them.</p>
+      <table>
+        <caption>Table 1. Typical errors in controlled-environment measurements and how they behave.</caption>
+        <thead><tr><th>Source</th><th>Example in your project</th><th>Type</th><th>Reduced by averaging?</th><th>Remedy</th></tr></thead>
+        <tbody>
+          <tr><td>Calibration offset or gain</td><td>DS18B20 reads 0.24 °C high; PAR sensor sensitivity 3 % low</td><td>systematic</td><td>no</td><td>calibrate against a reference; apply correction</td></tr>
+          <tr><td>Influence quantity</td><td>unshielded T/RH sensor warmed by LED radiation; NDIR without pressure input</td><td>systematic (varies predictably)</td><td>no</td><td>shielding, ventilation, compensation (Lessons 9.1, 9.2)</td></tr>
+          <tr><td>Drift</td><td>pH electrode slope falling over months</td><td>systematic, growing</td><td>no</td><td>recalibration, check standards</td></tr>
+          <tr><td>Electrical noise</td><td>ADC reading jumping by ±3 codes; 50 Hz mains pick-up</td><td>random</td><td>yes</td><td>averaging, filtering, shielded cables</td></tr>
+          <tr><td>Quantisation</td><td>0.0625 °C steps of a DS18B20</td><td>random (if the signal varies)</td><td>partly</td><td>higher resolution, dithering by noise</td></tr>
+          <tr><td>Environmental fluctuation</td><td>turbulent air temperature around a leaf</td><td>random (part of the measurand's variability)</td><td>yes</td><td>define the averaging time in the measurand</td></tr>
+          <tr><td>Gross error</td><td>probe out of the water; stuck value; unit confusion</td><td>blunder</td><td>no — it distorts the mean</td><td>detect with QC tests, flag, remove</td></tr>
+        </tbody>
+      </table>
+      <p>If the bias is constant, the random part can be characterised statistically from repeated readings under repeatability conditions. The GUM calls any evaluation of uncertainty by statistical analysis of a series of observations a <strong>Type A evaluation</strong>.</p>
+      <div class="eq-box" id="eq-type-a">
+        <div class="eq-head"><span class="eq-label">Type A evaluation: mean, experimental standard deviation and standard uncertainty of the mean</span><span class="eq-num">(9.3.1)</span></div>
+        <div class="eq-main">\[ \bar{x} = \frac{1}{n}\sum_{i=1}^{n} x_i, \qquad s = \sqrt{\frac{1}{n-1}\sum_{i=1}^{n}\left(x_i - \bar{x}\right)^{2}}, \qquad u(\bar{x}) = \frac{s}{\sqrt{n}}, \qquad \nu = n - 1 \]</div>
+        <p class="eq-read">the best estimate is the arithmetic mean of the n readings; the experimental standard deviation s measures how much single readings scatter; the standard uncertainty of the mean is s divided by the square root of n, and it is based on n − 1 degrees of freedom.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_i\)</td><td>i-th of n independent readings under repeatability conditions</td><td>unit of the measurand</td></tr>
+          <tr><td>\(\bar{x}\)</td><td>arithmetic mean — the best estimate of \(x_{\text{true}} + b\)</td><td>same</td></tr>
+          <tr><td>\(s\)</td><td>experimental standard deviation of single readings (precision)</td><td>same</td></tr>
+          <tr><td>\(u(\bar{x})\)</td><td>standard uncertainty of the mean (what Lesson 3.2 calls the standard error)</td><td>same</td></tr>
+          <tr><td>\(\nu\)</td><td>degrees of freedom of the estimate</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Model.</strong> Each reading is \(x_i = \mu + \varepsilon_i\), with \(\mu = x_{\text{true}} + b\), \(\mathrm{E}[\varepsilon_i] = 0\), \(\mathrm{Var}(\varepsilon_i) = \sigma^2\), and the \(\varepsilon_i\) mutually independent.</li>
+            <li><strong>The mean is unbiased for μ.</strong> \(\mathrm{E}[\bar{x}] = \frac{1}{n}\sum \mathrm{E}[x_i] = \mu\). Note: unbiased for \(\mu\), which contains \(b\) — averaging can never reveal or remove the bias.</li>
+            <li><strong>Variance of the mean.</strong> For independent readings, variances add: \(\mathrm{Var}(\bar{x}) = \frac{1}{n^2}\sum_{i=1}^n \mathrm{Var}(x_i) = \frac{n\sigma^2}{n^2} = \frac{\sigma^2}{n}\). Taking the square root: the standard deviation of the mean is \(\sigma/\sqrt{n}\).</li>
+            <li><strong>Why divide by n − 1?</strong> Write \(\sum (x_i - \bar{x})^2 = \sum (x_i - \mu)^2 - n(\bar{x} - \mu)^2\) (expand and use \(\sum (x_i - \mu) = n(\bar{x}-\mu)\)). Its expectation is \(n\sigma^2 - n\cdot\sigma^2/n = (n-1)\sigma^2\). Dividing the sum by \(n-1\) therefore gives an unbiased estimate \(s^2\) of \(\sigma^2\). One degree of freedom was "used up" by estimating the mean.</li>
+            <li><strong>Result.</strong> Replacing \(\sigma\) by its estimate \(s\) gives \(u(\bar{x}) = s/\sqrt{n}\). Quadrupling the number of readings halves the uncertainty of the mean — the \(\sqrt{n}\) law.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — beware of correlated samples</summary>
+          <p>The \(\sqrt{n}\) law requires <em>independent</em> readings. Sixty readings taken one second apart from a slowly varying water temperature are not sixty independent observations: consecutive values share the same slow fluctuations, and \(s/\sqrt{60}\) grossly understates the uncertainty. For a first-order autoregressive process with lag-1 correlation \(\rho\), the effective number of independent readings is roughly \(n_{\text{eff}} \approx n(1-\rho)/(1+\rho)\) — with \(\rho = 0.9\), sixty readings are worth about three. Also remember that \(u(\bar{x})\) describes only the random component; the bias needs a separate (usually Type B) evaluation. With few readings, \(s\) itself is uncertain: with \(n = 5\) its relative standard uncertainty is about 35 %.</p>
+        </details>
+        <div class="eq-units">\(s\): \(\sqrt{[x]^2} = [x]\); \(u(\bar{x}) = s/\sqrt{n}\): [x] divided by a pure number = [x] — same unit as the readings ✓</div>
+        <div class="mini-calc" data-formula="s/sqrt(n)" data-output="Standard uncertainty of the mean u(x̄)" data-unit="°C" data-digits="4" data-plot="n" data-title="Try it — how many readings do you need?">
+          <div data-var="s" data-label="Standard deviation of single readings s" data-min="0.01" data-max="1" data-step="0.001" data-value="0.046" data-unit="°C"></div>
+          <div data-var="n" data-label="Number of independent readings n" data-min="2" data-max="100" data-step="1" data-value="10"></div>
+        </div>
+      </div>
+
+      <p>How should you collect the readings for a Type A evaluation in practice? The answer depends on which question you want to answer. To characterise the <em>repeatability</em> of a probe, keep everything constant — the same bath, the same immersion depth, the same person — and space the readings far enough apart that each one contains fresh noise: for a DS18B20 in a stirred bath, one reading per minute for ten minutes is better than ten readings in ten seconds. To characterise <em>reproducibility</em>, deliberately vary the conditions that will vary in use: remove and re-insert the probe, let a classmate take the reading, repeat on another day. The spread under changed conditions is almost always larger, and it is the honest number for a measurement protocol that several people will follow during the project.</p>
+      <figure class="figure" id="averaging-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — averaging beats noise, but not bias</div>
+          <div class="fx-ctl" id="av-ctl"></div>
+          <div class="fx-row"><button type="button" class="btn btn-sm" id="av-new">Take a new set of readings</button></div>
+          <div id="av-plot" style="height:330px"></div>
+          <div class="readouts" id="av-ro"></div>
+        </div>
+        <figcaption><b>Figure 2.</b> A virtual water-temperature probe in a tank at exactly 20.00 °C. Dots are single readings (bias + Gaussian noise); the green line is the running mean after k readings, and the shaded band is the running mean ± 2 s/√k. As k grows, the band shrinks — around the <em>biased</em> value (magenta), not around the true value (grey). Set the bias to zero and the band closes in on the truth.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">An ice-point check of a water-temperature probe</span></div>
+        <div class="we-problem"><p>Before installing a DS18B20 probe in the nutrient tank, you place it in a stirred mixture of crushed ice and deionised water, which realises 0.00 °C to within about 0.01 °C when made carefully. After 5 minutes you log ten readings (°C, 12-bit resolution = 0.0625 °C): 0.1875, 0.2500, 0.1875, 0.2500, 0.3125, 0.2500, 0.1875, 0.2500, 0.2500, 0.3125. (a) Estimate the bias of the probe and its standard uncertainty. (b) Is the probe within its ±0.5 °C specification? (c) What should you do with the result?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Mean.</strong> The sum is \(3\times0.1875 + 5\times0.2500 + 2\times0.3125 = 2.4375\) °C, so \(\bar{x} = 2.4375/10 = 0.2438\) °C.</li>
+              <li><strong>Standard deviation.</strong> Deviations from the mean: −0.05625 (three times), +0.00625 (five times), +0.06875 (twice). Sum of squares: \(3(0.003164) + 5(0.0000391) + 2(0.004727) = 0.019141\) °C². Dividing by \(n - 1 = 9\): \(s^2 = 0.0021267\) °C², \(s = 0.0461\) °C.</li>
+              <li><strong>Type A standard uncertainty of the mean</strong> (Eq. 9.3.1): \(u(\bar{x}) = 0.0461/\sqrt{10} = 0.0146\) °C, with 9 degrees of freedom.</li>
+              <li><strong>Bias.</strong> \(b = \bar{x} - 0.00 = +0.244\) °C. Its uncertainty also includes the ice bath (≈ 0.01 °C, Type B) — combined (Eq. 9.3.3): \(\sqrt{0.0146^2 + 0.01^2} = 0.018\) °C.</li>
+              <li><strong>Specification.</strong> +0.24 °C lies well inside ±0.5 °C: the probe meets its data sheet.</li>
+              <li><strong>Action.</strong> Record the bias in your metadata and subtract 0.24 °C from future readings (a one-point offset correction). Check at a second temperature (e.g., against a reference thermometer at 20–25 °C) to see whether the offset is the same across the range — if not, you need a two-point or multi-point calibration (Worked example 4).</li>
+            </ol>
+            <span class="answer">Bias ≈ +0.24 °C, u ≈ 0.018 °C; within specification; correct future readings by −0.24 °C</span>
+            <p style="margin-top:10px">Sanity check: the scatter \(s = 0.046\) °C is comparable to the resolution-limited uncertainty \(0.0625/\sqrt{12} = 0.018\) °C and to the spread expected from a well-stirred bath — the probe is precise; its dominant error is systematic. That is typical of digital sensors, and it is exactly case (b) of Figure 1.</p>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="gum">The GUM framework: Type B, propagation and expanded uncertainty</h2>
+      <p>Most of the uncertainty in a real measurement cannot be evaluated from your own repeated readings: the uncertainty of the calibration performed by the manufacturer, the drift since then, the limited resolution, a specified accuracy of "±1.8 %RH". The GUM calls every evaluation that is <em>not</em> a statistical analysis of your own series of observations a <strong>Type B evaluation</strong>. It uses all available information — data sheets, calibration certificates, physics, experience — and it is just as legitimate as Type A. The GUM procedure is a recipe of six steps (Figure 3), and its heart is the law of propagation of uncertainty.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 800 342" role="img" aria-label="The six steps of the GUM procedure and a cause-and-effect diagram of uncertainty sources for the daily light integral">
+            <defs><marker id="mu-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g class="t-small">
+              <rect x="6" y="12" width="120" height="70" rx="9" class="fill-accent-soft" stroke="currentColor"/>
+              <text x="66" y="32" text-anchor="middle" font-weight="600">1 Model</text><text x="66" y="50" text-anchor="middle">measurand and</text><text x="66" y="65" text-anchor="middle">y = f(x₁, …, x<tspan baseline-shift="sub" font-size="8">N</tspan>)</text>
+              <rect x="138" y="12" width="120" height="70" rx="9" class="fill-bg" stroke="currentColor"/>
+              <text x="198" y="32" text-anchor="middle" font-weight="600">2 Sources</text><text x="198" y="50" text-anchor="middle">list every input</text><text x="198" y="65" text-anchor="middle">and influence</text>
+              <rect x="270" y="12" width="120" height="70" rx="9" class="fill-bg" stroke="currentColor"/>
+              <text x="330" y="32" text-anchor="middle" font-weight="600">3 Standard u(xᵢ)</text><text x="330" y="50" text-anchor="middle">Type A: statistics</text><text x="330" y="65" text-anchor="middle">Type B: other info</text>
+              <rect x="402" y="12" width="120" height="70" rx="9" class="fill-bg" stroke="currentColor"/>
+              <text x="462" y="32" text-anchor="middle" font-weight="600">4 Sensitivities</text><text x="462" y="50" text-anchor="middle">cᵢ = ∂f/∂xᵢ</text><text x="462" y="65" text-anchor="middle">(model slopes)</text>
+              <rect x="534" y="12" width="120" height="70" rx="9" class="fill-bg" stroke="currentColor"/>
+              <text x="594" y="32" text-anchor="middle" font-weight="600">5 Combine</text><text x="594" y="50" text-anchor="middle">u<tspan baseline-shift="sub" font-size="8">c</tspan>² = Σ cᵢ² u²(xᵢ)</text><text x="594" y="65" text-anchor="middle">+ correlations</text>
+              <rect x="666" y="12" width="128" height="70" rx="9" class="fill-magenta-soft" stroke="currentColor"/>
+              <text x="730" y="32" text-anchor="middle" font-weight="600">6 Expand, report</text><text x="730" y="50" text-anchor="middle">U = k u<tspan baseline-shift="sub" font-size="8">c</tspan>, k = 2</text><text x="730" y="65" text-anchor="middle">y ± U (unit)</text>
+            </g>
+            <g class="stroke" stroke-width="1.4"><line x1="126" y1="47" x2="136" y2="47" marker-end="url(#mu-a2)"/><line x1="258" y1="47" x2="268" y2="47" marker-end="url(#mu-a2)"/><line x1="390" y1="47" x2="400" y2="47" marker-end="url(#mu-a2)"/><line x1="522" y1="47" x2="532" y2="47" marker-end="url(#mu-a2)"/><line x1="654" y1="47" x2="664" y2="47" marker-end="url(#mu-a2)"/></g>
+            <text x="400" y="112" text-anchor="middle" class="t-small t-muted">Step 2 in practice: a cause-and-effect ("fishbone") diagram of what can make a daily light integral wrong</text>
+            <line x1="40" y1="222" x2="660" y2="222" class="stroke" stroke-width="2.4" marker-end="url(#mu-a2)"/>
+            <rect x="664" y="200" width="130" height="44" rx="9" class="fill-accent-soft" stroke="currentColor"/>
+            <text x="729" y="219" text-anchor="middle" font-weight="600" class="t-small">u(DLI)</text><text x="729" y="235" text-anchor="middle" class="t-small t-muted">combined</text>
+            <g class="stroke-muted" stroke-width="1.4">
+              <line x1="90" y1="140" x2="140" y2="222"/><line x1="240" y1="140" x2="290" y2="222"/><line x1="390" y1="140" x2="440" y2="222"/><line x1="540" y1="140" x2="590" y2="222"/>
+              <line x1="90" y1="304" x2="140" y2="222"/><line x1="240" y1="304" x2="290" y2="222"/><line x1="390" y1="304" x2="440" y2="222"/><line x1="540" y1="304" x2="590" y2="222"/>
+            </g>
+            <g class="t-small">
+              <text x="90" y="134" text-anchor="middle" font-weight="600">calibration</text><text x="136" y="170" class="t-muted">±5 %</text><text x="136" y="184" class="t-muted">(certificate)</text>
+              <text x="240" y="134" text-anchor="middle" font-weight="600">drift</text><text x="286" y="170" class="t-muted">&lt; 2 % per year</text><text x="286" y="184" class="t-muted">since calibration</text>
+              <text x="390" y="134" text-anchor="middle" font-weight="600">spectral mismatch</text><text x="436" y="170" class="t-muted">sensor vs ideal</text><text x="436" y="184" class="t-muted">400–700 nm box</text>
+              <text x="540" y="134" text-anchor="middle" font-weight="600">cosine response</text><text x="586" y="170" class="t-muted">±5 % at 75°;</text><text x="586" y="184" class="t-muted">small under LEDs</text>
+              <text x="90" y="322" text-anchor="middle" font-weight="600">position &amp; levelling</text><text x="130" y="266" class="t-muted">PPFD varies</text><text x="130" y="280" class="t-muted">over the canopy</text>
+              <text x="240" y="322" text-anchor="middle" font-weight="600">sensor temperature</text><text x="280" y="266" class="t-muted">−0.11 % per °C</text>
+              <text x="390" y="322" text-anchor="middle" font-weight="600">noise &amp; ADC</text><text x="430" y="266" class="t-muted">random, averages</text><text x="430" y="280" class="t-muted">out over a day</text>
+              <text x="540" y="322" text-anchor="middle" font-weight="600">logging interval</text><text x="580" y="266" class="t-muted">misses fast</text><text x="580" y="280" class="t-muted">sunflecks</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 3.</b> Top: the six steps of the GUM procedure (JCGM, 2008a). Bottom: a cause-and-effect diagram for the DLI measured with a quantum sensor, with manufacturer figures for a full-spectrum sensor (Apogee Instruments, n.d.). Listing sources before calculating anything is the step that beginners skip — and the one where most real uncertainty hides.</figcaption>
+      </figure>
+
+      <div class="eq-box" id="eq-type-b">
+        <div class="eq-head"><span class="eq-label">Type B evaluation: standard uncertainty from limits, resolution and certificates</span><span class="eq-num">(9.3.2)</span></div>
+        <div class="eq-main">\[ u_{\text{rect}} = \frac{a}{\sqrt{3}}, \qquad u_{\text{tri}} = \frac{a}{\sqrt{6}}, \qquad u_{\text{res}} = \frac{\delta}{\sqrt{12}}, \qquad u_{\text{cert}} = \frac{U}{k} \]</div>
+        <p class="eq-read">if all you know is that the error lies somewhere between −a and +a with no value preferred, the standard uncertainty is the half-width a divided by the square root of 3; if values near the centre are more likely (a triangular distribution), divide by the square root of 6; a resolution step δ gives δ divided by the square root of 12; and an expanded uncertainty U quoted on a certificate with coverage factor k gives U divided by k.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example</th></tr>
+          <tr><td>\(a\)</td><td>half-width of the interval that certainly contains the error (e.g., a data-sheet accuracy ±a)</td><td>unit of x</td><td>±0.5 °C (DS18B20)</td></tr>
+          <tr><td>\(\delta\)</td><td>resolution: one digit or one ADC step (LSB)</td><td>unit of x</td><td>0.0625 °C</td></tr>
+          <tr><td>\(U\), \(k\)</td><td>expanded uncertainty and coverage factor stated on a calibration certificate</td><td>unit of x, –</td><td>±0.05 °C, k = 2</td></tr>
+          <tr><td>\(u\)</td><td>resulting standard uncertainty (a standard deviation)</td><td>unit of x</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Rectangular (uniform) distribution.</strong> If the error \(e\) is equally likely anywhere in \([-a, a]\), its probability density is \(1/(2a)\). Its variance is \(\sigma^2 = \displaystyle\int_{-a}^{a} e^2\,\frac{1}{2a}\,\mathrm{d}e = \frac{1}{2a}\left[\frac{e^3}{3}\right]_{-a}^{a} = \frac{1}{2a}\cdot\frac{2a^3}{3} = \frac{a^2}{3}\), so \(u = a/\sqrt{3} = 0.577\,a\).</li>
+            <li><strong>Triangular distribution.</strong> Density \((a - |e|)/a^2\) on \([-a, a]\): \(\sigma^2 = 2\displaystyle\int_0^a e^2\frac{a - e}{a^2}\mathrm{d}e = \frac{2}{a^2}\left(\frac{a^4}{3} - \frac{a^4}{4}\right) = \frac{a^2}{6}\), so \(u = a/\sqrt{6} = 0.408\,a\).</li>
+            <li><strong>Resolution.</strong> A reading displayed in steps of \(\delta\) hides the true value somewhere within \(\pm\delta/2\): a rectangular distribution with \(a = \delta/2\), hence \(u = (\delta/2)/\sqrt{3} = \delta/\sqrt{12}\) — the same result as the quantisation noise of an ADC in Lesson 9.1 (Eq. 9.1.4).</li>
+            <li><strong>Certificates.</strong> A calibration laboratory reports \(U = k\,u\) (usually \(k = 2\)); dividing by \(k\) recovers the standard uncertainty.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — which distribution should I choose?</summary>
+          <p>When a data sheet says "accuracy ±a" without further information, the GUM recommends the rectangular distribution: it is the most conservative choice that uses only the stated limits. Choose triangular when values near the centre are clearly more likely (for example the difference of two rectangular errors). Manufacturers sometimes quote "typical" values (as Sensirion does for the SHT4x) that are statistical rather than guaranteed limits; the rectangular assumption is then a reasonable, slightly conservative engineering choice — state it in your report. Never add a Type B term twice: if you calibrated the sensor yourself, the manufacturer's accuracy specification is replaced by your calibration uncertainty.</p>
+        </details>
+        <div class="eq-units">\(a/\sqrt{3}\): [x]/1 = [x] ✓; \(\delta/\sqrt{12}\): [x] ✓; \(U/k\): [x]/1 = [x] ✓</div>
+        <div class="mini-calc" data-formula="sqrt(a*a/3 + d*d/12)" data-output="Standard uncertainty (spec + resolution)" data-unit="°C" data-digits="4" data-plot="d" data-title="Try it — does resolution matter? (rectangular spec ±a plus resolution δ)">
+          <div data-var="a" data-label="Specification half-width a" data-min="0.05" data-max="1" data-step="0.01" data-value="0.5" data-unit="°C"></div>
+          <div data-var="d" data-label="Resolution δ" data-min="0.001" data-max="1" data-step="0.001" data-value="0.0625" data-unit="°C"></div>
+        </div>
+      </div>
+      <p>Now we must combine several standard uncertainties into one. Most quantities you care about are not measured directly but calculated from others: the DLI from PPFD and time, the VPD from temperature and relative humidity, EC₂₅ from raw conductivity and temperature. The rule that carries uncertainty through a calculation is the heart of the GUM.</p>
+      <div class="eq-box" id="eq-propagation">
+        <div class="eq-head"><span class="eq-label">Law of propagation of uncertainty (first order)</span><span class="eq-num">(9.3.3)</span></div>
+        <div class="eq-main">\[ \begin{gathered} u_c^{2}(y) = \sum_{i=1}^{N}\left(\frac{\partial f}{\partial x_i}\right)^{2}u^{2}(x_i) \;+\; 2\sum_{i=1}^{N-1}\sum_{j=i+1}^{N}\frac{\partial f}{\partial x_i}\frac{\partial f}{\partial x_j}\,u(x_i,x_j) \\[8pt] \text{for } y = c\prod_i x_i^{\,p_i}\ \text{(independent inputs)}:\qquad \left(\frac{u_c}{y}\right)^{2} = \sum_i\left(p_i\,\frac{u(x_i)}{x_i}\right)^{2} \end{gathered} \]</div>
+        <p class="eq-read">the square of the combined standard uncertainty of the result equals the sum, over all inputs, of the squared sensitivity coefficient times the squared standard uncertainty of that input, plus twice the sum of cross-products of sensitivities and covariances for inputs that are correlated. For a product of powers of independent inputs, the relative uncertainties add in quadrature, each multiplied by its exponent.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(y = f(x_1,\dots,x_N)\)</td><td>the measurement model: result as a function of input quantities</td><td>unit of y</td></tr>
+          <tr><td>\(c_i = \partial f/\partial x_i\)</td><td>sensitivity coefficient: how much y changes per unit change of \(x_i\)</td><td>[y]/[x<sub>i</sub>]</td></tr>
+          <tr><td>\(u(x_i)\)</td><td>standard uncertainty of input i (Type A or B)</td><td>[x<sub>i</sub>]</td></tr>
+          <tr><td>\(u(x_i,x_j)\)</td><td>covariance of inputs i and j; \(u(x_i,x_j) = r_{ij}\,u(x_i)u(x_j)\) with correlation coefficient \(r_{ij}\)</td><td>[x<sub>i</sub>][x<sub>j</sub>]</td></tr>
+          <tr><td>\(u_c(y)\)</td><td>combined standard uncertainty of the result</td><td>[y]</td></tr>
+          <tr><td>\(p_i\)</td><td>exponent of \(x_i\) in a product model (1 for multiplication, −1 for division, 2 for a square)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation from a Taylor expansion</summary>
+          <ol class="steps">
+            <li><strong>Linearise.</strong> Write each input as its best estimate plus a small error: \(x_i = \hat{x}_i + \delta_i\). A first-order Taylor expansion of the model around the estimates gives \(y = f(\hat{x}_1 + \delta_1,\dots) \approx f(\hat{x}_1,\dots,\hat{x}_N) + \sum_i c_i\,\delta_i\), with \(c_i = \partial f/\partial x_i\) evaluated at the estimates.</li>
+            <li><strong>The error of the result is a linear combination of input errors:</strong> \(\delta_y \approx \sum_i c_i\delta_i\).</li>
+            <li><strong>Variance of a linear combination.</strong> For any random variables, \(\mathrm{Var}\left(\sum_i c_i\delta_i\right) = \sum_i c_i^2\,\mathrm{Var}(\delta_i) + 2\sum_{i&lt;j}c_ic_j\,\mathrm{Cov}(\delta_i,\delta_j)\). This follows from expanding the square \(\left(\sum c_i\delta_i\right)^2\) and taking expectations term by term.</li>
+            <li><strong>Identify the terms.</strong> Variances are squared standard uncertainties, \(u^2(x_i)\); covariances are \(u(x_i,x_j)\). This is Eq. 9.3.3. Independent inputs have zero covariance and only the first sum remains — "adding in quadrature".</li>
+            <li><strong>Products and quotients.</strong> For \(y = c\,x_1^{p_1}x_2^{p_2}\cdots\), take logarithms: \(\ln y = \ln c + \sum p_i\ln x_i\). Differentiating, \(\delta y/y = \sum p_i\,\delta x_i/x_i\): relative errors combine linearly with weights \(p_i\), and for independent inputs the relative uncertainties add in quadrature.</li>
+            <li><strong>Two limits worth remembering.</strong> Independent (\(r = 0\)): \(u_c = \sqrt{u_1^2 + u_2^2}\) for \(y = x_1 + x_2\). Fully correlated (\(r = 1\)): \(u_c = u_1 + u_2\) — the uncertainties add linearly. A calibration error shared by all readings of the same sensor is fully correlated, which is why it survives any amount of averaging.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — when to use Monte Carlo instead</summary>
+          <p>The law is exact for linear models and a good approximation when the model is nearly linear over a range of about ±2u around the estimates. It can fail for strongly non-linear models (an exponential in a Nernst or Arrhenius term with large input uncertainty), when one non-normal input dominates, or near a physical limit (a relative humidity close to 100 %). The GUM supplement JCGM 101 (JCGM, 2008b) replaces the analytical propagation by a <strong>Monte Carlo simulation</strong>: draw thousands of input values from their distributions, compute the result for each, and take the standard deviation and the 2.5 % and 97.5 % quantiles of the results. Figure 4 does exactly that for the VPD.</p>
+        </details>
+        <div class="eq-units">Each term \(c_i^2u^2(x_i)\): \(([y]/[x_i])^2[x_i]^2 = [y]^2\) ✓; so \(u_c\) has the unit of y. The relative form is dimensionless ✓</div>
+        <div class="mini-calc" data-formula="sqrt(pow(p1*u1,2)+pow(p2*u2,2)+pow(p3*u3,2))" data-output="Relative combined uncertainty u<sub>c</sub>/y" data-unit="%" data-digits="3" data-plot="u1" data-title="Try it — a product of three independent inputs, each raised to a power">
+          <div data-var="u1" data-label="u(x₁)/x₁" data-min="0" data-max="10" data-step="0.05" data-value="2.89" data-unit="%"></div>
+          <div data-var="p1" data-label="exponent p₁" data-min="-2" data-max="3" data-step="1" data-value="1"></div>
+          <div data-var="u2" data-label="u(x₂)/x₂" data-min="0" data-max="10" data-step="0.05" data-value="1.15" data-unit="%"></div>
+          <div data-var="p2" data-label="exponent p₂" data-min="-2" data-max="3" data-step="1" data-value="1"></div>
+          <div data-var="u3" data-label="u(x₃)/x₃" data-min="0" data-max="10" data-step="0.05" data-value="0.10" data-unit="%"></div>
+          <div data-var="p3" data-label="exponent p₃" data-min="-2" data-max="3" data-step="1" data-value="1"></div>
+        </div>
+      </div>
+      <p>The covariance term deserves a moment's thought, because correlation can make uncertainties either larger or smaller. Two inputs are correlated whenever they share an error source. If two tank-temperature probes were both calibrated against the same reference thermometer, the reference's error is inside both corrections; their <em>average</em> does not beat that shared error, but their <em>difference</em> is free of it. Temperature and humidity measured by the same chip may share a self-heating error. Most importantly for your experiment: when two treatments are measured with the <em>same</em> sensor, its calibration error is common to both and cancels in the difference — the reason why a paired design with one instrument can detect smaller treatment effects than a comparison of values from two differently calibrated instruments. In the other direction, ignoring a positive correlation when you add correlated quantities underestimates the uncertainty.</p>
+      <p>The combined standard uncertainty is a standard deviation. An interval of ±1 standard deviation contains the true value only about two times out of three, which is too weak a statement for most decisions. The result is therefore expanded by a coverage factor.</p>
+      <div class="eq-box" id="eq-expanded">
+        <div class="eq-head"><span class="eq-label">Expanded uncertainty and coverage probability</span><span class="eq-num">(9.3.4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} U = k\,u_c(y), \qquad Y = y \pm U, \qquad p(k) = \operatorname{erf}\!\left(\frac{k}{\sqrt{2}}\right)\ \ \text{(normal distribution)} \\[8pt] \nu_{\text{eff}} = \frac{u_c^{4}(y)}{\sum_i c_i^{4}u^{4}(x_i)/\nu_i} \end{gathered} \]</div>
+        <p class="eq-read">the expanded uncertainty is the coverage factor k times the combined standard uncertainty; the result is reported as the estimate plus or minus U; for a normally distributed result the probability that the interval covers the true value is the error function of k divided by the square root of 2; and when some inputs rest on few degrees of freedom, the Welch–Satterthwaite formula gives the effective degrees of freedom used to choose k from the t-distribution.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(k\)</td><td>coverage factor</td><td>–</td><td>2 (≈ 95 %)</td></tr>
+          <tr><td>\(U\)</td><td>expanded uncertainty</td><td>unit of y</td><td></td></tr>
+          <tr><td>\(p\)</td><td>coverage probability (level of confidence)</td><td>%</td><td>95.45 % for k = 2</td></tr>
+          <tr><td>\(\nu_i\), \(\nu_{\text{eff}}\)</td><td>degrees of freedom of input i (n − 1 for Type A; large for well-known Type B) and of the result</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>If the combined result is normally distributed with standard deviation \(u_c\), the probability of lying within \(\pm k u_c\) of the mean is \(\displaystyle\int_{-k}^{k}\frac{1}{\sqrt{2\pi}}e^{-z^2/2}\mathrm{d}z = \operatorname{erf}(k/\sqrt{2})\).</li>
+            <li>Evaluate: \(k = 1\) → 68.27 %; \(k = 1.96\) → 95.00 %; \(k = 2\) → 95.45 %; \(k = 3\) → 99.73 %.</li>
+            <li>Why is the result approximately normal even if the inputs are rectangular? The central limit theorem: a sum of several independent contributions of comparable size tends to a normal distribution. If one rectangular term dominates, the true coverage of \(\pm 2u_c\) is actually 100 %, and a 95 % interval is narrower (about \(\pm 1.65u_c\)) — Monte Carlo shows this directly.</li>
+            <li>When a dominant Type A input rests on few readings, replace \(k = 2\) by the Student-t value \(t_{0.975}(\nu_{\text{eff}})\) — for example 2.26 for \(\nu_{\text{eff}} = 9\).</li>
+          </ol>
+        </details>
+        <details><summary>How to report a result</summary>
+          <p>Round the expanded uncertainty to one or two significant digits and round the value to the same decimal place: "DLI = 14.4 mol m⁻² d⁻¹ ± 1.0 mol m⁻² d⁻¹ (k = 2, approximately 95 % coverage)". Never write "14.40318 ± 0.9552". State the coverage factor; NIST adopted k = 2 as its default for exactly this reason (Taylor &amp; Kuyatt, 1994). In tables, a column header "DLI (mol m⁻² d⁻¹), U (k = 2)" saves space.</p>
+        </details>
+        <div class="eq-units">\(U = k\,u_c\): dimensionless × [y] = [y] ✓; \(p\) is a probability (dimensionless) ✓</div>
+        <div class="mini-calc" data-fn="coverage" data-output="Coverage probability p (normal)" data-unit="%" data-digits="2" data-plot="k" data-ymin="0" data-ymax="100" data-title="Try it — what does k buy you?">
+          <div data-var="k" data-label="Coverage factor k" data-min="0.5" data-max="3.5" data-step="0.01" data-value="2"></div>
+        </div>
+      </div>
+
+      <table>
+        <caption>Table 2. An uncertainty budget — the standard way to document steps 2 to 6 (numbers from Worked example 2, DLI with a quantum sensor).</caption>
+        <thead><tr><th>Source</th><th>Information</th><th>Type, distribution</th><th>Standard uncertainty (% of DLI)</th><th>Sensitivity</th><th>Contribution (%)</th></tr></thead>
+        <tbody>
+          <tr><td>Calibration of sensitivity</td><td>±5 % (data sheet)</td><td>B, rectangular</td><td class="num">5/√3 = 2.89</td><td class="num">1</td><td class="num">2.89</td></tr>
+          <tr><td>Drift since calibration</td><td>&lt; 2 % per year, 1 year</td><td>B, rectangular</td><td class="num">2/√3 = 1.15</td><td class="num">1</td><td class="num">1.15</td></tr>
+          <tr><td>Spectral mismatch (LED)</td><td>assumed ±2 %</td><td>B, rectangular</td><td class="num">1.15</td><td class="num">1</td><td class="num">1.15</td></tr>
+          <tr><td>Noise (960 readings)</td><td>0.5 % per reading, independent</td><td>A, normal</td><td class="num">0.5/√960 = 0.016</td><td class="num">1</td><td class="num">0.016</td></tr>
+          <tr><td><strong>Combined</strong> \(u_c\)</td><td colspan="4">\(\sqrt{2.89^2 + 1.15^2 + 1.15^2 + 0.016^2}\)</td><td class="num"><strong>3.32</strong></td></tr>
+          <tr><td><strong>Expanded</strong> \(U\) (k = 2)</td><td colspan="4"></td><td class="num"><strong>6.6</strong></td></tr>
+        </tbody>
+      </table>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">The uncertainty of a daily light integral from a ±5 % PAR sensor</span></div>
+        <div class="we-problem"><p>A group logs PPFD under its LED fixture every minute with a full-spectrum quantum sensor whose calibration uncertainty is ±5 % and whose drift is below 2 % per year (Apogee Instruments, n.d.); the sensor was calibrated one year ago. The mean PPFD over the 16 h photoperiod is 250 µmol m⁻² s⁻¹. Single readings scatter by 0.5 % (repeatability), and you allow ±2 % for spectral mismatch under your LED spectrum. What is the DLI and its expanded uncertainty? Why do 960 readings not make the calibration uncertainty smaller?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Model.</strong> \(\text{DLI} = \dfrac{\Delta t}{10^6}\sum_{i=1}^{N}\text{PPFD}_i\) with \(\Delta t = 60\) s and \(N = 960\) readings. With a constant mean: \(\text{DLI} = 250\times16\times3600/10^6 = 14.40\) mol m⁻² d⁻¹ (Lesson 4.1, Eq. 4.1.6).</li>
+              <li><strong>Error model for each reading.</strong> \(\text{PPFD}_i = (1 + \gamma)\,\text{PPFD}_{\text{true},i} + \varepsilon_i\), where \(\gamma\) is the relative sensitivity error of <em>this</em> sensor (calibration + drift + spectral mismatch) — the same in every reading — and \(\varepsilon_i\) is independent noise.</li>
+              <li><strong>Correlated part.</strong> Because \(\gamma\) multiplies every term of the sum, \(\text{DLI}_{\text{measured}} = (1+\gamma)\,\text{DLI}_{\text{true}}\): the relative uncertainty of the DLI equals the relative uncertainty of \(\gamma\), however many readings you take (the fully correlated limit of Eq. 9.3.3).</li>
+              <li><strong>Type B terms</strong> (Eq. 9.3.2, rectangular): calibration \(5/\sqrt3 = 2.89\,\%\); drift \(2/\sqrt3 = 1.15\,\%\); spectral \(2/\sqrt3 = 1.15\,\%\). These are independent of each other, so they add in quadrature: \(\sqrt{2.89^2 + 1.15^2 + 1.15^2} = 3.32\,\%\).</li>
+              <li><strong>Random part.</strong> The noise terms are independent: \(u = \frac{\Delta t}{10^6}\sqrt{N}\,\sigma = \frac{60}{10^6}\sqrt{960}\times1.25 = 0.0023\) mol m⁻² d⁻¹ — only 0.016 % of the DLI. Negligible.</li>
+              <li><strong>Combine and expand.</strong> \(u_c = 0.0332\times14.40 = 0.478\) mol m⁻² d⁻¹; \(U = 2\times0.478 = 0.96\) mol m⁻² d⁻¹ (Eq. 9.3.4).</li>
+            </ol>
+            <span class="answer">DLI = 14.4 ± 1.0 mol m⁻² d⁻¹ (k = 2); the calibration term dominates</span>
+            <p style="margin-top:10px">Lessons: (1) averaging kills noise but not a shared calibration error; (2) to compare two treatments measured with the <em>same</em> sensor, the common calibration error cancels in the difference — only the random and position-dependent terms remain. Comparing two groups' DLIs measured with <em>different</em> sensors, by contrast, carries both calibration uncertainties. Sanity check: an expanded uncertainty of about ±7 % is what the manufacturer's ±5 % becomes once drift and spectral effects are added; Ross and Sulev (2000) review these and further error sources of PAR measurements.</p>
+          </div>
+        </details>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">The uncertainty of a VPD from temperature and humidity sensors</span></div>
+        <div class="we-problem"><p>An SHT40-type sensor in a ventilated shield reads 24.0 °C and 70.0 %RH. Its typical accuracies are ±0.2 °C and ±1.8 %RH (Sensirion, n.d.), which you treat as rectangular limits. (a) Compute the VPD and its expanded uncertainty with the FAO-56 (Tetens) saturation vapour pressure \(e_s(T) = 0.6108\exp\!\left(\frac{17.27T}{T + 237.3}\right)\) kPa (Allen et al., 1998). (b) Which input dominates? (c) The shield's fan fails and sunlight warms the sensor element 0.5 K above the air. By how much is the VPD now wrong?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Model.</strong> \(\text{VPD} = e_s(T)\left(1 - \dfrac{h}{100}\right)\), with \(h\) the relative humidity in %. Estimate: \(e_s(24.0) = 0.6108\,\exp(17.27\times24/261.3) = 0.6108\times4.8853 = 2.9839\) kPa; \(\text{VPD} = 2.9839\times0.30 = 0.8952\) kPa.</li>
+              <li><strong>Sensitivity coefficients</strong> (step 4). \(c_T = \partial\,\text{VPD}/\partial T = \Delta(T)\,(1 - h/100)\), where \(\Delta = \mathrm{d}e_s/\mathrm{d}T = 4098\,e_s/(T + 237.3)^2 = 4098\times2.9839/261.3^2 = 0.17909\) kPa K⁻¹ (FAO-56), so \(c_T = 0.17909\times0.30 = 0.05373\) kPa K⁻¹. For humidity, \(c_h = \partial\,\text{VPD}/\partial h = -e_s/100 = -0.02984\) kPa per %RH.</li>
+              <li><strong>Standard uncertainties</strong> (rectangular, Eq. 9.3.2): \(u_T = 0.2/\sqrt3 = 0.1155\) K; \(u_h = 1.8/\sqrt3 = 1.039\) %RH.</li>
+              <li><strong>Contributions:</strong> \(|c_T|u_T = 0.05373\times0.1155 = 0.00620\) kPa; \(|c_h|u_h = 0.02984\times1.039 = 0.03101\) kPa.</li>
+              <li><strong>Combine</strong> (Eq. 9.3.3, independent): \(u_c = \sqrt{0.00620^2 + 0.03101^2} = 0.0316\) kPa; \(U = 0.063\) kPa (k = 2).</li>
+              <li><strong>Dominance.</strong> Humidity contributes \(0.03101^2/0.0316^2 = 96\,\%\) of the variance. Improving the thermometer would hardly help; a better or freshly calibrated humidity sensor would.</li>
+              <li><strong>Radiative heating (a systematic error).</strong> The polymer senses humidity at its own temperature. The actual vapour pressure is unchanged, \(e_a = 0.70\times2.9839 = 2.0887\) kPa, but the sensor now reports \(T_s = 24.5\) °C and \(h_s = 100\,e_a/e_s(24.5) = 100\times2.0887/3.0746 = 67.9\,\%\). The logger computes \(\text{VPD} = e_s(24.5) - e_a = 3.0746 - 2.0887 = 0.986\) kPa instead of 0.895 kPa: an error of +0.091 kPa (+10 %).</li>
+            </ol>
+            <span class="answer">VPD = 0.90 ± 0.06 kPa (k = 2), 96 % of the variance from RH; 0.5 K of radiative heating adds a +0.09 kPa bias — larger than the whole instrument uncertainty</span>
+            <p style="margin-top:10px">The installation error in (c) is not covered by the data-sheet uncertainty at all. It is a systematic error of the measurement <em>system</em>, and its size, \(\Delta\cdot\Delta T\), follows directly from the slope of the saturation curve (<a href="/lessons/psychrometrics/">Lesson 8.2</a>). Shielding and ventilation are part of the uncertainty budget.</p>
+          </div>
+        </details>
+      </div>
+
+      <figure class="figure" id="vpd-budget">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the VPD uncertainty budget, analytical (GUM) versus Monte Carlo</div>
+          <div class="fx-ctl" id="vb-ctl"></div>
+          <div class="fx-row">
+            <div class="seg" id="vb-dist" role="group" aria-label="Interpretation of the specification">
+              <button type="button" data-v="rect" aria-pressed="true">Spec as rectangular limits</button>
+              <button type="button" data-v="norm" aria-pressed="false">Spec as U with k = 2 (normal)</button>
+            </div>
+          </div>
+          <div class="fx-two">
+            <div><div class="fx-sub">Distribution of computed VPD (20 000 Monte Carlo draws)</div><div id="vb-plot" style="height:270px"></div></div>
+            <div><div class="fx-sub">Share of the variance</div><div id="vb-bars" style="height:150px"></div></div>
+          </div>
+          <div class="readouts" id="vb-ro"></div>
+        </div>
+        <figcaption><b>Figure 4.</b> Bars: histogram of VPD values obtained by drawing temperature and humidity errors from their distributions (JCGM 101 Monte Carlo). Green curve: the normal distribution predicted by the law of propagation (Eq. 9.3.3). Dashed lines: the reported value ± U; grey line: the true VPD of the air. Raise the radiative heating to see a systematic error shift the whole distribution away from the truth — no amount of statistics can see it. Right: share of the combined variance from each sensor.</figcaption>
+      </figure>
+
+      <h2 id="calibration">Calibration curves by linear regression</h2>
+      <p>Calibration is "the operation that, under specified conditions, establishes a relation between the quantity values provided by measurement standards, with their measurement uncertainties, and the corresponding indications" (JCGM, 2012). In plain words: you expose your sensor to several known values of the measurand, record what it says, and establish the relation that converts future indications into measured values. Three terms are often confused. <strong>Calibration</strong> establishes the relation; <strong>adjustment</strong> changes the instrument so that it reads correctly (turning a trimmer, writing new coefficients into firmware); <strong>verification</strong> checks that the instrument meets a specification without changing it. The reference values must themselves be traceable (Figure 5).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="Metrological traceability chain from the SI through national metrology institutes and accredited laboratories to working sensors, with uncertainty increasing downwards">
+            <defs><marker id="mu-a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <polygon points="360,10 430,62 290,62" class="fill-magenta-soft" stroke="currentColor"/>
+            <text x="360" y="52" text-anchor="middle" class="t-small" font-weight="600">SI</text>
+            <rect x="230" y="70" width="260" height="42" rx="8" class="fill-bg" stroke="currentColor"/>
+            <text x="360" y="88" text-anchor="middle" class="t-small" font-weight="600">BIPM &amp; national metrology institutes</text><text x="360" y="103" text-anchor="middle" class="t-small t-muted">in Sweden: RISE (primary standards)</text>
+            <rect x="185" y="122" width="350" height="42" rx="8" class="fill-bg" stroke="currentColor"/>
+            <text x="360" y="140" text-anchor="middle" class="t-small" font-weight="600">accredited calibration laboratories</text><text x="360" y="155" text-anchor="middle" class="t-small t-muted">ISO/IEC 17025, accredited in Sweden by Swedac</text>
+            <rect x="110" y="174" width="500" height="42" rx="8" class="fill-water-soft" stroke="currentColor"/>
+            <text x="360" y="192" text-anchor="middle" class="t-small" font-weight="600">reference instruments and certified reference materials</text><text x="360" y="207" text-anchor="middle" class="t-small t-muted">reference thermometer · pH buffers · KCl conductivity standard · reference PAR sensor</text>
+            <rect x="85" y="226" width="550" height="42" rx="8" class="fill-accent-soft" stroke="currentColor"/>
+            <text x="360" y="244" text-anchor="middle" class="t-small" font-weight="600">your working sensors</text><text x="360" y="259" text-anchor="middle" class="t-small t-muted">DS18B20 in the tank, pH and EC probes, SHT4x in its shield, PAR sensor on the canopy</text>
+            <line x1="660" y1="30" x2="660" y2="262" class="stroke" stroke-width="1.6" marker-end="url(#mu-a3)"/>
+            <text x="672" y="150" class="t-small" transform="rotate(90 672 150)" text-anchor="middle">uncertainty grows at every link</text>
+            <line x1="60" y1="262" x2="60" y2="30" class="stroke-muted" stroke-width="1.6" marker-end="url(#mu-a3)" style="color:var(--muted)"/>
+            <text x="46" y="150" class="t-small t-muted" transform="rotate(-90 46 150)" text-anchor="middle">each link: a calibration with a stated uncertainty</text>
+            <text x="360" y="292" text-anchor="middle" class="t-small t-muted">metrological traceability = an unbroken, documented chain of calibrations back to the SI</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 5.</b> The traceability chain (JCGM, 2012). Your calibration can never be better than the reference you calibrate against: a common rule of thumb is that the reference should be at least about four times less uncertain than the tolerance you want to verify.</figcaption>
+      </figure>
+      <p>A good calibration is designed, not improvised. Five rules cover most situations in the project. <strong>Span the range of use</strong>: calibrate a nutrient-tank probe from about 10 to 30 °C, not at room temperature only, because Eq. 9.3.6 shows that uncertainty grows quickly outside the calibrated range. <strong>Use enough points</strong> to test the model: two points determine a line but cannot reveal curvature; three buffers or five baths can. <strong>Wait for equilibrium</strong>: after each change, allow at least four to five time constants of the slowest element in the chain (Lesson 9.1, Eq. 9.1.2) — for a sheathed probe in a stirred bath, a couple of minutes. <strong>Approach points from both sides</strong> (rising and falling) if hysteresis is possible, as with polymer humidity sensors. <strong>Choose the model from physics</strong>: a straight line for a Pt100 or a pH electrode, Steinhart–Hart for a thermistor, the Topp polynomial or a substrate-specific curve for a dielectric moisture probe. Record everything — date, reference, raw indications, fitted coefficients — so that the calibration can be audited and repeated.</p>
+      <p>With several calibration points, the relation between reference value \(x\) and sensor indication \(y\) is found by least squares. You already met regression in <a href="/lessons/inferential-statistics/">Lesson 3.3</a>; here we focus on what a calibration needs: the line, its scatter, and the uncertainty of a value read back through it.</p>
+      <div class="eq-box" id="eq-calibration-line">
+        <div class="eq-head"><span class="eq-label">Least-squares calibration line</span><span class="eq-num">(9.3.5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \hat{y} = a + b\,x, \qquad b = \frac{S_{xy}}{S_{xx}}, \qquad a = \bar{y} - b\,\bar{x}, \qquad s_{y/x} = \sqrt{\frac{\sum_i (y_i - \hat{y}_i)^2}{n-2}} \\[8pt] u(b) = \frac{s_{y/x}}{\sqrt{S_{xx}}}, \qquad u(a) = s_{y/x}\sqrt{\frac{1}{n} + \frac{\bar{x}^2}{S_{xx}}} \end{gathered} \]</div>
+        <p class="eq-read">the fitted indication is an intercept plus a slope times the reference value; the slope is the sum of cross-products of deviations divided by the sum of squared deviations of x; the intercept makes the line pass through the centroid; the residual standard deviation measures the scatter of points about the line with n − 2 degrees of freedom; and the uncertainties of slope and intercept follow from it.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_i\)</td><td>reference (true) value at calibration point i, e.g. from a reference thermometer</td><td>unit of the measurand</td></tr>
+          <tr><td>\(y_i\)</td><td>sensor indication at point i (raw units or uncorrected reading)</td><td>unit of the indication</td></tr>
+          <tr><td>\(S_{xx} = \sum (x_i - \bar{x})^2\), \(S_{xy} = \sum (x_i - \bar{x})(y_i - \bar{y})\)</td><td>sums of squares and cross-products about the means</td><td>[x]², [x][y]</td></tr>
+          <tr><td>\(a\), \(b\)</td><td>intercept (offset) and slope (sensitivity)</td><td>[y], [y]/[x]</td></tr>
+          <tr><td>\(s_{y/x}\)</td><td>residual standard deviation ("standard error of the regression")</td><td>[y]</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Criterion.</strong> Choose \(a\) and \(b\) to minimise the sum of squared residuals \(\text{SSE}(a,b) = \sum_i (y_i - a - bx_i)^2\) — the vertical distances, because the reference values \(x_i\) are assumed to be (almost) exact.</li>
+            <li><strong>Normal equations.</strong> \(\partial\text{SSE}/\partial a = -2\sum(y_i - a - bx_i) = 0 \Rightarrow a = \bar{y} - b\bar{x}\): the line passes through the centroid \((\bar{x}, \bar{y})\). \(\partial\text{SSE}/\partial b = -2\sum x_i(y_i - a - bx_i) = 0\); substituting \(a\) and rearranging gives \(b\sum x_i(x_i - \bar{x}) = \sum x_i(y_i - \bar{y})\), i.e. \(b = S_{xy}/S_{xx}\).</li>
+            <li><strong>Residual scatter.</strong> Two parameters were estimated from \(n\) points, leaving \(n - 2\) degrees of freedom, hence the divisor in \(s_{y/x}\) — the same logic as \(n - 1\) in Eq. 9.3.1.</li>
+            <li><strong>Uncertainty of the slope.</strong> \(b = \sum w_i y_i\) with weights \(w_i = (x_i - \bar{x})/S_{xx}\). With independent \(y_i\) of equal variance \(s_{y/x}^2\), Eq. 9.3.3 gives \(u^2(b) = s_{y/x}^2\sum w_i^2 = s_{y/x}^2/S_{xx}\).</li>
+            <li><strong>Design consequence.</strong> For \(n\) equally spaced points across a range \(R\), \(S_{xx} = \dfrac{n(n+1)R^2}{12(n-1)}\), so \(u(b) \propto 1/R\): <em>spreading</em> the calibration points is far more effective than adding more points in a narrow range. The live calculator shows this.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — look at the residuals, not at R²</summary>
+          <p>Least squares assumes that (1) the reference values are much less uncertain than the indications (otherwise use errors-in-variables methods such as Deming regression), (2) the residuals have constant variance (otherwise use weighted least squares), (3) the straight line is the right model. Check (3) by plotting the residuals \(y_i - \hat{y}_i\) against \(x\): a random band is good; a U-shape means curvature (use a quadratic or a physical model such as Steinhart–Hart, Lesson 9.1); a funnel means non-constant variance. A coefficient of determination of 0.9999 says almost nothing — Anscombe (1973) constructed four data sets with identical R² whose residual plots are completely different. Never extrapolate a calibration beyond the calibrated range.</p>
+        </details>
+        <div class="eq-units">\(b = S_{xy}/S_{xx}\): [x][y]/[x]² = [y]/[x] ✓; \(u(b)\): [y]/[x] ✓; \(a\): [y] − ([y]/[x])[x] = [y] ✓</div>
+        <div class="mini-calc" data-fn="slopeU" data-output="Standard uncertainty of the slope u(b)" data-unit="" data-digits="5" data-plot="R" data-title="Try it — spread your calibration points (n equally spaced points over a range R)">
+          <div data-var="s" data-label="Residual standard deviation s<sub>y/x</sub>" data-min="0.005" data-max="0.2" data-step="0.001" data-value="0.02"></div>
+          <div data-var="n" data-label="Number of calibration points n" data-min="3" data-max="15" data-step="1" data-value="5"></div>
+          <div data-var="R" data-label="Calibrated range R" data-min="2" data-max="50" data-step="0.5" data-value="30"></div>
+        </div>
+      </div>
+      <p>In use, the calibration runs backwards: the sensor gives an indication \(y_0\), and you want the value \(x_0\) of the measurand. This <strong>inverse prediction</strong> carries the uncertainty of the new reading and the uncertainty of the calibration line.</p>
+      <div class="eq-box" id="eq-inverse-prediction">
+        <div class="eq-head"><span class="eq-label">Inverse prediction from a calibration line, with its uncertainty</span><span class="eq-num">(9.3.6)</span></div>
+        <div class="eq-main">\[ \hat{x}_0 = \frac{\bar{y}_0 - a}{b}, \qquad u(\hat{x}_0) = \frac{s_{y/x}}{|b|}\sqrt{\frac{1}{m} + \frac{1}{n} + \frac{\left(\bar{y}_0 - \bar{y}\right)^{2}}{b^{2}\,S_{xx}}} \]</div>
+        <p class="eq-read">the calibrated value is the mean of m new indications minus the intercept, divided by the slope; its standard uncertainty is the residual standard deviation divided by the absolute slope, times the square root of one over m, plus one over n, plus the squared distance of the new indication from the centroid expressed in units of x and divided by the spread of the calibration points.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\bar{y}_0\)</td><td>mean of \(m\) replicate indications of the unknown</td><td>[y]</td></tr>
+          <tr><td>\(\hat{x}_0\)</td><td>calibrated (inverse-predicted) value of the measurand</td><td>[x]</td></tr>
+          <tr><td>\(n\), \(\bar{y}\), \(S_{xx}\)</td><td>number of calibration points, mean indication and \(S_{xx}\) of the calibration</td><td>–, [y], [x]²</td></tr>
+          <tr><td>\(m\)</td><td>number of replicate readings of the unknown</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation with the law of propagation</summary>
+          <ol class="steps">
+            <li><strong>Rewrite the model</strong> using \(a = \bar{y} - b\bar{x}\): \(\hat{x}_0 = \bar{x} + \dfrac{\bar{y}_0 - \bar{y}}{b}\). Now the three uncertain inputs are \(\bar{y}_0\), \(\bar{y}\) and \(b\) (\(\bar{x}\) is exact).</li>
+            <li><strong>They are uncorrelated.</strong> \(\bar{y}_0\) comes from new readings. \(\bar{y} = \sum y_i/n\) and \(b = \sum w_i y_i\) share the same \(y_i\), but \(\mathrm{Cov}(\bar{y}, b) = \frac{s_{y/x}^2}{n}\sum w_i = 0\) because \(\sum(x_i - \bar{x}) = 0\). This is why the centred form is convenient.</li>
+            <li><strong>Sensitivity coefficients.</strong> \(\partial\hat{x}_0/\partial\bar{y}_0 = 1/b\); \(\partial\hat{x}_0/\partial\bar{y} = -1/b\); \(\partial\hat{x}_0/\partial b = -(\bar{y}_0 - \bar{y})/b^2\).</li>
+            <li><strong>Input variances.</strong> \(u^2(\bar{y}_0) = s_{y/x}^2/m\); \(u^2(\bar{y}) = s_{y/x}^2/n\); \(u^2(b) = s_{y/x}^2/S_{xx}\) (Eq. 9.3.5).</li>
+            <li><strong>Combine</strong> (Eq. 9.3.3): \(u^2(\hat{x}_0) = \dfrac{1}{b^2}\dfrac{s^2}{m} + \dfrac{1}{b^2}\dfrac{s^2}{n} + \dfrac{(\bar{y}_0 - \bar{y})^2}{b^4}\dfrac{s^2}{S_{xx}}\). Factor out \(s^2/b^2\) to obtain Eq. 9.3.6.</li>
+            <li><strong>Interpretation.</strong> The uncertainty is smallest at the centre of the calibrated range and grows towards and beyond its ends. Replicating the unknown (larger \(m\)) reduces only the first term; more calibration points reduce the second; a wider calibrated range reduces the third.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and what is still missing</summary>
+          <p>Eq. 9.3.6 covers only the scatter visible in the calibration. Add, in quadrature, the uncertainty of the reference values themselves (from the reference's certificate), any difference between calibration and use conditions (temperature, immersion depth, flow), and the drift since calibration (next section).</p>
+        </details>
+        <div class="eq-units">\(\dfrac{s_{y/x}}{|b|}\): [y]/([y]/[x]) = [x] ✓; \(\dfrac{(\bar{y}_0-\bar{y})^2}{b^2S_{xx}}\): [y]²/([y]²[x]⁻²[x]²) = dimensionless ✓</div>
+        <div class="mini-calc" data-fn="invPred" data-output="u(x̂₀)" data-unit="°C" data-digits="4" data-plot="d" data-title="Try it — uncertainty across the calibrated range (n equally spaced points over R)">
+          <div data-var="s" data-label="s<sub>y/x</sub>" data-min="0.005" data-max="0.2" data-step="0.001" data-value="0.021" data-unit="°C"></div>
+          <div data-var="b" data-label="slope b" data-min="0.5" data-max="1.5" data-step="0.005" data-value="0.995"></div>
+          <div data-var="n" data-label="calibration points n" data-min="3" data-max="15" data-step="1" data-value="5"></div>
+          <div data-var="m" data-label="replicate readings m" data-min="1" data-max="20" data-step="1" data-value="4"></div>
+          <div data-var="R" data-label="calibrated range R" data-min="2" data-max="50" data-step="0.5" data-value="30" data-unit="°C"></div>
+          <div data-var="d" data-label="x̂₀ − x̄ (distance from centre)" data-min="-30" data-max="30" data-step="0.1" data-value="-1.8" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <figure class="figure" id="calibration-lab">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — calibrate a water-temperature probe and read an unknown</div>
+          <div class="fx-ctl" id="cl-ctl"></div>
+          <div class="fx-row"><button type="button" class="btn btn-sm" id="cl-new">Repeat the calibration</button></div>
+          <div id="cl-plot" style="height:290px"></div>
+          <div class="fx-sub">Residuals y − ŷ</div>
+          <div id="cl-res" style="height:200px"></div>
+          <div class="readouts" id="cl-ro"></div>
+        </div>
+        <figcaption><b>Figure 6.</b> Top: calibration points (reference temperature → probe indication), least-squares line (green) with its 95 % confidence band, and an unknown reading converted back through the line (magenta; the horizontal bar is ±U with k = 2 from Eq. 9.3.6). Bottom: residuals with the ±2 s<sub>y/x</sub> band. Add curvature and watch the residuals form a U long before R² drops noticeably; move the unknown outside the calibrated range and watch its uncertainty grow.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">A five-point calibration and an inverse prediction</span></div>
+        <div class="we-problem"><p>You calibrate a water-temperature probe in five stirred baths against a reference thermometer whose certificate states U = 0.05 °C (k = 2). Each indication is the mean of ten readings. Reference x (°C): 5.00, 12.50, 20.00, 27.50, 35.00. Probe y (°C): 5.31, 12.74, 20.21, 27.66, 35.16. (a) Find the calibration line and the residual standard deviation. (b) In the nutrient tank the probe gives a mean of 18.40 °C from m = 4 readings. What is the calibrated temperature and its expanded uncertainty?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Means.</strong> \(\bar{x} = 20.00\) °C; \(\bar{y} = 101.08/5 = 20.216\) °C.</li>
+              <li><strong>Sums.</strong> Deviations of x: −15, −7.5, 0, 7.5, 15, so \(S_{xx} = 2(225 + 56.25) = 562.5\) °C². \(S_{xy} = (-15)(-14.906) + (-7.5)(-7.476) + 0 + 7.5(7.444) + 15(14.944) = 559.65\) °C².</li>
+              <li><strong>Line</strong> (Eq. 9.3.5): \(b = 559.65/562.5 = 0.99493\); \(a = 20.216 - 0.99493\times20.00 = 0.3173\) °C. The probe reads about 0.32 °C high near 0 °C and has a 0.5 % low sensitivity.</li>
+              <li><strong>Residuals</strong> \(y_i - (a + bx_i)\): +0.018, −0.014, −0.006, −0.018, +0.020 °C — small, no obvious pattern (a faint U; with five points, not significant). \(\text{SSE} = 0.001280\) °C², \(s_{y/x} = \sqrt{0.001280/3} = 0.0207\) °C.</li>
+              <li><strong>Inverse prediction</strong> (Eq. 9.3.6): \(\hat{x}_0 = (18.40 - 0.3173)/0.99493 = 18.175\) °C.</li>
+              <li><strong>Its uncertainty:</strong> \((\bar{y}_0 - \bar{y})^2/(b^2S_{xx}) = (-1.816)^2/(0.98988\times562.5) = 0.00592\); \(u = \dfrac{0.0207}{0.99493}\sqrt{\tfrac14 + \tfrac15 + 0.00592} = 0.0208\times0.6752 = 0.0140\) °C.</li>
+              <li><strong>Add the reference</strong> (Type B, certificate: \(0.05/2 = 0.025\) °C): \(u_c = \sqrt{0.0140^2 + 0.025^2} = 0.0287\) °C; \(U = 0.057\) °C (k = 2).</li>
+            </ol>
+            <span class="answer">x̂₀ = 18.18 ± 0.06 °C (k = 2); the reference thermometer dominates the budget</span>
+            <p style="margin-top:10px">Sanity check: the calibrated value is 0.22 °C below the raw reading, consistent with an offset of about +0.3 °C and a slope slightly below 1. The regression itself contributes less than the reference — typical for a good calibration, and a reminder that the chain in Figure 5 limits what you can achieve.</p>
+          </div>
+        </details>
+      </div>
+      <a class="lab-link" data-lab="ph-calibration" data-why="Apply the same ideas to a pH electrode: buffers as references, a calibration line, slope and offset diagnostics, and the uncertainty of the sample pH."></a>
+
+      <h2 id="drift">Drift and recalibration intervals</h2>
+      <p>A calibration is a snapshot. Sensors age: the pH glass loses slope, the reference junction clogs, a polymer humidity film absorbs contaminants, a quantum sensor's diffuser yellows, an NDIR lamp dims. The change of the characteristic with time is called <strong>drift</strong>. Data sheets specify it as a maximum rate — for example "less than 2 % per year" for a quantum sensor (Apogee Instruments, n.d.) — and you should expect it to accumulate between calibrations (Figure 7).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 282" role="img" aria-label="Sawtooth diagram of sensor error drifting over time, reset by recalibrations, with a tolerance band and in-service checks">
+            <defs><marker id="mu-a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <rect x="70" y="60" width="600" height="120" class="fill-accent-soft"/>
+            <line x1="70" y1="120" x2="670" y2="120" class="stroke-muted" stroke-dasharray="4 4"/>
+            <line x1="70" y1="20" x2="70" y2="232" class="stroke" stroke-width="1.3"/><line x1="70" y1="232" x2="690" y2="232" class="stroke" stroke-width="1.3" marker-end="url(#mu-a4)"/>
+            <text x="690" y="272" text-anchor="end" class="t-small">time since installation (years)</text>
+            <text x="26" y="128" class="t-small" transform="rotate(-90 26 128)" text-anchor="middle">sensor error</text>
+            <g class="t-small t-muted" text-anchor="middle"><text x="70" y="248">0</text><text x="190" y="248">1</text><text x="310" y="248">2</text><text x="430" y="248">3</text><text x="550" y="248">4</text><text x="670" y="248">5</text></g>
+            <text x="664" y="76" class="t-small" text-anchor="end">+ tolerance</text><text x="664" y="174" class="t-small" text-anchor="end">− tolerance</text>
+            <polyline points="70,120 190,96 310,72" fill="none" class="stroke-magenta" stroke-width="2.4"/>
+            <line x1="310" y1="72" x2="310" y2="120" class="stroke-magenta" stroke-width="1.2" stroke-dasharray="3 3"/>
+            <polyline points="310,120 430,97 550,73" fill="none" class="stroke-magenta" stroke-width="2.4"/>
+            <line x1="550" y1="73" x2="550" y2="120" class="stroke-magenta" stroke-width="1.2" stroke-dasharray="3 3"/>
+            <polyline points="550,120 670,95" fill="none" class="stroke-magenta" stroke-width="2.4"/>
+            <polyline points="310,72 400,55 470,41" fill="none" class="stroke-danger" stroke-width="1.8" stroke-dasharray="6 4"/>
+            <text x="420" y="34" class="t-small" style="fill:var(--danger)">no recalibration: out of tolerance</text>
+            <g class="fill-water"><rect x="126" y="102" width="8" height="8" transform="rotate(45 130 106)"/><rect x="186" y="92" width="8" height="8" transform="rotate(45 190 96)"/><rect x="246" y="80" width="8" height="8" transform="rotate(45 250 84)"/><rect x="366" y="104" width="8" height="8" transform="rotate(45 370 108)"/><rect x="426" y="93" width="8" height="8" transform="rotate(45 430 97)"/><rect x="486" y="81" width="8" height="8" transform="rotate(45 490 85)"/><rect x="606" y="104" width="8" height="8" transform="rotate(45 610 108)"/></g>
+            <g class="t-small"><text x="310" y="206" text-anchor="middle">recalibrate</text><text x="550" y="206" text-anchor="middle">recalibrate</text></g>
+            <g class="stroke" stroke-width="1"><line x1="310" y1="196" x2="310" y2="186"/><line x1="550" y1="196" x2="550" y2="186"/></g>
+            <line x1="70" y1="218" x2="310" y2="218" class="stroke-accent" stroke-width="1.4" marker-end="url(#mu-a4)" marker-start="url(#mu-a4)" style="color:var(--accent)"/>
+            <text x="190" y="214" text-anchor="middle" class="t-small" style="fill:var(--accent)">recalibration interval T</text>
+            <rect x="92" y="28" width="12" height="12" class="fill-water" transform="rotate(45 98 34)"/><text x="112" y="38" class="t-small">in-service check against a check standard</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 7.</b> Drift accumulates between calibrations (magenta). A recalibration resets the error; the recalibration interval must be short enough that the error stays within the tolerance band. In-service checks (blue diamonds) — a buffer, an ice point, a comparison with a second sensor — reveal drift early and are the evidence used to lengthen or shorten the interval (ILAC &amp; OIML, 2022).</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-drift">
+        <div class="eq-head"><span class="eq-label">Uncertainty growth by drift and the longest recalibration interval</span><span class="eq-num">(9.3.7)</span></div>
+        <div class="eq-main">\[ u^{2}(t) = u_0^{2} + \frac{(r\,t)^{2}}{3} \qquad\Longrightarrow\qquad t_{\max} = \frac{\sqrt{3\left[\left(U_{\max}/k\right)^{2} - u_0^{2}\right]}}{r} \]</div>
+        <p class="eq-read">the squared standard uncertainty a time t after calibration equals the squared uncertainty just after calibration plus the drift that could have accumulated, treated as a rectangular distribution of half-width r times t; setting k times this uncertainty equal to the largest acceptable expanded uncertainty gives the longest interval before recalibration.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example</th></tr>
+          <tr><td>\(u_0\)</td><td>standard uncertainty immediately after calibration</td><td>[x] or %</td><td>2.89 % (±5 % rectangular)</td></tr>
+          <tr><td>\(r\)</td><td>maximum drift rate (magnitude), from the data sheet or your own history</td><td>[x] per year</td><td>2 % per year</td></tr>
+          <tr><td>\(t\)</td><td>time since calibration</td><td>year</td><td></td></tr>
+          <tr><td>\(U_{\max}\), \(k\)</td><td>largest acceptable expanded uncertainty and its coverage factor</td><td>[x], –</td><td>8 %, 2</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Model the reading at time \(t\) as \(x(t) = x_{\text{cal}} + d(t)\), where the calibration error has standard uncertainty \(u_0\) and the drift \(d(t)\) is unknown except that \(|d| \le r t\).</li>
+            <li>Without knowing the direction of the drift, treat \(d\) as rectangular on \([-rt, +rt]\): \(u(d) = rt/\sqrt{3}\) (Eq. 9.3.2).</li>
+            <li>The calibration error and the drift are independent, so \(u^2(t) = u_0^2 + (rt)^2/3\) (Eq. 9.3.3).</li>
+            <li>Require \(k\,u(t) \le U_{\max}\): square and rearrange, \((rt)^2 \le 3[(U_{\max}/k)^2 - u_0^2]\), which gives \(t_{\max}\).</li>
+            <li>If \(u_0 \ge U_{\max}/k\), no interval is long enough: the sensor is not good enough for the task even when freshly calibrated.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Linear drift of unknown sign is a conservative, simple model. If the direction is known — quantum sensors lose sensitivity, pH electrodes lose slope — you can correct for half the expected drift and use a rectangular distribution on \([0, rt]\), with \(u = rt/\sqrt{12}\). Drift is rarely steady: electrodes degrade faster in dirty solutions, humidity sensors after condensation. That is why ILAC-G24/OIML D 10 recommends reviewing intervals with data — control charts of check-standard results, in-service checks and the history of "as found" errors at recalibration (ILAC &amp; OIML, 2022).</p>
+        </details>
+        <div class="eq-units">\(r t\): ([x] yr⁻¹)(yr) = [x], so \(u(t)\) has the unit of \(u_0\) ✓; \(t_{\max}\): [x]/([x] yr⁻¹) = yr ✓</div>
+        <div class="mini-calc" data-fn="recal" data-output="Longest recalibration interval t<sub>max</sub>" data-unit="years" data-digits="2" data-plot="r" data-title="Try it — a quantum sensor for DLI work">
+          <div data-var="u0" data-label="u<sub>0</sub> after calibration" data-min="0.5" data-max="5" data-step="0.01" data-value="2.89" data-unit="%"></div>
+          <div data-var="r" data-label="drift rate r" data-min="0.2" data-max="5" data-step="0.05" data-value="2" data-unit="% per year"></div>
+          <div data-var="U" data-label="acceptable U<sub>max</sub>" data-min="2" data-max="15" data-step="0.1" data-value="8" data-unit="%"></div>
+          <div data-var="k" data-label="coverage factor k" data-min="1" data-max="3" data-step="0.1" data-value="2"></div>
+        </div>
+      </div>
+      <p>How do you know whether a sensor is drifting before its next calibration? Three habits make drift visible. Keep a <strong>calibration history</strong>: record the "as found" error before every adjustment and the "as left" error after it — a slope that falls a little at every pH calibration is drift you can extrapolate. Measure a <strong>check standard</strong> at regular intervals (a pH 7.00 buffer, an ice point, outdoor air for a CO₂ sensor) and plot the results on a <strong>control chart</strong> with the mean and ±3 standard-deviation limits of the first weeks; points drifting towards a limit, or several consecutive points on one side of the mean, are warnings long before the tolerance is exceeded. And where it matters, install <strong>redundant sensors</strong>: two independent probes that slowly diverge reveal drift that neither could reveal alone.</p>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">How often must the PAR sensor go back to the laboratory?</span></div>
+        <div class="we-problem"><p>A research greenhouse wants DLI data with an expanded uncertainty of at most 8 % (k = 2). Its quantum sensor has a calibration uncertainty of ±5 % and a maximum drift of 2 % per year. What is the longest acceptable recalibration interval? What is U after two years?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Type B for the calibration:</strong> \(u_0 = 5/\sqrt3 = 2.89\,\%\).</li>
+              <li><strong>Target standard uncertainty:</strong> \(U_{\max}/k = 8/2 = 4.0\,\%\).</li>
+              <li><strong>Eq. 9.3.7:</strong> \(t_{\max} = \sqrt{3(4.0^2 - 2.89^2)}/2 = \sqrt{3(16.00 - 8.33)}/2 = \sqrt{23.0}/2 = 2.40\) years.</li>
+              <li><strong>After two years:</strong> \(u = \sqrt{8.33 + (2\times2)^2/3} = \sqrt{8.33 + 5.33} = 3.70\,\%\); \(U = 7.4\,\%\) — still inside the 8 % target.</li>
+            </ol>
+            <span class="answer">t<sub>max</sub> ≈ 2.4 years; a two-year cycle keeps U ≈ 7.4 % (k = 2)</span>
+            <p style="margin-top:10px">This agrees with the common two-year recalibration recommendation for quantum sensors (Lesson 4.1). Between recalibrations, an in-service check — comparing with a second, recently calibrated sensor under the same lamp — costs minutes and detects a damaged diffuser long before the next visit to the laboratory.</p>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="sampling">Sampling, noise and aliasing</h2>
+      <p>A logger does not see a continuous signal; it sees samples taken every \(\Delta t\) seconds or minutes. Choosing \(\Delta t\) is a design decision with consequences: sample too slowly and you miss events or, worse, see events that did not happen; sample too fast and you fill memory, drain batteries and send redundant data over the network (<a href="/lessons/iot-architectures/">Lesson 9.4</a>). Between the samples, the signal also carries <strong>noise</strong>: thermal noise in resistors, quantisation (Eq. 9.1.4), radio-frequency interference and, very commonly, 50 Hz pick-up from mains wiring in Europe. The mathematics of sampling was worked out by Nyquist (1928) and Shannon (1949).</p>
+      <div class="eq-box" id="eq-nyquist">
+        <div class="eq-head"><span class="eq-label">Sampling theorem (Nyquist criterion) and the alias frequency</span><span class="eq-num">(9.3.8)</span></div>
+        <div class="eq-main">\[ f_s = \frac{1}{\Delta t} > 2\,f_{\max}, \qquad f_N = \frac{f_s}{2}, \qquad f_a = \left|\,f - f_s\cdot\operatorname{round}\!\left(\frac{f}{f_s}\right)\right| \]</div>
+        <p class="eq-read">the sampling frequency, the reciprocal of the sampling interval, must exceed twice the highest frequency present in the signal; half the sampling frequency is called the Nyquist frequency; a sinusoid of frequency f sampled at f<sub>s</sub> appears at the alias frequency, the absolute difference between f and the nearest whole multiple of f<sub>s</sub>.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\Delta t\), \(f_s\)</td><td>sampling interval and sampling frequency</td><td>s (or min), Hz (or h⁻¹)</td></tr>
+          <tr><td>\(f_{\max}\)</td><td>highest frequency present in the signal (after any analogue filtering)</td><td>Hz</td></tr>
+          <tr><td>\(f_N\)</td><td>Nyquist frequency: the highest frequency that can be represented</td><td>Hz</td></tr>
+          <tr><td>\(f\), \(f_a\)</td><td>true frequency of a component and the (lower) frequency it appears at after sampling</td><td>Hz</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Sample a sinusoid \(x(t) = \cos(2\pi f t)\) at times \(t_n = n\Delta t = n/f_s\): \(x_n = \cos(2\pi f n/f_s)\).</li>
+            <li>Now consider a different frequency \(f' = f - k f_s\) for any integer \(k\): \(x'_n = \cos(2\pi (f - kf_s)n/f_s) = \cos(2\pi f n/f_s - 2\pi kn) = x_n\), because \(kn\) is an integer and the cosine has period \(2\pi\). The two sinusoids produce <em>identical samples</em>.</li>
+            <li>Also \(\cos(-\theta) = \cos\theta\), so \(f'\) and \(|f'|\) are indistinguishable. Among all the candidates \(|f - kf_s|\), the one with the smallest value (\(k = \operatorname{round}(f/f_s)\)) lies between 0 and \(f_s/2\) — this is the frequency your data will show: the alias.</li>
+            <li>Only if every frequency in the signal is below \(f_s/2\) is the alias equal to the true frequency. Shannon (1949) proved the converse: a signal containing no frequencies at or above \(f_s/2\) is completely determined by its samples.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and practice — anti-aliasing</summary>
+          <p>Real signals are not band-limited, so the rule is applied with a safety factor: sample at 5–10 times the highest frequency you care about, and <em>remove</em> faster fluctuations before sampling. Three anti-aliasing filters are available to you: the analogue RC filter in front of the ADC (Lesson 9.1, Figure 4); the sensor's own time constant, which attenuates a fluctuation of angular frequency ω by \(1/\sqrt{1 + (\omega\tau)^2}\) (Eq. 9.1.2); and <em>oversampling with block averaging</em> — measure every second and store the 1-min or 10-min mean. Averaging over a whole number of mains periods (20 ms at 50 Hz) also cancels mains pick-up, which is why integrating and many sigma–delta ADCs offer 50 Hz rejection settings.</p>
+        </details>
+        <div class="eq-units">\(f_s = 1/\Delta t\): s⁻¹ = Hz ✓; \(f/f_s\) dimensionless, so \(f_a\) has the unit of \(f\) ✓</div>
+        <div class="mini-calc" data-fn="alias" data-output="Apparent period of the sampled oscillation" data-unit="min" data-digits="1" data-plot="dt" data-ymin="0" data-ymax="150" data-title="Try it — a 12-min vent cycle logged at different intervals">
+          <div data-var="P" data-label="True period of the oscillation" data-min="2" data-max="60" data-step="0.5" data-value="12" data-unit="min"></div>
+          <div data-var="dt" data-label="Sampling interval Δt" data-min="0.5" data-max="30" data-step="0.5" data-value="10" data-unit="min"></div>
+        </div>
+      </div>
+
+      <p>Notice two special cases in the calculator. When \(\Delta t\) equals the period (or a whole multiple of it), every sample catches the oscillation at the same phase: the alias frequency is zero, the logged signal looks perfectly constant, and the calculator shows a dash. When \(\Delta t\) is slightly longer or shorter than the period, the alias period becomes very long — a slow, entirely fictitious wave. Both are common in greenhouse data logged at round-number intervals.</p>
+      <figure class="figure" id="alias-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — watch a real oscillation turn into a fake one</div>
+          <div class="fx-ctl" id="al-ctl"></div>
+          <div id="al-plot" style="height:340px"></div>
+          <div class="readouts" id="al-ro"></div>
+        </div>
+        <figcaption><b>Figure 8.</b> Grey: the true air temperature, oscillating around 20 °C as vents or heating cycle. Blue dots: logged samples; green line: what a dashboard draws by joining them. Magenta dashed: the alias predicted by Eq. 9.3.8, which passes exactly through every sample. When the sampling interval exceeds half the period, the dashboard shows a slow oscillation that does not exist.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 6</span><span class="we-title">A phantom hourly oscillation</span></div>
+        <div class="we-problem"><p>A student notices that the air temperature in the group's growth chamber seems to rise and fall with a period of exactly one hour. The logger samples every 10 min. The chamber's cooling unit is known to cycle on and off roughly every 12 min. Explain the observation and propose a better logging scheme.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Frequencies</strong> (per hour): cooling cycle \(f = 60/12 = 5\) h⁻¹; sampling \(f_s = 60/10 = 6\) h⁻¹; Nyquist frequency \(f_N = 3\) h⁻¹. Since \(f &gt; f_N\), the cycle is under-sampled.</li>
+              <li><strong>Alias</strong> (Eq. 9.3.8): \(\operatorname{round}(5/6) = 1\); \(f_a = |5 - 6| = 1\) h⁻¹ — an apparent period of 60 min. The hourly oscillation is an artefact of sampling.</li>
+              <li><strong>Check a faster rate:</strong> at 5-min sampling, \(f_s = 12\) h⁻¹ and \(f_N = 6\) h⁻¹ &gt; 5 h⁻¹, so the 12-min cycle would be seen correctly — but with only 2.4 samples per cycle it would look ragged.</li>
+              <li><strong>Better scheme:</strong> sample every 10–30 s, and store 1-min means for the cycle and 10-min means for the long-term record. The block averages act as anti-aliasing filters: a 10-min mean attenuates the 12-min cycle strongly instead of folding it into a fake hourly wave.</li>
+            </ol>
+            <span class="answer">The 12-min cycle aliases to f<sub>a</sub> = 1 h⁻¹ (a 60-min period); oversample and average</span>
+          </div>
+        </details>
+      </div>
+      <a class="lab-link" data-lab="signal-processing" data-why="Sample a noisy greenhouse signal at different rates, provoke aliasing, and compare moving-average, exponential and Kalman filters on the same data."></a>
+
+      <h2 id="filtering">Digital filtering: from moving averages to the Kalman filter</h2>
+      <p>Once the samples are stored, noise can be reduced by combining neighbouring samples — at the price of <strong>lag</strong> (the filtered signal responds late) and <strong>smoothing</strong> (real short events are flattened). Every filter is a trade-off between these two. Four filters cover almost every need in a growing project:</p>
+      <ul>
+        <li>The <strong>moving average</strong> (boxcar) replaces each value by the mean of the last N samples.</li>
+        <li><strong>Exponential smoothing</strong> (the exponential moving average, EMA) mixes each new sample with the previous output; it needs a single stored number, which makes it ideal for microcontrollers.</li>
+        <li>The <strong>median filter</strong> replaces each value by the median of a window. It is non-linear: a spike shorter than half the window disappears completely, and a genuine step passes through undistorted. It is the tool of choice against isolated spikes.</li>
+        <li>The <strong>Kalman filter</strong> treats filtering as estimation: it combines a model prediction and a measurement, each weighted by its uncertainty, and reports its own uncertainty as it goes.</li>
+      </ul>
+      <div class="eq-box" id="eq-smoothing">
+        <div class="eq-head"><span class="eq-label">Moving average and exponential smoothing: noise reduction and lag</span><span class="eq-num">(9.3.9)</span></div>
+        <div class="eq-main">\[ \begin{gathered} y_n^{\text{MA}} = \frac{1}{N}\sum_{j=0}^{N-1}x_{n-j}, \qquad \frac{\sigma_y}{\sigma_x} = \frac{1}{\sqrt{N}} \\[8pt] y_n^{\text{EMA}} = \alpha\,x_n + (1-\alpha)\,y_{n-1}, \qquad \frac{\sigma_y}{\sigma_x} = \sqrt{\frac{\alpha}{2-\alpha}}, \qquad \alpha = 1 - e^{-\Delta t/\tau} \end{gathered} \]</div>
+        <p class="eq-read">the moving average of the last N samples reduces white noise by the square root of N; exponential smoothing adds a fraction α of each new sample to (1 − α) times the previous output, reduces the noise to the square root of α over (2 − α), and behaves exactly like a first-order sensor with time constant τ when α is one minus the exponential of minus the sampling interval over τ.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_n\), \(y_n\)</td><td>raw sample and filtered output at step n</td><td>unit of the signal</td></tr>
+          <tr><td>\(N\)</td><td>window length of the moving average (samples)</td><td>–</td></tr>
+          <tr><td>\(\alpha\)</td><td>smoothing factor of the EMA, \(0 &lt; \alpha \le 1\) (1 = no smoothing)</td><td>–</td></tr>
+          <tr><td>\(\sigma_x\), \(\sigma_y\)</td><td>standard deviation of white noise before and after filtering</td><td>unit of the signal</td></tr>
+          <tr><td>\(\Delta t\), \(\tau\)</td><td>sampling interval; equivalent time constant of the EMA</td><td>s</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Moving average.</strong> The output is the mean of N independent noisy samples, so by Eq. 9.3.1 its noise is \(\sigma_x/\sqrt{N}\). A step in the true signal takes N samples to pass through completely, and the output lags by \((N-1)\Delta t/2\) on average.</li>
+            <li><strong>EMA as weighted sum.</strong> Unrolling the recursion: \(y_n = \alpha\sum_{j=0}^{\infty}(1-\alpha)^j x_{n-j}\) — geometrically decreasing weights that sum to \(\alpha/(1-(1-\alpha)) = 1\).</li>
+            <li><strong>EMA noise.</strong> For independent noise, \(\sigma_y^2 = \alpha^2\sigma_x^2\sum_j (1-\alpha)^{2j} = \dfrac{\alpha^2\sigma_x^2}{1-(1-\alpha)^2} = \dfrac{\alpha^2\sigma_x^2}{\alpha(2-\alpha)} = \dfrac{\alpha}{2-\alpha}\sigma_x^2\).</li>
+            <li><strong>Equivalence of the two.</strong> Setting \(1/N = \alpha/(2-\alpha)\) gives \(N = (2-\alpha)/\alpha\): an EMA with α = 0.18 removes as much noise as a 10-point moving average.</li>
+            <li><strong>EMA is a digital first-order sensor.</strong> The first-order equation \(\tau\,\mathrm{d}y/\mathrm{d}t + y = x\) (Lesson 9.1, Eq. 9.1.2), solved exactly over one interval with \(x\) held constant at \(x_n\), gives \(y_n = x_n + (y_{n-1} - x_n)e^{-\Delta t/\tau}\), i.e. \(y_n = \alpha x_n + (1-\alpha)y_{n-1}\) with \(\alpha = 1 - e^{-\Delta t/\tau}\). For \(\Delta t \ll \tau\), \(\alpha \approx \Delta t/\tau\). Its lag after a ramp is τ, exactly as for a slow sensor.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — noise is not always white</summary>
+          <p>The \(1/\sqrt{N}\) law assumes white (uncorrelated) noise. Slow, correlated fluctuations (drift, 1/f noise) are reduced much less. Linear filters also smear gross errors: one +10 °C spike in a 10-point moving average becomes a +1 °C bump lasting ten samples. Remove spikes first (median or Hampel filter, last section), then smooth. Keep the raw data; store the filtered series as a separate, documented variable.</p>
+        </details>
+        <div class="eq-units">\(\alpha\): \(1 - e^{-\text{s}/\text{s}}\) = dimensionless ✓; both noise ratios dimensionless ✓; \(y_n\) has the unit of \(x_n\) because the weights sum to 1 ✓</div>
+        <div class="mini-calc" data-fn="emaNoise" data-output="EMA noise σ<sub>y</sub>/σ<sub>x</sub>" data-unit="%" data-digits="1" data-plot="alpha" data-ymin="0" data-ymax="100" data-title="Try it — how much noise survives exponential smoothing?">
+          <div data-var="alpha" data-label="Smoothing factor α" data-min="0.01" data-max="1" data-step="0.01" data-value="0.18"></div>
+        </div>
+      </div>
+      <p>The Kalman filter (Kalman, 1960) generalises exponential smoothing. Instead of a fixed α, it computes, at every step, how much to trust the new measurement relative to its own prediction — and it does so from two numbers that have a physical meaning: how fast the true value can change (the process noise Q) and how noisy the sensor is (the measurement noise R). The one-dimensional version below is all you need for a single sensor; the matrix version fuses many sensors and models and is the engine of navigation systems, weather forecasting and the digital twins of <a href="/lessons/digital-twins/">Lesson 10.5</a>.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 250" role="img" aria-label="The predict and update cycle of a one-dimensional Kalman filter">
+            <defs><marker id="mu-a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <rect x="40" y="60" width="260" height="130" rx="16" class="fill-water-soft" stroke="currentColor" stroke-width="1.3"/>
+            <text x="170" y="86" text-anchor="middle" font-weight="600">1 Predict (model)</text>
+            <text x="170" y="112" text-anchor="middle" class="t-small t-mono">x⁻ = previous estimate x̂</text>
+            <text x="170" y="134" text-anchor="middle" class="t-small t-mono">P⁻ = P + Q</text>
+            <text x="170" y="164" text-anchor="middle" class="t-small t-muted">uncertainty grows: the true value</text><text x="170" y="178" text-anchor="middle" class="t-small t-muted">may have changed since last time</text>
+            <rect x="420" y="60" width="260" height="130" rx="16" class="fill-accent-soft" stroke="currentColor" stroke-width="1.3"/>
+            <text x="550" y="86" text-anchor="middle" font-weight="600">2 Update (measurement)</text>
+            <text x="550" y="110" text-anchor="middle" class="t-small t-mono">K = P⁻ / (P⁻ + R)</text>
+            <text x="550" y="130" text-anchor="middle" class="t-small t-mono">x̂ = x⁻ + K (z − x⁻)</text>
+            <text x="550" y="150" text-anchor="middle" class="t-small t-mono">P = (1 − K) P⁻</text>
+            <text x="550" y="176" text-anchor="middle" class="t-small t-muted">uncertainty shrinks: new information</text>
+            <path d="M300 100 C 345 80, 375 80, 418 100" fill="none" class="stroke" stroke-width="1.6" marker-end="url(#mu-a5)"/>
+            <path d="M420 160 C 375 185, 345 185, 302 160" fill="none" class="stroke" stroke-width="1.6" marker-end="url(#mu-a5)"/>
+            <text x="360" y="74" text-anchor="middle" class="t-small">x⁻, P⁻</text><text x="360" y="202" text-anchor="middle" class="t-small">x̂, P → next step</text>
+            <line x1="550" y1="14" x2="550" y2="58" class="stroke-magenta" stroke-width="1.8" marker-end="url(#mu-a5)" style="color:var(--magenta)"/>
+            <text x="542" y="32" class="t-small" text-anchor="end" style="fill:var(--magenta)">measurement z (noise variance R)</text>
+
+            <text x="360" y="236" text-anchor="middle" class="t-small t-muted">random-walk model: the true value changes by a random amount with variance Q per step</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 9.</b> The predict–update cycle of the one-dimensional Kalman filter. The gain K is the weight given to the new measurement: close to 1 when the prediction is uncertain (P⁻ ≫ R), close to 0 when the sensor is noisy (R ≫ P⁻).</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-kalman">
+        <div class="eq-head"><span class="eq-label">One-dimensional Kalman filter (random-walk model)</span><span class="eq-num">(9.3.10)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{predict:}\quad \hat{x}_k^{-} = \hat{x}_{k-1}, \qquad P_k^{-} = P_{k-1} + Q \\[8pt] \text{update:}\quad K_k = \frac{P_k^{-}}{P_k^{-} + R}, \qquad \hat{x}_k = \hat{x}_k^{-} + K_k\left(z_k - \hat{x}_k^{-}\right), \qquad P_k = \left(1 - K_k\right)P_k^{-} \end{gathered} \]</div>
+        <p class="eq-read">predict: the best guess for the new step is the previous estimate, and its variance grows by the process noise Q; update: the Kalman gain is the predicted variance divided by the sum of the predicted variance and the measurement noise variance R; the new estimate moves from the prediction towards the measurement by the gain times the innovation; and the variance shrinks by the factor one minus the gain.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\hat{x}_k\), \(P_k\)</td><td>estimate after step k and its variance (its square root is the standard uncertainty)</td><td>[x], [x]²</td></tr>
+          <tr><td>\(\hat{x}_k^-\), \(P_k^-\)</td><td>predicted estimate and variance before the measurement</td><td>[x], [x]²</td></tr>
+          <tr><td>\(z_k\)</td><td>measurement at step k</td><td>[x]</td></tr>
+          <tr><td>\(Q\)</td><td>process noise variance: how much the true value can change per step</td><td>[x]²</td></tr>
+          <tr><td>\(R\)</td><td>measurement noise variance of the sensor (from Type A, Eq. 9.3.1)</td><td>[x]²</td></tr>
+          <tr><td>\(K_k\)</td><td>Kalman gain, between 0 and 1</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation — optimal weighting of two estimates</summary>
+          <ol class="steps">
+            <li><strong>Model.</strong> The true value follows a random walk, \(x_k = x_{k-1} + w_k\) with \(\mathrm{Var}(w_k) = Q\); the sensor measures \(z_k = x_k + v_k\) with \(\mathrm{Var}(v_k) = R\); all noises independent.</li>
+            <li><strong>Predict.</strong> The best guess of \(x_k\) before measuring is \(\hat{x}_{k-1}\); its error is the old error plus \(w_k\), and independent variances add: \(P_k^- = P_{k-1} + Q\).</li>
+            <li><strong>Combine</strong> the prediction and the measurement linearly: \(\hat{x}_k = (1-K)\hat{x}_k^- + Kz_k\). Its error variance is \(P = (1-K)^2P^- + K^2R\) (Eq. 9.3.3 with independent errors).</li>
+            <li><strong>Optimise.</strong> \(\mathrm{d}P/\mathrm{d}K = -2(1-K)P^- + 2KR = 0 \Rightarrow K = P^-/(P^- + R)\) — the inverse-variance weighting you would also use to average two thermometers of different quality.</li>
+            <li><strong>Posterior variance.</strong> Substituting K: \(P = (1-K)P^-\), which is smaller than both \(P^-\) and \(R\).</li>
+            <li><strong>Steady state.</strong> With constant Q and R the variance converges; solving \(P^- = (1-K)P^- + Q\) with \(K = P^-/(P^-+R)\) gives \((P^-)^2 = QP^- + QR\), so \(P^-_\infty = \tfrac12\left(Q + \sqrt{Q^2 + 4QR}\right)\) and \(K_\infty = P^-_\infty/(P^-_\infty + R)\). In steady state the Kalman filter is an EMA with \(\alpha = K_\infty\) — but with α derived from physics, not guessed.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and extensions</summary>
+          <p>The filter is optimal for linear models with independent Gaussian noise and correctly chosen Q and R; wrong values make it either sluggish (Q too small) or noisy (Q too large). A spike violates the Gaussian assumption and pulls the estimate — gate it out when the innovation \(|z - \hat{x}^-|\) exceeds, say, \(3\sqrt{P^- + R}\). Richer models include a known input (the heater is on, so temperature rises at a known rate), several state variables (temperature and its rate of change), several sensors (sensor fusion), and non-linear models (the extended and ensemble Kalman filters). Welch and Bishop (2004) give a readable introduction.</p>
+        </details>
+        <div class="eq-units">\(K = P^-/(P^-+R)\): [x]²/[x]² = dimensionless ✓; \(K(z - \hat{x}^-)\): [x] ✓; \(P\): [x]² ✓</div>
+        <div class="mini-calc" data-fn="kalmanK" data-output="Steady-state gain K<sub>∞</sub> (= EMA α)" data-unit="" data-digits="3" data-plot="sw" data-ymin="0" data-ymax="1" data-title="Try it — how physics sets the smoothing">
+          <div data-var="sw" data-label="Process noise √Q (true change per step)" data-min="0.001" data-max="1" data-step="0.001" data-value="0.05" data-unit="°C"></div>
+          <div data-var="sv" data-label="Measurement noise √R" data-min="0.01" data-max="1" data-step="0.01" data-value="0.3" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="filter-lab">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the filter laboratory</div>
+          <div class="fx-ctl" id="fl-ctl"></div>
+          <div class="fx-legend-toggles" id="fl-show"></div>
+          <div class="fx-row"><button type="button" class="btn btn-sm" id="fl-new">New noise realisation</button></div>
+          <div id="fl-plot" style="height:320px"></div>
+          <div class="readouts" id="fl-ro"></div>
+        </div>
+        <figcaption><b>Figure 10.</b> Six hours of 1-min water-temperature samples: a slow oscillation, a 1.5 °C step when a heater switches on at 150 min, Gaussian noise and occasional spikes. Compare the moving average, exponential smoothing, median and Kalman filters. All four filters are causal — they use only past samples, as a logger must. Readouts: root-mean-square error against the true signal (spikes included) and the delay until each filter has covered 63 % of the step (computed on the noise-free signal). Try to find settings that are both smooth and fast — and notice which filters are dragged by the spikes.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 7</span><span class="we-title">Two steps of a Kalman filter by hand</span></div>
+        <div class="we-problem"><p>A nutrient-tank temperature is logged every minute. The sensor noise has a standard deviation of 0.3 °C (R = 0.09 °C²), and the true temperature changes by about 0.05 °C per minute (Q = 0.0025 °C²). You start with \(\hat{x}_0 = 20.0\) °C and a large uncertainty, \(P_0 = 1.0\) °C². The first two measurements are 20.6 and 20.3 °C. Compute the estimates, their standard uncertainties, and the steady-state gain.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Step 1, predict:</strong> \(\hat{x}_1^- = 20.0\); \(P_1^- = 1.0 + 0.0025 = 1.0025\).</li>
+              <li><strong>Step 1, update:</strong> \(K_1 = 1.0025/(1.0025 + 0.09) = 0.918\) — the prediction is poor, so the filter trusts the measurement. \(\hat{x}_1 = 20.0 + 0.918\times(20.6 - 20.0) = 20.551\) °C; \(P_1 = (1 - 0.918)\times1.0025 = 0.0826\) °C² (u = 0.29 °C).</li>
+              <li><strong>Step 2, predict:</strong> \(\hat{x}_2^- = 20.551\); \(P_2^- = 0.0826 + 0.0025 = 0.0851\).</li>
+              <li><strong>Step 2, update:</strong> \(K_2 = 0.0851/(0.0851 + 0.09) = 0.486\); \(\hat{x}_2 = 20.551 + 0.486\times(20.3 - 20.551) = 20.429\) °C; \(P_2 = 0.514\times0.0851 = 0.0437\) °C² (u = 0.21 °C).</li>
+              <li><strong>Steady state</strong> (Eq. 9.3.10): \(P^-_\infty = \tfrac12\left(0.0025 + \sqrt{0.0025^2 + 4\times0.0025\times0.09}\right) = 0.0163\); \(K_\infty = 0.0163/(0.0163 + 0.09) = 0.153\), and the steady-state uncertainty is \(\sqrt{(1-0.153)\times0.0163} = 0.12\) °C.</li>
+            </ol>
+            <span class="answer">x̂₁ = 20.55 °C (u 0.29), x̂₂ = 20.43 °C (u 0.21); K<sub>∞</sub> ≈ 0.15, u<sub>∞</sub> ≈ 0.12 °C</span>
+            <p style="margin-top:10px">Interpretation: after a few steps the filter behaves like an EMA with α ≈ 0.15 (equivalent to a moving average of about (2 − 0.15)/0.15 ≈ 12 samples), and it reports that the filtered value is uncertain by 0.12 °C — less than half the single-reading noise. The live calculator of Eq. 9.3.10 reproduces K<sub>∞</sub>.</p>
+          </div>
+        </details>
+      </div>
+      <p>Which filter should you use? For a <em>display</em> or a slow trend — the tank temperature shown on your dashboard — an EMA is simple and adequate; choose α from the time constant you are willing to accept. For <em>control</em>, every second of lag costs stability (<a href="/lessons/control-optimisation/">Lesson 10.4</a>): filter as little as possible, and remove spikes with a short median rather than smoothing heavily. For <em>data that will be analysed later</em>, store the raw values and filter afterwards; offline you may use centred (non-causal) windows that have no lag at all. When you know the sensor noise and something about the process — as in Worked example 7 — the Kalman filter turns that knowledge into the best weighting and also tells you how uncertain the result is. And whatever you choose, document it: a filtered series without its filter parameters is an unrepeatable measurement.</p>
+      <div class="callout frontier"><div class="callout-title">Frontier — estimation instead of measurement</div><p>Modern greenhouses increasingly estimate what they cannot measure directly. Kalman-type filters combine climate sensors with a crop model to estimate transpiration or biomass (a "soft sensor"), and data assimilation keeps digital twins synchronised with reality — the approach you can try in the <a href="/laboratories/lettuce-digital-twin/">lettuce digital-twin laboratory</a>. The quality of such estimates depends on realistic Q and R, that is, on honest uncertainty budgets for the sensors.</p></div>
+
+      <h2 id="data-quality">Data quality: flags, metadata and a checklist for your project</h2>
+      <p>Environmental sensor networks produce far more data than anyone can inspect by eye, and experience from ecological observatories shows that automated quality assurance and quality control (QA/QC) must be designed in from the start (Campbell et al., 2013). QA is everything you do to prevent problems (calibration, shielding, maintenance); QC is the detection and labelling of problems in the data. The key principles are simple: <strong>never overwrite raw data</strong>; run automatic tests; attach a quality <strong>flag</strong> to every value; and record the <strong>metadata</strong> without which nobody — including you in three months — can interpret the numbers.</p>
+      <table>
+        <caption>Table 3. Automatic quality-control tests for streaming sensor data (after Campbell et al., 2013 and the U.S. IOOS QARTOD manuals).</caption>
+        <thead><tr><th>Test</th><th>Question it asks</th><th>Example rule for your project</th><th>Catches</th></tr></thead>
+        <tbody>
+          <tr><td>Gross range</td><td>Is the value physically possible for this sensor?</td><td>DS18B20: −55 to +125 °C; RH 0–100 %</td><td>disconnected sensor (−127 °C, 85 °C codes), wiring faults</td></tr>
+          <tr><td>Plausible (climatological) range</td><td>Is the value plausible for this system?</td><td>nutrient solution 5–35 °C; pH 3–9; PPFD 0–2500</td><td>probe out of the water, wrong channel</td></tr>
+          <tr><td>Rate of change (step)</td><td>Did it change faster than physics allows?</td><td>|ΔT| &gt; 2 °C per min in a 50 L tank</td><td>spikes, electrical transients</td></tr>
+          <tr><td>Spike (Hampel)</td><td>Is it far from its neighbours?</td><td>|x − median| &gt; 3 × 1.4826 × MAD in a 7-sample window</td><td>isolated spikes</td></tr>
+          <tr><td>Flat line (persistence)</td><td>Has the value stopped changing?</td><td>identical readings for 60 min</td><td>stuck sensor, frozen firmware, repeated last value</td></tr>
+          <tr><td>Consistency</td><td>Do related variables agree?</td><td>dew point ≤ air T; PPFD ≈ 0 when lights off; two tank sensors within 0.5 °C</td><td>drift, radiative heating, mislabelled columns</td></tr>
+          <tr><td>Time</td><td>Are time stamps valid, unique and increasing?</td><td>UTC, no gaps &gt; 2 intervals, no duplicates</td><td>clock resets after power loss, daylight-saving errors</td></tr>
+        </tbody>
+      </table>
+      <p>The spike test uses the <strong>median absolute deviation</strong>, MAD = median(|xᵢ − median(x)|), instead of the standard deviation, because a spike inflates the standard deviation and hides itself; for normally distributed data, 1.4826 × MAD estimates σ. Leys et al. (2013) recommend a threshold of 2.5–3 robust standard deviations. Once a value has been tested, it gets a flag. A widely used scheme is that of the QARTOD programme (U.S. IOOS, 2020):</p>
+      <table>
+        <caption>Table 4. Quality flags (QARTOD/UNESCO convention). Store the flag in its own column next to every value.</caption>
+        <thead><tr><th>Flag</th><th>Meaning</th><th>Use in analysis</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1</td><td>pass — passed all tests</td><td>use</td></tr>
+          <tr><td class="num">2</td><td>not evaluated</td><td>use with caution</td></tr>
+          <tr><td class="num">3</td><td>suspect or of high interest</td><td>inspect; decide and document</td></tr>
+          <tr><td class="num">4</td><td>fail</td><td>exclude (but keep in the raw file)</td></tr>
+          <tr><td class="num">9</td><td>missing</td><td>treat as a gap</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn"><div class="callout-title">Sensor streams versus experimental data</div><p>Automatic removal of flagged points is appropriate for high-frequency sensor streams, where a spike is clearly an artefact. For your <em>experimental response</em> data — the fresh weight of a lettuce, a sensory score — the rules are stricter: a surprising value is not an error until you find its cause, and deleting it to improve a result is research misconduct (<a href="/lessons/descriptive-statistics/">Lesson 3.2</a>).</p></div>
+      <p>Many observatories organise their data in <strong>processing levels</strong>, and the same structure works for a student project. Level 0 is the raw file exactly as the logger wrote it — never edited, backed up in two places. Level 1 adds calibration corrections and quality flags; every value can still be traced back to its raw counterpart. Level 2 contains derived and aggregated products — 10-min means, daily light integrals, VPD, EC₂₅ — computed only from values with acceptable flags, with the uncertainty budget stated. Your statistical analysis and your report use level 2; your reviewer, if in doubt, can reproduce it from level 0. A small script that turns level 0 into level 2 is worth more than any amount of manual spreadsheet editing, because it can be rerun when you discover a calibration error in week 6.</p>
+      <p>Finally, <strong>metadata</strong>: data about the data. The FAIR principles — data should be Findable, Accessible, Interoperable and Reusable — were formulated for research data in general (Wilkinson et al., 2016), and they apply to a student's CSV file as much as to a national archive. The minimum for every sensor in your project:</p>
+      <table>
+        <caption>Table 5. Minimum metadata for a sensor time series.</caption>
+        <thead><tr><th>Item</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>Measurand, location and height/depth</td><td>nutrient-solution temperature, tank B, 10 cm below the surface</td></tr>
+          <tr><td>Sensor make, model, serial number</td><td>DS18B20, ROM ID 28-0316a2794aff</td></tr>
+          <tr><td>Unit and time basis</td><td>°C; ISO 8601 time stamps in UTC; value = 1-min mean of 6 samples</td></tr>
+          <tr><td>Calibration</td><td>date, reference used, coefficients (a, b), uncertainty, version of the conversion code</td></tr>
+          <tr><td>QC</td><td>tests applied, thresholds, flag scheme</td></tr>
+          <tr><td>Events log</td><td>probe cleaned 2026-10-03 14:20Z; buffers renewed; logger rebooted after power cut</td></tr>
+          <tr><td>Firmware and logger</td><td>ESP32 firmware v1.3, sampling every 10 s, storage format</td></tr>
+        </tbody>
+      </table>
+      <p>Table 6 brings the lesson together for the sensors you are likely to use in the project. The uncertainties are indicative targets for careful student work, not guarantees; your own budget, built with Eqs. 9.3.1–9.3.4, is what goes into your report.</p>
+      <table>
+        <caption>Table 6. A calibration and quality checklist for the course project.</caption>
+        <thead><tr><th>Quantity</th><th>Calibration or check</th><th>How often</th><th>Indicative U (k = 2)</th><th>Main pitfalls</th><th>QC rules</th></tr></thead>
+        <tbody>
+          <tr><td>Water temperature (DS18B20)</td><td>ice point + comparison with a reference thermometer at working temperature</td><td>start and end of project</td><td>±0.1–0.2 °C after correction</td><td>reading before equilibrium (τ); sensor out of the water</td><td>range 5–35 °C; step &lt; 2 °C min⁻¹; flat line</td></tr>
+          <tr><td>Air T and RH (SHT4x)</td><td>side-by-side comparison with a reference or a salt-solution check</td><td>start; after condensation</td><td>±0.3 °C, ±2–3 %RH</td><td>radiation shield, ventilation, heat from electronics</td><td>RH ≤ 100 %; dew point ≤ T</td></tr>
+          <tr><td>PPFD / DLI</td><td>factory calibration; comparison with a second sensor</td><td>calibration every 2 years; check at start</td><td>±6–8 %</td><td>levelling, position on the canopy, spectral error under LEDs</td><td>0 when lights off; ≤ 2500</td></tr>
+          <tr><td>pH</td><td>two-point buffer calibration (4.01 and 7.00), check buffer at the end</td><td>every session</td><td>±0.05–0.1 pH</td><td>ageing electrode (slope %), clogged junction, temperature (Lesson 9.2)</td><td>range 3–9; step; slope and offset logged</td></tr>
+          <tr><td>EC</td><td>1413 µS cm⁻¹ standard; temperature compensation</td><td>weekly</td><td>±3–5 %</td><td>wrong α, fouled cell, TDS "ppm" confusion</td><td>range; consistency with dosing log</td></tr>
+          <tr><td>Dissolved oxygen</td><td>air-saturated water (100 %); zero solution if available</td><td>weekly</td><td>±0.2–0.5 mg L⁻¹</td><td>flow dependence of Clark sensors; membrane or cap ageing</td><td>≤ saturation (Figure 6 of Lesson 9.2)</td></tr>
+          <tr><td>CO₂ (NDIR)</td><td>outdoor air ≈ 427 ppm; reference gas if available</td><td>monthly</td><td>±30–50 ppm</td><td>pressure compensation; automatic baseline correction in enriched rooms</td><td>range 300–2000 ppm; step</td></tr>
+        </tbody>
+      </table>
+      <a class="lab-link" data-lab="sensor-anomaly" data-why="Detect spikes, drift and stuck sensors in real greenhouse data streams with rolling statistics and simple machine-learning detectors — the automatic version of Tables 3 and 4."></a>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="measurement-uncertainty-main">
+        <script type="application/json">
+        {"title":"Calibration, uncertainty and data quality","questions":[
+          {"type":"mcq","q":"Ten readings of a humidity sensor in a reference chamber at 60.0 %RH are 63.9, 64.1, 64.0, 63.8, 64.1, 64.0, 63.9, 64.2, 64.0, 64.0 %RH. How would you describe this sensor?","options":["Accurate: the readings agree closely","Precise but not true: small scatter, large systematic error","True but not precise","Neither true nor precise"],"answer":1,"feedback":["Agreement between readings is precision, not accuracy — the readings are about 4 %RH away from the reference.","","The mean is 64.0 %RH, 4 %RH above the reference: that is a trueness problem, not a precision one.","The scatter (s ≈ 0.1 %RH) is small, so it is precise."],"explain":"<p>Small scatter (s ≈ 0.12 %RH) but a bias of +4.0 %RH: case (b) of Figure 1. Averaging will not help; calibration will.</p>"},
+          {"type":"numeric","q":"Nine independent readings have an experimental standard deviation s = 0.12 °C. What is the standard uncertainty of their mean?","answer":0.04,"tol":0.02,"unit":"°C","hint":"Eq. 9.3.1: u = s/√n.","explain":"<p>\\(u = 0.12/\\sqrt{9} = 0.040\\) °C.</p>"},
+          {"type":"numeric","q":"A data sheet gives an accuracy of ±0.3 °C and nothing else. Treating it as a rectangular distribution, what is the standard uncertainty?","answer":0.1732,"tol":0.01,"unit":"°C","hint":"Eq. 9.3.2: u = a/√3.","explain":"<p>\\(u = 0.3/\\sqrt{3} = 0.173\\) °C.</p>"},
+          {"type":"numeric","q":"A DLI is computed from a PPFD of 400 µmol m⁻² s⁻¹ held for exactly 16 h. The PPFD has a relative standard uncertainty of 3 %. What is the standard uncertainty of the DLI?","answer":0.6912,"tol":0.02,"unit":"mol m⁻² d⁻¹","hint":"DLI = PPFD·t·3600/10⁶; with t exact, the relative uncertainty of the DLI equals that of the PPFD.","explain":"<p>DLI = 400 × 16 × 3600/10⁶ = 23.04 mol m⁻² d⁻¹; u = 0.03 × 23.04 = 0.69 mol m⁻² d⁻¹.</p>"},
+          {"type":"numeric","q":"Two independent contributions to an uncertainty budget are 0.3 and 0.4 (same unit). What is the expanded uncertainty with k = 2?","answer":1.0,"tol":0.01,"hint":"Combine in quadrature (Eq. 9.3.3), then multiply by k.","explain":"<p>\\(u_c = \\sqrt{0.3^2 + 0.4^2} = 0.5\\); \\(U = 2\\times0.5 = 1.0\\).</p>"},
+          {"type":"multi","q":"Which of these errors are reduced by averaging many readings from the same sensor? (Select all that apply.)","options":["Electrical noise on the ADC input","The calibration offset of the sensor","Radiative heating of an unshielded air-temperature sensor","Quantisation of a slowly varying signal with some noise","Drift of a pH electrode since its last calibration"],"answer":[0,3],"explain":"<p>Only random components average out. Calibration offsets, radiative heating and drift are systematic: every reading shares them (the fully correlated case of Eq. 9.3.3).</p>"},
+          {"type":"numeric","q":"A calibration gives the line ŷ = 0.05 + 0.98x (x = reference °C, y = sensor indication °C). The sensor now indicates 20.63 °C. What is the calibrated temperature?","answer":21.0,"abstol":0.02,"unit":"°C","hint":"Invert the line: x = (y − a)/b (Eq. 9.3.6).","explain":"<p>\\(\\hat{x}_0 = (20.63 - 0.05)/0.98 = 21.00\\) °C.</p>"},
+          {"type":"tf","q":"The uncertainty of a value read back through a calibration line (inverse prediction) is smallest near the centre of the calibrated range.","answer":true,"explain":"<p>The term \\((\\bar{y}_0-\\bar{y})^2/(b^2S_{xx})\\) in Eq. 9.3.6 vanishes at the centroid and grows towards the ends of the range — and faster beyond them.</p>"},
+          {"type":"numeric","q":"Greenhouse vents cycle with a period of 12 min and the logger samples every 10 min. What period does the apparent (aliased) oscillation in the logged data have?","answer":60,"tol":0.02,"unit":"min","hint":"Work in cycles per hour: f = 5, f<sub>s</sub> = 6; use Eq. 9.3.8.","explain":"<p>\\(f_a = |5 - 6\\cdot\\text{round}(5/6)| = 1\\) h⁻¹, i.e. a 60-min phantom oscillation.</p>"},
+          {"type":"numeric","q":"You want exponential smoothing that behaves like a sensor with a time constant of 5 min, applied to 1-min samples. What smoothing factor α should you use?","answer":0.1813,"tol":0.02,"hint":"α = 1 − exp(−Δt/τ) (Eq. 9.3.9).","explain":"<p>\\(\\alpha = 1 - e^{-1/5} = 0.181\\). The approximation \\(\\Delta t/\\tau = 0.2\\) is close but not exact, because Δt ≪ τ is only roughly satisfied.</p>"},
+          {"type":"mcq","q":"In a one-dimensional Kalman filter the measurement noise R is increased while the process noise Q is unchanged. What happens?","options":["The gain K increases and the output follows the measurements more closely","The gain K decreases and the output becomes smoother but slower","The gain K is unchanged; only the reported uncertainty changes","The filter becomes unstable"],"answer":1,"feedback":["A noisier sensor deserves less weight, not more.","","K = P⁻/(P⁻ + R) depends directly on R.","The 1-D random-walk filter is stable for any positive Q and R."],"explain":"<p>K = P⁻/(P⁻ + R): a larger R lowers K, so each new measurement moves the estimate less — more smoothing, more lag.</p>"},
+          {"type":"mcq","q":"A soil-moisture logger reports exactly the same value, 23.4 %, for six hours during which the crop was irrigated twice. Which QC test is designed to catch this?","options":["Gross range test","Rate-of-change (step) test","Flat-line (persistence) test","Spike (Hampel) test"],"answer":2,"feedback":["23.4 % is a physically possible value, so a range test passes it.","Nothing changes, so no step is detected.","","A constant value has no outliers relative to its neighbours."],"explain":"<p>A value that stops changing indicates a stuck sensor or frozen firmware; only a persistence test detects it. Flag the period (flag 4) and inspect the hardware.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Trueness</dt><dd>Closeness of the mean of many replicate measured values to the reference value; the absence of systematic error (bias).</dd>
+        <dt>Precision</dt><dd>Closeness of agreement between replicate measured values; the absence of random error. Repeatability and reproducibility are precision under same and changed conditions.</dd>
+        <dt>Bias</dt><dd>An estimate of the systematic error of a measurement; corrected by calibration, not reduced by averaging.</dd>
+        <dt>Standard uncertainty</dt><dd>Uncertainty of a result expressed as a standard deviation, \(u\).</dd>
+        <dt>Type A evaluation</dt><dd>Evaluation of a standard uncertainty by statistical analysis of a series of observations, e.g. \(u(\bar{x}) = s/\sqrt{n}\).</dd>
+        <dt>Type B evaluation</dt><dd>Evaluation of a standard uncertainty by any other means — data sheets, certificates, resolution, physics — e.g. \(u = a/\sqrt{3}\) for a rectangular distribution.</dd>
+        <dt>Law of propagation of uncertainty</dt><dd>The first-order GUM rule \(u_c^2 = \sum c_i^2u^2(x_i) + \text{covariance terms}\) that carries input uncertainties through a measurement model.</dd>
+        <dt>Expanded uncertainty</dt><dd>\(U = k\,u_c\); with coverage factor k = 2 it defines an interval with about 95 % coverage probability for a normal distribution.</dd>
+        <dt>Calibration</dt><dd>Establishing, with reference standards of known uncertainty, the relation between a sensor's indications and the values of the measurand.</dd>
+        <dt>Metrological traceability</dt><dd>Property of a result that can be related to the SI through an unbroken, documented chain of calibrations, each contributing to the uncertainty.</dd>
+        <dt>Inverse prediction</dt><dd>Converting a new indication back into a value of the measurand through a calibration line, with an uncertainty given by Eq. 9.3.6.</dd>
+        <dt>Drift</dt><dd>Slow change of a sensor's characteristic with time; controlled by recalibration intervals and in-service checks.</dd>
+        <dt>Aliasing</dt><dd>The appearance of a false, lower frequency when a signal is sampled at less than twice its highest frequency (the Nyquist criterion).</dd>
+        <dt>Exponential smoothing</dt><dd>Recursive filter \(y_n = \alpha x_n + (1-\alpha)y_{n-1}\), the digital equivalent of a first-order sensor with \(\alpha = 1 - e^{-\Delta t/\tau}\).</dd>
+        <dt>Kalman filter</dt><dd>A recursive estimator that combines model predictions and measurements with weights set by their variances (Q and R), and reports the uncertainty of its estimate.</dd>
+        <dt>Quality flag</dt><dd>A code stored with each value (e.g. 1 pass, 3 suspect, 4 fail, 9 missing) recording the outcome of quality-control tests.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can explain, with a sketch, the difference between trueness, precision, accuracy and resolution.</li>
+        <li>I can build an uncertainty budget with Type A and Type B contributions, derive and apply the law of propagation of uncertainty, and report y ± U with k = 2.</li>
+        <li>I can explain why averaging many readings does not reduce the calibration uncertainty of a DLI, and why humidity dominates the uncertainty of a VPD.</li>
+        <li>I can fit a calibration line, read its residual plot, and give an inverse-predicted value with its uncertainty.</li>
+        <li>I can choose a sampling interval that avoids aliasing, and choose between moving-average, exponential, median and Kalman filters for a given problem.</li>
+        <li>I can set up QC tests, flags and metadata for every sensor in my project.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Bell, S. (2001). <em>A beginner's guide to uncertainty of measurement</em> (Measurement Good Practice Guide No. 11, Issue 2). National Physical Laboratory. <a href="https://eprintspublications.npl.co.uk/1568/" target="_blank" rel="noopener">eprintspublications.npl.co.uk/1568</a><span class="r-why">A short, gentle and practical introduction with everyday examples; read it all — it takes about an hour and covers Type A, Type B, budgets and reporting.</span></li>
+        <li><span class="r-type">Required · open access</span>Campbell, J. L., Rustad, L. E., Porter, J. H., Taylor, J. R., Dereszynski, E. W., Shanley, J. B., Gries, C., Henshaw, D. L., Martin, M. E., Sheldon, W. M., &amp; Boose, E. R. (2013). Quantity is nothing without quality: automated QA/QC for streaming environmental sensor data. <em>BioScience</em>, 63(7), 574–585. <a href="https://doi.org/10.1525/bio.2013.63.7.10" target="_blank" rel="noopener">doi:10.1525/bio.2013.63.7.10</a><span class="r-why">How large sensor networks design QC tests, flags and metadata; use it as the model for your project's data-handling plan.</span></li>
+        <li><span class="r-type">Recommended · open access</span>JCGM. (2008). <em>Evaluation of measurement data — Guide to the expression of uncertainty in measurement</em> (JCGM 100:2008). Joint Committee for Guides in Metrology. <a href="https://www.bipm.org/en/committees/jc/jcgm/publications" target="_blank" rel="noopener">bipm.org</a><span class="r-why">The GUM itself; sections 3–5 and 7 contain everything used in this lesson, and the annexes are worked examples.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Welch, G., &amp; Bishop, G. (2004). <em>An introduction to the Kalman filter</em> (Technical Report TR 95-041, updated 5 April 2004). University of North Carolina at Chapel Hill. <a href="https://www.cs.unc.edu/techreports/95-041.pdf" target="_blank" rel="noopener">cs.unc.edu/techreports/95-041.pdf</a><span class="r-why">The classic gentle introduction; section 1 and the one-dimensional example in section 3 match Eq. 9.3.10.</span></li>
+        <li><span class="r-type">Textbook</span>Miller, J. N., Miller, J. C., &amp; Miller, R. D. (2018). <em>Statistics and Chemometrics for Analytical Chemistry</em> (7th ed.). Pearson.<span class="r-why">Chapter 5 on calibration methods: regression lines, residuals, inverse prediction and its uncertainty, with many laboratory examples.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56). Food and Agriculture Organization of the United Nations. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">fao.org</a></li>
+        <li>Anscombe, F. J. (1973). Graphs in statistical analysis. <em>The American Statistician</em>, 27(1), 17–21. <a href="https://doi.org/10.1080/00031305.1973.10478966" target="_blank" rel="noopener">doi:10.1080/00031305.1973.10478966</a></li>
+        <li>Apogee Instruments. (n.d.). <em>SQ-500-SS full-spectrum quantum sensor: specifications</em>. <a href="https://www.apogeeinstruments.com/sq-500-ss-full-spectrum-quantum-sensor/" target="_blank" rel="noopener">apogeeinstruments.com</a></li>
+        <li>Bell, S. (2001). <em>A beginner's guide to uncertainty of measurement</em> (Measurement Good Practice Guide No. 11, Issue 2). National Physical Laboratory. <a href="https://eprintspublications.npl.co.uk/1568/" target="_blank" rel="noopener">eprintspublications.npl.co.uk/1568</a></li>
+        <li>Campbell, J. L., Rustad, L. E., Porter, J. H., Taylor, J. R., Dereszynski, E. W., Shanley, J. B., Gries, C., Henshaw, D. L., Martin, M. E., Sheldon, W. M., &amp; Boose, E. R. (2013). Quantity is nothing without quality: automated QA/QC for streaming environmental sensor data. <em>BioScience</em>, 63(7), 574–585. <a href="https://doi.org/10.1525/bio.2013.63.7.10" target="_blank" rel="noopener">doi:10.1525/bio.2013.63.7.10</a></li>
+        <li>ILAC &amp; OIML. (2022). <em>Guidelines for the determination of recalibration intervals of measuring equipment</em> (ILAC-G24:2022 / OIML D 10:2022). International Laboratory Accreditation Cooperation and International Organization of Legal Metrology. <a href="https://www.oiml.org/en/files/pdf_d/d010-e22.pdf" target="_blank" rel="noopener">oiml.org</a></li>
+        <li>JCGM. (2008a). <em>Evaluation of measurement data — Guide to the expression of uncertainty in measurement</em> (JCGM 100:2008). Joint Committee for Guides in Metrology. <a href="https://www.bipm.org/en/committees/jc/jcgm/publications" target="_blank" rel="noopener">bipm.org</a></li>
+        <li>JCGM. (2008b). <em>Evaluation of measurement data — Supplement 1 to the "Guide to the expression of uncertainty in measurement" — Propagation of distributions using a Monte Carlo method</em> (JCGM 101:2008). Joint Committee for Guides in Metrology. <a href="https://www.bipm.org/en/committees/jc/jcgm/publications" target="_blank" rel="noopener">bipm.org</a></li>
+        <li>JCGM. (2012). <em>International vocabulary of metrology — Basic and general concepts and associated terms (VIM)</em> (3rd ed., JCGM 200:2012). Joint Committee for Guides in Metrology. <a href="https://www.bipm.org/en/committees/jc/jcgm/publications" target="_blank" rel="noopener">bipm.org</a></li>
+        <li>Kalman, R. E. (1960). A new approach to linear filtering and prediction problems. <em>Journal of Basic Engineering</em>, 82(1), 35–45. <a href="https://doi.org/10.1115/1.3662552" target="_blank" rel="noopener">doi:10.1115/1.3662552</a></li>
+        <li>Leys, C., Ley, C., Klein, O., Bernard, P., &amp; Licata, L. (2013). Detecting outliers: Do not use standard deviation around the mean, use absolute deviation around the median. <em>Journal of Experimental Social Psychology</em>, 49(4), 764–766. <a href="https://doi.org/10.1016/j.jesp.2013.03.013" target="_blank" rel="noopener">doi:10.1016/j.jesp.2013.03.013</a></li>
+        <li>Miller, J. N., Miller, J. C., &amp; Miller, R. D. (2018). <em>Statistics and Chemometrics for Analytical Chemistry</em> (7th ed.). Pearson.</li>
+        <li>Nyquist, H. (1928). Certain topics in telegraph transmission theory. <em>Transactions of the American Institute of Electrical Engineers</em>, 47(2), 617–644. <a href="https://doi.org/10.1109/T-AIEE.1928.5055024" target="_blank" rel="noopener">doi:10.1109/T-AIEE.1928.5055024</a></li>
+        <li>Ross, J., &amp; Sulev, M. (2000). Sources of errors in measurements of PAR. <em>Agricultural and Forest Meteorology</em>, 100(2–3), 103–125. <a href="https://doi.org/10.1016/S0168-1923(99)00144-6" target="_blank" rel="noopener">doi:10.1016/S0168-1923(99)00144-6</a></li>
+        <li>Sensirion. (n.d.). <em>SHT40 digital humidity and temperature sensor</em> [Product specifications]. <a href="https://sensirion.com/products/catalog/SHT40" target="_blank" rel="noopener">sensirion.com/products/catalog/SHT40</a></li>
+        <li>Shannon, C. E. (1949). Communication in the presence of noise. <em>Proceedings of the IRE</em>, 37(1), 10–21. <a href="https://doi.org/10.1109/JRPROC.1949.232969" target="_blank" rel="noopener">doi:10.1109/JRPROC.1949.232969</a></li>
+        <li>Taylor, B. N., &amp; Kuyatt, C. E. (1994). <em>Guidelines for evaluating and expressing the uncertainty of NIST measurement results</em> (NIST Technical Note 1297, 1994 ed.). National Institute of Standards and Technology. <a href="https://www.nist.gov/pml/nist-technical-note-1297" target="_blank" rel="noopener">nist.gov</a></li>
+        <li>U.S. Integrated Ocean Observing System (IOOS). (2020). <em>Manual for real-time oceanographic data quality control flags</em> (Version 1.2). NOAA. <a href="https://cdn.ioos.noaa.gov/media/2020/07/QARTOD-Data-Flags-Manual_version1.2final.pdf" target="_blank" rel="noopener">ioos.noaa.gov</a></li>
+        <li>Welch, G., &amp; Bishop, G. (2004). <em>An introduction to the Kalman filter</em> (Technical Report TR 95-041, updated 5 April 2004). University of North Carolina at Chapel Hill. <a href="https://www.cs.unc.edu/techreports/95-041.pdf" target="_blank" rel="noopener">cs.unc.edu/techreports/95-041.pdf</a></li>
+        <li>Wilkinson, M. D., Dumontier, M., Aalbersberg, I. J., Appleton, G., Axton, M., Baak, A., et al. (2016). The FAIR Guiding Principles for scientific data management and stewardship. <em>Scientific Data</em>, 3, 160018. <a href="https://doi.org/10.1038/sdata.2016.18" target="_blank" rel="noopener">doi:10.1038/sdata.2016.18</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, BarChart, linspace } from '/assets/js/plot.js';
+import { svp } from '/assets/js/physics.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+import { linreg, mean, sd, quantile, mulberry32, randn, median } from '/assets/js/stats.js';
+
+/* slider factory matching the mini-calc look (linear or logarithmic) */
+function addSlider(host, o) {
+  const w = document.createElement('div'); w.className = 'mc-var';
+  w.innerHTML = `<div class="mc-lab"><span>${o.label}</span><output></output></div><input type="range" aria-label="${o.label.replace(/<[^>]+>/g, '')}">`;
+  const r = w.querySelector('input'), out = w.querySelector('output');
+  const toR = v => o.log ? Math.log10(v) : v, fromR = v => o.log ? Math.pow(10, v) : v;
+  r.min = toR(o.min); r.max = toR(o.max); r.step = o.log ? 'any' : o.step; r.value = toR(o.value);
+  const get = () => { const v = fromR(+r.value); return o.log ? +v.toPrecision(3) : v; };
+  const show = () => { out.textContent = (o.fmt ? o.fmt(get()) : fmt(get(), o.digits ?? 0)) + (o.unit ? ' ' + o.unit : ''); r.style.setProperty('--fill', ((+r.value - +r.min) / (+r.max - +r.min) * 100) + '%'); };
+  r.addEventListener('input', () => { show(); o.onInput && o.onInput(); });
+  show(); host.appendChild(w);
+  return { get, el: w, set: v => { r.value = toR(v); show(); } };
+}
+function segment(id, cb) {
+  const seg = document.getElementById(id); let v = seg.querySelector('[aria-pressed="true"]').dataset.v;
+  seg.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); v = b.dataset.v; cb(v); });
+  return () => v;
+}
+
+/* ---------- Figure 2: averaging beats noise, not bias ---------- */
+{
+  const ctl = document.getElementById('av-ctl');
+  let seed = 11;
+  const S = {
+    bias: addSlider(ctl, { label: 'Bias b', min: -1, max: 1, step: 0.05, value: 0.3, unit: '°C', digits: 2, onInput: () => draw() }),
+    sig: addSlider(ctl, { label: 'Noise σ (single reading)', min: 0.02, max: 1, step: 0.01, value: 0.25, unit: '°C', digits: 2, onInput: () => draw() }),
+    n: addSlider(ctl, { label: 'Number of readings n', min: 5, max: 400, value: 60, log: true, digits: 0, onInput: () => draw() })
+  };
+  const TRUE = 20;
+  const plot = new Plot('#av-plot', { x: { label: 'Reading number k', min: 1 }, y: { label: 'Temperature', unit: '°C' }, legend: true });
+  const ro = new Readouts('#av-ro');
+  ro.add({ id: 'm', label: 'Mean of n readings', unit: '°C', digits: 3 })
+    .add({ id: 's', label: 'Experimental s', unit: '°C', digits: 3 })
+    .add({ id: 'u', label: 'u(x̄) = s/√n', unit: '°C', digits: 4 })
+    .add({ id: 'e', label: 'Error of the mean (x̄ − true)', unit: '°C', digits: 3 })
+    .add({ id: 'z', label: 'Random part (x̄ − true − b)/u', unit: '', digits: 2, note: 'usually within ±2' });
+  function draw() {
+    const b = S.bias.get(), sg = S.sig.get(), n = Math.round(S.n.get());
+    const rng = mulberry32(seed);
+    const xs = [], ys = [], rm = [], lo = [], hi = [];
+    let sum = 0, sum2 = 0;
+    for (let k = 1; k <= n; k++) {
+      const y = TRUE + b + sg * randn(rng); xs.push(k); ys.push(y);
+      sum += y; sum2 += y * y; const m = sum / k; rm.push(m);
+      const s = k > 1 ? Math.sqrt(Math.max(0, (sum2 - k * m * m) / (k - 1))) : sg;
+      lo.push(m - 2 * s / Math.sqrt(k)); hi.push(m + 2 * s / Math.sqrt(k));
+    }
+    plot.setAxis('x', { min: 1, max: n });
+    const span = Math.max(3 * sg, Math.abs(b) + 3 * sg, 0.5);
+    plot.setAxis('y', { min: TRUE - span, max: TRUE + span });
+    plot.band('band', xs, lo, hi, { color: 'accent', alpha: 0.16 });
+    plot.scatter('pts', xs, ys, { color: 'water', r: n > 150 ? 1.8 : 2.6, label: 'Single readings' });
+    plot.line('rm', xs, rm, { color: 'accent', width: 2.4, label: 'Running mean ± 2u' });
+    plot.hline('true', TRUE, { color: 'muted', label: 'true value 20.00 °C' });
+    plot.hline('biased', TRUE + b, { color: 'magenta', label: b === 0 ? '' : 'true + bias' });
+    const m = mean(ys), s = sd(ys), u = s / Math.sqrt(n), e = m - TRUE;
+    ro.set('m', m); ro.set('s', s); ro.set('u', u);
+    ro.set('e', e, Math.abs(e) < 2 * u ? 'ok' : Math.abs(e) < 0.2 ? 'warn' : 'bad');
+    const z = (m - TRUE - b) / u;
+    ro.set('z', z, Math.abs(z) < 2 ? 'ok' : Math.abs(z) < 3 ? 'warn' : 'bad');
+  }
+  document.getElementById('av-new').addEventListener('click', () => { seed++; draw(); });
+  draw();
+}
+
+/* ---------- Figure 4: VPD uncertainty budget, GUM vs Monte Carlo ---------- */
+{
+  const ctl = document.getElementById('vb-ctl');
+  const upd = () => draw();
+  const S = {
+    T: addSlider(ctl, { label: 'Air temperature T', min: 10, max: 35, step: 0.5, value: 24, unit: '°C', digits: 1, onInput: upd }),
+    RH: addSlider(ctl, { label: 'Relative humidity', min: 30, max: 95, step: 1, value: 70, unit: '%', digits: 0, onInput: upd }),
+    aT: addSlider(ctl, { label: 'T specification ±', min: 0.05, max: 1, step: 0.05, value: 0.2, unit: '°C', digits: 2, onInput: upd }),
+    aH: addSlider(ctl, { label: 'RH specification ±', min: 0.5, max: 5, step: 0.1, value: 1.8, unit: '%RH', digits: 1, onInput: upd }),
+    dT: addSlider(ctl, { label: 'Radiative heating of the sensor', min: 0, max: 1.5, step: 0.05, value: 0, unit: 'K', digits: 2, onInput: upd })
+  };
+  const dist = segment('vb-dist', upd);
+  const plot = new Plot('#vb-plot', { x: { label: 'Computed VPD', unit: 'kPa' }, y: { label: 'Probability density', unit: 'kPa⁻¹', min: 0 }, legend: true });
+  const bars = new BarChart('#vb-bars', { y: { label: 'Share of variance', unit: '%', min: 0, max: 125 }, horizontal: true, height: 140, legend: false });
+  const ro = new Readouts('#vb-ro');
+  ro.add({ id: 'v', label: 'Reported VPD', unit: 'kPa', digits: 3 })
+    .add({ id: 'uc', label: 'u<sub>c</sub> (GUM)', unit: 'kPa', digits: 4 })
+    .add({ id: 'U', label: 'U, k = 2', unit: 'kPa', digits: 3 })
+    .add({ id: 'mc', label: 'Monte Carlo SD', unit: 'kPa', digits: 4 })
+    .add({ id: 'q', label: 'MC 95 % half-width', unit: 'kPa', digits: 3 })
+    .add({ id: 'b', label: 'Error vs true VPD', unit: 'kPa', digits: 3 });
+  const N = 20000;
+  function draw() {
+    const T = S.T.get(), RH = S.RH.get(), aT = S.aT.get(), aH = S.aH.get(), dT = S.dT.get();
+    const rect = dist() === 'rect';
+    const uT = rect ? aT / Math.sqrt(3) : aT / 2, uH = rect ? aH / Math.sqrt(3) : aH / 2;
+    const ea = svp(T) * RH / 100;                 // true vapour pressure of the air
+    const trueV = svp(T) - ea;
+    const Ts = T + dT, RHs = 100 * ea / svp(Ts);  // what an ideal sensor at elevated temperature would indicate
+    const es = svp(Ts), D = 4098 * es / (Ts + 237.3) ** 2;
+    const v = es * (1 - RHs / 100);
+    const cT = D * (1 - RHs / 100), cH = es / 100;
+    const vT = (cT * uT) ** 2, vH = (cH * uH) ** 2, uc = Math.sqrt(vT + vH);
+    const rng = mulberry32(42);
+    const sim = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      const eT = rect ? aT * (2 * rng() - 1) : uT * randn(rng);
+      const eH = rect ? aH * (2 * rng() - 1) : uH * randn(rng);
+      const t = Ts + eT, h = Math.min(100, Math.max(0, RHs + eH));
+      sim[i] = svp(t) * (1 - h / 100);
+    }
+    const arr = Array.from(sim);
+    const mcSd = sd(arr), q1 = quantile(arr, 0.025), q2 = quantile(arr, 0.975);
+    const lo = Math.min(v - 4.5 * uc, trueV - 0.02), hi = Math.max(v + 4.5 * uc, trueV + 0.02);
+    const nb = 50, w = (hi - lo) / nb, cnt = new Array(nb).fill(0);
+    for (const x of arr) { const k = Math.floor((x - lo) / w); if (k >= 0 && k < nb) cnt[k]++; }
+    const dens = cnt.map(c => c / (N * w));
+    const xs = linspace(lo, hi, 241), pdf = xs.map(x => Math.exp(-0.5 * ((x - v) / uc) ** 2) / (uc * Math.sqrt(2 * Math.PI)));
+    const ymax = 1.12 * Math.max(...dens, ...pdf);
+    plot.setAxis('x', { min: lo, max: hi }); plot.setAxis('y', { min: 0, max: ymax });
+    plot.custom('hist', (ctx, p, P) => {
+      ctx.fillStyle = P.water || '#1c78a3'; ctx.globalAlpha = 0.35;
+      dens.forEach((d, k) => { const x0 = p.px(lo + k * w), x1 = p.px(lo + (k + 1) * w); ctx.fillRect(x0, p.py(d), Math.max(0.5, x1 - x0 - 0.6), p.py(0) - p.py(d)); });
+      ctx.globalAlpha = 1;
+    });
+    plot.line('pdf', xs, pdf, { color: 'accent', width: 2.4, label: 'GUM: normal distribution with u<sub>c</sub>' });
+    plot.vline('lo', v - 2 * uc, { color: 'accent', label: '−U' }); plot.vline('hi', v + 2 * uc, { color: 'accent', label: '+U' });
+    plot.vline('true', trueV, { color: 'muted', dash: [2, 3], label: dT > 0 ? 'true VPD' : '' });
+    bars.set(['Temperature', 'Relative humidity'], [{ label: 'share', values: [100 * vT / (vT + vH), 100 * vH / (vT + vH)], colors: ['amber', 'water'], format: x => fmt(x, 0) + ' %' }]);
+    ro.set('v', v); ro.set('uc', uc); ro.set('U', 2 * uc); ro.set('mc', mcSd);
+    ro.set('q', (q2 - q1) / 2);
+    const err = v - trueV; ro.set('b', err, Math.abs(err) < uc ? 'ok' : Math.abs(err) < 2 * uc ? 'warn' : 'bad');
+  }
+  draw();
+}
+
+/* ---------- Figure 6: calibration laboratory ---------- */
+{
+  const ctl = document.getElementById('cl-ctl');
+  let seed = 3;
+  const upd = () => draw();
+  const S = {
+    n: addSlider(ctl, { label: 'Calibration points n', min: 3, max: 12, step: 1, value: 5, digits: 0, onInput: upd }),
+    x0: addSlider(ctl, { label: 'Lowest reference value', min: 0, max: 20, step: 0.5, value: 5, unit: '°C', digits: 1, onInput: upd }),
+    x1: addSlider(ctl, { label: 'Highest reference value', min: 10, max: 40, step: 0.5, value: 35, unit: '°C', digits: 1, onInput: upd }),
+    sig: addSlider(ctl, { label: 'Noise of each indication', min: 0.005, max: 0.3, step: 0.005, value: 0.02, unit: '°C', digits: 3, onInput: upd }),
+    curv: addSlider(ctl, { label: 'Curvature (non-linearity)', min: -0.002, max: 0.002, step: 0.0001, value: 0, unit: '°C⁻¹', digits: 4, onInput: upd }),
+    y0: addSlider(ctl, { label: 'Unknown: mean indication ȳ₀', min: 0, max: 40, step: 0.05, value: 18.4, unit: '°C', digits: 2, onInput: upd }),
+    m: addSlider(ctl, { label: 'Replicates of the unknown m', min: 1, max: 20, step: 1, value: 4, digits: 0, onInput: upd })
+  };
+  const plot = new Plot('#cl-plot', { x: { label: 'Reference temperature x', unit: '°C', min: 0, max: 40 }, y: { label: 'Probe indication y', unit: '°C', min: 0, max: 42 }, legend: true });
+  const rplot = new Plot('#cl-res', { x: { label: 'Reference temperature x', unit: '°C', min: 0, max: 40 }, y: { label: 'Residual', unit: '°C' }, legend: false, height: 190 });
+  const ro = new Readouts('#cl-ro');
+  ro.add({ id: 'b', label: 'Slope b', unit: '', digits: 5 })
+    .add({ id: 'a', label: 'Intercept a', unit: '°C', digits: 4 })
+    .add({ id: 's', label: 's<sub>y/x</sub>', unit: '°C', digits: 4 })
+    .add({ id: 'r2', label: 'R²', unit: '', format: v => v.toFixed(6) })
+    .add({ id: 'x', label: 'Calibrated x̂₀', unit: '°C', digits: 3, note: 'inside the calibrated range' })
+    .add({ id: 'U', label: 'U(x̂₀), k = 2', unit: '°C', digits: 3 });
+  function draw() {
+    const n = Math.round(S.n.get()); let lo = S.x0.get(), hi = S.x1.get(); if (hi - lo < 2) hi = lo + 2;
+    const sg = S.sig.get(), c = S.curv.get(), y0 = S.y0.get(), m = Math.round(S.m.get());
+    const rng = mulberry32(seed * 131 + 7);
+    const truth = x => 0.32 + 0.995 * x + c * (x - 20) ** 2;
+    const xs = linspace(lo, hi, n), ys = xs.map(x => truth(x) + sg * randn(rng));
+    const f = linreg(xs, ys);
+    const xm = mean(xs), ym = mean(ys), Sxx = xs.reduce((s, x) => s + (x - xm) ** 2, 0);
+    const X = linspace(0, 40, 161);
+    const band = X.map(x => f.ciMean(x));
+    plot.band('ci', X, band.map(b => b[0]), band.map(b => b[1]), { color: 'accent', alpha: 0.2 });
+    plot.line('fit', X, X.map(x => f.predict(x)), { color: 'accent', width: 2.2, label: 'Least-squares line' });
+    plot.line('ideal', [0, 40], [0, 40], { color: 'muted', dash: [6, 4], width: 1.2, label: 'Ideal y = x' });
+    plot.scatter('pts', xs, ys, { color: 'water', r: 4.5, label: 'Calibration points' });
+    const x0 = (y0 - f.intercept) / f.slope;
+    const u0 = f.s / Math.abs(f.slope) * Math.sqrt(1 / m + 1 / n + (y0 - ym) ** 2 / (f.slope ** 2 * Sxx));
+    const U = 2 * u0;
+    plot.custom('inv', (ctx, p, P) => {
+      const col = P.magenta || '#b23f8c';
+      ctx.strokeStyle = col; ctx.setLineDash([4, 4]); ctx.lineWidth = 1.2; ctx.beginPath();
+      ctx.moveTo(p.px(0), p.py(y0)); ctx.lineTo(p.px(x0), p.py(y0)); ctx.lineTo(p.px(x0), p.py(0)); ctx.stroke(); ctx.setLineDash([]);
+      ctx.lineWidth = 3; ctx.beginPath(); const yb = p.py(0) - 7; ctx.moveTo(p.px(x0 - U), yb); ctx.lineTo(p.px(x0 + U), yb); ctx.stroke();
+      ctx.lineWidth = 1.5; [x0 - U, x0 + U].forEach(v => { ctx.beginPath(); ctx.moveTo(p.px(v), yb - 5); ctx.lineTo(p.px(v), yb + 5); ctx.stroke(); });
+    });
+    plot.point('p0', x0, y0, { color: 'magenta', r: 5, label: 'unknown' });
+    plot.region('range', lo, hi, { color: 'accent', alpha: 0.05 });
+    const res = f.residuals;
+    const niceUp = v => { const e = Math.pow(10, Math.floor(Math.log10(v))), q = v / e; return (q <= 1 ? 1 : q <= 2 ? 2 : q <= 5 ? 5 : 10) * e; };
+    const rmax = niceUp(Math.max(3 * f.s, ...res.map(Math.abs), 1e-4) * 1.1);
+    rplot.setAxis('y', { min: -rmax, max: rmax });
+    rplot.hregion('b2', -2 * f.s, 2 * f.s, { color: 'accent', alpha: 0.12 });
+    rplot.hline('zero', 0, { color: 'muted' });
+    rplot.scatter('r', xs, res, { color: 'water', r: 4.5 });
+    ro.set('b', f.slope); ro.set('a', f.intercept); ro.set('s', f.s); ro.set('r2', f.r2);
+    ro.set('x', x0, x0 < lo || x0 > hi ? 'warn' : 'ok', x0 < lo || x0 > hi ? 'outside the calibrated range — extrapolation!' : 'inside the calibrated range');
+    ro.set('U', U, U < 0.1 ? 'ok' : U < 0.3 ? 'warn' : 'bad');
+  }
+  document.getElementById('cl-new').addEventListener('click', () => { seed++; draw(); });
+  draw();
+}
+
+/* ---------- Figure 8: aliasing ---------- */
+{
+  const ctl = document.getElementById('al-ctl');
+  const upd = () => draw();
+  const S = {
+    P: addSlider(ctl, { label: 'True period of the oscillation', min: 2, max: 120, value: 12, log: true, unit: 'min', digits: 1, onInput: upd }),
+    dt: addSlider(ctl, { label: 'Sampling interval Δt', min: 0.5, max: 60, value: 10, log: true, unit: 'min', digits: 1, onInput: upd })
+  };
+  const plot = new Plot('#al-plot', { x: { label: 'Time', unit: 'min', min: 0, max: 240 }, y: { label: 'Air temperature', unit: '°C', min: 18.6, max: 21.6 }, legend: true });
+  const ro = new Readouts('#al-ro');
+  ro.add({ id: 'spp', label: 'Samples per period', unit: '', digits: 2 })
+    .add({ id: 'ny', label: 'Nyquist: Δt &lt; P/2?', unit: '', format: v => v })
+    .add({ id: 'fa', label: 'Apparent period', unit: 'min', format: v => (isFinite(v) ? fmt(v, 1) : '∞ (looks constant)') })
+    .add({ id: 'ok', label: 'Verdict', unit: '', format: v => v, note: ' ' });
+  const A = 1, phi = 0.6;
+  function draw() {
+    const P = S.P.get(), dt = S.dt.get();
+    const T = linspace(0, 240, 1601);
+    plot.line('true', T, T.map(t => 20 + A * Math.sin(2 * Math.PI * t / P + phi)), { color: 'muted', width: 1.2, label: 'True signal' });
+    const ts = []; for (let t = 0; t <= 240 + 1e-9; t += dt) ts.push(t);
+    const ys = ts.map(t => 20 + A * Math.sin(2 * Math.PI * t / P + phi));
+    const f = 1 / P, fs = 1 / dt, k = Math.round(f / fs), fsig = f - k * fs; // signed alias frequency
+    plot.line('alias', T, T.map(t => 20 + A * Math.sin(2 * Math.PI * fsig * t + phi)), { color: 'magenta', width: 1.8, dash: [6, 4], label: 'Alias predicted by Eq. 9.3.8' });
+    plot.line('joined', ts, ys, { color: 'accent', width: 2.2, label: 'Dashboard (samples joined)' });
+    plot.scatter('s', ts, ys, { color: 'water', r: 4, label: 'Samples' });
+    const fa = Math.abs(fsig), ok = dt < P / 2;
+    ro.set('spp', P / dt, P / dt >= 5 ? 'ok' : P / dt > 2 ? 'warn' : 'bad');
+    ro.set('ny', ok ? 'yes' : 'no', ok ? 'ok' : 'bad');
+    ro.set('fa', fa < 1e-9 ? Infinity : 1 / fa, ok ? 'ok' : 'bad');
+    ro.set('ok', ok ? (P / dt >= 5 ? 'faithful' : 'ragged') : 'aliased', ok ? (P / dt >= 5 ? 'ok' : 'warn') : 'bad', ok ? (P / dt >= 5 ? 'shape and period correct' : 'period correct, shape poor') : 'the slow wave is fake');
+  }
+  draw();
+}
+
+/* ---------- Figure 10: filter laboratory ---------- */
+{
+  const ctl = document.getElementById('fl-ctl');
+  let seed = 5;
+  const upd = () => draw();
+  const S = {
+    sig: addSlider(ctl, { label: 'Sensor noise σ', min: 0.02, max: 0.8, step: 0.01, value: 0.3, unit: '°C', digits: 2, onInput: upd }),
+    spk: addSlider(ctl, { label: 'Spike probability', min: 0, max: 5, step: 0.1, value: 1, unit: '%', digits: 1, onInput: upd }),
+    N: addSlider(ctl, { label: 'Moving average: window N', min: 1, max: 61, step: 2, value: 9, digits: 0, onInput: upd }),
+    a: addSlider(ctl, { label: 'EMA: smoothing factor α', min: 0.02, max: 1, step: 0.01, value: 0.2, digits: 2, onInput: upd }),
+    M: addSlider(ctl, { label: 'Median: window', min: 1, max: 31, step: 2, value: 7, digits: 0, onInput: upd }),
+    q: addSlider(ctl, { label: 'Kalman: √Q (change per min)', min: 0.005, max: 0.5, value: 0.05, log: true, unit: '°C', digits: 3, onInput: upd }),
+    r: addSlider(ctl, { label: 'Kalman: assumed √R', min: 0.02, max: 1, step: 0.01, value: 0.3, unit: '°C', digits: 2, onInput: upd })
+  };
+  const SERIES = [
+    { id: 'ma', label: 'Moving average', short: 'moving average', color: 'accent' },
+    { id: 'ema', label: 'Exponential (EMA)', short: 'EMA', color: 'water' },
+    { id: 'med', label: 'Median', short: 'median', color: 'amber' },
+    { id: 'kf', label: 'Kalman', short: 'Kalman', color: 'magenta' }
+  ];
+  const showBox = document.getElementById('fl-show');
+  const shown = { ma: true, ema: true, med: false, kf: true };
+  const COLORS = { accent: 'var(--accent)', water: 'var(--water)', amber: 'var(--amber)', magenta: 'var(--magenta)' };
+  SERIES.forEach(s => {
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="checkbox" ${shown[s.id] ? 'checked' : ''}><i style="background:${COLORS[s.color]}"></i>${s.label}`;
+    l.querySelector('input').addEventListener('change', e => { shown[s.id] = e.target.checked; draw(); });
+    showBox.appendChild(l);
+  });
+  const n = 360, t = linspace(0, n - 1, n);
+  const truth = t.map(x => 18 + 0.6 * Math.sin(2 * Math.PI * x / 200) + (x >= 150 ? 1.5 : 0));
+  const MA = (x, N) => x.map((_, i) => { const a = Math.max(0, i - N + 1); let s = 0; for (let j = a; j <= i; j++) s += x[j]; return s / (i - a + 1); });
+  const EMA = (x, al) => { let y = x[0]; return x.map(v => (y = al * v + (1 - al) * y)); };
+  const MED = (x, W) => x.map((_, i) => median(x.slice(Math.max(0, i - W + 1), i + 1)));   // causal (trailing) window, as on a logger
+  const KF = (x, Q, R) => { let xe = x[0], P = R; return x.map(z => { const Pm = P + Q, K = Pm / (Pm + R); xe = xe + K * (z - xe); P = (1 - K) * Pm; return xe; }); };
+  const plot = new Plot('#fl-plot', { x: { label: 'Time', unit: 'min', min: 0, max: n - 1 }, y: { label: 'Water temperature', unit: '°C' }, legend: true });
+  const ro = new Readouts('#fl-ro');
+  ro.add({ id: 'raw', label: 'RMSE raw data', unit: '°C', digits: 3 });
+  SERIES.forEach(s => ro.add({ id: 'e_' + s.id, label: 'RMSE — ' + s.short, unit: '°C', digits: 3 }).add({ id: 'l_' + s.id, label: 'Step delay (63 %) — ' + s.short, unit: 'min', digits: 0 }));
+  const rmse = (a) => Math.sqrt(a.reduce((s, v, i) => s + (v - truth[i]) ** 2, 0) / a.length);
+  const delay = (y) => { const base = y[149], target = base + 0.632 * (truth[150] - truth[149]); for (let i = 150; i < n; i++) if (y[i] >= target) return i - 150; return NaN; };
+  function draw() {
+    const rng = mulberry32(seed * 977 + 13);
+    const sg = S.sig.get(), p = S.spk.get() / 100;
+    const raw = truth.map(v => { let z = v + sg * randn(rng); if (rng() < p) z += (rng() < 0.5 ? -1 : 1) * (2.5 + 3 * rng()); return z; });
+    const N = Math.round(S.N.get()), al = S.a.get(), M = Math.round(S.M.get()), Q = S.q.get() ** 2, R = S.r.get() ** 2;
+    const out = { ma: MA(raw, N), ema: EMA(raw, al), med: MED(raw, M), kf: KF(raw, Q, R) };
+    const clean = { ma: MA(truth, N), ema: EMA(truth, al), med: MED(truth, M), kf: KF(truth, Q, R) };
+    const lo = Math.min(...raw), hi = Math.max(...raw);
+    plot.setAxis('y', { min: Math.max(lo, 14) - 0.3, max: Math.min(hi, 24) + 0.3 });
+    plot.scatter('raw', t, raw, { color: 'muted', r: 1.7, label: 'Raw samples' });
+    plot.line('truth', t, truth, { color: 'ink', width: 1.3, dash: [5, 4], label: 'True signal' });
+    SERIES.forEach(s => { if (shown[s.id]) plot.line(s.id, t, out[s.id], { color: s.color, width: 2.2, label: s.label }); else plot.remove(s.id); });
+    ro.set('raw', rmse(raw));
+    const errs = SERIES.map(s => rmse(out[s.id])); const best = Math.min(...errs);
+    SERIES.forEach((s, i) => {
+      ro.set('e_' + s.id, errs[i], errs[i] <= best * 1.05 ? 'ok' : errs[i] < rmse(raw) ? null : 'bad');
+      const d = delay(clean[s.id]); ro.set('l_' + s.id, d, d <= 3 ? 'ok' : d <= 10 ? 'warn' : 'bad');
+    });
+  }
+  document.getElementById('fl-new').addEventListener('click', () => { seed++; draw(); });
+  draw();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,1455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IoT architectures, networks and edge computing · Future Food Production</title>
+<meta name="description" content="Layered IoT architecture, microcontrollers and single-board computers, sensor interfaces (I²C, SPI, UART, 1-Wire, SDI-12, Modbus), wireless options, link budgets with the Friis and log-distance models, LoRa time on air and the EU868 duty cycle, MQTT, time-series databases, edge versus cloud, power budgets and energy harvesting, cybersecurity and the EU Cyber Resilience Act, and a reference ESP32 logger for the course project.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator helpers for this lesson (defined before site.js builds the mini-calcs) */
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  /* free-space path loss in dB, d in m, f in MHz */
+  function fspl(dm, fMHz) { return 20 * Math.log10(dm / 1000) + 20 * Math.log10(fMHz) + 32.45; }
+  /* Eq. 9.4.3: maximum range (m) of the log-distance model with a fade margin; free space up to d0 */
+  FFP_CALC.dmax = function (v) {
+    var B = v.ptx + v.g - v.l - v.S - v.fm;
+    var L0 = fspl(v.d0, v.f);
+    if (B <= L0) return Math.pow(10, (B - fspl(1, v.f)) / 20);
+    return v.d0 * Math.pow(10, (B - L0) / (10 * v.n));
+  };
+  /* Eq. 9.4.6: LoRa time on air (ms) for a LoRaWAN uplink (13 bytes MAC overhead, 8-symbol preamble, explicit header, CRC on, CR 4/5) */
+  FFP_CALC.loraToa = function (v) {
+    var SF = Math.round(v.SF), BW = v.BW * 1000, PL = Math.round(v.PL) + 13, CR = 1;
+    var Ts = Math.pow(2, SF) / BW, DE = Ts >= 0.016 ? 1 : 0;
+    var nPay = 8 + Math.max(Math.ceil((8 * PL - 4 * SF + 28 + 16) / (4 * (SF - 2 * DE))) * (CR + 4), 0);
+    return 1000 * ((8 + 4.25) * Ts + nPay * Ts);
+  };
+  /* Eq. 9.4.8: battery life in days */
+  FFP_CALC.battLife = function (v) {
+    var T = v.T, on = Math.min(v.ton, T);
+    var Iavg = (v.Ion * on + (v.Isl / 1000) * (T - on)) / T; // mA
+    return (v.eta / 100) * v.C / Iavg / 24;
+  };
+})();
+</script>
+<style>
+  .fx-ctl { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); column-gap: 22px; margin-bottom: 6px; }
+  .fx-note { font-size: .82rem; color: var(--muted); margin: 6px 0 0; }
+  .fx-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 10px; }
+  .fx-row .seg { flex: 1 1 280px; }
+  .fx-lab { font: 600 .8rem var(--font-sans); color: var(--muted); margin: 6px 0 4px; }
+  .fx-two { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .fx-two { grid-template-columns: 1fr; } }
+  pre.code { background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; overflow-x: auto; font: 500 .78rem/1.55 var(--font-mono); color: var(--ink-2); margin: 0 0 1.2em; }
+  pre.code .c { color: var(--muted); }
+  pre.code .k { color: var(--magenta); }
+  pre.code .s { color: var(--accent); }
+  .mq-box { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .mq-in { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .mq-in input { flex: 1 1 260px; font: 500 .95rem var(--font-mono); padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--bg-elev); color: var(--ink); }
+  .mq-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mq-presets button { font: 500 .76rem var(--font-mono); padding: 4px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg-sunk); color: var(--ink-2); cursor: pointer; }
+  .mq-status { font-size: .86rem; }
+  .mq-status.bad { color: var(--danger); }
+  .mq-status.ok { color: var(--accent); }
+  .mq-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 4px 14px; }
+  .mq-list li { font: 500 .8rem var(--font-mono); padding: 4px 8px; border-radius: 6px; color: var(--muted); border: 1px solid transparent; overflow-wrap: anywhere; }
+  .mq-list li.hit { background: var(--accent-soft); color: var(--ink); border-color: var(--accent); }
+  .mq-list li.hit::before { content: '✓ '; color: var(--accent); font-weight: 700; }
+  .quiz [hidden] { display: none !important; } /* local workaround: .btn display overrides the hidden attribute */
+</style>
+</head>
+<body data-page="lesson" data-slug="iot-architectures">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>IoT architectures, networks and edge computing</h1>
+      <p class="lead">At three o'clock on a January night the heating of a Swedish greenhouse fails. Will the grower hear about it at 03:05, from a message on the phone — or at 07:00, from frozen crops? The difference is not the thermometer. It is everything behind it: a microcontroller that wakes up, a radio link that must reach across 400 metres of wet glasshouse, a broker that forwards the message, a database that remembers, an alarm rule that decides, and a design that still works when the internet does not. This lesson builds that chain layer by layer, with the physics of radio links, the arithmetic of batteries, and a complete reference design for the logger you can build in the course project.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Describe the layered architecture of an IoT system — device, edge, network, cloud and application — and place the components of a greenhouse system and of your own logger in it (LO5).</li>
+        <li>Choose between microcontrollers and single-board computers, and between analogue, I²C, SPI, UART, 1-Wire, SDI-12 and Modbus sensor interfaces, for a given measurement task (LO5).</li>
+        <li>Derive the Friis free-space and log-distance path-loss models and use them, with receiver sensitivity and fade margins, to compute link budgets and ranges for Wi-Fi, BLE, Zigbee/Thread, LoRaWAN and NB-IoT (LO3, LO5).</li>
+        <li>Calculate LoRa time on air for different spreading factors and the transmission limits set by the EU868 1 % duty cycle and network fair-use rules (LO3, LO5).</li>
+        <li>Design an MQTT topic tree and a data pipeline to a time-series database and dashboard, and decide which processing belongs at the edge and which in the cloud (LO5).</li>
+        <li>Compute power budgets, battery life and solar-harvesting needs, and apply basic cybersecurity practice and current EU rules (Cyber Resilience Act, Radio Equipment Directive) to a student ESP32 logger (LO3, LO5).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="layers">From a logger in a drawer to the Internet of Things</h2>
+      <p class="lede-drop">A data logger that stores readings on a memory card is a fine scientific instrument, but its data are only seen when somebody takes the card out. The <strong>Internet of Things (IoT)</strong> connects sensing devices to networks so that their data flow continuously to where decisions are made, and commands flow back to actuators. In controlled-environment agriculture this is not new — greenhouse climate computers have used wired sensor networks for decades — but cheap microcontrollers with built-in radios, long-range low-power networks and cloud services have made it possible to instrument every tank, bench and field plot. Reviews of IoT in agriculture describe the same recurring building blocks: sensing devices, communication technologies, data storage and processing, and applications (Tzounis et al., 2017; Wolfert et al., 2017).</p>
+      <p>It helps to think of an IoT system as a stack of <strong>layers</strong>, each with one job and a well-defined interface to the next (Figure 1). Data flow upwards, from the physical measurand to the human decision; commands, configuration and firmware updates flow downwards. The measurement chain of <a href="/lessons/sensor-physics/">Lesson 9.1</a> lives in the bottom layer; the uncertainty, filtering and quality flags of <a href="/lessons/measurement-uncertainty/">Lesson 9.3</a> can be applied in any layer — and a good design decides deliberately where.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 800 470" role="img" aria-label="Five-layer IoT architecture with typical greenhouse components and the corresponding parts of a student logger">
+            <defs><marker id="io-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g class="t-small t-muted" font-weight="600"><text x="80" y="18" text-anchor="middle">LAYER</text><text x="354" y="18" text-anchor="middle">TYPICAL COMPONENTS IN A GREENHOUSE</text><text x="650" y="18" text-anchor="middle">YOUR PROJECT LOGGER</text></g>
+            <!-- layer names -->
+            <g>
+              <rect x="10" y="30" width="140" height="62" rx="10" class="fill-magenta-soft" stroke="currentColor"/><text x="80" y="57" text-anchor="middle" font-weight="600">Application</text><text x="80" y="74" text-anchor="middle" class="t-small t-muted">decisions</text>
+              <rect x="10" y="102" width="140" height="62" rx="10" class="fill-water-soft" stroke="currentColor"/><text x="80" y="129" text-anchor="middle" font-weight="600">Cloud / platform</text><text x="80" y="146" text-anchor="middle" class="t-small t-muted">store, compute</text>
+              <rect x="10" y="174" width="140" height="62" rx="10" class="fill-amber-soft" stroke="currentColor"/><text x="80" y="201" text-anchor="middle" font-weight="600">Network</text><text x="80" y="218" text-anchor="middle" class="t-small t-muted">transport</text>
+              <rect x="10" y="246" width="140" height="62" rx="10" class="fill-accent-soft" stroke="currentColor"/><text x="80" y="273" text-anchor="middle" font-weight="600">Edge</text><text x="80" y="290" text-anchor="middle" class="t-small t-muted">local processing</text>
+              <rect x="10" y="318" width="140" height="62" rx="10" class="fill-sunk" stroke="currentColor"/><text x="80" y="345" text-anchor="middle" font-weight="600">Device</text><text x="80" y="362" text-anchor="middle" class="t-small t-muted">sense, actuate</text>
+            </g>
+            <!-- component chips -->
+            <g class="t-small">
+              <rect x="158" y="30" width="392" height="62" rx="10" class="fill-sunk"/>
+              <rect x="164" y="40" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="226" y="57" text-anchor="middle">dashboards</text><text x="226" y="72" text-anchor="middle" class="t-muted">Grafana, web</text>
+              <rect x="294" y="40" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="356" y="57" text-anchor="middle">alarms</text><text x="356" y="72" text-anchor="middle" class="t-muted">SMS, e-mail</text>
+              <rect x="424" y="40" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="486" y="57" text-anchor="middle">decision support</text><text x="486" y="72" text-anchor="middle" class="t-muted">models, twins</text>
+              <rect x="158" y="102" width="392" height="62" rx="10" class="fill-sunk"/>
+              <rect x="164" y="112" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="226" y="129" text-anchor="middle">MQTT broker</text><text x="226" y="144" text-anchor="middle" class="t-muted">routes messages</text>
+              <rect x="294" y="112" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="356" y="129" text-anchor="middle">time-series DB</text><text x="356" y="144" text-anchor="middle" class="t-muted">history, queries</text>
+              <rect x="424" y="112" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="486" y="129" text-anchor="middle">analytics, ML</text><text x="486" y="144" text-anchor="middle" class="t-muted">fleet, updates</text>
+              <rect x="158" y="174" width="392" height="62" rx="10" class="fill-sunk"/>
+              <rect x="164" y="184" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="226" y="201" text-anchor="middle">Wi-Fi, BLE, Zigbee</text><text x="226" y="216" text-anchor="middle" class="t-muted">local, 2.4 GHz</text>
+              <rect x="294" y="184" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="356" y="201" text-anchor="middle">LoRaWAN, NB-IoT</text><text x="356" y="216" text-anchor="middle" class="t-muted">wide area</text>
+              <rect x="424" y="184" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="486" y="201" text-anchor="middle">Ethernet, RS-485</text><text x="486" y="216" text-anchor="middle" class="t-muted">wired links</text>
+              <rect x="158" y="246" width="392" height="62" rx="10" class="fill-sunk"/>
+              <rect x="164" y="256" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="226" y="273" text-anchor="middle">gateway</text><text x="226" y="288" text-anchor="middle" class="t-muted">protocol bridge</text>
+              <rect x="294" y="256" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="356" y="273" text-anchor="middle">local control</text><text x="356" y="288" text-anchor="middle" class="t-muted">safety, alarms</text>
+              <rect x="424" y="256" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="486" y="273" text-anchor="middle">filter, QC, buffer</text><text x="486" y="288" text-anchor="middle" class="t-muted">store and forward</text>
+              <rect x="158" y="318" width="392" height="62" rx="10" class="fill-sunk"/>
+              <rect x="164" y="328" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="226" y="345" text-anchor="middle">sensors</text><text x="226" y="360" text-anchor="middle" class="t-muted">T, RH, CO₂, pH</text>
+              <rect x="294" y="328" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="356" y="345" text-anchor="middle">microcontroller</text><text x="356" y="360" text-anchor="middle" class="t-muted">ESP32, radio</text>
+              <rect x="424" y="328" width="124" height="42" rx="7" class="fill-bg" stroke="var(--line-strong)"/><text x="486" y="345" text-anchor="middle">actuators</text><text x="486" y="360" text-anchor="middle" class="t-muted">vents, valves</text>
+            </g>
+            <!-- project column -->
+            <g class="t-small">
+              <rect x="558" y="30" width="184" height="62" rx="10" class="fill-bg" stroke="var(--line-strong)"/><text x="650" y="57" text-anchor="middle">Grafana dashboard,</text><text x="650" y="73" text-anchor="middle">an alarm to your phone</text>
+              <rect x="558" y="102" width="184" height="62" rx="10" class="fill-bg" stroke="var(--line-strong)"/><text x="650" y="129" text-anchor="middle">Mosquitto + InfluxDB</text><text x="650" y="145" text-anchor="middle">on a Raspberry Pi or server</text>
+              <rect x="558" y="174" width="184" height="62" rx="10" class="fill-bg" stroke="var(--line-strong)"/><text x="650" y="201" text-anchor="middle">campus Wi-Fi,</text><text x="650" y="217" text-anchor="middle">MQTT over TLS (8883)</text>
+              <rect x="558" y="246" width="184" height="62" rx="10" class="fill-bg" stroke="var(--line-strong)"/><text x="650" y="273" text-anchor="middle">ESP32 firmware: means,</text><text x="650" y="289" text-anchor="middle">QC flags, SD backup</text>
+              <rect x="558" y="318" width="184" height="62" rx="10" class="fill-bg" stroke="var(--line-strong)"/><text x="650" y="345" text-anchor="middle">DS18B20, SHT4x, ADS1115,</text><text x="650" y="361" text-anchor="middle">pH and EC front-ends</text>
+            </g>
+            <!-- flows -->
+            <line x1="758" y1="376" x2="758" y2="36" class="stroke-accent" stroke-width="2.2" marker-end="url(#io-a1)" style="color:var(--accent)"/>
+            <line x1="780" y1="36" x2="780" y2="376" class="stroke-magenta" stroke-width="2.2" marker-end="url(#io-a1)" style="color:var(--magenta)"/>
+            <rect x="10" y="394" width="780" height="36" rx="9" fill="none" class="stroke-muted" stroke-dasharray="5 4"/>
+            <text x="400" y="417" text-anchor="middle" class="t-small">cross-cutting in every layer: security · identity and provisioning · time synchronisation (UTC, NTP) · metadata · power</text>
+            <text x="400" y="456" text-anchor="middle" class="t-small"><tspan style="fill:var(--accent)" font-weight="600">↑ data and events flow up</tspan>   ·   <tspan style="fill:var(--magenta)" font-weight="600">↓ commands, configuration and firmware updates flow down</tspan></text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> A layered IoT architecture for controlled-environment agriculture. Real products merge layers (a smart sensor may include the edge layer; a climate computer may be edge and application at once), but asking "which layer does this belong to?" is the fastest way to find a design's weak points.</figcaption>
+      </figure>
+      <table>
+        <caption>Table 1. What each layer does, and how it typically fails.</caption>
+        <thead><tr><th>Layer</th><th>Job</th><th>Design questions</th><th>Typical failure</th></tr></thead>
+        <tbody>
+          <tr><td>Device</td><td>convert the measurand into numbers; drive actuators</td><td>which sensors and interfaces? sampling interval? power source?</td><td>drift, fouling, flat battery, water ingress</td></tr>
+          <tr><td>Edge</td><td>act locally, aggregate, filter, buffer, translate protocols</td><td>what must work without the internet? what can be reduced before sending?</td><td>unhandled reboot, lost clock, full memory</td></tr>
+          <tr><td>Network</td><td>move messages reliably and securely</td><td>range, data rate, energy per message, cost, coverage</td><td>weak link, interference, duty-cycle violation, expired SIM</td></tr>
+          <tr><td>Cloud / platform</td><td>route, store, compute, manage devices</td><td>data model, retention, access control, where the data are stored</td><td>broker unreachable, database schema chaos, vendor lock-in</td></tr>
+          <tr><td>Application</td><td>turn data into decisions and actions</td><td>who needs which information, how fast, and in which form?</td><td>alarm fatigue, dashboards nobody reads</td></tr>
+        </tbody>
+      </table>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Every layer adds latency, energy cost, failure modes and attack surface. The best IoT design is the <em>simplest</em> architecture that meets the requirement — and the requirement must include what happens when a layer fails. A frost alarm that depends on a cloud server is only as reliable as the internet connection of a rural greenhouse at night.</p></div>
+
+      <h2 id="devices">Devices: microcontrollers, single-board computers and sensor interfaces</h2>
+      <p>At the bottom of the stack sits a small computer that reads the sensors. Two families dominate. A <strong>microcontroller</strong> (MCU) is a single chip with processor, memory, timers, analogue-to-digital converters and serial interfaces; it runs one program directly on the hardware (or on a tiny real-time operating system), starts in milliseconds, responds deterministically and can sleep at microamperes. A <strong>single-board computer</strong> (SBC) such as the Raspberry Pi runs a full Linux operating system with gigabytes of memory; it can host a database, a web dashboard or a camera pipeline, but it draws watts, takes tens of seconds to boot, and must be shut down properly to avoid corrupting its memory card. The two are complementary: in the reference design of this lesson, an ESP32 microcontroller measures and an SBC or server stores and displays.</p>
+      <table>
+        <caption>Table 2. Three boards you are likely to meet (data from the manufacturers; check the exact variant you buy).</caption>
+        <thead><tr><th></th><th>ESP32 (e.g. ESP32-WROOM-32E module)</th><th>Arduino Uno R3</th><th>Raspberry Pi 5</th></tr></thead>
+        <tbody>
+          <tr><td>Class</td><td>microcontroller with radio</td><td>microcontroller</td><td>single-board computer</td></tr>
+          <tr><td>Processor</td><td>dual-core 32-bit, up to 240 MHz</td><td>8-bit AVR ATmega328P, 16 MHz</td><td>quad-core Arm Cortex-A76, 2.4 GHz</td></tr>
+          <tr><td>Memory</td><td>520 KB SRAM + external flash</td><td>2 KB SRAM, 32 KB flash</td><td>gigabytes of RAM, microSD/SSD</td></tr>
+          <tr><td>Analogue inputs</td><td>two 12-bit SAR ADCs, 18 channels (limited linearity)</td><td>10-bit ADC, 6 channels</td><td>none (needs an external ADC)</td></tr>
+          <tr><td>Connectivity</td><td>Wi-Fi 802.11 b/g/n, Bluetooth and BLE</td><td>none built in</td><td>Wi-Fi, Bluetooth, Ethernet</td></tr>
+          <tr><td>Lowest power</td><td>deep sleep ≈ 10 µA (chip)</td><td>sleep modes, board regulator dominates</td><td>no deep sleep; watts when running</td></tr>
+          <tr><td>Typical role</td><td>battery or mains sensor node with Wi-Fi</td><td>teaching, simple wired control</td><td>edge gateway, broker, database, camera</td></tr>
+        </tbody>
+      </table>
+      <p>The ESP32 is the workhorse of student loggers because it combines Wi-Fi, a capable processor and low sleep current at low cost (Espressif Systems, 2025). Know its two analogue weaknesses. First, its ADCs are only moderately accurate: the data sheet specifies differential and integral non-linearities of ±7 and ±12 LSB and chip-to-chip differences of about ±6 % before calibration, which is why the reference design uses an external 16-bit ADS1115 for mV-level signals (Lesson 9.1). Second, on the original ESP32 the second converter (ADC2) is shared with the Wi-Fi driver, so analogue sensors of a Wi-Fi logger belong on ADC1 pins (GPIO 32–39) (Espressif Systems, n.d.). Newer family members — ESP32-S3 with vector instructions for small neural networks, ESP32-C6 with Wi-Fi 6, BLE and an IEEE 802.15.4 radio for Thread and Zigbee — follow the same programming model.</p>
+      <p>Between the sensor and the microcontroller lies an <strong>interface</strong>, and choosing it well saves hours of debugging. Figure 2 shows the six you will meet most often, and Table 3 compares them with the two simplest options: a plain analogue voltage and the industrial 4–20 mA current loop.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 800 480" role="img" aria-label="Wiring of six sensor interfaces: I2C, SPI, UART, 1-Wire, SDI-12 and RS-485 Modbus">
+            <defs><marker id="io-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g fill="none" stroke="var(--line-strong)"><rect x="6" y="6" width="258" height="228" rx="10"/><rect x="271" y="6" width="258" height="228" rx="10"/><rect x="536" y="6" width="258" height="228" rx="10"/><rect x="6" y="246" width="258" height="228" rx="10"/><rect x="271" y="246" width="258" height="228" rx="10"/><rect x="536" y="246" width="258" height="228" rx="10"/></g>
+            <!-- (a) I2C -->
+            <g transform="translate(6,6)">
+              <text x="12" y="22" font-weight="600">(a) I²C — two wires, addresses</text>
+              <rect x="12" y="48" width="50" height="116" rx="7" class="fill-sunk" stroke="currentColor"/><text x="37" y="112" text-anchor="middle" class="t-small" font-weight="600">MCU</text>
+              <line x1="62" y1="40" x2="236" y2="40" class="stroke" stroke-width="1.2" stroke-dasharray="4 3"/><text x="238" y="44" class="t-small t-muted" text-anchor="end" dy="-8">3.3 V</text>
+              <line x1="62" y1="86" x2="244" y2="86" stroke="var(--water)" stroke-width="2"/><text x="66" y="81" class="t-small" style="fill:var(--water)">SDA</text>
+              <line x1="62" y1="112" x2="244" y2="112" stroke="var(--magenta)" stroke-width="2"/><text x="66" y="107" class="t-small" style="fill:var(--magenta)">SCL</text>
+              <rect x="96" y="48" width="8" height="24" class="fill-bg" stroke="currentColor"/><line x1="100" y1="40" x2="100" y2="48" class="stroke"/><line x1="100" y1="72" x2="100" y2="86" class="stroke"/>
+              <rect x="116" y="48" width="8" height="24" class="fill-bg" stroke="currentColor"/><line x1="120" y1="40" x2="120" y2="48" class="stroke"/><line x1="120" y1="72" x2="120" y2="112" class="stroke"/>
+              <circle cx="100" cy="86" r="2.6" fill="var(--water)"/><circle cx="120" cy="112" r="2.6" fill="var(--magenta)"/>
+              <text x="128" y="62" class="t-small t-muted">pull-ups</text>
+              <line x1="160" y1="86" x2="160" y2="140" stroke="var(--water)" stroke-width="1.6"/><line x1="174" y1="112" x2="174" y2="140" stroke="var(--magenta)" stroke-width="1.6"/>
+              <line x1="214" y1="86" x2="214" y2="140" stroke="var(--water)" stroke-width="1.6"/><line x1="228" y1="112" x2="228" y2="140" stroke="var(--magenta)" stroke-width="1.6"/>
+              <circle cx="160" cy="86" r="2.6" fill="var(--water)"/><circle cx="174" cy="112" r="2.6" fill="var(--magenta)"/><circle cx="214" cy="86" r="2.6" fill="var(--water)"/><circle cx="228" cy="112" r="2.6" fill="var(--magenta)"/>
+              <rect x="146" y="140" width="44" height="36" rx="5" class="fill-accent-soft" stroke="currentColor"/><text x="168" y="155" text-anchor="middle" class="t-small">SHT4x</text><text x="168" y="169" text-anchor="middle" class="t-small t-mono">0x44</text>
+              <rect x="200" y="140" width="46" height="36" rx="5" class="fill-accent-soft" stroke="currentColor"/><text x="223" y="155" text-anchor="middle" class="t-small">ADC</text><text x="223" y="169" text-anchor="middle" class="t-small t-mono">0x48</text>
+              <text x="12" y="200" class="t-small">100 or 400 kbit/s · shared bus</text><text x="12" y="216" class="t-small t-muted">short cables (&lt; 1 m): bus capacitance</text>
+            </g>
+            <!-- (b) SPI -->
+            <g transform="translate(271,6)">
+              <text x="12" y="22" font-weight="600">(b) SPI — fast, one select per device</text>
+              <rect x="12" y="48" width="50" height="130" rx="7" class="fill-sunk" stroke="currentColor"/><text x="37" y="118" text-anchor="middle" class="t-small" font-weight="600">MCU</text>
+              <g stroke-width="1.8"><line x1="62" y1="62" x2="240" y2="62" class="stroke-accent"/><line x1="62" y1="80" x2="240" y2="80" class="stroke-water"/><line x1="62" y1="98" x2="240" y2="98" class="stroke-magenta"/></g>
+              <g class="t-small"><text x="66" y="58" style="fill:var(--accent)">SCK</text><text x="66" y="76" style="fill:var(--water)">MOSI</text><text x="66" y="94" style="fill:var(--magenta)">MISO</text></g>
+              <g stroke-width="1.4"><line x1="130" y1="62" x2="130" y2="130" class="stroke-accent"/><line x1="138" y1="80" x2="138" y2="130" class="stroke-water"/><line x1="146" y1="98" x2="146" y2="130" class="stroke-magenta"/>
+                <line x1="196" y1="62" x2="196" y2="130" class="stroke-accent"/><line x1="204" y1="80" x2="204" y2="130" class="stroke-water"/><line x1="212" y1="98" x2="212" y2="130" class="stroke-magenta"/></g>
+              <rect x="118" y="130" width="46" height="34" rx="5" class="fill-accent-soft" stroke="currentColor"/><text x="141" y="151" text-anchor="middle" class="t-small">SD card</text>
+              <rect x="184" y="130" width="50" height="34" rx="5" class="fill-accent-soft" stroke="currentColor"/><text x="209" y="151" text-anchor="middle" class="t-small">radio</text>
+              <path d="M62 150 L100 150 L100 172 L141 172 L141 164" fill="none" class="stroke" stroke-width="1.4"/><path d="M62 166 L90 166 L90 182 L209 182 L209 164" fill="none" class="stroke" stroke-width="1.4"/>
+              <text x="66" y="146" class="t-small">CS1</text><text x="66" y="162" class="t-small">CS2</text>
+              <text x="12" y="200" class="t-small">1–40 MHz clock · full duplex</text><text x="12" y="216" class="t-small t-muted">board-level distances only</text>
+            </g>
+            <!-- (c) UART -->
+            <g transform="translate(536,6)">
+              <text x="12" y="22" font-weight="600">(c) UART — point to point</text>
+              <rect x="12" y="52" width="60" height="100" rx="7" class="fill-sunk" stroke="currentColor"/><text x="42" y="106" text-anchor="middle" class="t-small" font-weight="600">MCU</text>
+              <rect x="176" y="52" width="70" height="100" rx="7" class="fill-accent-soft" stroke="currentColor"/><text x="211" y="98" text-anchor="middle" class="t-small" font-weight="600">sensor</text><text x="211" y="113" text-anchor="middle" class="t-small t-muted">or modem</text>
+              <line x1="72" y1="76" x2="174" y2="118" class="stroke-water" stroke-width="1.8" marker-end="url(#io-a2)" style="color:var(--water)"/>
+              <line x1="174" y1="76" x2="74" y2="118" class="stroke-magenta" stroke-width="1.8" marker-end="url(#io-a2)" style="color:var(--magenta)"/>
+              <line x1="72" y1="140" x2="176" y2="140" class="stroke" stroke-width="1.4"/>
+              <g class="t-small"><text x="76" y="72">TX</text><text x="160" y="72" text-anchor="end">TX</text><text x="76" y="132">RX</text><text x="172" y="132" text-anchor="end">RX</text><text x="124" y="156" text-anchor="middle">GND</text></g>
+              <text x="12" y="184" class="t-small">no clock wire: both ends agree on a baud</text><text x="12" y="200" class="t-small">rate, e.g. 9600 bit/s, 8 data bits, no parity</text><text x="12" y="216" class="t-small t-muted">GNSS, CO₂ sensors, cellular modems</text>
+            </g>
+            <!-- (d) 1-Wire -->
+            <g transform="translate(6,246)">
+              <text x="12" y="22" font-weight="600">(d) 1-Wire — one data wire</text>
+              <rect x="12" y="46" width="50" height="104" rx="7" class="fill-sunk" stroke="currentColor"/><text x="37" y="104" text-anchor="middle" class="t-small" font-weight="600">MCU</text>
+              <line x1="62" y1="40" x2="110" y2="40" class="stroke" stroke-width="1.2" stroke-dasharray="4 3"/><text x="112" y="44" class="t-small t-muted">3.3 V</text>
+              <rect x="86" y="46" width="8" height="24" class="fill-bg" stroke="currentColor"/><line x1="90" y1="40" x2="90" y2="46" class="stroke"/><line x1="90" y1="70" x2="90" y2="84" class="stroke"/><text x="98" y="64" class="t-small t-muted">4.7 kΩ</text>
+              <line x1="62" y1="84" x2="244" y2="84" stroke="var(--amber)" stroke-width="2"/><circle cx="90" cy="84" r="2.6" fill="var(--amber)"/><text x="150" y="78" class="t-small" style="fill:var(--amber)">DQ</text>
+              <line x1="62" y1="140" x2="244" y2="140" class="stroke" stroke-width="1.3"/><text x="150" y="156" class="t-small">GND</text>
+              <g><rect x="120" y="96" width="30" height="32" rx="12" class="fill-bg" stroke="currentColor"/><rect x="164" y="96" width="30" height="32" rx="12" class="fill-bg" stroke="currentColor"/><rect x="208" y="96" width="30" height="32" rx="12" class="fill-bg" stroke="currentColor"/>
+                <line x1="135" y1="84" x2="135" y2="96" stroke="var(--amber)" stroke-width="1.5"/><line x1="179" y1="84" x2="179" y2="96" stroke="var(--amber)" stroke-width="1.5"/><line x1="223" y1="84" x2="223" y2="96" stroke="var(--amber)" stroke-width="1.5"/>
+                <line x1="135" y1="128" x2="135" y2="140" class="stroke" stroke-width="1.3"/><line x1="179" y1="128" x2="179" y2="140" class="stroke" stroke-width="1.3"/><line x1="223" y1="128" x2="223" y2="140" class="stroke" stroke-width="1.3"/></g>
+              <text x="12" y="184" class="t-small">each DS18B20 has a unique 64-bit ID,</text><text x="12" y="200" class="t-small">so many probes share one wire</text><text x="12" y="216" class="t-small t-muted">≈ 16 kbit/s; metres to tens of metres</text>
+            </g>
+            <!-- (e) SDI-12 -->
+            <g transform="translate(271,246)">
+              <text x="12" y="22" font-weight="600">(e) SDI-12 — field sensors</text>
+              <rect x="12" y="46" width="62" height="104" rx="7" class="fill-sunk" stroke="currentColor"/><text x="43" y="96" text-anchor="middle" class="t-small" font-weight="600">data</text><text x="43" y="110" text-anchor="middle" class="t-small" font-weight="600">logger</text>
+              <line x1="74" y1="62" x2="244" y2="62" class="stroke-danger" stroke-width="1.8"/><text x="240" y="57" class="t-small" text-anchor="end" style="fill:var(--danger)">+12 V</text>
+              <line x1="74" y1="88" x2="244" y2="88" stroke="var(--amber)" stroke-width="1.8"/><text x="240" y="83" class="t-small" text-anchor="end" style="fill:var(--amber)">data</text>
+              <line x1="74" y1="114" x2="244" y2="114" class="stroke" stroke-width="1.4"/><text x="240" y="109" class="t-small" text-anchor="end">GND</text>
+              <g><rect x="96" y="124" width="38" height="28" rx="5" class="fill-accent-soft" stroke="currentColor"/><rect x="146" y="124" width="38" height="28" rx="5" class="fill-accent-soft" stroke="currentColor"/><rect x="196" y="124" width="38" height="28" rx="5" class="fill-accent-soft" stroke="currentColor"/>
+                <text x="115" y="143" text-anchor="middle" class="t-small t-mono">0</text><text x="165" y="143" text-anchor="middle" class="t-small t-mono">1</text><text x="215" y="143" text-anchor="middle" class="t-small t-mono">2</text>
+                <g class="stroke-muted" stroke-width="1"><line x1="108" y1="62" x2="108" y2="124"/><line x1="115" y1="88" x2="115" y2="124"/><line x1="122" y1="114" x2="122" y2="124"/><line x1="158" y1="62" x2="158" y2="124"/><line x1="165" y1="88" x2="165" y2="124"/><line x1="172" y1="114" x2="172" y2="124"/><line x1="208" y1="62" x2="208" y2="124"/><line x1="215" y1="88" x2="215" y2="124"/><line x1="222" y1="114" x2="222" y2="124"/></g></g>
+              <text x="12" y="184" class="t-small">1200 baud · up to 62 addresses</text><text x="12" y="200" class="t-small">tens of metres of cable</text><text x="12" y="216" class="t-small t-muted">soil-moisture and weather sensors</text>
+            </g>
+            <!-- (f) RS-485 Modbus -->
+            <g transform="translate(536,246)">
+              <text x="12" y="22" font-weight="600">(f) RS-485 / Modbus RTU</text>
+              <rect x="12" y="50" width="58" height="96" rx="7" class="fill-sunk" stroke="currentColor"/><text x="41" y="94" text-anchor="middle" class="t-small" font-weight="600">client</text><text x="41" y="108" text-anchor="middle" class="t-small t-muted">(master)</text>
+              <path d="M70 76 C90 70 90 82 110 76 S130 70 150 76 S170 82 190 76 S210 70 234 76" fill="none" stroke="var(--water)" stroke-width="1.8"/>
+              <path d="M70 90 C90 96 90 84 110 90 S130 96 150 90 S170 84 190 90 S210 96 234 90" fill="none" stroke="var(--magenta)" stroke-width="1.8"/>
+              <rect x="74" y="70" width="9" height="26" class="fill-amber-soft" stroke="currentColor"/><text x="92" y="68" class="t-small" style="fill:var(--water)">A</text><text x="92" y="106" class="t-small" style="fill:var(--magenta)">B</text>
+              <rect x="236" y="70" width="10" height="26" class="fill-amber-soft" stroke="currentColor"/><text x="232" y="64" class="t-small t-muted" text-anchor="end">120 Ω</text>
+              <g><rect x="100" y="118" width="36" height="30" rx="5" class="fill-accent-soft" stroke="currentColor"/><rect x="146" y="118" width="36" height="30" rx="5" class="fill-accent-soft" stroke="currentColor"/><rect x="192" y="118" width="36" height="30" rx="5" class="fill-accent-soft" stroke="currentColor"/>
+                <text x="118" y="138" text-anchor="middle" class="t-small t-mono">id 1</text><text x="164" y="138" text-anchor="middle" class="t-small t-mono">id 2</text><text x="210" y="138" text-anchor="middle" class="t-small t-mono">id 3</text>
+                <g class="stroke-muted" stroke-width="1"><line x1="114" y1="78" x2="114" y2="118"/><line x1="122" y1="90" x2="122" y2="118"/><line x1="160" y1="78" x2="160" y2="118"/><line x1="168" y1="90" x2="168" y2="118"/><line x1="206" y1="78" x2="206" y2="118"/><line x1="214" y1="90" x2="214" y2="118"/></g></g>
+              <text x="12" y="184" class="t-small">differential twisted pair, terminated</text><text x="12" y="200" class="t-small">up to ≈ 1200 m · addresses 1–247</text><text x="12" y="216" class="t-small t-muted">climate computers, energy meters</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> Six digital sensor interfaces (supply wires omitted where they add nothing). (a) I²C: open-drain lines with pull-up resistors; each device answers to its 7-bit address. (b) SPI: shared clock and data lines, a chip-select (CS) wire per device. (c) UART: transmit and receive lines crossed. (d) 1-Wire: one data line with a pull-up; devices are found by their factory ID. (e) SDI-12: a 12 V, data and ground three-wire bus for environmental sensors (SDI-12 Support Group, 2023). (f) RS-485: a differential pair with 120 Ω terminations at both ends, carrying the Modbus protocol.</figcaption>
+      </figure>
+      <table>
+        <caption>Table 3. Sensor interfaces compared (typical values).</caption>
+        <thead><tr><th>Interface</th><th>Wires</th><th>Topology</th><th>Speed</th><th>Distance</th><th>Typical sensors in CEA</th></tr></thead>
+        <tbody>
+          <tr><td>Analogue voltage</td><td>signal + GND (+ supply)</td><td>point to point</td><td>set by the ADC</td><td>&lt; 1–2 m for mV signals</td><td>thermistor divider, quantum sensor (mV), pH/EC front-ends</td></tr>
+          <tr><td>4–20 mA loop</td><td>2 (loop-powered)</td><td>point to point</td><td>slow</td><td>hundreds of metres</td><td>industrial pressure, level and water-quality transmitters</td></tr>
+          <tr><td>I²C</td><td>SDA, SCL + supply</td><td>bus, 7-bit addresses</td><td>100/400 kbit/s</td><td>&lt; 1 m (bus capacitance)</td><td>SHT4x, ADS1115, SCD4x CO₂, RTC</td></tr>
+          <tr><td>SPI</td><td>SCK, MOSI, MISO, CS per device</td><td>bus with selects</td><td>MHz</td><td>on the board</td><td>SD cards, LoRa radios, fast ADCs, displays</td></tr>
+          <tr><td>UART</td><td>TX, RX, GND</td><td>point to point</td><td>9.6–115 kbit/s</td><td>metres (longer via RS-232/485)</td><td>GNSS, some CO₂ and pH/EC circuits, modems</td></tr>
+          <tr><td>1-Wire</td><td>DQ + GND (+ VDD)</td><td>bus, 64-bit IDs</td><td>≈ 16 kbit/s</td><td>metres to tens of metres</td><td>DS18B20 temperature probes</td></tr>
+          <tr><td>SDI-12</td><td>data, 12 V, GND</td><td>bus, 62 addresses</td><td>1200 baud</td><td>tens of metres</td><td>soil-moisture, weather and water-level sensors</td></tr>
+          <tr><td>Modbus RTU (RS-485)</td><td>A, B (+ GND)</td><td>bus, addresses 1–247</td><td>9.6–115 kbit/s</td><td>up to ≈ 1200 m</td><td>climate sensors, pumps, inverters, energy meters</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn"><div class="callout-title">Practical warning: voltage levels and grounds</div><p>The ESP32 is a 3.3 V device: its inputs must never see the 5 V that many Arduino-era sensor boards produce — use 3.3 V boards or level shifters. And never let two probes that sit in the same tank (pH and EC, for example) share a ground with your logger without galvanic isolation: the EC excitation current then flows through the pH reference and shifts the reading (<a href="/lessons/electrochemical-sensors/">Lesson 9.2</a>).</p></div>
+
+      <h2 id="wireless">Wireless options and their trade-offs</h2>
+      <p>Choosing a radio is a trade-off between four quantities that physics does not let you maximise together: <strong>range</strong>, <strong>data rate</strong>, <strong>energy per message</strong> and <strong>cost</strong> (hardware, subscription, infrastructure). The root of the trade-off is the Shannon–Hartley capacity \(C = B\log_2(1 + \text{SNR})\): at a given transmit power, a receiver farther away sees a smaller signal-to-noise ratio, and the only way to keep the link working is to lower the data rate — sending each bit with more energy. Low-power wide-area networks (LPWANs) such as LoRaWAN and NB-IoT sit at the extreme of this trade-off: a few hundred bits per second to a few kilobits per second, over kilometres, from batteries that last years (Raza et al., 2017; Mekki et al., 2019).</p>
+      <figure class="figure" id="radio-landscape">
+        <div class="fig-body">
+          <div class="mini-calc-title">Figure — the range–rate landscape of IoT radios</div>
+          <div id="rl-plot" style="height:340px"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> Approximate, order-of-magnitude envelopes of typical range and data rate for common IoT radios (logarithmic axes; compiled from Raza et al., 2017, Mekki et al., 2019 and manufacturer data). The diagonal trend is the Shannon trade-off: longer range costs data rate. Actual values depend on configuration, antennas and environment — which is what the link budget in the next section quantifies.</figcaption>
+      </figure>
+      <table>
+        <caption>Table 4. Wireless technologies for agricultural IoT (typical values; EU frequencies).</caption>
+        <thead><tr><th>Technology</th><th>Band</th><th>Data rate</th><th>Typical range</th><th>Topology</th><th>Energy</th><th>Cost model</th><th>Good for</th></tr></thead>
+        <tbody>
+          <tr><td>Wi-Fi (802.11n)</td><td>2.4 / 5 GHz</td><td>1–150 Mbit/s</td><td>tens of metres indoors</td><td>star (access point)</td><td>high (ESP32: 180–240 mA transmitting)</td><td>existing infrastructure</td><td>mains-powered loggers, cameras</td></tr>
+          <tr><td>Bluetooth Low Energy</td><td>2.4 GHz</td><td>0.125–2 Mbit/s</td><td>10–100 m</td><td>star or mesh; phone as gateway</td><td>low</td><td>none</td><td>hand-held meters, short-range tags</td></tr>
+          <tr><td>Zigbee / Thread (IEEE 802.15.4)</td><td>2.4 GHz</td><td>250 kbit/s</td><td>10–100 m per hop</td><td>mesh (Thread: IPv6, basis of Matter)</td><td>low</td><td>needs a coordinator or border router</td><td>building and greenhouse automation</td></tr>
+          <tr><td>LoRaWAN</td><td>868 MHz (EU868)</td><td>0.25–5.5 kbit/s (11 at 250 kHz)</td><td>1–15 km</td><td>star of stars via gateways</td><td>very low (SX1276: 29 mA at +13 dBm, short bursts)</td><td>own gateway or public network</td><td>fields, orchards, remote tanks</td></tr>
+          <tr><td>NB-IoT / LTE-M</td><td>licensed LTE bands (e.g. 800 MHz)</td><td>tens of kbit/s / up to ≈ 1 Mbit/s</td><td>cell coverage; deep indoor</td><td>cellular</td><td>low with power-saving modes</td><td>operator subscription</td><td>widely spread sites without own infrastructure</td></tr>
+          <tr><td>Wired (Ethernet, RS-485)</td><td>—</td><td>kbit/s–Gbit/s</td><td>100–1200 m</td><td>star or bus</td><td>none for radio</td><td>cabling</td><td>fixed installations, climate computers</td></tr>
+        </tbody>
+      </table>
+      <p>The <strong>topology</strong> matters as much as the radio (Figure 4). Wi-Fi is a star around an access point. Zigbee, Thread and BLE mesh relay messages from node to node, so the network extends itself — but relaying nodes must stay awake and cannot run for years on a coin cell. LoRaWAN is a "star of stars": end devices transmit, any gateway in range forwards the packet over the internet to a network server, which removes duplicates, manages data rates and security keys, and hands the data to an application server (often through an MQTT interface). NB-IoT and LTE-M use the mobile operator's base stations and core network, so you rent coverage instead of building it.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 800 300" role="img" aria-label="Network topologies: star, mesh, LoRaWAN star of stars and cellular">
+            <defs><marker id="io-a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g font-weight="600" text-anchor="middle"><text x="95" y="20">(a) star — Wi-Fi</text><text x="290" y="20">(b) mesh — Zigbee, Thread</text><text x="520" y="20">(c) star of stars — LoRaWAN</text><text x="716" y="20">(d) cellular — NB-IoT</text></g>
+            <!-- star -->
+            <g class="stroke-muted" stroke-width="1.3"><line x1="95" y1="140" x2="40" y2="80"/><line x1="95" y1="140" x2="150" y2="80"/><line x1="95" y1="140" x2="30" y2="170"/><line x1="95" y1="140" x2="160" y2="175"/><line x1="95" y1="140" x2="95" y2="225"/></g>
+            <rect x="75" y="126" width="40" height="28" rx="6" class="fill-water-soft" stroke="currentColor"/><text x="95" y="145" text-anchor="middle" class="t-small">AP</text>
+            <g class="fill-accent"><circle cx="40" cy="80" r="8"/><circle cx="150" cy="80" r="8"/><circle cx="30" cy="170" r="8"/><circle cx="160" cy="175" r="8"/><circle cx="95" cy="225" r="8"/></g>
+            <text x="95" y="262" text-anchor="middle" class="t-small t-muted">every node talks to the</text><text x="95" y="277" text-anchor="middle" class="t-small t-muted">access point</text>
+            <!-- mesh -->
+            <g class="stroke-muted" stroke-width="1.3"><line x1="220" y1="70" x2="290" y2="90"/><line x1="290" y1="90" x2="360" y2="70"/><line x1="220" y1="70" x2="240" y2="150"/><line x1="290" y1="90" x2="240" y2="150"/><line x1="290" y1="90" x2="340" y2="160"/><line x1="360" y1="70" x2="340" y2="160"/><line x1="240" y1="150" x2="290" y2="215"/><line x1="340" y1="160" x2="290" y2="215"/><line x1="240" y1="150" x2="340" y2="160"/></g>
+            <g class="fill-accent"><circle cx="220" cy="70" r="8"/><circle cx="360" cy="70" r="8"/><circle cx="240" cy="150" r="8"/><circle cx="340" cy="160" r="8"/></g>
+            <g class="fill-amber"><circle cx="290" cy="90" r="9"/></g>
+            <rect x="268" y="204" width="44" height="26" rx="6" class="fill-water-soft" stroke="currentColor"/><text x="290" y="221" text-anchor="middle" class="t-small">router</text>
+            <text x="310" y="84" class="t-small t-muted">relay</text>
+            <text x="290" y="262" text-anchor="middle" class="t-small t-muted">nodes relay for each other;</text><text x="290" y="277" text-anchor="middle" class="t-small t-muted">relays must stay awake</text>
+            <!-- LoRaWAN -->
+            <g class="fill-accent"><circle cx="420" cy="80" r="8"/><circle cx="410" cy="150" r="8"/><circle cx="440" cy="220" r="8"/><circle cx="500" cy="232" r="8"/></g>
+            <g class="stroke-muted" stroke-width="1.2" stroke-dasharray="4 3"><line x1="420" y1="80" x2="480" y2="110"/><line x1="410" y1="150" x2="480" y2="118"/><line x1="410" y1="150" x2="480" y2="190"/><line x1="440" y1="220" x2="480" y2="196"/><line x1="500" y1="232" x2="484" y2="200"/></g>
+            <g><path d="M480 98 L488 130 L472 130 Z" class="fill-water-soft" stroke="currentColor"/><path d="M480 180 L488 212 L472 212 Z" class="fill-water-soft" stroke="currentColor"/></g>
+            <text x="497" y="120" class="t-small">gateway</text><text x="497" y="202" class="t-small">gateway</text>
+            <g class="stroke" stroke-width="1.4"><line x1="490" y1="116" x2="560" y2="132" marker-end="url(#io-a3)"/><line x1="490" y1="196" x2="560" y2="146" marker-end="url(#io-a3)"/><line x1="593" y1="164" x2="593" y2="190" marker-end="url(#io-a3)"/></g>
+            <rect x="562" y="118" width="62" height="46" rx="7" class="fill-bg" stroke="currentColor"/><text x="593" y="137" text-anchor="middle" class="t-small">network</text><text x="593" y="152" text-anchor="middle" class="t-small">server</text><rect x="562" y="192" width="62" height="40" rx="7" class="fill-magenta-soft" stroke="currentColor"/><text x="593" y="209" text-anchor="middle" class="t-small">app</text><text x="593" y="223" text-anchor="middle" class="t-small">server</text>
+            <text x="532" y="262" text-anchor="middle" class="t-small t-muted">devices → any gateway in range →</text><text x="532" y="277" text-anchor="middle" class="t-small t-muted">network server (de-duplication, keys, ADR)</text>
+
+            <!-- cellular -->
+            <g class="fill-accent"><circle cx="660" cy="80" r="8"/><circle cx="665" cy="215" r="8"/><circle cx="780" cy="215" r="8"/></g>
+            <path d="M720 100 L732 170 L708 170 Z" class="fill-amber-soft" stroke="currentColor"/><line x1="720" y1="100" x2="720" y2="170" class="stroke-muted"/>
+            <g class="stroke-muted" stroke-width="1.2" stroke-dasharray="4 3"><line x1="660" y1="80" x2="712" y2="118"/><line x1="665" y1="215" x2="712" y2="160"/><line x1="780" y1="215" x2="728" y2="160"/></g>
+            <text x="736" y="112" class="t-small">base</text><text x="736" y="126" class="t-small">station</text>
+            <line x1="720" y1="98" x2="720" y2="50" class="stroke" stroke-width="1.4" marker-end="url(#io-a3)"/><text x="728" y="56" class="t-small">operator core →</text><text x="728" y="70" class="t-small">internet</text>
+            <text x="716" y="262" text-anchor="middle" class="t-small t-muted">rented coverage; SIM and</text><text x="716" y="277" text-anchor="middle" class="t-small t-muted">subscription per device</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 4.</b> Network topologies. In a LoRaWAN network (c), a device is not attached to one gateway: every gateway that hears a packet forwards it, and the network server keeps one copy. The network server also runs adaptive data rate (ADR), choosing the fastest spreading factor that still gives each device a reliable link.</figcaption>
+      </figure>
+
+      <h2 id="link-budget">Link budgets and path loss</h2>
+      <p>Will a radio link close? The answer is an addition of decibels called a <strong>link budget</strong>. Radio engineers express powers in dBm (decibels relative to 1 mW: \(P_{\text{dBm}} = 10\log_{10}(P/1\ \text{mW})\), so 0 dBm = 1 mW, 14 dBm = 25 mW, 20 dBm = 100 mW, −100 dBm = 0.1 pW) and gains and losses in dB, because the multiplications of the physical chain then become additions. Every 3 dB is a factor 2 and every 10 dB a factor 10.</p>
+      <div class="eq-box" id="eq-link-budget">
+        <div class="eq-head"><span class="eq-label">Link budget and link margin</span><span class="eq-num">(9.4.1)</span></div>
+        <div class="eq-main">\[ P_{\text{rx}} = P_{\text{tx}} + G_{\text{tx}} + G_{\text{rx}} - L_{\text{c}} - L_{\text{p}}(d) - L_{\text{x}}, \qquad M = P_{\text{rx}} - S \]</div>
+        <p class="eq-read">the received power in dBm equals the transmitted power plus the gains of both antennas minus cable and connector losses, minus the path loss over distance d, minus any extra losses such as walls or vegetation; the link margin is the received power minus the receiver's sensitivity, and the link works reliably only if the margin exceeds the expected fading.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(P_{\text{tx}}\), \(P_{\text{rx}}\)</td><td>transmitted and received power</td><td>dBm</td><td>+14 dBm (LoRa, EU), +19.5 dBm (ESP32 Wi-Fi)</td></tr>
+          <tr><td>\(G_{\text{tx}}\), \(G_{\text{rx}}\)</td><td>antenna gains relative to an isotropic antenna</td><td>dBi</td><td>2.15 (dipole), 3–8 (gateway)</td></tr>
+          <tr><td>\(L_{\text{c}}\)</td><td>cable and connector losses</td><td>dB</td><td>0.5–3</td></tr>
+          <tr><td>\(L_{\text{p}}(d)\)</td><td>path loss at distance d (Eqs. 9.4.2–9.4.3)</td><td>dB</td><td>80–150</td></tr>
+          <tr><td>\(L_{\text{x}}\)</td><td>extra losses: walls, glass, foliage, water, enclosure</td><td>dB</td><td>0–30</td></tr>
+          <tr><td>\(S\)</td><td>receiver sensitivity (Eq. 9.4.4)</td><td>dBm</td><td>−98 (Wi-Fi 1 Mbit/s) to −136 (LoRa SF12)</td></tr>
+          <tr><td>\(M\)</td><td>link margin</td><td>dB</td><td>should exceed the fade margin, ≈ 10–20</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>In linear units the chain is multiplicative: the transmitter's power \(p_{\text{tx}}\) is multiplied by the antenna gain factors \(g_{\text{tx}}g_{\text{rx}}\) and divided by the loss factors \(l_{\text{c}}\,l_{\text{p}}\,l_{\text{x}}\): \(p_{\text{rx}} = p_{\text{tx}}\,g_{\text{tx}}g_{\text{rx}}/(l_{\text{c}}l_{\text{p}}l_{\text{x}})\).</li>
+            <li>Take \(10\log_{10}\) of both sides. The logarithm of a product is the sum of logarithms, and of a quotient the difference: \(10\log_{10}p_{\text{rx}} = 10\log_{10}p_{\text{tx}} + 10\log_{10}g_{\text{tx}} + \dots - 10\log_{10}l_{\text{p}} - \dots\)</li>
+            <li>Expressing powers relative to 1 mW gives dBm on both sides; gains and losses are ratios and become dB. The result is Eq. 9.4.1.</li>
+            <li>The receiver decodes reliably if \(P_{\text{rx}} \ge S\), so the margin \(M = P_{\text{rx}} - S\) is the room left for everything the model does not capture — fading, a wet canopy, a person standing in front of the antenna.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Antenna gains are quoted in the direction of maximum radiation; a node antenna lying flat on a tank lid or inside a metal enclosure can lose 10 dB or more. EU rules limit the radiated power, not the transmitter output: in the 868.0–868.6 MHz sub-band the limit is 25 mW effective radiated power (14 dBm ERP), so a higher-gain antenna must be paired with a lower transmitter setting. Losses in dB add only if each is defined for the same signal path.</p>
+        </details>
+        <div class="eq-units">dBm + dBi + dBi − dB − dB − dB = dBm ✓ (gains and losses are dimensionless ratios); dBm − dBm = dB ✓</div>
+        <div class="mini-calc" data-formula="ptx + gt + gr - lc - lp - S" data-output="Link margin M" data-unit="dB" data-digits="1" data-plot="lp" data-title="Try it — does the link close?">
+          <div data-var="ptx" data-label="Transmit power P<sub>tx</sub>" data-min="-10" data-max="30" data-step="0.5" data-value="14" data-unit="dBm"></div>
+          <div data-var="gt" data-label="Node antenna gain" data-min="-5" data-max="10" data-step="0.05" data-value="2.15" data-unit="dBi"></div>
+          <div data-var="gr" data-label="Gateway antenna gain" data-min="0" data-max="12" data-step="0.5" data-value="5" data-unit="dBi"></div>
+          <div data-var="lc" data-label="Cable and connector loss" data-min="0" data-max="10" data-step="0.5" data-value="2" data-unit="dB"></div>
+          <div data-var="lp" data-label="Path loss L<sub>p</sub>" data-min="60" data-max="160" data-step="0.5" data-value="104" data-unit="dB"></div>
+          <div data-var="S" data-label="Receiver sensitivity S" data-min="-140" data-max="-60" data-step="1" data-value="-123" data-unit="dBm"></div>
+        </div>
+      </div>
+      <p>The largest and most variable term is the path loss. Its reference case is empty space, where the only loss is geometric spreading.</p>
+      <div class="eq-box" id="eq-friis">
+        <div class="eq-head"><span class="eq-label">Friis transmission equation and free-space path loss</span><span class="eq-num">(9.4.2)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \frac{P_{\text{rx}}}{P_{\text{tx}}} = G_{\text{tx}}G_{\text{rx}}\left(\frac{\lambda}{4\pi d}\right)^{2} \\[8pt] L_{\text{FS}} = 20\log_{10}\!\left(\frac{4\pi d f}{c}\right) = 20\log_{10}d_{\text{km}} + 20\log_{10}f_{\text{MHz}} + 32.45\ \text{dB} \end{gathered} \]</div>
+        <p class="eq-read">in free space, the fraction of transmitted power that reaches the receiver equals the product of the two antenna gains times the square of the wavelength divided by four pi times the distance; expressed in decibels, the free-space path loss grows by 20 dB for every tenfold increase of distance and of frequency.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(G_{\text{tx}}\), \(G_{\text{rx}}\)</td><td>antenna gains (linear factors here)</td><td>–</td></tr>
+          <tr><td>\(\lambda = c/f\)</td><td>wavelength: 0.345 m at 868 MHz, 0.123 m at 2.44 GHz</td><td>m</td></tr>
+          <tr><td>\(d\)</td><td>distance between antennas</td><td>m (km in the practical form)</td></tr>
+          <tr><td>\(f\)</td><td>carrier frequency</td><td>Hz (MHz in the practical form)</td></tr>
+          <tr><td>\(L_{\text{FS}}\)</td><td>free-space path loss (between isotropic antennas)</td><td>dB</td></tr>
+        </table>
+        <details><summary>Follow the derivation (Friis, 1946)</summary>
+          <ol class="steps">
+            <li><strong>Spreading.</strong> An isotropic antenna radiates \(P_{\text{tx}}\) equally in all directions; at distance \(d\) the power is spread over a sphere of area \(4\pi d^2\), so the power flux density is \(P_{\text{tx}}/(4\pi d^2)\) (W m⁻²). A directional antenna concentrates it by its gain: \(\Phi = G_{\text{tx}}P_{\text{tx}}/(4\pi d^2)\).</li>
+            <li><strong>Collecting.</strong> A receiving antenna behaves as if it had an effective area \(A_e\). Antenna theory (via reciprocity and thermodynamics) gives, for any antenna, \(A_e = G_{\text{rx}}\lambda^2/(4\pi)\): an isotropic antenna has an effective area of \(\lambda^2/(4\pi)\) — 95 cm² at 868 MHz but only 12 cm² at 2.44 GHz.</li>
+            <li><strong>Multiply:</strong> \(P_{\text{rx}} = \Phi A_e = \dfrac{G_{\text{tx}}P_{\text{tx}}}{4\pi d^2}\cdot\dfrac{G_{\text{rx}}\lambda^2}{4\pi} = P_{\text{tx}}G_{\text{tx}}G_{\text{rx}}\left(\dfrac{\lambda}{4\pi d}\right)^2\).</li>
+            <li><strong>In decibels</strong> the loss between isotropic antennas is \(L_{\text{FS}} = 10\log_{10}(4\pi d/\lambda)^2 = 20\log_{10}(4\pi d f/c)\).</li>
+            <li><strong>Practical constant.</strong> With \(d\) in km (×10³) and \(f\) in MHz (×10⁶): \(20\log_{10}\!\left(\dfrac{4\pi\times10^3\times10^6}{2.998\times10^8}\right) = 20\log_{10}(41.92) = 32.45\) dB.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — why lower frequencies reach farther</summary>
+          <p>Friis assumes the far field (distance much larger than the wavelength and the antenna size), aligned polarisation, and a clear line of sight with nothing near the path — in particular, the first Fresnel zone (Eq. 9.4.5) must be free of obstacles. The frequency dependence does not come from air "absorbing" higher frequencies (at these frequencies it hardly does) but from the smaller effective area of a receiving antenna at shorter wavelength: at equal antenna gains, a 2.44 GHz link loses \(20\log_{10}(2440/868) = 9.0\) dB more than an 868 MHz link. Walls, water and leaves, on the other hand, <em>do</em> attenuate higher frequencies more; the ITU publishes models for attenuation in vegetation (ITU-R P.833).</p>
+        </details>
+        <div class="eq-units">\(\lambda/(4\pi d)\): m/m = dimensionless ✓; \(4\pi d f/c\): m × s⁻¹ /(m s⁻¹) = dimensionless ✓, so \(L_{\text{FS}}\) is a ratio in dB ✓</div>
+        <div class="mini-calc" data-formula="20*log10(d) + 20*log10(f) + 32.45" data-output="Free-space path loss L<sub>FS</sub>" data-unit="dB" data-digits="1" data-plot="d" data-title="Try it — distance and frequency">
+          <div data-var="d" data-label="Distance d" data-min="0.01" data-max="20" data-value="1.5" data-scale="log" data-unit="km"></div>
+          <div data-var="f" data-label="Frequency f" data-min="433" data-max="5800" data-value="868" data-scale="log" data-unit="MHz"></div>
+        </div>
+      </div>
+      <p>Near the ground, among crops and inside buildings, the signal is reflected, diffracted and absorbed, and the received power usually falls faster than \(1/d^2\). The standard engineering description generalises the exponent.</p>
+      <div class="eq-box" id="eq-log-distance">
+        <div class="eq-head"><span class="eq-label">Log-distance path-loss model with shadowing, and the maximum range</span><span class="eq-num">(9.4.3)</span></div>
+        <div class="eq-main">\[ \begin{gathered} L_{\text{p}}(d) = L_{\text{FS}}(d_0) + 10\,n\,\log_{10}\!\frac{d}{d_0} + X_\sigma, \qquad X_\sigma \sim \mathcal{N}(0,\sigma^2) \\[8pt] d_{\max} = d_0\cdot 10^{\left(P_{\text{tx}} + G_{\text{tx}} + G_{\text{rx}} - L_{\text{c}} - L_{\text{x}} - S - z\sigma - L_{\text{FS}}(d_0)\right)/(10\,n)} \end{gathered} \]</div>
+        <p class="eq-read">the path loss equals the free-space loss up to a reference distance plus ten times the path-loss exponent times the logarithm of the distance ratio, plus a random shadowing term with standard deviation sigma in decibels; the maximum range is found by spending the whole link budget, after reserving a fade margin of z standard deviations, on path loss.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(n\)</td><td>path-loss exponent</td><td>–</td><td>2 free space; 2.7–3.5 urban; 4–6 obstructed indoors</td></tr>
+          <tr><td>\(d_0\)</td><td>reference distance with (near) free-space propagation</td><td>m</td><td>1 m indoors; ≈ 100 m outdoors</td></tr>
+          <tr><td>\(X_\sigma\), \(\sigma\)</td><td>shadowing (log-normal fading) and its standard deviation</td><td>dB</td><td>4–12</td></tr>
+          <tr><td>\(z\)</td><td>standard normal quantile for the required reliability p</td><td>–</td><td>1.28 (90 %), 1.64 (95 %)</td></tr>
+          <tr><td>\(d_{\max}\)</td><td>range at which the link still closes with probability p</td><td>m</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Power law.</strong> Measurements show that the mean received power often falls as \(d^{-n}\) over a range of distances. Relative to a reference distance: \(\bar{P}_{\text{rx}}(d) = P_{\text{rx}}(d_0)\,(d/d_0)^{-n}\).</li>
+            <li><strong>In decibels:</strong> \(10\log_{10}\) turns the power law into a straight line in \(\log_{10} d\): the loss grows by \(10n\) dB per decade of distance — 20 dB per decade in free space, 30–40 dB per decade near the ground.</li>
+            <li><strong>Why \(n = 4\) near the ground: the two-ray model.</strong> Over flat ground the receiver sees the direct wave and a ground-reflected wave with nearly opposite phase. For distances beyond about \(4h_{\text{tx}}h_{\text{rx}}/\lambda\), the two almost cancel and \(P_{\text{rx}} \approx P_{\text{tx}}G_{\text{tx}}G_{\text{rx}}h_{\text{tx}}^2h_{\text{rx}}^2/d^4\): an exponent of 4, and a received power that grows with the <em>square</em> of each antenna height (Rappaport, 2002). For a node at 1 m and a gateway at 10 m at 868 MHz, the break point is at about 116 m — which is why \(d_0 \approx 100\) m is a sensible outdoor reference.</li>
+            <li><strong>Shadowing.</strong> Obstacles make the loss at a given distance vary from place to place; measured in dB, the variation is approximately normal with standard deviation σ. For the link to close with probability \(p\), reserve a fade margin \(z\sigma\), where \(\Phi(z) = p\).</li>
+            <li><strong>Maximum range.</strong> Set \(L_{\text{p}}(d_{\max}) = P_{\text{tx}} + G_{\text{tx}} + G_{\text{rx}} - L_{\text{c}} - L_{\text{x}} - S - z\sigma\) and solve for \(d_{\max}\): the exponent in Eq. 9.4.3.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The model is empirical: \(n\) and σ must be measured or taken from similar environments, and they change with antenna height, season (leaf area, wet foliage) and greenhouse structure. Because the range depends exponentially on the budget divided by \(10n\), a few decibels matter a lot: with \(n = 3\), every 3 dB of extra budget increases the range by a factor \(10^{3/30} = 1.26\). The cheapest decibels are usually won by raising an antenna.</p>
+        </details>
+        <div class="eq-units">\(10n\log_{10}(d/d_0)\): dimensionless × dB = dB ✓; exponent of 10 in \(d_{\max}\): dB/dB = dimensionless, so \(d_{\max}\) has the unit of \(d_0\) ✓</div>
+        <div class="mini-calc" data-fn="dmax" data-output="Maximum range d<sub>max</sub>" data-unit="m" data-digits="0" data-plot="n" data-title="Try it — how the environment sets the range">
+          <div data-var="n" data-label="Path-loss exponent n" data-min="2" data-max="5" data-step="0.05" data-value="2.8"></div>
+          <div data-var="ptx" data-label="P<sub>tx</sub>" data-min="0" data-max="23" data-step="0.5" data-value="14" data-unit="dBm"></div>
+          <div data-var="g" data-label="Antenna gains G<sub>tx</sub> + G<sub>rx</sub>" data-min="0" data-max="15" data-step="0.05" data-value="7.15" data-unit="dBi"></div>
+          <div data-var="l" data-label="Losses L<sub>c</sub> + L<sub>x</sub>" data-min="0" data-max="30" data-step="0.5" data-value="2" data-unit="dB"></div>
+          <div data-var="S" data-label="Sensitivity S" data-min="-140" data-max="-70" data-step="1" data-value="-123" data-unit="dBm"></div>
+          <div data-var="fm" data-label="Fade margin zσ" data-min="0" data-max="25" data-step="0.5" data-value="13" data-unit="dB"></div>
+          <div data-var="d0" data-label="Reference distance d<sub>0</sub>" data-min="1" data-max="300" data-value="100" data-scale="log" data-unit="m"></div>
+          <div data-var="f" data-label="Frequency" data-min="433" data-max="2450" data-value="868" data-scale="log" data-unit="MHz"></div>
+        </div>
+      </div>
+      <p>The last term of the budget is the receiver. How weak a signal can it decode? The floor is set by thermal noise — the random motion of electrons in every conductor — and by how much signal-to-noise ratio the modulation needs.</p>
+      <div class="eq-box" id="eq-sensitivity">
+        <div class="eq-head"><span class="eq-label">Thermal noise floor and receiver sensitivity</span><span class="eq-num">(9.4.4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} S = -174\ \text{dBm Hz}^{-1} + 10\log_{10}\!\left(\frac{B}{1\ \text{Hz}}\right) + \mathit{NF} + \text{SNR}_{\min} \\[6pt] \text{where}\quad -174\ \text{dBm Hz}^{-1} = 10\log_{10}\!\left(\frac{k_B T_0}{1\ \text{mW}}\right)\ \text{at}\ T_0 = 290\ \text{K} \end{gathered} \]</div>
+        <p class="eq-read">the sensitivity in dBm equals the thermal noise power per hertz at room temperature, minus 174 dBm, plus ten times the logarithm of the receiver bandwidth in hertz, plus the receiver's noise figure, plus the minimum signal-to-noise ratio the demodulator needs — which is negative for spread-spectrum systems such as LoRa.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example</th></tr>
+          <tr><td>\(k_B T_0\)</td><td>thermal noise power density at \(T_0 = 290\) K</td><td>W Hz⁻¹</td><td>4.00 × 10⁻²¹</td></tr>
+          <tr><td>\(B\)</td><td>receiver (channel) bandwidth</td><td>Hz</td><td>125 kHz (LoRa), 20 MHz (Wi-Fi)</td></tr>
+          <tr><td>\(\mathit{NF}\)</td><td>noise figure: extra noise added by the receiver</td><td>dB</td><td>≈ 6</td></tr>
+          <tr><td>\(\text{SNR}_{\min}\)</td><td>minimum signal-to-noise ratio for decoding</td><td>dB</td><td>−7.5 (LoRa SF7) to −20 (SF12)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Thermal noise.</strong> A resistor at absolute temperature \(T\) delivers a noise power \(P_n = k_B T B\) into a matched load, independent of frequency (Johnson–Nyquist noise). At the reference temperature \(T_0 = 290\) K: \(k_BT_0 = 1.380649\times10^{-23}\times290 = 4.00\times10^{-21}\) W Hz⁻¹.</li>
+            <li><strong>In dBm per hertz:</strong> \(10\log_{10}(4.00\times10^{-21}/10^{-3}) = 10\log_{10}(4.00\times10^{-18}) = -174.0\) dBm Hz⁻¹.</li>
+            <li><strong>Bandwidth.</strong> Noise power grows with bandwidth: for 125 kHz add \(10\log_{10}(125\,000) = 51.0\) dB, giving a noise floor of −123 dBm; for a 20 MHz Wi-Fi channel add 73 dB, giving −101 dBm.</li>
+            <li><strong>Receiver and demodulator.</strong> A real receiver adds its noise figure NF, and the demodulator needs a minimum SNR. For LoRa SF12 in 125 kHz: \(S = -174 + 51.0 + 6 - 20 = -137\) dBm. The SX1276 data sheet specifies −136 dBm, and −123 dBm at SF7 (Semtech, 2015).</li>
+            <li><strong>Why can LoRa decode below the noise?</strong> Each symbol is spread over \(2^{SF}\) chips; the receiver correlates them coherently, gaining a factor \(2^{SF}\) against noise: the processing gain. The price is a symbol time \(2^{SF}/B\) (Eq. 9.4.6) — Shannon's capacity \(C = B\log_2(1 + \text{SNR})\) cannot be beaten, only traded.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Sensitivity is defined at a stated error rate (for example 10 % packet error rate); interference from other transmitters in the unlicensed bands raises the effective noise floor above the thermal value, especially at 2.4 GHz near Wi-Fi networks. Data-sheet sensitivities are measured in shielded rooms with perfect matching; expect a few dB less in the field.</p>
+        </details>
+        <div class="eq-units">dBm Hz⁻¹ + dB(Hz) = dBm ✓; NF and SNR are ratios in dB ✓</div>
+        <div class="mini-calc" data-formula="-174 + 10*log10(B*1000) + NF + SNR" data-output="Sensitivity S" data-unit="dBm" data-digits="1" data-plot="B" data-title="Try it — bandwidth, noise figure and required SNR">
+          <div data-var="B" data-label="Bandwidth B" data-min="1" data-max="40000" data-value="125" data-scale="log" data-unit="kHz"></div>
+          <div data-var="NF" data-label="Noise figure NF" data-min="2" data-max="12" data-step="0.5" data-value="6" data-unit="dB"></div>
+          <div data-var="SNR" data-label="Required SNR" data-min="-20" data-max="25" data-step="0.5" data-value="-20" data-unit="dB"></div>
+        </div>
+      </div>
+      <p>A final geometric condition decides whether the free-space and log-distance models apply at all: the space around the direct line between the antennas must be clear (Figure 5).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 260" role="img" aria-label="First Fresnel zone between a low sensor node and a gateway on a mast, above a crop canopy, with the ground-reflected ray">
+            <defs><marker id="io-a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <rect x="0" y="214" width="760" height="46" class="fill-amber-soft"/>
+            <path d="M0 214 Q20 196 40 214 Q60 194 80 214 Q100 196 120 214 Q140 194 160 214 Q180 196 200 214 Q220 194 240 214 Q260 196 280 214 Q300 194 320 214 Q340 196 360 214 Q380 194 400 214 Q420 196 440 214 Q460 194 480 214 Q500 196 520 214 Q540 194 560 214 Q580 196 600 214 Q620 194 640 214 L640 214" class="fill-accent-soft" stroke="var(--accent)" stroke-width="1.2"/>
+            <text x="330" y="254" text-anchor="middle" class="t-small">crop canopy and ground: absorption, scattering, reflection</text>
+            <line x1="60" y1="214" x2="60" y2="186" class="stroke" stroke-width="3"/><circle cx="60" cy="184" r="4" class="fill-magenta"/>
+            <text x="8" y="146" class="t-small">sensor node, 1 m</text>
+            <line x1="700" y1="214" x2="700" y2="50" class="stroke" stroke-width="3"/><circle cx="700" cy="48" r="4" class="fill-water"/>
+            <text x="690" y="22" class="t-small" text-anchor="end">gateway, 10 m mast</text>
+            <ellipse cx="380" cy="116" rx="330" ry="40" transform="rotate(-12.0 380 116)" fill="var(--water-soft)" fill-opacity="0.45" stroke="var(--water)" stroke-width="1.4" stroke-dasharray="6 4"/>
+            <line x1="60" y1="184" x2="700" y2="48" class="stroke" stroke-width="1.8"/>
+            <text x="332" y="112" class="t-small" font-weight="600">direct path</text>
+            <path d="M60 184 L220 214 L700 48" fill="none" class="stroke-magenta" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="236" y="234" class="t-small" style="fill:var(--magenta)">ground-reflected path (two-ray model)</text>
+            <line x1="380" y1="116" x2="388" y2="155" class="stroke-water" stroke-width="1.4" marker-end="url(#io-a4)" style="color:var(--water)"/>
+            <text x="398" y="174" class="t-small" style="fill:var(--water)">r₁ = ½√(λd) at mid-path</text>
+            <text x="250" y="46" class="t-small" style="fill:var(--water)">first Fresnel zone: keep ≥ 60 % of it clear</text><line x1="300" y1="50" x2="316" y2="86" class="stroke-water" stroke-width="1"/>
+          </svg>
+        </div>
+        <figcaption><b>Figure 5.</b> The first Fresnel zone is the ellipsoid around the direct path within which most of the transmitted energy travels. A node close to the ground or inside a canopy has part of this zone blocked: its signal suffers diffraction losses and interference with the ground reflection, which shows up as a path-loss exponent above 2 (vertical scale exaggerated).</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-fresnel">
+        <div class="eq-head"><span class="eq-label">Radius of the first Fresnel zone</span><span class="eq-num">(9.4.5)</span></div>
+        <div class="eq-main">\[ r_1 = \sqrt{\frac{\lambda\,d_1 d_2}{d_1 + d_2}}, \qquad r_{1,\text{mid}} = \frac{1}{2}\sqrt{\lambda\,d} \]</div>
+        <p class="eq-read">the radius of the first Fresnel zone at a point that is d<sub>1</sub> from one antenna and d<sub>2</sub> from the other is the square root of the wavelength times d<sub>1</sub> times d<sub>2</sub> divided by their sum; at the middle of a path of length d it is half the square root of the wavelength times d.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(r_1\)</td><td>radius of the first Fresnel zone</td><td>m</td></tr>
+          <tr><td>\(d_1\), \(d_2\), \(d = d_1 + d_2\)</td><td>distances from the point to each antenna, and the path length</td><td>m</td></tr>
+          <tr><td>\(\lambda\)</td><td>wavelength, \(c/f\)</td><td>m</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The first Fresnel zone contains all points P for which the path via P is at most half a wavelength longer than the direct path: \(\sqrt{d_1^2 + r^2} + \sqrt{d_2^2 + r^2} - (d_1 + d_2) = \lambda/2\). Waves arriving via such points are within half a cycle of the direct wave and add constructively.</li>
+            <li>For \(r \ll d_1, d_2\), use \(\sqrt{d^2 + r^2} \approx d + r^2/(2d)\): the condition becomes \(\dfrac{r^2}{2d_1} + \dfrac{r^2}{2d_2} = \dfrac{\lambda}{2}\).</li>
+            <li>Solve: \(r^2\,\dfrac{d_1 + d_2}{d_1 d_2} = \lambda\), so \(r_1 = \sqrt{\lambda d_1d_2/(d_1 + d_2)}\). At mid-path \(d_1 = d_2 = d/2\) and \(r_1 = \tfrac12\sqrt{\lambda d}\).</li>
+            <li>Rule of thumb: if at least 60 % of \(r_1\) is free of obstacles, the path behaves almost like free space.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Example: at 868 MHz (λ = 0.345 m) over 1.5 km, \(r_{1,\text{mid}} = \tfrac12\sqrt{0.345\times1500} = 11.4\) m; 60 % clearance needs about 6.8 m — far above a node at crop height. At 2.44 GHz over 100 m inside a greenhouse, \(r_{1,\text{mid}} = 1.75\) m, larger than the gap between the canopy and the roof trusses. This is why long links need masts and why dense crops raise the path-loss exponent.</p>
+        </details>
+        <div class="eq-units">\(\sqrt{\text{m}\cdot\text{m}\cdot\text{m}/\text{m}} = \text{m}\) ✓</div>
+        <div class="mini-calc" data-formula="0.5*sqrt(299.792458/f*d)" data-output="Mid-path Fresnel radius r<sub>1</sub>" data-unit="m" data-digits="2" data-plot="d" data-title="Try it — how high must the antennas be?">
+          <div data-var="d" data-label="Path length d" data-min="10" data-max="15000" data-value="1500" data-scale="log" data-unit="m"></div>
+          <div data-var="f" data-label="Frequency" data-min="433" data-max="5800" data-value="868" data-scale="log" data-unit="MHz"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="link-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the link-budget explorer</div>
+          <div class="fx-lab">Radio (sets frequency, default power and sensitivity)</div>
+          <div class="seg" id="lb-tech" role="group" aria-label="Radio technology">
+            <button type="button" data-v="wifi1" aria-pressed="false">Wi-Fi 1 Mbit/s</button>
+            <button type="button" data-v="wifi7" aria-pressed="false">Wi-Fi MCS7</button>
+            <button type="button" data-v="ble" aria-pressed="false">BLE</button>
+            <button type="button" data-v="zig" aria-pressed="false">Zigbee/Thread</button>
+            <button type="button" data-v="sf7" aria-pressed="true">LoRa SF7</button>
+            <button type="button" data-v="sf12" aria-pressed="false">LoRa SF12</button>
+            <button type="button" data-v="nb" aria-pressed="false">NB-IoT</button>
+          </div>
+          <div class="fx-lab" style="margin-top:10px">Environment (sets d<sub>0</sub>, n and σ — illustrative values)</div>
+          <div class="seg" id="lb-env" role="group" aria-label="Environment">
+            <button type="button" data-v="open" aria-pressed="false">Open field, high antennas</button>
+            <button type="button" data-v="field" aria-pressed="true">Field, node at crop height</button>
+            <button type="button" data-v="gh" aria-pressed="false">Greenhouse with crop</button>
+            <button type="button" data-v="bld" aria-pressed="false">Through buildings</button>
+          </div>
+          <div class="fx-ctl" id="lb-ctl" style="margin-top:10px"></div>
+          <div id="lb-plot" style="height:330px"></div>
+          <div class="readouts" id="lb-ro"></div>
+        </div>
+        <figcaption><b>Figure 6.</b> Received power versus distance (logarithmic) for the chosen radio: free space (dashed), the log-distance model (green) with its ±σ shadowing band, the receiver sensitivity (red) and the sensitivity plus the fade margin needed for the chosen reliability (amber). The link is reliable where the green curve lies above the amber line. Radio data: ESP32 Wi-Fi and BLE from Espressif Systems (2025); LoRa from the SX1276 data sheet (Semtech, 2015); NB-IoT from its 164 dB maximum coupling-loss design target; Zigbee/Thread values are typical assumptions.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">LoRa or Wi-Fi across a 1.5 km field?</span></div>
+        <div class="we-problem"><p>A farm wants to read a soil-moisture node at the far end of a field, 1.5 km from the farm building. The node antenna (2.15 dBi) is at crop height; the building has a 5 dBi antenna on a mast with 2 dB of cable loss. Assume free-space propagation up to \(d_0 = 100\) m and a path-loss exponent \(n = 2.8\) beyond, with shadowing σ = 8 dB and a required reliability of 95 %. (a) Will a LoRa link at SF7 (+14 dBm, sensitivity −123 dBm) close? (b) Could the ESP32's Wi-Fi at 1 Mbit/s (+19.5 dBm, −98 dBm, 2 dBi antennas at both ends, 1 dB loss) do the same?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Free-space loss to d₀</strong> (Eq. 9.4.2) at 868 MHz: \(20\log_{10}0.1 + 20\log_{10}868 + 32.45 = -20 + 58.77 + 32.45 = 71.2\) dB.</li>
+              <li><strong>Log-distance loss at 1.5 km</strong> (Eq. 9.4.3): \(71.2 + 10\times2.8\times\log_{10}(1500/100) = 71.2 + 28\times1.176 = 104.2\) dB.</li>
+              <li><strong>Received power</strong> (Eq. 9.4.1): \(14 + 2.15 + 5 - 2 - 104.2 = -85.0\) dBm.</li>
+              <li><strong>Margin and fade margin:</strong> \(M = -85.0 - (-123) = 38.0\) dB. For 95 % reliability, \(z\sigma = 1.645\times8 = 13.2\) dB. \(38.0 &gt; 13.2\): the LoRa link closes comfortably, with about 25 dB to spare — enough for wet foliage or a switch to a less exposed antenna.</li>
+              <li><strong>Wi-Fi at 2442 MHz:</strong> free-space loss to 100 m \(= -20 + 67.75 + 32.45 = 80.2\) dB; at 1.5 km \(80.2 + 32.9 = 113.1\) dB. Received power \(19.5 + 2 + 2 - 1 - 113.1 = -90.6\) dBm; margin \(-90.6 + 98 = 7.4\) dB.</li>
+              <li><strong>Verdict for Wi-Fi:</strong> 7.4 dB is less than the 13.2 dB fade margin: the link would work on good days only, and only at the slowest data rate (at 802.11n MCS7 the sensitivity is −73 dBm, far above −90.6 dBm).</li>
+            </ol>
+            <span class="answer">LoRa SF7: margin ≈ 38 dB (needs 13) — reliable; Wi-Fi 1 Mbit/s: margin ≈ 7 dB — unreliable</span>
+            <p style="margin-top:10px">Sanity check: the difference comes from 25 dB better sensitivity and 9 dB lower free-space loss at 868 MHz, partly offset by Wi-Fi's 5.5 dB higher transmit power. The maximum reliable LoRa range under these assumptions is about 11.6 km (Eq. 9.4.3) — in practice limited by terrain and the curvature of the Earth long before that.</p>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="lora">LoRa: spreading factors, time on air and the duty-cycle rule</h2>
+      <p>LoRa (from "long range") is a chirp spread-spectrum modulation developed by Semtech; LoRaWAN is the network protocol on top of it, specified by the LoRa Alliance. Each LoRa symbol is a chirp — a tone whose frequency sweeps linearly across the channel bandwidth \(B\) — and the data are encoded in the starting frequency of the sweep. A symbol carries SF bits (the <strong>spreading factor</strong>, 7 to 12) using \(2^{SF}\) chips. Raising SF by one doubles the symbol duration, halves the data rate, and improves sensitivity by about 2.5 dB (Table 5). Signals with different spreading factors are nearly orthogonal, so a gateway can receive them simultaneously on the same channel.</p>
+      <table>
+        <caption>Table 5. LoRa at 125 kHz in EU868 (SX1276 values from Semtech, 2015; time on air for a 12-byte application payload, Eq. 9.4.6).</caption>
+        <thead><tr><th>SF</th><th>Chips per symbol</th><th>Demodulator SNR (dB)</th><th>Sensitivity (dBm)</th><th>LoRaWAN bit rate (bit/s)</th><th>Time on air (ms)</th><th>Minimum interval at 1 % (s)</th></tr></thead>
+        <tbody>
+          <tr><td class="num">7</td><td class="num">128</td><td class="num">−7.5</td><td class="num">−123</td><td class="num">5470</td><td class="num">61.7</td><td class="num">6.2</td></tr>
+          <tr><td class="num">8</td><td class="num">256</td><td class="num">−10</td><td class="num">−126</td><td class="num">3125</td><td class="num">113.2</td><td class="num">11.3</td></tr>
+          <tr><td class="num">9</td><td class="num">512</td><td class="num">−12.5</td><td class="num">−129</td><td class="num">1760</td><td class="num">205.8</td><td class="num">20.6</td></tr>
+          <tr><td class="num">10</td><td class="num">1024</td><td class="num">−15</td><td class="num">−132</td><td class="num">980</td><td class="num">411.6</td><td class="num">41.2</td></tr>
+          <tr><td class="num">11</td><td class="num">2048</td><td class="num">−17.5</td><td class="num">−133</td><td class="num">440</td><td class="num">823.3</td><td class="num">82.3</td></tr>
+          <tr><td class="num">12</td><td class="num">4096</td><td class="num">−20</td><td class="num">−136</td><td class="num">250</td><td class="num">1482.8</td><td class="num">148.3</td></tr>
+        </tbody>
+      </table>
+      <p>Long symbols are the price of sensitivity, and because a transmitter occupies the shared channel for the whole packet, the <strong>time on air</strong> decides energy use, collision probability and legal limits.</p>
+      <div class="eq-box" id="eq-lora-toa">
+        <div class="eq-head"><span class="eq-label">LoRa symbol duration and time on air</span><span class="eq-num">(9.4.6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} T_{\text{sym}} = \frac{2^{SF}}{B}, \qquad T_{\text{pre}} = \left(n_{\text{pre}} + 4.25\right)T_{\text{sym}}, \qquad T_{\text{air}} = T_{\text{pre}} + n_{\text{pay}}\,T_{\text{sym}} \\[8pt] n_{\text{pay}} = 8 + \max\!\left(\left\lceil\frac{8\,PL - 4\,SF + 28 + 16\,\mathit{CRC} - 20\,\mathit{IH}}{4\,(SF - 2\,\mathit{DE})}\right\rceil(CR + 4),\ 0\right) \end{gathered} \]</div>
+        <p class="eq-read">a symbol lasts two to the power of the spreading factor divided by the bandwidth; the preamble lasts the programmed number of preamble symbols plus 4.25 symbols; the packet's time on air is the preamble plus the number of payload symbols times the symbol duration; and the number of payload symbols is eight plus the number of coded symbol blocks needed to carry the payload bytes, CRC and header, each block carrying four times (SF − 2DE) bits and occupying (CR + 4) symbols.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Value in LoRaWAN EU868 uplinks</th></tr>
+          <tr><td>\(SF\)</td><td>spreading factor</td><td>7–12</td></tr>
+          <tr><td>\(B\)</td><td>bandwidth</td><td>125 kHz (250 kHz for DR6)</td></tr>
+          <tr><td>\(n_{\text{pre}}\)</td><td>programmed preamble symbols</td><td>8</td></tr>
+          <tr><td>\(PL\)</td><td>PHY payload in bytes = application payload + 13 bytes of LoRaWAN header and integrity code</td><td>e.g. 12 + 13 = 25</td></tr>
+          <tr><td>\(\mathit{CRC}\), \(\mathit{IH}\)</td><td>payload CRC on (1); implicit header off (0)</td><td>1, 0</td></tr>
+          <tr><td>\(\mathit{DE}\)</td><td>low-data-rate optimisation, on when \(T_{\text{sym}} \ge 16\) ms (SF11 and SF12 at 125 kHz)</td><td>0 or 1</td></tr>
+          <tr><td>\(CR\)</td><td>coding-rate index: 1 for 4/5 … 4 for 4/8</td><td>1</td></tr>
+          <tr><td>\(\lceil\cdot\rceil\)</td><td>rounding up to an integer (ceiling)</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation — where each term comes from</summary>
+          <ol class="steps">
+            <li><strong>Symbol duration.</strong> A chirp sweeps the bandwidth \(B\) once per symbol; the chip rate equals \(B\) chips per second, and a symbol has \(2^{SF}\) chips, so \(T_{\text{sym}} = 2^{SF}/B\): 1.024 ms at SF7 and 32.8 ms at SF12 (125 kHz).</li>
+            <li><strong>Preamble.</strong> The receiver needs a run of identical up-chirps to detect the packet and synchronise; LoRaWAN programs 8, and the radio adds a sync word and 2.25 down-chirps (the start-of-frame delimiter): 4.25 symbols.</li>
+            <li><strong>Bits to send.</strong> The payload has \(8PL\) bits, the CRC 16 bits, and the explicit header 20 bits. The first 8 symbols (sent at the most robust coding) carry \(SF - 2\) bits each after coding, i.e. \(4SF\) bits of the "8 +" term; the constant 28 accounts for fixed overhead in that block.</li>
+            <li><strong>Blocks.</strong> The remaining bits are sent in blocks of \(4(SF - 2DE)\) bits; each block is expanded by the forward error-correcting code into \(CR + 4\) symbols (5 symbols at coding rate 4/5). Rounding up gives the number of blocks, hence \(n_{\text{pay}}\) (Semtech, 2015).</li>
+            <li><strong>Example, SF7, 12-byte application payload:</strong> \(PL = 25\); \(\lceil(200 - 28 + 28 + 16)/28\rceil = \lceil7.71\rceil = 8\) blocks → \(n_{\text{pay}} = 8 + 8\times5 = 48\) symbols; \(T_{\text{air}} = (12.25 + 48)\times1.024 = 61.7\) ms.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The formula is exact for Semtech LoRa transceivers. LoRaWAN limits the application payload at the slow data rates: at SF10–SF12 an uplink can carry at most 51 bytes. Because every byte costs airtime, encode values compactly — a temperature as a 16-bit integer in hundredths of a degree (2 bytes) instead of the JSON text <code>{"temperature":21.37}</code> (21 bytes).</p>
+        </details>
+        <div class="eq-units">\(2^{SF}/B\): chips/(chips s⁻¹) = s ✓; \(n_{\text{pay}}\) is a count, so \(T_{\text{air}}\) is in s ✓</div>
+        <div class="mini-calc" data-fn="loraToa" data-output="Time on air T<sub>air</sub>" data-unit="ms" data-digits="1" data-plot="PL" data-title="Try it — payload, spreading factor and bandwidth">
+          <div data-var="PL" data-label="Application payload" data-min="1" data-max="51" data-step="1" data-value="12" data-unit="bytes"></div>
+          <div data-var="SF" data-label="Spreading factor SF" data-min="7" data-max="12" data-step="1" data-value="9"></div>
+          <div data-var="BW" data-label="Bandwidth B" data-min="125" data-max="250" data-step="125" data-value="125" data-unit="kHz"></div>
+        </div>
+      </div>
+      <p>In Europe, LoRaWAN uses licence-free spectrum around 868 MHz. Anyone may transmit there without a licence, provided that their radio equipment complies with the harmonised rules — among them a <strong>duty-cycle</strong> limit that shares the band fairly. The band is divided into sub-bands with limits of 0.1 %, 1 % or 10 %; the three default LoRaWAN channels (868.1, 868.3 and 868.5 MHz) lie in the 868.0–868.6 MHz sub-band, where the limit is 1 % (The Things Network, n.d.).</p>
+      <div class="eq-box" id="eq-duty-cycle">
+        <div class="eq-head"><span class="eq-label">Duty cycle and the shortest allowed reporting interval</span><span class="eq-num">(9.4.7)</span></div>
+        <div class="eq-main">\[ \mathit{DC} = \frac{\sum T_{\text{air}}}{T_{\text{obs}}} \le \mathit{DC}_{\max} \quad\Longrightarrow\quad T_{\text{interval,min}} = \frac{T_{\text{air}}}{\mathit{DC}_{\max}}, \qquad N_{\max} = \frac{\mathit{DC}_{\max}\,T_{\text{obs}}}{T_{\text{air}}} \]</div>
+        <p class="eq-read">the duty cycle is the total time on air divided by the observation time, and it must not exceed the limit of the sub-band; hence the shortest interval between messages of equal length is the time on air divided by the duty-cycle limit, and the largest number of messages in an observation period is the limit times the period divided by the time on air.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example</th></tr>
+          <tr><td>\(\mathit{DC}_{\max}\)</td><td>duty-cycle limit of the sub-band</td><td>–</td><td>0.01 (1 %)</td></tr>
+          <tr><td>\(T_{\text{obs}}\)</td><td>observation period</td><td>s</td><td>3600 s (one hour)</td></tr>
+          <tr><td>\(T_{\text{interval,min}}\)</td><td>shortest allowed interval between transmissions</td><td>s</td><td></td></tr>
+          <tr><td>\(N_{\max}\)</td><td>maximum number of messages in \(T_{\text{obs}}\)</td><td>–</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>With messages of equal length sent every \(T_{\text{interval}}\), the fraction of time spent transmitting is \(T_{\text{air}}/T_{\text{interval}}\).</li>
+            <li>Require \(T_{\text{air}}/T_{\text{interval}} \le \mathit{DC}_{\max}\) and solve: \(T_{\text{interval}} \ge T_{\text{air}}/\mathit{DC}_{\max}\). With 1 %, a device must stay silent for 99 times as long as it transmitted.</li>
+            <li>Per hour: at most \(0.01\times3600 = 36\) s of airtime, i.e. \(N_{\max} = 36\ \text{s}/T_{\text{air}}\) messages.</li>
+            <li><strong>Network fair use.</strong> Public networks can be stricter than the law: The Things Network's community network allows 30 s of uplink airtime per device per day and 10 downlink messages per day, i.e. \(N_{\text{day}} = 30\ \text{s}/T_{\text{air}}\) (The Things Network, n.d.).</li>
+          </ol>
+        </details>
+        <details><summary>Why limits matter: collisions in an ALOHA network</summary>
+          <p>LoRaWAN end devices transmit whenever they have data, without checking whether the channel is free — the "pure ALOHA" access scheme. If packets arrive at random with an offered load G (the average number of packets overlapping one packet duration), the fraction of time used by successful packets is \(S = G\,e^{-2G}\), which peaks at only 18.4 % for G = 0.5. Long packets at high spreading factors raise G and therefore collisions; duty-cycle limits, adaptive data rate and short payloads keep a shared network usable (Adelantado et al., 2017).</p>
+        </details>
+        <div class="eq-units">\(T_{\text{air}}/\mathit{DC}_{\max}\): s/1 = s ✓; \(N_{\max}\): (1 × s)/s = count ✓</div>
+        <div class="mini-calc" data-formula="toa/1000/(dc/100)" data-output="Shortest reporting interval" data-unit="s" data-digits="1" data-plot="toa" data-title="Try it — the 1 % rule">
+          <div data-var="toa" data-label="Time on air" data-min="20" data-max="2500" data-value="206" data-scale="log" data-unit="ms"></div>
+          <div data-var="dc" data-label="Duty-cycle limit" data-min="0.1" data-max="10" data-value="1" data-scale="log" data-unit="%"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="lora-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — airtime, duty cycle and energy for every spreading factor</div>
+          <div class="fx-ctl" id="lo-ctl"></div>
+          <div class="fx-row">
+            <div class="seg" id="lo-sf" role="group" aria-label="Spreading factor for the readouts">
+              <button type="button" data-v="7" aria-pressed="false">SF7</button><button type="button" data-v="8" aria-pressed="false">SF8</button><button type="button" data-v="9" aria-pressed="true">SF9</button><button type="button" data-v="10" aria-pressed="false">SF10</button><button type="button" data-v="11" aria-pressed="false">SF11</button><button type="button" data-v="12" aria-pressed="false">SF12</button>
+            </div>
+            <div class="seg" id="lo-dc" role="group" aria-label="Duty-cycle limit">
+              <button type="button" data-v="0.1" aria-pressed="false">duty cycle 0.1 %</button><button type="button" data-v="1" aria-pressed="true">duty cycle 1 %</button><button type="button" data-v="10" aria-pressed="false">duty cycle 10 %</button>
+            </div>
+          </div>
+          <div id="lo-bars" style="height:250px"></div>
+          <div class="readouts" id="lo-ro"></div>
+        </div>
+        <figcaption><b>Figure 7.</b> Bars: time on air of one uplink for each spreading factor (125 kHz, coding rate 4/5, Eq. 9.4.6). Green: your reporting interval respects both the legal duty cycle and The Things Network's 30 s-per-day fair-use limit; amber: it violates only the fair-use limit; red: it violates the duty cycle. Readouts refer to the selected spreading factor; energy per message uses the chosen transmit current at 3.3 V.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">How often may a LoRa node report?</span></div>
+        <div class="we-problem"><p>A tank node sends 12 bytes (water temperature, pH, EC, DO, battery voltage and a status byte, each packed as integers) over LoRaWAN in EU868. (a) What is the time on air at SF7 and at SF12? (b) What is the shortest legal reporting interval under the 1 % duty cycle? (c) How many messages per day does The Things Network's fair-use policy allow? (d) The group wants a reading every 10 minutes. At which spreading factors is that possible?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>PHY payload:</strong> \(PL = 12 + 13 = 25\) bytes.</li>
+              <li><strong>SF7</strong> (\(T_{\text{sym}} = 1.024\) ms, DE = 0): \(n_{\text{pay}} = 8 + \lceil(200 - 28 + 28 + 16)/28\rceil\times5 = 8 + 8\times5 = 48\); \(T_{\text{air}} = (12.25 + 48)\times1.024 = 61.7\) ms.</li>
+              <li><strong>SF12</strong> (\(T_{\text{sym}} = 32.768\) ms, DE = 1): \(n_{\text{pay}} = 8 + \lceil(200 - 48 + 28 + 16)/40\rceil\times5 = 8 + 5\times5 = 33\); \(T_{\text{air}} = (12.25 + 33)\times32.768 = 1482.8\) ms — 24 times longer.</li>
+              <li><strong>Duty cycle</strong> (Eq. 9.4.7): SF7: \(0.0617/0.01 = 6.2\) s; SF12: \(1.4828/0.01 = 148\) s.</li>
+              <li><strong>Fair use:</strong> SF7: \(30/0.0617 = 486\) messages per day; SF12: \(30/1.4828 = 20\) per day — one every 72 minutes.</li>
+              <li><strong>Every 10 min</strong> means 144 messages per day. The airtime per day is \(144\,T_{\text{air}}\), which must stay below 30 s: \(T_{\text{air}} \le 208\) ms. From Table 5 that holds up to <strong>SF9</strong> (205.8 ms — just), not at SF10–SF12.</li>
+            </ol>
+            <span class="answer">61.7 ms and 1483 ms; ≥ 6.2 s and ≥ 148 s between messages; 486 and 20 messages per day; a 10-min interval works up to SF9</span>
+            <p style="margin-top:10px">Consequence for design: a node far from the gateway that needs SF12 must report less often (every 72 min) or aggregate several readings into one message. Placing the gateway well — higher and more central — lets the network server assign lower spreading factors to everyone.</p>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="mqtt">MQTT, databases and the edge–cloud split</h2>
+      <p>Once a message has crossed the network it must reach the programs that need it: a database, a dashboard, an alarm service, a controller. Wiring each sensor to each consumer would create a tangle of point-to-point connections. <strong>MQTT</strong> (originally MQ Telemetry Transport) solves this with <strong>publish/subscribe</strong>: devices <em>publish</em> messages to named <em>topics</em> on a central <strong>broker</strong>, and programs <em>subscribe</em> to the topics they are interested in (Figure 8). Publishers and subscribers never talk to each other directly and need not even be online at the same time. MQTT is an open OASIS standard — version 3.1.1 (2014, also ISO/IEC 20922) and version 5.0 (Banks et al., 2019) — and it runs over TCP, by convention on port 1883 without encryption and 8883 with TLS.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 800 330" role="img" aria-label="MQTT publish and subscribe: sensor nodes publish to topics on a broker, which forwards messages to subscribing programs">
+            <defs><marker id="io-a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <text x="103" y="20" text-anchor="middle" font-weight="600">publishers</text><text x="400" y="20" text-anchor="middle" font-weight="600">broker</text><text x="693" y="20" text-anchor="middle" font-weight="600">subscribers</text>
+            <g class="t-small">
+              <rect x="6" y="40" width="194" height="48" rx="8" class="fill-accent-soft" stroke="currentColor"/><text x="103" y="60" text-anchor="middle">ESP32 node, zone 1</text><text x="103" y="76" text-anchor="middle" class="t-muted t-mono">…/zone1/air/temperature</text>
+              <rect x="6" y="110" width="194" height="48" rx="8" class="fill-accent-soft" stroke="currentColor"/><text x="103" y="130" text-anchor="middle">ESP32 node, tank B</text><text x="103" y="146" text-anchor="middle" class="t-muted t-mono">…/zone2/nutrient/ph</text>
+              <rect x="6" y="180" width="194" height="48" rx="8" class="fill-accent-soft" stroke="currentColor"/><text x="103" y="200" text-anchor="middle">climate computer</text><text x="103" y="216" text-anchor="middle" class="t-muted t-mono">…/actuators/vent-n/state</text>
+              <rect x="6" y="250" width="194" height="48" rx="8" class="fill-bg" stroke="currentColor" stroke-dasharray="4 3"/><text x="103" y="270" text-anchor="middle">broker, on disconnect</text><text x="103" y="286" text-anchor="middle" class="t-muted t-mono">…/esp32-07/status</text>
+            </g>
+            <rect x="290" y="60" width="220" height="200" rx="16" class="fill-water-soft" stroke="currentColor" stroke-width="1.5"/>
+            <text x="400" y="92" text-anchor="middle" font-weight="600">MQTT broker</text><text x="400" y="110" text-anchor="middle" class="t-small t-muted">e.g. Mosquitto</text>
+            <g class="t-small"><text x="306" y="140">• routes each message to every</text><text x="316" y="155">matching subscription</text><text x="306" y="176">• stores the last retained</text><text x="316" y="191">message of each topic</text><text x="306" y="212">• publishes a client's Last Will</text><text x="316" y="227">if it disappears</text><text x="306" y="248">• authenticates, applies ACLs</text></g>
+            <g class="stroke" stroke-width="1.4"><line x1="200" y1="64" x2="288" y2="110" marker-end="url(#io-a5)"/><line x1="200" y1="134" x2="288" y2="140" marker-end="url(#io-a5)"/><line x1="200" y1="204" x2="288" y2="180" marker-end="url(#io-a5)"/><line x1="200" y1="274" x2="288" y2="228" stroke-dasharray="4 3" marker-end="url(#io-a5)"/></g>
+            <g class="t-small">
+              <rect x="592" y="40" width="202" height="48" rx="8" class="fill-magenta-soft" stroke="currentColor"/><text x="693" y="60" text-anchor="middle">database writer</text><text x="693" y="76" text-anchor="middle" class="t-muted t-mono">mdu/gh1/#</text>
+              <rect x="592" y="110" width="202" height="48" rx="8" class="fill-magenta-soft" stroke="currentColor"/><text x="693" y="130" text-anchor="middle">dashboard</text><text x="693" y="146" text-anchor="middle" class="t-muted t-mono">mdu/gh1/+/air/+</text>
+              <rect x="592" y="180" width="202" height="48" rx="8" class="fill-magenta-soft" stroke="currentColor"/><text x="693" y="200" text-anchor="middle">frost alarm</text><text x="693" y="216" text-anchor="middle" class="t-muted t-mono">mdu/gh1/+/air/temperature</text>
+              <rect x="592" y="250" width="202" height="48" rx="8" class="fill-magenta-soft" stroke="currentColor"/><text x="693" y="270" text-anchor="middle">maintenance app</text><text x="693" y="286" text-anchor="middle" class="t-muted t-mono">mdu/gh1/nodes/+/status</text>
+            </g>
+            <g class="stroke" stroke-width="1.4"><line x1="512" y1="110" x2="590" y2="64" marker-end="url(#io-a5)"/><line x1="512" y1="140" x2="590" y2="134" marker-end="url(#io-a5)"/><line x1="512" y1="180" x2="590" y2="204" marker-end="url(#io-a5)"/><line x1="512" y1="228" x2="590" y2="274" marker-end="url(#io-a5)"/></g>
+            <text x="400" y="318" text-anchor="middle" class="t-small t-muted">publishers and subscribers are decoupled in space (no addresses), time (the broker keeps retained messages) and synchronisation</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 8.</b> Publish/subscribe with an MQTT broker. Subscribers use topic filters with the wildcards <code>+</code> (exactly one level) and <code>#</code> (any number of levels, only at the end). The dashed publisher is the broker itself, publishing a node's pre-registered "Last Will" message when that node disconnects without saying goodbye.</figcaption>
+      </figure>
+      <p>Four MQTT features matter most for monitoring. <strong>Topics</strong> are hierarchical strings separated by slashes, such as <code>mdu/gh1/zone2/nutrient/ph</code>; a subscription filter can use <code>+</code> for exactly one level and <code>#</code> for all remaining levels. <strong>Quality of service</strong> (QoS) is chosen per message (Figure 9): QoS 0 sends once and forgets; QoS 1 repeats until acknowledged, so a message arrives at least once but possibly twice; QoS 2 uses a four-step handshake to deliver exactly once. <strong>Retained messages</strong> are stored by the broker — the last one per topic — and delivered immediately to every new subscriber, which is ideal for states such as "vent position" or "node online". The <strong>Last Will and Testament</strong> is a message a client registers when it connects; if it disappears without a clean disconnect, the broker publishes it, so the dashboard learns that a node has died.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 256" role="img" aria-label="MQTT quality of service levels 0, 1 and 2 as message sequence diagrams">
+            <defs><marker id="io-a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g font-weight="600" text-anchor="middle"><text x="120" y="18">QoS 0 — at most once</text><text x="360" y="18">QoS 1 — at least once</text><text x="600" y="18">QoS 2 — exactly once</text></g>
+            <g class="t-small t-muted" text-anchor="middle"><text x="60" y="40">sender</text><text x="180" y="40">receiver</text><text x="300" y="40">sender</text><text x="420" y="40">receiver</text><text x="540" y="40">sender</text><text x="660" y="40">receiver</text></g>
+            <g class="stroke-muted" stroke-width="1.2" stroke-dasharray="3 3"><line x1="60" y1="48" x2="60" y2="210"/><line x1="180" y1="48" x2="180" y2="210"/><line x1="300" y1="48" x2="300" y2="210"/><line x1="420" y1="48" x2="420" y2="210"/><line x1="540" y1="48" x2="540" y2="210"/><line x1="660" y1="48" x2="660" y2="210"/></g>
+            <g class="stroke" stroke-width="1.6">
+              <line x1="60" y1="70" x2="178" y2="90" marker-end="url(#io-a6)"/>
+              <line x1="300" y1="70" x2="418" y2="90" marker-end="url(#io-a6)"/><line x1="420" y1="110" x2="302" y2="130" marker-end="url(#io-a6)"/>
+              <line x1="540" y1="70" x2="658" y2="90" marker-end="url(#io-a6)"/><line x1="660" y1="110" x2="542" y2="130" marker-end="url(#io-a6)"/><line x1="540" y1="150" x2="658" y2="170" marker-end="url(#io-a6)"/><line x1="660" y1="185" x2="542" y2="205" marker-end="url(#io-a6)"/>
+            </g>
+            <g class="t-small t-mono"><text x="120" y="72" text-anchor="middle">PUBLISH</text><text x="360" y="72" text-anchor="middle">PUBLISH</text><text x="360" y="112" text-anchor="middle">PUBACK</text><text x="600" y="72" text-anchor="middle">PUBLISH</text><text x="600" y="112" text-anchor="middle">PUBREC</text><text x="600" y="152" text-anchor="middle">PUBREL</text><text x="600" y="187" text-anchor="middle">PUBCOMP</text></g>
+            <g class="t-small"><text x="120" y="228" text-anchor="middle">cheapest;</text><text x="120" y="243" text-anchor="middle">may be lost</text><text x="360" y="228" text-anchor="middle">resent until acknowledged;</text><text x="360" y="243" text-anchor="middle">duplicates possible</text><text x="600" y="228" text-anchor="middle">four-step handshake;</text><text x="600" y="243" text-anchor="middle">no loss, no duplicates</text></g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 9.</b> MQTT quality-of-service levels (Banks et al., 2019). QoS 1 is the usual choice for sensor readings: include a time stamp in the payload so that a duplicate can be recognised. QoS applies to each hop separately — publisher to broker and broker to subscriber.</figcaption>
+      </figure>
+      <p>A consistent <strong>topic tree</strong> is the backbone of a maintainable system. A proven pattern is <em>site / building / zone / subsystem / quantity</em>, with devices and alarms in their own branches:</p>
+      <pre class="code"><span class="c"># sensor values (retained = no; QoS 1)</span>
+mdu/gh1/zone1/air/temperature        mdu/gh1/zone1/air/rh        mdu/gh1/zone1/air/co2
+mdu/gh1/zone1/light/ppfd             mdu/gh1/zone2/nutrient/ec   mdu/gh1/zone2/nutrient/ph
+mdu/gh1/zone2/nutrient/water-temperature                         mdu/gh1/zone2/nutrient/do
+<span class="c"># actuator states (retained) and commands</span>
+mdu/gh1/actuators/vent-north/state   mdu/gh1/actuators/vent-north/cmd
+<span class="c"># device health: Last Will "offline", retained "online" after connecting</span>
+mdu/gh1/nodes/esp32-07/status        mdu/gh1/nodes/esp32-07/battery
+<span class="c"># events</span>
+mdu/gh1/alarms/frost
+<span class="c"># one message = one value, with time (UTC), unit and quality flag (Lesson 9.3):</span>
+<span class="s">{"t":"2026-09-26T10:05:00Z","v":21.37,"u":"Cel","q":1}</span></pre>
+      <p>Good practice: lower-case names without spaces; no leading slash; the unit in the payload, not in the topic; the <em>logical</em> location (zone, tank) in the topic and the <em>physical</em> device identity in the payload or the device branch, so that a replaced sensor does not break the history. Units can follow the SenML conventions of RFC 8428 (Jennings et al., 2018), where degrees Celsius are written "Cel". Test your understanding of the wildcards with Figure 10.</p>
+      <figure class="figure" id="topic-tester">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — MQTT topic-filter tester</div>
+          <div class="mq-box">
+            <div class="mq-in"><label for="mq-filter" class="fx-lab" style="margin:0">Subscription filter</label><input id="mq-filter" type="text" value="mdu/gh1/+/air/#" spellcheck="false" autocomplete="off" aria-label="MQTT subscription filter"></div>
+            <div class="mq-presets" id="mq-presets"></div>
+            <div class="mq-status" id="mq-status" aria-live="polite"></div>
+            <ul class="mq-list" id="mq-list"></ul>
+          </div>
+        </div>
+        <figcaption><b>Figure 10.</b> Type a filter or pick a preset; topics that the broker would deliver to this subscription are highlighted. The matching rules follow the MQTT specification: <code>+</code> matches exactly one level, <code>#</code> matches the parent level and all levels below it and must be the last character, and topics beginning with <code>$</code> (broker statistics) are not matched by filters that start with a wildcard.</figcaption>
+      </figure>
+      <p>Behind the broker, a <strong>time-series database</strong> stores the history. Time-series databases (for example InfluxDB, TimescaleDB or Prometheus) are optimised for append-only records of time stamp, value and tags: they compress regular sampling efficiently, apply <strong>retention policies</strong> (keep raw 1-min data for a year, hourly means forever) and <strong>downsampling</strong>, and answer queries such as "daily mean EC per tank" quickly. A small "bridge" — Telegraf, Node-RED or a few lines of Python — subscribes to the topic tree and writes each message into the database. <strong>Dashboards</strong> such as Grafana then display the data and evaluate alarm rules. For the project, a Raspberry Pi running the Mosquitto broker, InfluxDB and Grafana is a complete, self-hosted platform; keep the SD-card log on the logger as the raw (level-0) archive of Lesson 9.3.</p>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">How much data does a greenhouse produce?</span></div>
+        <div class="we-problem"><p>A research greenhouse has 40 sensors, each reporting once a minute. Each MQTT message carries a 60-byte JSON payload; with the topic and protocol headers, about 100 bytes cross the network per message (before TCP/IP and TLS overhead). The database stores an 8-byte time stamp and an 8-byte value per point before compression. Estimate (a) the number of points per year, (b) the raw storage per year, (c) the MQTT traffic per day and per year.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Points:</strong> \(40\ \text{sensors}\times1440\ \text{min d}^{-1}\times365\ \text{d} = 21.0\times10^6\) points per year.</li>
+              <li><strong>Raw storage:</strong> \(21.0\times10^6\times16\ \text{B} = 336\) MB per year — trivial for any computer; compression in a time-series database reduces it further.</li>
+              <li><strong>Traffic:</strong> \(40\times1440\times100\ \text{B} = 5.76\) MB per day, \(\approx 2.1\) GB per year, plus transport overhead.</li>
+              <li><strong>What changes the picture:</strong> a camera. One 2-megabyte image per plant tray every 10 minutes, for 20 trays, is \(20\times144\times2\ \text{MB} = 5.8\) GB per day — a thousand times the climate data. Images are therefore usually analysed at the edge, and only the extracted numbers (leaf area, colour indices; <a href="/lessons/computer-vision/">Lesson 10.3</a>) are sent.</li>
+            </ol>
+            <span class="answer">≈ 21 million points and ≈ 0.34 GB per year; ≈ 6 MB of MQTT traffic per day</span>
+            <p style="margin-top:10px">For a cellular (NB-IoT/LTE-M) connection, the traffic — not the storage — sets the cost; combining several readings in one message, sending only on change beyond a threshold ("deadband"), and binary payload formats such as CBOR all reduce it.</p>
+          </div>
+        </details>
+      </div>
+      <p>Where should the processing happen? <strong>Edge computing</strong> moves computation from distant data centres to, or close to, the devices that produce the data (Shi et al., 2016). In a greenhouse, the answer follows from four questions: How fast must the system react? How much data is produced? What must keep working when the internet fails? Who may see the data? Table 6 summarises the usual split.</p>
+      <table>
+        <caption>Table 6. Edge versus cloud processing in controlled-environment agriculture.</caption>
+        <thead><tr><th>Criterion</th><th>Edge (on the node, gateway or climate computer)</th><th>Cloud (remote servers)</th></tr></thead>
+        <tbody>
+          <tr><td>Latency</td><td>milliseconds; independent of the internet</td><td>100 ms to seconds; depends on the connection</td></tr>
+          <tr><td>Availability</td><td>works during internet outages</td><td>fails with the connection or the provider</td></tr>
+          <tr><td>Bandwidth and cost</td><td>sends only results (e.g. image → leaf area)</td><td>receives everything; traffic and storage cost</td></tr>
+          <tr><td>Computing power</td><td>limited; small models (TinyML), filters, rules</td><td>practically unlimited; model training, fleet analytics</td></tr>
+          <tr><td>Data control</td><td>data stay on site</td><td>data on third-party servers; contracts and EU rules matter</td></tr>
+          <tr><td>Maintenance</td><td>many devices to update securely</td><td>central updates</td></tr>
+          <tr><td>Typical tasks</td><td>climate control loops, frost and pump alarms, QC flags, image analysis</td><td>long-term storage, cross-site comparison, ML training, digital twins</td></tr>
+        </tbody>
+      </table>
+      <div class="callout note"><div class="callout-title">Design rule</div><p>Anything that protects the crop or the fish from damage within minutes — heating, ventilation, oxygen, pump failure — must be decided at the edge, with the cloud informed afterwards. The cloud is for learning and planning; the edge is for acting. This mirrors how commercial greenhouse climate computers are built: local controllers with optional remote access.</p></div>
+      <a class="lab-link" data-lab="iot-network" data-why="Place wireless sensor nodes on a virtual farm, compute link budgets and battery life for Wi-Fi, BLE and LoRaWAN, and follow each message through gateway, broker and database to the dashboard."></a>
+
+      <h2 id="power">Power budgets, batteries and energy harvesting</h2>
+      <p>A mains-powered logger next to your grow system has no power problem. A node at the far end of a field, on a floating raft or in a cold store has nothing else. Its lifetime is decided by an exercise in bookkeeping: how much charge does each phase of the duty cycle consume — sleeping, waking and measuring, transmitting, listening — and how much does the battery hold?</p>
+      <div class="eq-box" id="eq-battery">
+        <div class="eq-head"><span class="eq-label">Average current and battery life</span><span class="eq-num">(9.4.8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \bar{I} = \frac{1}{T}\sum_{k} I_k\,t_k = \frac{I_{\text{s}}t_{\text{s}} + I_{\text{tx}}t_{\text{tx}} + I_{\text{rx}}t_{\text{rx}} + I_{\text{sl}}\left(T - t_{\text{s}} - t_{\text{tx}} - t_{\text{rx}}\right)}{T} \\[8pt] L = \frac{\eta\,C}{\bar{I}} \end{gathered} \]</div>
+        <p class="eq-read">the average current is the charge used in one reporting cycle — each phase's current times its duration, including sleep for the rest of the cycle — divided by the cycle length; the battery life is the usable fraction of the capacity divided by the average current.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>ESP32 example</th></tr>
+          <tr><td>\(T\)</td><td>reporting interval (cycle length)</td><td>s</td><td>600</td></tr>
+          <tr><td>\(I_{\text{s}}, t_{\text{s}}\)</td><td>current and duration of waking and measuring</td><td>mA, s</td><td>40 mA, 0.5 s</td></tr>
+          <tr><td>\(I_{\text{tx}}, t_{\text{tx}}\)</td><td>transmitting</td><td>mA, s</td><td>190 mA, 0.3 s</td></tr>
+          <tr><td>\(I_{\text{rx}}, t_{\text{rx}}\)</td><td>receiving and listening (association, acknowledgements)</td><td>mA, s</td><td>100 mA, 1.7 s</td></tr>
+          <tr><td>\(I_{\text{sl}}\)</td><td>sleep current of the whole board, including regulator</td><td>mA</td><td>0.010 (chip) to ≈ 5 (dev board)</td></tr>
+          <tr><td>\(C\), \(\eta\)</td><td>nominal battery capacity and usable fraction</td><td>mAh, –</td><td>3000 mAh, 0.8</td></tr>
+          <tr><td>\(L\)</td><td>battery life</td><td>h (÷ 24 for days)</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Charge conservation.</strong> The charge drawn from the battery in one cycle is \(Q = \int_0^T I(t)\,\mathrm{d}t\). With piecewise-constant currents the integral becomes a sum of rectangles, \(Q = \sum_k I_kt_k\).</li>
+            <li><strong>Average current:</strong> \(\bar{I} = Q/T\) — the constant current that would drain the same charge.</li>
+            <li><strong>Life.</strong> A battery of capacity \(C\) (mAh, a charge) delivers \(\eta C\) usefully; at \(\bar{I}\) (mA) it lasts \(L = \eta C/\bar{I}\) hours.</li>
+            <li><strong>Where the charge goes.</strong> Because the sleep phase lasts almost the whole cycle, a sleep current of a few milliamperes can dominate everything else; conversely, with a 10 µA sleep, the radio phase dominates and the life is roughly proportional to the reporting interval.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — the usable fraction η</summary>
+          <p>\(\eta\) collects everything that makes a battery deliver less than its label: cut-off voltage (the regulator or the radio stops working before the cell is empty), cold (alkaline and lithium-ion cells lose much of their capacity below 0 °C), high current pulses (a Wi-Fi burst of 240 mA from a small cell), self-discharge over long lifetimes, and the regulator. A linear regulator passes the same current, so \(\bar{I}\) applies directly; a switching regulator converts power, so compute in energy (mWh) with its efficiency. Measure the real currents with a USB power meter, a shunt resistor and oscilloscope, or a dedicated power profiler — data-sheet numbers describe the chip, not your board.</p>
+        </details>
+        <div class="eq-units">\(\sum I_kt_k/T\): mA·s/s = mA ✓; \(\eta C/\bar{I}\): mAh/mA = h ✓</div>
+        <div class="mini-calc" data-fn="battLife" data-output="Battery life L" data-unit="days" data-digits="0" data-plot="T" data-title="Try it — one active phase plus sleep">
+          <div data-var="T" data-label="Reporting interval T" data-min="10" data-max="86400" data-value="600" data-scale="log" data-unit="s"></div>
+          <div data-var="ton" data-label="Active time per cycle" data-min="0.05" data-max="10" data-value="2.5" data-scale="log" data-unit="s"></div>
+          <div data-var="Ion" data-label="Mean active current" data-min="5" data-max="250" data-step="1" data-value="99" data-unit="mA"></div>
+          <div data-var="Isl" data-label="Sleep current" data-min="1" data-max="10000" data-value="10" data-scale="log" data-unit="µA"></div>
+          <div data-var="C" data-label="Battery capacity C" data-min="100" data-max="20000" data-value="3000" data-scale="log" data-unit="mAh"></div>
+          <div data-var="eta" data-label="Usable fraction η" data-min="50" data-max="100" data-step="1" data-value="80" data-unit="%"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="power-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the power-budget designer</div>
+          <div class="seg" id="pw-pre" role="group" aria-label="Node type presets">
+            <button type="button" data-v="mod" aria-pressed="true">ESP32 module + Wi-Fi</button>
+            <button type="button" data-v="dev" aria-pressed="false">ESP32 dev board + Wi-Fi</button>
+            <button type="button" data-v="lora" aria-pressed="false">Low-power MCU + LoRa SF9</button>
+          </div>
+          <div class="fx-ctl" id="pw-ctl" style="margin-top:10px"></div>
+          <div class="fx-two">
+            <div><div class="fx-lab">Battery life versus reporting interval</div><div id="pw-plot" style="height:290px"></div></div>
+            <div><div class="fx-lab">Where the charge goes (mAh per day)</div><div id="pw-bars" style="height:200px"></div></div>
+          </div>
+          <div class="readouts" id="pw-ro"></div>
+        </div>
+        <figcaption><b>Figure 11.</b> Battery life from Eq. 9.4.8 for a node with four phases: measuring, transmitting, receiving/listening and sleeping. Presets use data-sheet currents (ESP32: Espressif Systems, 2025; SX1276: Semtech, 2015) and illustrative durations; measure your own board. Watch the sleep bar in the "dev board" preset: a USB–serial chip, a power LED and a linear regulator that draw a few milliamperes all night turn years into weeks.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">Wi-Fi versus LoRa on one battery</span></div>
+        <div class="we-problem"><p>Three nodes report every 10 minutes from an 18650-size battery treated as 3000 mAh with η = 0.8. (a) A bare ESP32 module on Wi-Fi: measure 0.5 s at 40 mA, transmit 0.3 s at 190 mA, listen/associate 1.7 s at 100 mA, sleep at 10 µA. (b) The same firmware on a development board whose regulator, USB–serial chip and LED draw 5 mA in "deep sleep". (c) A low-power microcontroller with an SX1276 radio: measure 0.5 s at 5 mA, transmit a 12-byte uplink at SF9 (205.8 ms) at 29 mA, two receive windows totalling 0.1 s at 11 mA, sleep at 5 µA (use 2400 mAh usable). Compute the battery life of each.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>(a) Active charge per cycle:</strong> \(0.5\times40 + 0.3\times190 + 1.7\times100 = 20 + 57 + 170 = 247\) mA·s. Sleep: \((600 - 2.5)\times0.010 = 5.98\) mA·s. \(\bar{I} = 253.0/600 = 0.422\) mA.</li>
+              <li><strong>Life (a):</strong> \(L = 0.8\times3000/0.422 = 5690\) h \(= 237\) days. The active phases use 98 % of the charge — the radio alone \((57 + 170)/253 = 90\,\%\).</li>
+              <li><strong>(b) Dev board:</strong> sleep \(597.5\times5 = 2988\) mA·s per cycle; \(\bar{I} = (247 + 2988)/600 = 5.39\) mA; \(L = 2400/5.39 = 445\) h \(= 18.5\) days. The board, not the chip, sets the life.</li>
+              <li><strong>(c) LoRa node:</strong> active \(0.5\times5 + 0.2058\times29 + 0.1\times11 = 2.5 + 5.97 + 1.1 = 9.57\) mA·s; sleep \(\approx 599.2\times0.005 = 3.00\) mA·s; \(\bar{I} = 12.57/600 = 0.0209\) mA; \(L = 2400/0.0209 = 114\,600\) h ≈ 13 years.</li>
+            </ol>
+            <span class="answer">(a) ≈ 8 months; (b) ≈ 2.5 weeks; (c) ≈ 13 years on paper — in practice limited by self-discharge and cell ageing</span>
+            <p style="margin-top:10px">Sanity check: (c) draws 20 µA on average — twenty times less than (a) — because it transmits for 0.2 s instead of spending 2 s negotiating a Wi-Fi connection. A Wi-Fi node can gain a factor of several by reusing a stored connection (static IP, known channel) and by sending one message per hour containing six readings.</p>
+          </div>
+        </details>
+      </div>
+      <table>
+        <caption>Table 7. Batteries for sensor nodes (typical values — check the data sheet of the cell you buy).</caption>
+        <thead><tr><th>Chemistry</th><th>Nominal voltage</th><th>Typical capacity (AA or 18650 size)</th><th>Rechargeable</th><th>Strengths</th><th>Weaknesses</th></tr></thead>
+        <tbody>
+          <tr><td>Alkaline (AA)</td><td>1.5 V</td><td>2–3 Ah at low drain</td><td>no</td><td>cheap, available</td><td>voltage sags with pulses and cold</td></tr>
+          <tr><td>NiMH (AA)</td><td>1.2 V</td><td>≈ 2 Ah</td><td>yes</td><td>robust; low-self-discharge types</td><td>low voltage per cell</td></tr>
+          <tr><td>Li-ion (18650)</td><td>3.6–3.7 V</td><td>2.5–3.5 Ah</td><td>yes</td><td>high energy density; fits 3.3 V electronics with a regulator</td><td>needs protection; must not be charged below 0 °C</td></tr>
+          <tr><td>LiFePO₄ (18650)</td><td>3.2 V</td><td>≈ 1.5 Ah</td><td>yes</td><td>long cycle life, safe; good with solar</td><td>lower energy density</td></tr>
+          <tr><td>Li-SOCl₂ (AA)</td><td>3.6 V</td><td>≈ 2.5 Ah</td><td>no</td><td>very low self-discharge; wide temperature range</td><td>poor at high current pulses without a buffer capacitor</td></tr>
+        </tbody>
+      </table>
+      <p>Where replacing batteries is impractical, <strong>energy harvesting</strong> — usually a small solar panel — can keep a node alive indefinitely, if the energy balance holds in the worst month. At 60° N that is December, and the difference between summer and winter is enormous.</p>
+      <div class="eq-box" id="eq-harvest">
+        <div class="eq-head"><span class="eq-label">Solar energy balance and the minimum panel size</span><span class="eq-num">(9.4.9)</span></div>
+        <div class="eq-main">\[ \begin{gathered} E_{\text{PV}} = P_{\text{peak}}\cdot\frac{H}{1\ \text{kW m}^{-2}}\cdot\mathit{PR} \;\ge\; E_{\text{load}} = \frac{V\,\bar{I}\times24\ \text{h}}{\eta_{\text{conv}}} \\[8pt] \Longrightarrow\quad P_{\text{peak,min}} = \frac{E_{\text{load}}}{H\cdot\mathit{PR}}\qquad (H\ \text{in kWh m}^{-2}\,\text{d}^{-1}) \end{gathered} \]</div>
+        <p class="eq-read">the energy a panel delivers per day equals its rated peak power times the daily irradiation on its plane divided by the standard test irradiance of one kilowatt per square metre, times a performance ratio for all losses; it must at least equal the node's daily energy use; hence the smallest acceptable panel rating is the daily load divided by the irradiation (in kWh m⁻² d⁻¹, numerically equal to "peak sun hours") and the performance ratio.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example</th></tr>
+          <tr><td>\(P_{\text{peak}}\)</td><td>rated panel power at standard test conditions (1000 W m⁻², 25 °C)</td><td>W</td><td>0.5–5 W for nodes</td></tr>
+          <tr><td>\(H\)</td><td>daily irradiation on the panel plane</td><td>kWh m⁻² d⁻¹</td><td>Västerås, 43° tilt: 0.40 (Dec) to 6.0 (Jun)</td></tr>
+          <tr><td>\(\mathit{PR}\)</td><td>performance ratio: charger, battery, temperature, dirt, snow</td><td>–</td><td>0.5–0.7 for small systems</td></tr>
+          <tr><td>\(E_{\text{load}}\)</td><td>daily energy use of the node</td><td>Wh d⁻¹</td><td></td></tr>
+          <tr><td>\(V\), \(\bar{I}\), \(\eta_{\text{conv}}\)</td><td>supply voltage, average current (Eq. 9.4.8), converter efficiency</td><td>V, A, –</td><td>3.3 V, 0.42 mA, 0.85</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>A panel's rating \(P_{\text{peak}}\) is its output at 1000 W m⁻². To first order its output is proportional to the irradiance, so over a day it delivers \(P_{\text{peak}}\times H/(1\ \text{kW m}^{-2})\), where \(H\) is the day's irradiation in kWh m⁻² — numerically the number of hours of equivalent full sunshine.</li>
+            <li>Real systems lose energy in the charge controller, in the battery (charge efficiency), at high cell temperature, through dirt and snow: multiply by the performance ratio PR.</li>
+            <li>The node consumes \(E_{\text{load}} = V\bar{I}\times24\) h per day at the battery terminals, divided by the efficiency of any converter.</li>
+            <li>Require \(E_{\text{PV}} \ge E_{\text{load}}\) in the worst month and solve for \(P_{\text{peak}}\). Then size the battery for the longest expected sequence of dark days (autonomy): \(C \ge N_{\text{days}}E_{\text{load}}/V_{\text{batt}}\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity — where the numbers come from</summary>
+          <p>The irradiation values for Västerås (59.6° N) are monthly averages for 2014–2023 from the European Commission's PVGIS tool (SARAH-3 database) for a south-facing panel at the optimal 43° tilt: 12.4 kWh m⁻² in December and 179 kWh m⁻² in June, i.e. 0.40 and 6.0 kWh m⁻² d⁻¹ (European Commission Joint Research Centre, n.d.). Individual Decembers ranged from about 7 to 23 kWh m⁻² for the month — design for a bad year. A steeper tilt helps in winter and sheds snow. Use PVGIS for your own site.</p>
+        </details>
+        <div class="eq-units">W × (kWh m⁻² d⁻¹)/(kW m⁻²) = W × h d⁻¹ = Wh d⁻¹ ✓; \(V\bar{I}\times24\) h: V × A × h = Wh ✓</div>
+        <div class="mini-calc" data-formula="Eload/(H*PR)" data-output="Minimum panel rating P<sub>peak</sub>" data-unit="mW" data-digits="0" data-plot="H" data-title="Try it — size a panel for the darkest month">
+          <div data-var="Eload" data-label="Daily load E<sub>load</sub>" data-min="5" data-max="2000" data-value="39" data-scale="log" data-unit="mWh d⁻¹"></div>
+          <div data-var="H" data-label="Irradiation H" data-min="0.1" data-max="7" data-step="0.05" data-value="0.4" data-unit="kWh m⁻² d⁻¹"></div>
+          <div data-var="PR" data-label="Performance ratio PR" data-min="0.3" data-max="0.9" data-step="0.05" data-value="0.6"></div>
+        </div>
+      </div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">A solar-powered Wi-Fi node in Västerås in December</span></div>
+        <div class="we-problem"><p>The ESP32 module node of Worked example 4(a) (\(\bar{I} = 0.422\) mA at 3.3 V, converter efficiency 0.85) is to run from a solar panel and a Li-ion cell outdoors near Västerås. (a) What panel rating is needed in December (H = 0.40 kWh m⁻² d⁻¹, PR = 0.6)? (b) In June (H = 6.0)? (c) What battery capacity gives 10 days of autonomy? (d) What if the node were the development board of 4(b)?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Daily load:</strong> \(E_{\text{load}} = 3.3\ \text{V}\times0.422\ \text{mA}\times24\ \text{h}/0.85 = 39.3\) mWh d⁻¹.</li>
+              <li><strong>December</strong> (Eq. 9.4.9): \(P_{\text{peak}} \ge 39.3/(0.40\times0.6) = 164\) mW — a 0.5 W panel gives a factor of three in reserve.</li>
+              <li><strong>June:</strong> \(39.3/(6.0\times0.6) = 11\) mW — fifteen times less than in December.</li>
+              <li><strong>Autonomy:</strong> \(10\times39.3 = 393\) mWh; at 3.7 V that is 106 mAh — any 18650 cell is ample, but remember that Li-ion cells must not be charged below 0 °C, so the charger needs temperature protection in a Swedish winter.</li>
+              <li><strong>Development board:</strong> \(\bar{I} = 5.39\) mA → \(E_{\text{load}} = 502\) mWh d⁻¹ → December panel ≥ 2.1 W, and a far larger battery. Fix the sleep current before buying a bigger panel.</li>
+            </ol>
+            <span class="answer">≈ 0.16 W in December (use ≥ 0.5 W), ≈ 0.01 W in June; ≈ 0.1 Ah for 10 days; a dev board needs ≈ 2 W</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="security">Security, regulation and interoperability</h2>
+      <p>Connecting a greenhouse to the internet connects it to everyone on the internet. The canonical warning is the Mirai botnet of 2016, which scanned the internet for cameras, routers and other devices that still used factory-default passwords and at its peak controlled several hundred thousand of them, using them for some of the largest denial-of-service attacks recorded at the time (Antonakakis et al., 2017). The food sector is an attractive target: manipulated set points can kill a crop or a fish stock, falsified sensor records undermine traceability, and ransomware can stop a processing plant. Security therefore belongs in the first design sketch, not in the last week of the project.</p>
+      <table>
+        <caption>Table 8. A security checklist for a student logger, following the baseline provisions of ETSI EN 303 645 (ETSI, 2020).</caption>
+        <thead><tr><th>Provision</th><th>What it means for your ESP32 logger</th></tr></thead>
+        <tbody>
+          <tr><td>No universal default passwords</td><td>unique credentials per device; no "admin/admin" web page on the node</td></tr>
+          <tr><td>Keep software updated</td><td>plan how firmware is updated (signed over-the-air updates or a documented cable procedure)</td></tr>
+          <tr><td>Communicate securely</td><td>MQTT over TLS (port 8883) with certificate verification; never publish to an open public broker</td></tr>
+          <tr><td>Store secrets securely</td><td>Wi-Fi and broker passwords in a separate secrets file, never in a Git repository; enable flash encryption for deployed devices</td></tr>
+          <tr><td>Minimise the attack surface</td><td>no open ports on the node; disable debug consoles in deployed firmware; separate IoT network (VLAN)</td></tr>
+          <tr><td>Least privilege</td><td>broker access-control lists: a node may publish only to its own branch and subscribe only to its own commands</td></tr>
+          <tr><td>Resilience to outages</td><td>store locally when the network is down (SD card) and resend; safe default state for actuators</td></tr>
+          <tr><td>Examine telemetry and validate input</td><td>alarm when a node goes silent (Last Will); reject implausible commands and values (Lesson 9.3, Table 3)</td></tr>
+        </tbody>
+      </table>
+      <p>Security has also become a legal requirement for products sold in the EU. The situation <strong>as of September 2026</strong>:</p>
+      <div class="timeline">
+        <div><div class="t-date">16 January 2023</div><p><strong>NIS2 Directive</strong> (EU) 2022/2555 enters into force; member states had to transpose it by 17 October 2024. "Production, processing and distribution of food" is among the "other critical sectors" of its Annex II, so medium and large food companies must manage cybersecurity risks and report significant incidents (European Parliament and Council, 2022).</p></div>
+        <div><div class="t-date">1 August 2025</div><p><strong>Radio Equipment Directive</strong> cybersecurity requirements apply: Delegated Regulation (EU) 2022/30 requires internet-connected radio equipment — which includes Wi-Fi, Bluetooth and LoRa sensor nodes — to protect networks, personal data and against fraud before it can carry the CE mark; the harmonised standards EN 18031-1/-2/-3, cited in the Official Journal in January 2025, can be used to demonstrate conformity (European Commission, 2022).</p></div>
+        <div><div class="t-date">12 September 2025</div><p>The <strong>Data Act</strong> (Regulation (EU) 2023/2854) applies: users of connected products, including farmers using connected machinery and sensors, gain the right to access the data their products generate and to share it with third parties (European Parliament and Council, 2023).</p></div>
+        <div><div class="t-date">11 September 2026</div><p>First obligations of the <strong>Cyber Resilience Act</strong> (Regulation (EU) 2024/2847, in force since 10 December 2024) apply: manufacturers must report actively exploited vulnerabilities and severe incidents in products with digital elements — an early warning within 24 hours and a notification within 72 hours (European Parliament and Council, 2024).</p></div>
+        <div><div class="t-date">11 December 2027</div><p>The CRA's main requirements apply to products placed on the EU market: security by design and by default, no known exploitable vulnerabilities, security updates throughout a declared support period, a software bill of materials and a conformity assessment before the CE mark (European Commission, n.d.).</p></div>
+      </div>
+      <div class="callout note"><div class="callout-title">Does this apply to your logger?</div><p>A logger you build for your own experiment is not "placed on the market", so the CRA and the RED do not apply to it. But if a student project becomes a product — a start-up selling nutrient-monitoring kits, say — both will. Treat Table 8 as good engineering today and as the minimum legal standard tomorrow.</p></div>
+      <p>The last cross-cutting concern is <strong>interoperability</strong>: the ability of devices and software from different makers to exchange data and understand it. It works at three levels. <em>Protocol</em> interoperability means speaking the same transport (MQTT, CoAP, HTTP). <em>Syntactic</em> interoperability means agreeing on the format (JSON, CBOR, SenML). <em>Semantic</em> interoperability means agreeing on what the numbers mean — the measurand, the unit, the location, the quality flag — for which the OGC SensorThings API and the W3C/OGC SOSA/SSN ontology provide standard vocabularies (Liang et al., 2016; Haller et al., 2019). Without the third level, two systems can exchange data flawlessly and still misinterpret every value. Closed ecosystems in which data can only be read through one vendor's app are a real risk for growers, and the Data Act is partly a response to it.</p>
+      <table>
+        <caption>Table 9. Open standards you will meet in agricultural IoT.</caption>
+        <thead><tr><th>Level</th><th>Standard</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td>Messaging</td><td>MQTT 3.1.1 / 5.0 (OASIS; ISO/IEC 20922)</td><td>publish/subscribe telemetry, the de facto IoT standard</td></tr>
+          <tr><td>Messaging</td><td>CoAP (IETF RFC 7252)</td><td>REST-style requests for very constrained devices over UDP</td></tr>
+          <tr><td>Payload format</td><td>JSON; CBOR (RFC 8949); SenML (RFC 8428)</td><td>readable or compact encodings; SenML adds standard names and units</td></tr>
+          <tr><td>Sensor data model</td><td>OGC SensorThings API; W3C/OGC SOSA/SSN</td><td>things, sensors, observed properties, observations and their metadata</td></tr>
+          <tr><td>Field buses</td><td>Modbus, SDI-12, 4–20 mA</td><td>industrial and environmental sensors</td></tr>
+          <tr><td>Automation</td><td>OPC UA (IEC 62541)</td><td>information models for industrial and greenhouse automation</td></tr>
+          <tr><td>Machinery</td><td>ISOBUS (ISO 11783)</td><td>tractor–implement communication, task data in precision farming</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="reference-design">A reference design: an ESP32 logger for your project</h2>
+      <p>Everything in Module 9 comes together in one device. The reference design below measures the quantities of the course project, stores every value locally with a time stamp in UTC, applies calibration and quality flags at the edge, and publishes to an MQTT broker over TLS. It is mains-powered from a USB supply because it sits next to the grow system indoors; the battery variant follows from the previous section. Adapt it — it is a starting point, not a prescription.</p>
+      <table>
+        <caption>Table 10. Bill of materials (functional description; choose equivalent parts from any supplier).</caption>
+        <thead><tr><th>Part</th><th>Function</th><th>Interface and connection</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>ESP32 development board (ESP32-WROOM-32E)</td><td>processing, Wi-Fi, logging</td><td>USB 5 V in; 3.3 V out to modules</td><td>use ADC1 pins only for analogue inputs</td></tr>
+          <tr><td>DS18B20 waterproof probe + 4.7 kΩ resistor</td><td>nutrient-solution temperature</td><td>1-Wire on GPIO 4, pull-up to 3.3 V</td><td>ice-point check (Lesson 9.3, Worked example 1)</td></tr>
+          <tr><td>SHT4x breakout in a ventilated radiation shield</td><td>air temperature and humidity → VPD</td><td>I²C 0x44 on GPIO 21 (SDA) / 22 (SCL)</td><td>mount at canopy height, away from lamps</td></tr>
+          <tr><td>ADS1115 16-bit ADC breakout</td><td>precise analogue inputs</td><td>I²C 0x48; A0 pH, A1 EC, A2–A3 PAR (differential)</td><td>±0.256 V range for the 0–40 mV PAR signal</td></tr>
+          <tr><td>pH probe with isolated analogue front-end</td><td>pH</td><td>ADS1115 A0</td><td>two-point buffer calibration each session (Lesson 9.2)</td></tr>
+          <tr><td>EC probe (K ≈ 1) with isolated front-end</td><td>electrical conductivity</td><td>ADS1115 A1</td><td>galvanic isolation from the pH circuit</td></tr>
+          <tr><td>Analogue quantum sensor (optional)</td><td>PPFD → DLI</td><td>ADS1115 A2–A3</td><td>e.g. 0.01 mV per µmol m⁻² s⁻¹ (Apogee Instruments, n.d.)</td></tr>
+          <tr><td>DS3231 real-time clock + coin cell</td><td>time stamps without network</td><td>I²C 0x68</td><td>set from NTP whenever Wi-Fi is available</td></tr>
+          <tr><td>microSD card module</td><td>level-0 archive (CSV)</td><td>SPI: GPIO 18 SCK, 19 MISO, 23 MOSI, 5 CS</td><td>write before publishing</td></tr>
+          <tr><td>5 V USB power supply, IP65 enclosure, cable glands</td><td>power and protection</td><td>—</td><td>keep all mains equipment above water level; use an RCD</td></tr>
+        </tbody>
+      </table>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 800 500" role="img" aria-label="Logical wiring diagram of the reference ESP32 logger with I2C, 1-Wire and SPI buses and analogue inputs">
+            <defs><marker id="io-a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <!-- power supply -->
+            <rect x="14" y="360" width="150" height="62" rx="9" class="fill-amber-soft" stroke="currentColor"/>
+            <text x="89" y="385" text-anchor="middle" class="t-small" font-weight="600">5 V USB supply</text><text x="89" y="401" text-anchor="middle" class="t-small t-muted">(or battery + regulator)</text>
+            <line x1="164" y1="380" x2="286" y2="380" class="stroke-danger" stroke-width="2"/><line x1="164" y1="404" x2="286" y2="404" class="stroke" stroke-width="2"/>
+            <text x="224" y="374" text-anchor="middle" class="t-small" style="fill:var(--danger)">5 V</text><text x="224" y="420" text-anchor="middle" class="t-small">GND</text>
+            <!-- ESP32 -->
+            <rect x="286" y="40" width="170" height="410" rx="12" class="fill-sunk" stroke="currentColor" stroke-width="1.5"/>
+            <text x="371" y="66" text-anchor="middle" font-weight="600">ESP32 DevKitC</text><text x="371" y="83" text-anchor="middle" class="t-small t-muted">ESP32-WROOM-32E</text>
+            <rect x="345" y="450" width="52" height="16" rx="3" class="fill-bg" stroke="currentColor"/><text x="371" y="485" text-anchor="middle" class="t-small t-muted">USB</text>
+            <g class="t-small t-mono" text-anchor="end">
+              <text x="448" y="114">3V3</text><text x="448" y="140">GND</text><text x="448" y="174">GPIO21 SDA</text><text x="448" y="200">GPIO22 SCL</text><text x="448" y="248">GPIO4 1-Wire</text>
+              <text x="448" y="306">GPIO18 SCK</text><text x="448" y="330">GPIO19 MISO</text><text x="448" y="354">GPIO23 MOSI</text><text x="448" y="378">GPIO5 CS</text>
+            </g>
+            <g class="t-small t-mono"><text x="294" y="384">5V</text><text x="294" y="408">GND</text></g>
+            <!-- right-side modules -->
+            <g class="t-small">
+              <rect x="560" y="40" width="130" height="46" rx="7" class="fill-accent-soft" stroke="currentColor"/><text x="625" y="60" text-anchor="middle" font-weight="600">SHT4x</text><text x="625" y="76" text-anchor="middle" class="t-muted">air T, RH · 0x44</text>
+              <rect x="560" y="104" width="130" height="92" rx="7" class="fill-accent-soft" stroke="currentColor"/><text x="625" y="124" text-anchor="middle" font-weight="600">ADS1115</text><text x="625" y="140" text-anchor="middle" class="t-muted">16-bit ADC · 0x48</text>
+              <text x="684" y="160" text-anchor="end" class="t-mono">A0</text><text x="684" y="176" text-anchor="end" class="t-mono">A1</text><text x="684" y="192" text-anchor="end" class="t-mono">A2–A3</text>
+              <rect x="560" y="212" width="130" height="40" rx="7" class="fill-accent-soft" stroke="currentColor"/><text x="625" y="230" text-anchor="middle" font-weight="600">DS3231 RTC</text><text x="625" y="245" text-anchor="middle" class="t-muted">0x68</text>
+              <rect x="560" y="268" width="130" height="30" rx="14" class="fill-bg" stroke="currentColor"/><text x="625" y="288" text-anchor="middle" font-weight="600">DS18B20 probe</text>
+              <rect x="560" y="316" width="130" height="72" rx="7" class="fill-accent-soft" stroke="currentColor"/><text x="625" y="344" text-anchor="middle" font-weight="600">microSD</text><text x="625" y="360" text-anchor="middle" class="t-muted">SPI · CSV log</text>
+            </g>
+            <!-- analogue front ends -->
+            <g class="t-small">
+              <rect x="704" y="104" width="92" height="30" rx="6" class="fill-water-soft" stroke="currentColor"/><text x="750" y="123" text-anchor="middle">pH board</text>
+              <rect x="704" y="140" width="92" height="30" rx="6" class="fill-water-soft" stroke="currentColor"/><text x="750" y="159" text-anchor="middle">EC board</text>
+              <rect x="704" y="176" width="92" height="30" rx="6" class="fill-magenta-soft" stroke="currentColor"/><text x="750" y="195" text-anchor="middle">PAR sensor</text>
+              <text x="750" y="222" text-anchor="middle" class="t-muted">isolated boards,</text><text x="750" y="236" text-anchor="middle" class="t-muted">probes in tank</text>
+            </g>
+            <g stroke-width="1.4" stroke-dasharray="4 3"><line x1="704" y1="119" x2="690" y2="156" class="stroke-water"/><line x1="704" y1="155" x2="690" y2="172" class="stroke-water"/><line x1="704" y1="191" x2="690" y2="188" class="stroke-magenta"/></g>
+            <!-- I2C bus -->
+            <g stroke="var(--water)" stroke-width="2" fill="none"><path d="M456 170 L510 170 L510 56 L560 56"/><path d="M510 170 L510 120 L560 120"/><path d="M510 170 L510 226 L560 226"/></g>
+            <g stroke="var(--magenta)" stroke-width="2" fill="none"><path d="M456 196 L526 196 L526 70 L560 70"/><path d="M526 196 L526 134 L560 134"/><path d="M526 196 L526 240 L560 240"/></g>
+            <g class="t-small"><text x="480" y="164" style="fill:var(--water)">SDA</text><text x="480" y="212" style="fill:var(--magenta)">SCL</text></g>
+            <!-- 1-Wire -->
+            <path d="M456 244 L540 244 L540 283 L560 283" fill="none" stroke="var(--amber)" stroke-width="2"/>
+            <path d="M456 110 L473 110 L473 222" fill="none" class="stroke-danger" stroke-width="1.6"/>
+            <rect x="468" y="222" width="10" height="18" class="fill-bg" stroke="currentColor"/><line x1="473" y1="244" x2="473" y2="240" class="stroke" stroke-width="1.2"/><circle cx="473" cy="244" r="2.6" fill="var(--amber)"/>
+            <text x="480" y="235" class="t-small">4.7 kΩ</text>
+            <!-- SPI -->
+            <g stroke-width="1.8" fill="none"><path d="M456 302 L548 302 L548 330 L560 330" class="stroke-accent"/><path d="M456 326 L542 326 L542 344 L560 344" class="stroke-water"/><path d="M456 350 L536 350 L536 358 L560 358" class="stroke-magenta"/><path d="M456 374 L560 374" class="stroke"/></g>
+            <text x="494" y="296" class="t-small" style="fill:var(--accent)">SPI</text>
+            <!-- notes -->
+            <rect x="480" y="410" width="314" height="72" rx="9" fill="none" class="stroke-muted" stroke-dasharray="4 3"/>
+            <text x="490" y="430" class="t-small">Power: every module VCC → 3V3, GND → GND</text>
+            <text x="490" y="447" class="t-small">(omitted for clarity). I²C pull-ups are usually on the</text>
+            <text x="490" y="464" class="t-small">breakout boards. pH/EC front-ends need isolated power.</text>
+            <text x="14" y="30" class="t-small t-muted">logical wiring — pin positions on your board differ; check its pinout</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 12.</b> Logical wiring of the reference logger: one I²C bus (SDA blue, SCL magenta) for the humidity sensor, the 16-bit ADC and the real-time clock; a 1-Wire bus with its 4.7 kΩ pull-up for the tank probe; SPI for the memory card; analogue signals from isolated pH and EC front-ends and a quantum sensor into the ADS1115. These are the default I²C and SPI pins of the Arduino core for the ESP32.</figcaption>
+      </figure>
+      <p>The firmware follows one principle: <em>store first, then send</em>. Every reading is written to the SD card before any attempt to publish, so a network failure never loses data. The outline below uses common Arduino libraries (OneWire, DallasTemperature, Adafruit SHT4x and ADS1X15, RTClib, SD, and an MQTT client that supports QoS 1, retained messages and a Last Will); check each library's documentation for exact function signatures, and keep credentials in a separate file that is never committed to Git.</p>
+      <pre class="code"><span class="c">// ESP32 project logger — outline for the Arduino core for ESP32 (helper functions not shown)</span>
+<span class="k">#include</span> &lt;WiFi.h&gt;             <span class="k">#include</span> &lt;WiFiClientSecure.h&gt;   <span class="k">#include</span> &lt;MQTT.h&gt;
+<span class="k">#include</span> &lt;OneWire.h&gt;          <span class="k">#include</span> &lt;DallasTemperature.h&gt;  <span class="k">#include</span> &lt;Adafruit_SHT4x.h&gt;
+<span class="k">#include</span> &lt;Adafruit_ADS1X15.h&gt; <span class="k">#include</span> &lt;RTClib.h&gt;             <span class="k">#include</span> &lt;SD.h&gt;
+<span class="k">#include</span> <span class="s">"secrets.h"</span>   <span class="c">// WIFI_SSID, WIFI_PASS, BROKER_HOST, BROKER_CA — never in Git</span>
+
+<span class="k">const</span> uint32_t PERIOD_S = 300;        <span class="c">// one record every 5 min (averaged 10-s samples)</span>
+<span class="k">const</span> String BASE = <span class="s">"mdu/gh1/zone2/"</span>; <span class="c">// topic prefix: site / greenhouse / zone</span>
+OneWire ow(4);  DallasTemperature tank(&amp;ow);
+Adafruit_SHT4x sht;  Adafruit_ADS1115 ads;  RTC_DS3231 rtc;
+WiFiClientSecure net;  MQTTClient mqtt(512);      <span class="c">// QoS 1, retained, last will</span>
+<span class="k">struct</span> Cal { <span class="k">float</span> a, b; };            <span class="c">// indication = a + b·x (Eq. 9.3.5)</span>
+Cal calTank = { 0.317f, 0.9949f };     <span class="c">// from your own calibration</span>
+
+<span class="k">void</span> setup() {
+  Wire.begin(21, 22);  sht.begin();  ads.begin(0x48);  rtc.begin();  tank.begin();
+  SD.begin(5);                         <span class="c">// SPI 18/19/23, chip select 5</span>
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  configTime(0, 0, <span class="s">"pool.ntp.org"</span>);    <span class="c">// UTC; copy to the DS3231 once synced</span>
+  net.setCACert(BROKER_CA);            <span class="c">// verify the broker's certificate</span>
+  mqtt.begin(BROKER_HOST, 8883, net);  <span class="c">// MQTT over TLS</span>
+  mqtt.setWill((BASE + <span class="s">"nodes/esp32-07/status"</span>).c_str(), <span class="s">"offline"</span>, <span class="k">true</span>, 1);
+}
+
+<span class="k">void</span> loop() {
+  mqtt.loop();
+  <span class="k">if</span> (!timeForNextRecord(PERIOD_S)) <span class="k">return</span>;
+  tank.requestTemperatures();          <span class="c">// ≈ 750 ms at 12-bit resolution</span>
+  <span class="k">float</span> yT = tank.getTempCByIndex(0);   <span class="c">// raw: −127 = disconnected, 85 = reset</span>
+  <span class="k">float</span> T  = (yT - calTank.a) / calTank.b;   <span class="c">// inverse prediction (Eq. 9.3.6)</span>
+  sensors_event_t rh, ta;  sht.getEvent(&amp;rh, &amp;ta);
+  <span class="k">float</span> vpd = vpdKPa(ta.temperature, rh.relative_humidity);   <span class="c">// FAO-56</span>
+  int16_t phCode = medianOfReads(9, 0);   <span class="c">// median of 9 readings on A0</span>
+  <span class="c">// QC flag (Lesson 9.3): 4 = fail, 3 = suspect, 1 = pass</span>
+  <span class="k">int</span> q = (yT &lt; -50 || yT &gt; 84) ? 4 : (T &lt; 5 || T &gt; 35) ? 3 : 1;
+
+  String ts = isoTimeUTC(rtc.now());   <span class="c">// e.g. 2026-09-26T10:05:00Z</span>
+  <span class="c">// store first: the SD card is the level-0 archive</span>
+  appendCsv(<span class="s">"/log.csv"</span>, ts, T, q, ta.temperature, rh.relative_humidity, vpd, phCode);
+  <span class="k">if</span> (ensureConnected()) {              <span class="c">// reconnect with back-off, resend backlog</span>
+    mqtt.publish(BASE + <span class="s">"nutrient/water-temperature"</span>,
+                 jsonValue(ts, T, <span class="s">"Cel"</span>, q), <span class="k">false</span>, 1);
+    mqtt.publish(BASE + <span class="s">"nodes/esp32-07/status"</span>, <span class="s">"online"</span>, <span class="k">true</span>, 1);  <span class="c">// retained</span>
+  }
+}</pre>
+      <table>
+        <caption>Table 11. Commissioning checklist before the logger goes into the grow room.</caption>
+        <thead><tr><th>Check</th><th>How</th><th>Pass criterion</th></tr></thead>
+        <tbody>
+          <tr><td>Sensor calibration</td><td>ice point, buffers, EC standard, reference thermometer (Lessons 9.2–9.3)</td><td>corrections and uncertainties recorded in the metadata</td></tr>
+          <tr><td>Radio link</td><td>log Wi-Fi RSSI (received signal strength) at the final position for a day</td><td>margin above the fade margin: with Wi-Fi, RSSI better than about −70 dBm</td></tr>
+          <tr><td>Time</td><td>unplug for an hour and restart</td><td>time stamps continue correctly in UTC from the RTC</td></tr>
+          <tr><td>Network outage</td><td>switch off the broker for an hour</td><td>no gaps in the SD log; backlog published afterwards</td></tr>
+          <tr><td>Node failure</td><td>pull the power</td><td>Last Will "offline" appears on the dashboard within the keep-alive time</td></tr>
+          <tr><td>Security</td><td>review Table 8</td><td>TLS on, unique credentials, no secrets in Git</td></tr>
+          <tr><td>Electrical safety</td><td>inspect the installation</td><td>mains equipment above water level, RCD in the circuit, strain relief on cables</td></tr>
+        </tbody>
+      </table>
+      <a class="lab-link" data-lab="sensor-anomaly" data-why="Your logger will produce spikes, gaps and drifting sensors. Practise detecting them automatically with rolling statistics and simple machine-learning detectors."></a>
+      <div class="callout frontier"><div class="callout-title">Frontier — intelligence at the edge</div><p>Microcontrollers such as the ESP32-S3 can now run small neural networks ("TinyML") that classify images or detect anomalies on the node itself, sending a few bytes instead of megabytes. Combined with LPWAN radios and energy harvesting, this points to sensor networks that are cheap enough to monitor every plant row. The limiting factors are shifting from hardware to the topics of this module: calibration, uncertainty, data quality and security — and to the governance questions of <a href="/lessons/digital-twins/">Lesson 10.5</a>.</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="iot-architectures-main">
+        <script type="application/json">
+        {"title":"IoT architectures, networks and edge computing","questions":[
+          {"type":"numeric","q":"What is the free-space path loss at 868 MHz over 1 km?","answer":91.2,"abstol":0.3,"unit":"dB","hint":"L = 20 log₁₀(d<sub>km</sub>) + 20 log₁₀(f<sub>MHz</sub>) + 32.45 (Eq. 9.4.2).","explain":"<p>\\(20\\log_{10}1 + 20\\log_{10}868 + 32.45 = 0 + 58.77 + 32.45 = 91.2\\) dB.</p>"},
+          {"type":"numeric","q":"A node transmits at +14 dBm with a 2 dBi antenna; the gateway antenna has 3 dBi and 1 dB of cable loss. The path loss is 120 dB and the receiver sensitivity −129 dBm. What is the link margin?","answer":27,"abstol":0.2,"unit":"dB","hint":"P<sub>rx</sub> = P<sub>tx</sub> + G<sub>tx</sub> + G<sub>rx</sub> − L<sub>c</sub> − L<sub>p</sub>; M = P<sub>rx</sub> − S.","explain":"<p>\\(P_{\\text{rx}} = 14 + 2 + 3 - 1 - 120 = -102\\) dBm; \\(M = -102 - (-129) = 27\\) dB.</p>"},
+          {"type":"numeric","q":"With a path-loss exponent n = 3, how many decibels of additional path loss does a node suffer when it is moved from 100 m to 1000 m from the gateway?","answer":30,"abstol":0.1,"unit":"dB","hint":"10 n log₁₀(d₂/d₁).","explain":"<p>\\(10\\times3\\times\\log_{10}(1000/100) = 30\\) dB — compared with 20 dB in free space.</p>"},
+          {"type":"mcq","q":"Increasing the LoRa spreading factor from SF9 to SF10 (same bandwidth) approximately…","options":["doubles the time on air and improves the sensitivity by about 2.5 dB","halves the time on air and improves the sensitivity by about 3 dB","doubles the data rate","has no effect on time on air, only on range"],"answer":0,"feedback":["","A higher SF means longer, not shorter, symbols.","The data rate roughly halves.","Symbol duration is 2^SF/B, so it doubles."],"explain":"<p>\\(T_{\\text{sym}} = 2^{SF}/B\\) doubles, and the demodulator tolerates 2.5 dB lower SNR (Table 5): more range, less capacity, more energy per message.</p>"},
+          {"type":"numeric","q":"A LoRa uplink has a time on air of 0.37 s and is sent in a sub-band with a 1 % duty-cycle limit. What is the shortest allowed interval between two such messages?","answer":37,"tol":0.01,"unit":"s","hint":"T<sub>interval,min</sub> = T<sub>air</sub>/DC<sub>max</sub> (Eq. 9.4.7).","explain":"<p>\\(0.37/0.01 = 37\\) s: the node must stay silent for 36.63 s after each 0.37 s transmission.</p>"},
+          {"type":"numeric","q":"A node draws an average of 0.25 mA from a 2000 mAh battery of which 80 % is usable. How many days will it run?","answer":266.7,"tol":0.02,"unit":"days","hint":"L = ηC/Ī in hours; divide by 24.","explain":"<p>\\(0.8\\times2000/0.25 = 6400\\) h = 266.7 days.</p>"},
+          {"type":"multi","q":"Which topics does the MQTT subscription filter <code>farm/+/air/#</code> match? (Select all that apply.)","options":["<code>farm/gh1/air/temperature</code>","<code>farm/gh1/air</code>","<code>farm/gh1/zone2/air/rh</code>","<code>farm/field/air/co2/raw</code>","<code>farm/air/temperature</code>"],"answer":[0,1,3],"shuffle":false,"explain":"<p><code>+</code> matches exactly one level (gh1, field); <code>#</code> matches the parent level itself and any number of levels below it. <code>farm/gh1/zone2/air/rh</code> has two levels between farm and air; <code>farm/air/temperature</code> has none.</p>"},
+          {"type":"mcq","q":"A sensor node publishes each reading with MQTT QoS 1. What does that guarantee?","options":["The message is delivered exactly once","The message is delivered at least once; duplicates are possible","The message is stored forever by the broker","The message is encrypted"],"answer":1,"feedback":["That is QoS 2.","","That is not a QoS property; the retained flag keeps only the last message per topic.","Encryption comes from TLS, not from the QoS level."],"explain":"<p>QoS 1 resends until a PUBACK arrives, so a message can arrive twice; a time stamp in the payload lets the database ignore duplicates.</p>"},
+          {"type":"tf","q":"A retained MQTT message is delivered by the broker to a client as soon as that client subscribes to the topic, even if the message was published hours earlier.","answer":true,"explain":"<p>The broker keeps the last retained message of each topic and sends it to every new subscriber — ideal for states such as \"node online\" or \"vent open\".</p>"},
+          {"type":"mcq","q":"Where should the decision to switch on emergency heating when a greenhouse approaches 0 °C be made?","options":["In the cloud, where the best forecasting models run","At the edge — in the local climate controller or gateway","On the grower's phone","In the time-series database"],"answer":1,"feedback":["A frost alarm must work when the internet connection is down.","","The phone may be switched off or out of coverage.","A database stores data; it does not act."],"explain":"<p>Safety-critical actions belong at the edge, where they are fast and independent of the network; the cloud is informed afterwards and can refine set points.</p>"},
+          {"type":"numeric","q":"What is the thermal-noise-limited sensitivity of a LoRa receiver at SF12 in 125 kHz, assuming a noise figure of 6 dB and a required SNR of −20 dB?","answer":-137,"abstol":0.3,"unit":"dBm","hint":"S = −174 + 10 log₁₀(B/Hz) + NF + SNR (Eq. 9.4.4).","explain":"<p>\\(-174 + 51.0 + 6 - 20 = -137\\) dBm (the SX1276 data sheet gives −136 dBm).</p>"},
+          {"type":"mcq","q":"Which statement about the EU Cyber Resilience Act is correct as of September 2026?","options":["It does not exist yet; it is still a proposal","It entered into force in December 2024; manufacturers' reporting obligations for actively exploited vulnerabilities apply from 11 September 2026, and its main requirements from 11 December 2027","It applies only to cloud services, not to devices","It applies to every logger that a student builds for a course experiment"],"answer":1,"feedback":["Regulation (EU) 2024/2847 was adopted in 2024.","","It covers hardware and software products with digital elements.","A device built for one's own experiment is not placed on the market."],"explain":"<p>Regulation (EU) 2024/2847 entered into force on 10 December 2024; reporting obligations apply from 11 September 2026 and the full set of essential requirements from 11 December 2027.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Internet of Things (IoT)</dt><dd>Networked sensing and actuating devices that exchange data with each other and with software services without human intervention.</dd>
+        <dt>Edge computing</dt><dd>Processing data on or near the devices that produce them — on the node, a gateway or a local controller — instead of in a remote data centre.</dd>
+        <dt>Microcontroller</dt><dd>A single-chip computer with processor, memory and peripherals (ADC, timers, serial interfaces) that runs one program with deterministic timing and very low sleep current.</dd>
+        <dt>I²C</dt><dd>A two-wire (SDA, SCL) synchronous bus on which devices are selected by 7-bit addresses; used for short, board-level connections.</dd>
+        <dt>SDI-12</dt><dd>A 1200-baud, three-wire (data, 12 V, ground) bus standard for environmental sensors with up to 62 addresses.</dd>
+        <dt>Modbus RTU</dt><dd>A request–response protocol, usually over an RS-485 differential pair, used by industrial and greenhouse equipment; addresses 1–247.</dd>
+        <dt>Link budget</dt><dd>The sum, in decibels, of transmit power, antenna gains and losses along a radio path, compared with the receiver sensitivity to give the link margin.</dd>
+        <dt>Path-loss exponent</dt><dd>The exponent n in received power ∝ d<sup>−n</sup>: 2 in free space, larger near the ground, among crops and inside buildings.</dd>
+        <dt>Receiver sensitivity</dt><dd>The weakest signal a receiver can decode at a stated error rate; set by thermal noise, bandwidth, noise figure and the required SNR.</dd>
+        <dt>Spreading factor</dt><dd>In LoRa, the number of bits per chirp symbol (7–12); each step up doubles the symbol time and improves sensitivity by about 2.5 dB.</dd>
+        <dt>Time on air</dt><dd>The duration of one radio transmission; decides energy use, collision probability and compliance with duty-cycle limits.</dd>
+        <dt>Duty cycle</dt><dd>The fraction of time a transmitter is on; limited to 1 % in the main EU868 LoRaWAN sub-band.</dd>
+        <dt>MQTT</dt><dd>An open publish/subscribe messaging protocol in which clients publish messages to hierarchical topics on a broker and subscribe with topic filters.</dd>
+        <dt>Quality of service (QoS)</dt><dd>MQTT delivery guarantee per message: 0 at most once, 1 at least once, 2 exactly once.</dd>
+        <dt>Last Will and Testament</dt><dd>A message registered by an MQTT client at connection, which the broker publishes if the client disconnects unexpectedly.</dd>
+        <dt>Cyber Resilience Act</dt><dd>Regulation (EU) 2024/2847 setting mandatory cybersecurity requirements for hardware and software products with digital elements placed on the EU market.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can draw the five layers of an IoT system and say which parts of my logger belong to each, and what happens when each layer fails.</li>
+        <li>I can choose a sensor interface and a radio technology for a given task and justify the choice with range, data rate, energy and cost.</li>
+        <li>I can derive the Friis equation, apply the log-distance model with a fade margin, and decide whether a link will close.</li>
+        <li>I can calculate LoRa time on air and the reporting interval allowed by the 1 % duty cycle and a network's fair-use policy.</li>
+        <li>I can design an MQTT topic tree with QoS, retained messages and a Last Will, and decide what to compute at the edge and in the cloud.</li>
+        <li>I can compute the battery life and solar panel size of a sensor node and list the security measures and EU rules that apply to connected devices.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Mekki, K., Bajic, E., Chaxel, F., &amp; Meyer, F. (2019). A comparative study of LPWAN technologies for large-scale IoT deployment. <em>ICT Express</em>, 5(1), 1–7. <a href="https://doi.org/10.1016/j.icte.2017.12.005" target="_blank" rel="noopener">doi:10.1016/j.icte.2017.12.005</a><span class="r-why">A short comparison of LoRaWAN, Sigfox and NB-IoT — range, data rate, energy, cost and deployment — that complements Tables 4 and 5.</span></li>
+        <li><span class="r-type">Required</span>Tzounis, A., Katsoulas, N., Bartzanas, T., &amp; Kittas, C. (2017). Internet of Things in agriculture, recent advances and future challenges. <em>Biosystems Engineering</em>, 164, 31–48. <a href="https://doi.org/10.1016/j.biosystemseng.2017.09.007" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2017.09.007</a><span class="r-why">A review by greenhouse engineers of IoT architectures, hardware, protocols and applications in agriculture; read sections 1–4.</span></li>
+        <li><span class="r-type">Recommended</span>Adelantado, F., Vilajosana, X., Tuset-Peiro, P., Martinez, B., Melià-Seguí, J., &amp; Watteyne, T. (2017). Understanding the limits of LoRaWAN. <em>IEEE Communications Magazine</em>, 55(9), 34–40. <a href="https://doi.org/10.1109/MCOM.2017.1600613" target="_blank" rel="noopener">doi:10.1109/MCOM.2017.1600613</a><span class="r-why">How duty cycles, ALOHA collisions and spreading factors limit the capacity of a LoRaWAN network — the quantitative reason behind Eq. 9.4.7.</span></li>
+        <li><span class="r-type">Recommended · open access</span>ETSI. (2020). <em>ETSI EN 303 645 V2.1.1: Cyber security for consumer Internet of Things: Baseline requirements</em>. European Telecommunications Standards Institute. <a href="https://www.etsi.org/deliver/etsi_en/303600_303699/303645/02.01.01_60/en_303645v020101p.pdf" target="_blank" rel="noopener">etsi.org</a><span class="r-why">Thirteen concise provisions for IoT security; the basis of Table 8 and a good checklist for any connected device.</span></li>
+        <li><span class="r-type">Recommended · open standard</span>Banks, A., Briggs, E., Borgendale, K., &amp; Gupta, R. (Eds.). (2019). <em>MQTT Version 5.0</em>. OASIS Standard. <a href="https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html" target="_blank" rel="noopener">docs.oasis-open.org</a><span class="r-why">Chapter 4 (operational behaviour: QoS, retained messages, topic names and filters) is readable and precise.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Adelantado, F., Vilajosana, X., Tuset-Peiro, P., Martinez, B., Melià-Seguí, J., &amp; Watteyne, T. (2017). Understanding the limits of LoRaWAN. <em>IEEE Communications Magazine</em>, 55(9), 34–40. <a href="https://doi.org/10.1109/MCOM.2017.1600613" target="_blank" rel="noopener">doi:10.1109/MCOM.2017.1600613</a></li>
+        <li>Antonakakis, M., April, T., Bailey, M., Bernhard, M., Bursztein, E., Cochran, J., Durumeric, Z., Halderman, J. A., Invernizzi, L., Kallitsis, M., Kumar, D., Lever, C., Ma, Z., Mason, J., Menscher, D., Seaman, C., Sullivan, N., Thomas, K., &amp; Zhou, Y. (2017). Understanding the Mirai botnet. In <em>Proceedings of the 26th USENIX Security Symposium</em> (pp. 1093–1110). USENIX Association. <a href="https://www.usenix.org/conference/usenixsecurity17/technical-sessions/presentation/antonakakis" target="_blank" rel="noopener">usenix.org</a></li>
+        <li>Apogee Instruments. (n.d.). <em>SQ-500-SS full-spectrum quantum sensor: specifications</em>. <a href="https://www.apogeeinstruments.com/sq-500-ss-full-spectrum-quantum-sensor/" target="_blank" rel="noopener">apogeeinstruments.com</a></li>
+        <li>Banks, A., Briggs, E., Borgendale, K., &amp; Gupta, R. (Eds.). (2019). <em>MQTT Version 5.0</em>. OASIS Standard. <a href="https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html" target="_blank" rel="noopener">docs.oasis-open.org/mqtt/mqtt/v5.0</a></li>
+        <li>Espressif Systems. (2025). <em>ESP32 series datasheet</em> (Version 5.3). <a href="https://documentation.espressif.com/esp32_datasheet_en.pdf" target="_blank" rel="noopener">documentation.espressif.com/esp32_datasheet_en.pdf</a></li>
+        <li>Espressif Systems. (n.d.). <em>ESP-IDF programming guide: Analog to digital converter (ADC) oneshot mode driver</em>. <a href="https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/adc/adc_oneshot.html" target="_blank" rel="noopener">docs.espressif.com</a></li>
+        <li>ETSI. (2020). <em>ETSI EN 303 645 V2.1.1: Cyber security for consumer Internet of Things: Baseline requirements</em>. European Telecommunications Standards Institute. <a href="https://www.etsi.org/deliver/etsi_en/303600_303699/303645/02.01.01_60/en_303645v020101p.pdf" target="_blank" rel="noopener">etsi.org</a></li>
+        <li>European Commission. (2022). Commission Delegated Regulation (EU) 2022/30 of 29 October 2021 supplementing Directive 2014/53/EU with regard to the application of the essential requirements referred to in Article 3(3), points (d), (e) and (f), of that Directive. <em>Official Journal of the European Union</em>, L 7, 6–10. <a href="http://data.europa.eu/eli/reg_del/2022/30/oj" target="_blank" rel="noopener">data.europa.eu/eli/reg_del/2022/30/oj</a></li>
+        <li>European Commission. (n.d.). <em>Cyber Resilience Act</em>. Shaping Europe's digital future. Retrieved September 2026, from <a href="https://digital-strategy.ec.europa.eu/en/policies/cyber-resilience-act" target="_blank" rel="noopener">digital-strategy.ec.europa.eu/en/policies/cyber-resilience-act</a></li>
+        <li>European Commission Joint Research Centre. (n.d.). <em>Photovoltaic Geographical Information System (PVGIS)</em>, monthly radiation tool, PVGIS-SARAH3 database. Retrieved September 2026, from <a href="https://re.jrc.ec.europa.eu/pvg_tools/en/" target="_blank" rel="noopener">re.jrc.ec.europa.eu/pvg_tools</a></li>
+        <li>European Parliament and Council. (2022). Directive (EU) 2022/2555 on measures for a high common level of cybersecurity across the Union (NIS 2 Directive). <em>Official Journal of the European Union</em>, L 333, 80–152. <a href="http://data.europa.eu/eli/dir/2022/2555/oj" target="_blank" rel="noopener">data.europa.eu/eli/dir/2022/2555/oj</a></li>
+        <li>European Parliament and Council. (2023). Regulation (EU) 2023/2854 on harmonised rules on fair access to and use of data (Data Act). <em>Official Journal of the European Union</em>, L series. <a href="http://data.europa.eu/eli/reg/2023/2854/oj" target="_blank" rel="noopener">data.europa.eu/eli/reg/2023/2854/oj</a></li>
+        <li>European Parliament and Council. (2024). Regulation (EU) 2024/2847 on horizontal cybersecurity requirements for products with digital elements (Cyber Resilience Act). <em>Official Journal of the European Union</em>, L series. <a href="http://data.europa.eu/eli/reg/2024/2847/oj" target="_blank" rel="noopener">data.europa.eu/eli/reg/2024/2847/oj</a></li>
+        <li>Friis, H. T. (1946). A note on a simple transmission formula. <em>Proceedings of the IRE</em>, 34(5), 254–256. <a href="https://doi.org/10.1109/JRPROC.1946.234568" target="_blank" rel="noopener">doi:10.1109/JRPROC.1946.234568</a></li>
+        <li>Haller, A., Janowicz, K., Cox, S. J. D., Lefrançois, M., Taylor, K., Le Phuoc, D., Lieberman, J., García-Castro, R., Atkinson, R., &amp; Stadler, C. (2019). The modular SSN ontology: A joint W3C and OGC standard specifying the semantics of sensors, observations, sampling, and actuation. <em>Semantic Web</em>, 10(1), 9–32. <a href="https://doi.org/10.3233/SW-180320" target="_blank" rel="noopener">doi:10.3233/SW-180320</a></li>
+        <li>Jennings, C., Shelby, Z., Arkko, J., Keränen, A., &amp; Bormann, C. (2018). <em>Sensor Measurement Lists (SenML)</em> (RFC 8428). Internet Engineering Task Force. <a href="https://doi.org/10.17487/RFC8428" target="_blank" rel="noopener">doi:10.17487/RFC8428</a></li>
+        <li>Liang, S., Huang, C.-Y., &amp; Khalafbeigi, T. (Eds.). (2016). <em>OGC SensorThings API Part 1: Sensing</em> (Version 1.0, OGC 15-078r6). Open Geospatial Consortium. <a href="https://www.ogc.org/standards/sensorthings/" target="_blank" rel="noopener">ogc.org/standards/sensorthings</a></li>
+        <li>Mekki, K., Bajic, E., Chaxel, F., &amp; Meyer, F. (2019). A comparative study of LPWAN technologies for large-scale IoT deployment. <em>ICT Express</em>, 5(1), 1–7. <a href="https://doi.org/10.1016/j.icte.2017.12.005" target="_blank" rel="noopener">doi:10.1016/j.icte.2017.12.005</a></li>
+        <li>Rappaport, T. S. (2002). <em>Wireless Communications: Principles and Practice</em> (2nd ed.). Prentice Hall.</li>
+        <li>Raza, U., Kulkarni, P., &amp; Sooriyabandara, M. (2017). Low power wide area networks: An overview. <em>IEEE Communications Surveys &amp; Tutorials</em>, 19(2), 855–873. <a href="https://doi.org/10.1109/COMST.2017.2652320" target="_blank" rel="noopener">doi:10.1109/COMST.2017.2652320</a></li>
+        <li>SDI-12 Support Group. (2023). <em>SDI-12: A serial-digital interface standard for microprocessor-based sensors</em> (Version 1.4). <a href="https://www.sdi-12.org/" target="_blank" rel="noopener">sdi-12.org</a></li>
+        <li>Semtech Corporation. (2015). <em>SX1276/77/78/79: 137 MHz to 1020 MHz low power long range transceiver</em> (Datasheet, Rev. 4). <a href="https://www.semtech.com/products/wireless-rf/lora-connect/sx1276" target="_blank" rel="noopener">semtech.com</a></li>
+        <li>Shi, W., Cao, J., Zhang, Q., Li, Y., &amp; Xu, L. (2016). Edge computing: Vision and challenges. <em>IEEE Internet of Things Journal</em>, 3(5), 637–646. <a href="https://doi.org/10.1109/JIOT.2016.2579198" target="_blank" rel="noopener">doi:10.1109/JIOT.2016.2579198</a></li>
+        <li>The Things Network. (n.d.). <em>Duty cycle</em>. Retrieved September 2026, from <a href="https://www.thethingsnetwork.org/docs/lorawan/duty-cycle/" target="_blank" rel="noopener">thethingsnetwork.org/docs/lorawan/duty-cycle</a></li>
+        <li>Tzounis, A., Katsoulas, N., Bartzanas, T., &amp; Kittas, C. (2017). Internet of Things in agriculture, recent advances and future challenges. <em>Biosystems Engineering</em>, 164, 31–48. <a href="https://doi.org/10.1016/j.biosystemseng.2017.09.007" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2017.09.007</a></li>
+        <li>Wolfert, S., Ge, L., Verdouw, C., &amp; Bogaardt, M.-J. (2017). Big data in smart farming — A review. <em>Agricultural Systems</em>, 153, 69–80. <a href="https://doi.org/10.1016/j.agsy.2017.01.023" target="_blank" rel="noopener">doi:10.1016/j.agsy.2017.01.023</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, BarChart, linspace } from '/assets/js/plot.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+import { normInv } from '/assets/js/stats.js';
+import { resolveColor } from '/assets/js/colors.js';
+
+function addSlider(host, o) {
+  const w = document.createElement('div'); w.className = 'mc-var';
+  w.innerHTML = `<div class="mc-lab"><span>${o.label}</span><output></output></div><input type="range" aria-label="${o.label.replace(/<[^>]+>/g, '')}">`;
+  const r = w.querySelector('input'), out = w.querySelector('output');
+  const toR = v => o.log ? Math.log10(v) : v, fromR = v => o.log ? Math.pow(10, v) : v;
+  r.min = toR(o.min); r.max = toR(o.max); r.step = o.log ? 'any' : o.step; r.value = toR(o.value);
+  const get = () => { const v = fromR(+r.value); return o.log ? +v.toPrecision(3) : v; };
+  const show = () => { out.textContent = (o.fmt ? o.fmt(get()) : fmt(get(), o.digits ?? 0)) + (o.unit ? ' ' + o.unit : ''); r.style.setProperty('--fill', ((+r.value - +r.min) / (+r.max - +r.min) * 100) + '%'); };
+  r.addEventListener('input', () => { show(); o.onInput && o.onInput(); });
+  show(); host.appendChild(w);
+  return { get, el: w, set: v => { r.value = toR(v); show(); } };
+}
+function segment(id, cb) {
+  const seg = document.getElementById(id); let v = seg.querySelector('[aria-pressed="true"]').dataset.v;
+  seg.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); v = b.dataset.v; cb(v); });
+  return () => v;
+}
+const fspl = (dm, fMHz) => 20 * Math.log10(dm / 1000) + 20 * Math.log10(fMHz) + 32.45;
+const fmtDist = m => m >= 1000 ? fmt(m / 1000, m >= 10000 ? 1 : 2) + ' km' : fmt(m, 0) + ' m';
+function loraToa(SF, PLapp, BWkHz = 125, CR = 1) {
+  const BW = BWkHz * 1000, PL = PLapp + 13, Ts = Math.pow(2, SF) / BW, DE = Ts >= 0.016 ? 1 : 0;
+  const nPay = 8 + Math.max(Math.ceil((8 * PL - 4 * SF + 28 + 16) / (4 * (SF - 2 * DE))) * (CR + 4), 0);
+  return { Ts, DE, nPay, toa: (12.25 + nPay) * Ts };
+}
+
+/* ---------- Figure 3: range–rate landscape ---------- */
+{
+  const TECH = [
+    { l: 'BLE', r: [3, 100], b: [125, 2000], c: 'c4' },
+    { l: 'Zigbee / Thread', r: [10, 100], b: [20, 250], c: 'c5' },
+    { l: 'Wi-Fi', r: [10, 150], b: [1000, 150000], c: 'water' },
+    { l: 'LoRaWAN', r: [1000, 15000], b: [0.25, 11], c: 'accent' },
+    { l: 'NB-IoT', r: [1000, 15000], b: [20, 250], c: 'magenta' },
+    { l: 'LTE-M', r: [1000, 10000], b: [100, 1000], c: 'amber' }
+  ];
+  const siRate = v => { const b = v * 1000; return b >= 1e9 ? (b / 1e9) + ' G' : b >= 1e6 ? (b / 1e6) + ' M' : b >= 1e3 ? (b / 1e3) + ' k' : String(Math.round(b)); };
+  const plot = new Plot('#rl-plot', { x: { label: 'Typical range', unit: '', log: true, min: 1, max: 30000, format: v => v >= 1000 ? (v / 1000) + ' km' : v + ' m' }, y: { label: 'Data rate', unit: 'bit/s', log: true, min: 0.1, max: 1e6, format: siRate }, legend: false, crosshair: false });
+  plot.custom('boxes', (ctx, p, P) => {
+    TECH.forEach(t => {
+      const x0 = p.px(t.r[0]), x1 = p.px(t.r[1]), y0 = p.py(t.b[0]), y1 = p.py(t.b[1]);
+      const col = resolveColor(t.c);
+      ctx.fillStyle = col; ctx.globalAlpha = 0.16; ctx.fillRect(x0, y1, x1 - x0, y0 - y1);
+      ctx.globalAlpha = 0.9; ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.strokeRect(x0, y1, x1 - x0, y0 - y1);
+      ctx.globalAlpha = 1; ctx.fillStyle = P.ink || '#222'; ctx.font = '600 12px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(t.l, (x0 + x1) / 2, (y0 + y1) / 2);
+    });
+    ctx.setLineDash([6, 5]); ctx.strokeStyle = P.muted || '#888'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(p.px(2), p.py(4e5)); ctx.lineTo(p.px(25000), p.py(0.2)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = P.muted || '#888'; ctx.font = '500 11px Inter, sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('Shannon trade-off: range costs data rate', p.px(1.3e3) - 10, p.py(3e3));
+  });
+}
+
+/* ---------- Figure 6: link-budget explorer ---------- */
+{
+  const TECH = {
+    wifi1: { f: 2442, ptx: 19.5, S: -98, name: 'Wi-Fi 802.11b, 1 Mbit/s' },
+    wifi7: { f: 2442, ptx: 14, S: -73, name: 'Wi-Fi 802.11n MCS7' },
+    ble: { f: 2440, ptx: 0, S: -94, name: 'BLE 1 Mbit/s' },
+    zig: { f: 2440, ptx: 8, S: -100, name: '802.15.4 (typical)' },
+    sf7: { f: 868, ptx: 14, S: -123, name: 'LoRa SF7/125 kHz' },
+    sf12: { f: 868, ptx: 14, S: -136, name: 'LoRa SF12/125 kHz' },
+    nb: { f: 800, ptx: 23, S: -141, name: 'NB-IoT (164 dB MCL)' }
+  };
+  const ENV = { open: { n: 2.0, s: 4, d0: 100 }, field: { n: 2.8, s: 8, d0: 100 }, gh: { n: 3.3, s: 7, d0: 1 }, bld: { n: 4.0, s: 9, d0: 1 } };
+  const ctl = document.getElementById('lb-ctl');
+  const upd = () => draw();
+  const S = {
+    ptx: addSlider(ctl, { label: 'Transmit power', min: -10, max: 30, step: 0.5, value: 14, unit: 'dBm', digits: 1, onInput: upd }),
+    g: addSlider(ctl, { label: 'Antenna gains (sum)', min: -5, max: 15, step: 0.05, value: 7.15, unit: 'dBi', digits: 2, onInput: upd }),
+    l: addSlider(ctl, { label: 'Cable + extra losses', min: 0, max: 30, step: 0.5, value: 2, unit: 'dB', digits: 1, onInput: upd }),
+    n: addSlider(ctl, { label: 'Path-loss exponent n', min: 1.6, max: 5, step: 0.05, value: 2.8, digits: 2, onInput: upd }),
+    d0: addSlider(ctl, { label: 'Reference distance d₀', min: 1, max: 300, value: 100, log: true, unit: 'm', digits: 0, onInput: upd }),
+    sg: addSlider(ctl, { label: 'Shadowing σ', min: 0, max: 12, step: 0.5, value: 8, unit: 'dB', digits: 1, onInput: upd }),
+    p: addSlider(ctl, { label: 'Required reliability', min: 50, max: 99.9, step: 0.1, value: 95, unit: '%', digits: 1, onInput: upd }),
+    d: addSlider(ctl, { label: 'Distance for readouts', min: 1, max: 20000, value: 1500, log: true, fmt: fmtDist, onInput: upd })
+  };
+  let tech = 'sf7';
+  segment('lb-tech', v => { tech = v; S.ptx.set(TECH[v].ptx); draw(); });
+  segment('lb-env', v => { const e = ENV[v]; S.n.set(e.n); S.sg.set(e.s); S.d0.set(e.d0); draw(); });
+  const plot = new Plot('#lb-plot', { x: { label: 'Distance', unit: 'm', log: true, min: 1, max: 20000 }, y: { label: 'Received power', unit: 'dBm', min: -160, max: 20 }, legend: true });
+  const ro = new Readouts('#lb-ro');
+  ro.add({ id: 'prx', label: 'Mean P<sub>rx</sub> at the chosen distance', unit: 'dBm', digits: 1 })
+    .add({ id: 'm', label: 'Link margin M', unit: 'dB', digits: 1 })
+    .add({ id: 'fm', label: 'Fade margin zσ needed', unit: 'dB', digits: 1 })
+    .add({ id: 'rfs', label: 'Range in free space (no margin)', unit: '', format: fmtDist })
+    .add({ id: 'rmx', label: 'Reliable range (model)', unit: '', format: fmtDist });
+  const D = []; for (let i = 0; i <= 240; i++) D.push(Math.pow(10, 4.30103 * i / 240));
+  function draw() {
+    const T = TECH[tech], f = T.f;
+    const ptx = S.ptx.get(), g = S.g.get(), l = S.l.get(), n = S.n.get(), d0 = S.d0.get(), sg = S.sg.get(), p = S.p.get() / 100, d = S.d.get();
+    const z = normInv(p), fm = Math.max(0, z * sg);
+    const PL = x => x <= d0 ? fspl(x, f) : fspl(d0, f) + 10 * n * Math.log10(x / d0);
+    const eirp = ptx + g - l;
+    const mean = D.map(x => eirp - PL(x));
+    plot.band('band', D, mean.map(v => v - sg), mean.map(v => v + sg), { color: 'accent', alpha: 0.14 });
+    plot.line('fs', D, D.map(x => eirp - fspl(x, f)), { color: 'muted', dash: [6, 4], width: 1.4, label: 'Free space' });
+    plot.line('mean', D, mean, { color: 'accent', width: 2.4, label: 'Log-distance model' });
+    plot.hline('S', T.S, { color: 'danger', label: 'sensitivity ' + T.S + ' dBm' });
+    plot.hline('SF', T.S + fm, { color: 'amber', label: 'sensitivity + fade margin' });
+    const prx = eirp - PL(d);
+    plot.point('cur', d, prx, { color: 'magenta', r: 5, guides: true });
+    const B = eirp - T.S - fm;
+    const rmx = B <= fspl(d0, f) ? Math.pow(10, (B - fspl(1, f)) / 20) : d0 * Math.pow(10, (B - fspl(d0, f)) / (10 * n));
+    const rfs = Math.pow(10, (eirp - T.S - fspl(1, f)) / 20);
+    ro.set('prx', prx); const m = prx - T.S;
+    ro.set('m', m, m >= fm ? 'ok' : m >= 0 ? 'warn' : 'bad');
+    ro.set('fm', fm); ro.set('rfs', rfs); ro.set('rmx', rmx, rmx >= d ? 'ok' : 'bad');
+  }
+  draw();
+}
+
+/* ---------- Figure 7: LoRa airtime explorer ---------- */
+{
+  const ctl = document.getElementById('lo-ctl');
+  const upd = () => draw();
+  const S = {
+    pl: addSlider(ctl, { label: 'Application payload', min: 1, max: 51, step: 1, value: 12, unit: 'bytes', digits: 0, onInput: upd }),
+    iv: addSlider(ctl, { label: 'Desired reporting interval', min: 0.5, max: 120, value: 10, log: true, unit: 'min', digits: 1, onInput: upd }),
+    itx: addSlider(ctl, { label: 'Transmit current', min: 10, max: 130, step: 1, value: 29, unit: 'mA', digits: 0, onInput: upd })
+  };
+  let sf = 9, dc = 0.01;
+  segment('lo-sf', v => { sf = +v; draw(); });
+  segment('lo-dc', v => { dc = +v / 100; draw(); });
+  const bars = new BarChart('#lo-bars', { y: { label: 'Time on air', unit: 'ms', min: 0 }, height: 240, legend: false });
+  const ro = new Readouts('#lo-ro');
+  ro.add({ id: 'ts', label: 'Symbol time', unit: 'ms', digits: 3 })
+    .add({ id: 'toa', label: 'Time on air', unit: 'ms', digits: 1 })
+    .add({ id: 'min', label: 'Shortest interval (duty cycle)', unit: 's', digits: 1 })
+    .add({ id: 'fup', label: 'Max messages/day (TTN fair use)', unit: '', digits: 0 })
+    .add({ id: 'air', label: 'Airtime per day at your interval', unit: 's', digits: 1, note: 'fair-use limit 30 s' })
+    .add({ id: 'e', label: 'Energy per message (3.3 V)', unit: 'mJ', digits: 1 });
+  function draw() {
+    const pl = Math.round(S.pl.get()), iv = S.iv.get() * 60, itx = S.itx.get();
+    const SFs = [7, 8, 9, 10, 11, 12];
+    const res = SFs.map(s => loraToa(s, pl));
+    const cols = res.map(r => { const dcOk = iv >= r.toa / dc; const fupOk = (86400 / iv) * r.toa <= 30; return !dcOk ? 'danger' : !fupOk ? 'amber' : 'accent'; });
+    bars.set(SFs.map(s => 'SF' + s), [{ label: 'time on air', values: res.map(r => r.toa * 1000), colors: cols, format: v => fmt(v, v < 100 ? 1 : 0) + ' ms' }]);
+    const r = res[sf - 7];
+    ro.set('ts', r.Ts * 1000); ro.set('toa', r.toa * 1000);
+    const mi = r.toa / dc; ro.set('min', mi, iv >= mi ? 'ok' : 'bad');
+    ro.set('fup', Math.floor(30 / r.toa));
+    const air = (86400 / iv) * r.toa; ro.set('air', air, air <= 30 ? 'ok' : 'bad');
+    ro.set('e', 3.3 * itx * r.toa);
+  }
+  draw();
+}
+
+/* ---------- Figure 10: MQTT topic-filter tester ---------- */
+{
+  const TOPICS = [
+    'mdu/gh1/zone1/air/temperature', 'mdu/gh1/zone1/air/rh', 'mdu/gh1/zone1/air/co2', 'mdu/gh1/zone1/light/ppfd',
+    'mdu/gh1/zone2/air/temperature', 'mdu/gh1/zone2/nutrient/ec', 'mdu/gh1/zone2/nutrient/ph', 'mdu/gh1/zone2/nutrient/water-temperature',
+    'mdu/gh1/actuators/vent-north/state', 'mdu/gh1/actuators/vent-north/cmd', 'mdu/gh1/nodes/esp32-07/status', 'mdu/gh1/nodes/esp32-07/battery',
+    'mdu/gh1/alarms/frost', 'mdu/gh1/zone1/air', 'mdu/lab/group3/tank/ph', '$SYS/broker/clients/connected'
+  ];
+  const PRESETS = ['mdu/gh1/+/air/#', 'mdu/gh1/zone1/#', 'mdu/gh1/+/air/temperature', 'mdu/gh1/+/nutrient/+', 'mdu/+/+/+/ph', 'mdu/gh1/nodes/+/status', '#', '+/broker/#', '$SYS/#', 'mdu/gh1/#/ph', 'mdu/gh1/zone*'];
+  function validate(f) {
+    if (!f.length) return 'The filter is empty.';
+    const L = f.split('/');
+    for (let i = 0; i < L.length; i++) {
+      if (L[i].includes('#') && (L[i] !== '#' || i !== L.length - 1)) return "Invalid: '#' must occupy a whole level and be the last level.";
+      if (L[i].includes('+') && L[i] !== '+') return "Invalid: '+' must occupy a whole level.";
+    }
+    return '';
+  }
+  function matches(f, t) {
+    const F = f.split('/'), T = t.split('/');
+    if (t.startsWith('$') && (F[0] === '+' || F[0] === '#')) return false;
+    for (let i = 0; i < F.length; i++) {
+      if (F[i] === '#') return true;
+      if (i >= T.length) return false;
+      if (F[i] !== '+' && F[i] !== T[i]) return false;
+    }
+    return F.length === T.length;
+  }
+  const inp = document.getElementById('mq-filter'), list = document.getElementById('mq-list'), st = document.getElementById('mq-status'), pre = document.getElementById('mq-presets');
+  list.innerHTML = TOPICS.map(t => `<li>${t}</li>`).join('');
+  PRESETS.forEach(p => { const b = document.createElement('button'); b.type = 'button'; b.textContent = p; b.addEventListener('click', () => { inp.value = p; run(); }); pre.appendChild(b); });
+  function run() {
+    const f = inp.value.trim(); const err = validate(f); let n = 0;
+    [...list.children].forEach((li, i) => { const hit = !err && matches(f, TOPICS[i]); li.classList.toggle('hit', hit); if (hit) n++; });
+    if (err) { st.className = 'mq-status bad'; st.textContent = err; }
+    else { st.className = 'mq-status ok'; st.textContent = `Valid filter — matches ${n} of ${TOPICS.length} topics.` + (f.includes('*') ? " Note: '*' is not a wildcard in MQTT; it is matched literally." : ''); }
+  }
+  inp.addEventListener('input', run); run();
+}
+
+/* ---------- Figure 11: power-budget designer ---------- */
+{
+  const PRE = {
+    mod: { ts: 0.5, is: 40, ttx: 0.3, itx: 190, trx: 1.7, irx: 100, isl: 10, C: 3000, eta: 80 },
+    dev: { ts: 0.5, is: 40, ttx: 0.3, itx: 190, trx: 1.7, irx: 100, isl: 5000, C: 3000, eta: 80 },
+    lora: { ts: 0.5, is: 5, ttx: 0.206, itx: 29, trx: 0.1, irx: 11, isl: 5, C: 3000, eta: 80 }
+  };
+  const ctl = document.getElementById('pw-ctl');
+  const upd = () => draw();
+  const S = {
+    T: addSlider(ctl, { label: 'Reporting interval T', min: 10, max: 86400, value: 600, log: true, unit: 's', digits: 0, onInput: upd }),
+    ts: addSlider(ctl, { label: 'Measure: duration', min: 0.01, max: 10, value: 0.5, log: true, unit: 's', digits: 2, onInput: upd }),
+    is: addSlider(ctl, { label: 'Measure: current', min: 1, max: 150, step: 1, value: 40, unit: 'mA', digits: 0, onInput: upd }),
+    ttx: addSlider(ctl, { label: 'Transmit: duration', min: 0.01, max: 5, value: 0.3, log: true, unit: 's', digits: 3, onInput: upd }),
+    itx: addSlider(ctl, { label: 'Transmit: current', min: 5, max: 250, step: 1, value: 190, unit: 'mA', digits: 0, onInput: upd }),
+    trx: addSlider(ctl, { label: 'Receive/listen: duration', min: 0.01, max: 10, value: 1.7, log: true, unit: 's', digits: 2, onInput: upd }),
+    irx: addSlider(ctl, { label: 'Receive/listen: current', min: 1, max: 150, step: 1, value: 100, unit: 'mA', digits: 0, onInput: upd }),
+    isl: addSlider(ctl, { label: 'Sleep current (whole board)', min: 1, max: 20000, value: 10, log: true, unit: 'µA', digits: 0, onInput: upd }),
+    C: addSlider(ctl, { label: 'Battery capacity C', min: 100, max: 20000, value: 3000, log: true, unit: 'mAh', digits: 0, onInput: upd }),
+    eta: addSlider(ctl, { label: 'Usable fraction η', min: 50, max: 100, step: 1, value: 80, unit: '%', digits: 0, onInput: upd })
+  };
+  segment('pw-pre', v => { const p = PRE[v]; Object.keys(p).forEach(k => S[k].set(p[k])); draw(); });
+  const plot = new Plot('#pw-plot', { x: { label: 'Reporting interval', unit: 's', log: true, min: 10, max: 86400 }, y: { label: 'Battery life', unit: 'days', log: true, min: 1, max: 100000 }, legend: true });
+  const bars = new BarChart('#pw-bars', { y: { label: 'Charge per day', unit: 'mAh', min: 0 }, horizontal: true, height: 190, legend: false });
+  const ro = new Readouts('#pw-ro');
+  ro.add({ id: 'i', label: 'Average current Ī', unit: 'mA', digits: 3 })
+    .add({ id: 'q', label: 'Charge per day', unit: 'mAh', digits: 1 })
+    .add({ id: 'l', label: 'Battery life', unit: 'days', digits: 0 })
+    .add({ id: 'y', label: 'Battery life', unit: 'years', digits: 2 })
+    .add({ id: 'sh', label: 'Share of charge used asleep', unit: '%', digits: 0 });
+  function life(T, v) {
+    const act = v.ts + v.ttx + v.trx; const tt = Math.max(T, act);
+    const q = v.ts * v.is + v.ttx * v.itx + v.trx * v.irx + (tt - act) * v.isl / 1000;
+    return { I: q / tt, q, act };
+  }
+  function draw() {
+    const v = Object.fromEntries(Object.entries(S).map(([k, s]) => [k, s.get()]));
+    const Ts = []; for (let i = 0; i <= 160; i++) Ts.push(Math.pow(10, 1 + 3.936514 * i / 160));
+    const L = Ts.map(T => (v.eta / 100) * v.C / life(T, v).I / 24);
+    plot.line('life', Ts, L, { color: 'accent', width: 2.4, label: 'Battery life' });
+    plot.hline('m1', 30, { color: 'muted', label: '1 month' }); plot.hline('y1', 365, { color: 'muted', label: '1 year' }); plot.hline('y5', 1826, { color: 'muted', label: '5 years' });
+    const r = life(v.T, v); const days = (v.eta / 100) * v.C / r.I / 24;
+    plot.point('cur', v.T, days, { color: 'magenta', r: 5.5, guides: true });
+    const cyc = 86400 / Math.max(v.T, r.act);
+    const parts = [v.ts * v.is, v.ttx * v.itx, v.trx * v.irx, (Math.max(v.T, r.act) - r.act) * v.isl / 1000].map(q => q * cyc / 3600);
+    bars.set(['Measure', 'Transmit', 'Receive/listen', 'Sleep'], [{ label: 'mAh/day', values: parts, colors: ['water', 'magenta', 'amber', 'muted'], format: x => fmt(x, x < 1 ? 2 : 1) }]);
+    ro.set('i', r.I); ro.set('q', r.I * 24);
+    ro.set('l', days, days >= 365 ? 'ok' : days >= 60 ? 'warn' : 'bad'); ro.set('y', days / 365);
+    const sh = 100 * parts[3] / parts.reduce((a, b) => a + b, 0); ro.set('sh', sh, sh < 30 ? 'ok' : sh < 70 ? 'warn' : 'bad');
+  }
+  draw();
+}
+</script>
+</body>
+</html>

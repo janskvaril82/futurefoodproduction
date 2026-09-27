@@ -1,0 +1,1012 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Digital twins, data governance and responsible AI · Future Food Production</title>
+<meta name="description" content="What a digital twin is (Grieves; Verdouw et al. 2021) and is not; digital model, shadow and twin; architecture; data assimilation with Kalman and particle filters; use cases in controlled environments and fields; farm-data governance under the EU Data Act, the code of conduct and the GDPR; bias, fairness and explainability (SHAP, LIME); the energy and carbon cost of AI; the EU AI Act and responsible AI.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* scalar Kalman update (Eqs. 10.5.2–10.5.3): returns the updated estimate */
+FFP_CALC.kalman = v => { const Pm = v.P + v.q, K = Pm / (Pm + v.R); return v.x + K * (v.z - v.x); };
+/* effective sample size of four particle weights (normalised) */
+FFP_CALC.ess = v => { const s = v.w1 + v.w2 + v.w3 + v.w4; if (s <= 0) return NaN; const w = [v.w1, v.w2, v.w3, v.w4].map(x => x / s); return 1 / w.reduce((a, x) => a + x * x, 0); };
+/* exact Shapley value of feature 1 for f = b0 + b1 x1 + b2 x2 + b12 x1 x2 with baseline 0 */
+FFP_CALC.shap1 = v => v.b1 * v.x1 + 0.5 * v.b12 * v.x1 * v.x2;
+</script>
+<style>
+.fig-ctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:0 0 10px}
+.fig-ctl .seg{margin-top:0}
+.fig-ctl label.chk,label.chk{display:inline-flex;gap:6px;align-items:center;font-size:.86rem;color:var(--ink-2);cursor:pointer}
+.fig-grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media (max-width:760px){.fig-grid2{grid-template-columns:1fr}}
+.fig-note{font-size:.82rem;color:var(--muted);margin:6px 0 0}
+.sliders-inline{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:2px 16px}
+.aa-card{border:1px solid var(--line);border-radius:12px;padding:12px 16px;background:var(--bg-sunk);margin-top:10px}
+.aa-card h4{margin:0 0 6px;font-size:1rem}
+.aa-badge{display:inline-block;font:700 .72rem var(--font-mono);letter-spacing:.08em;text-transform:uppercase;padding:4px 8px;border-radius:6px;margin-bottom:8px}
+.aa-badge.prohibited{background:var(--danger-soft);color:var(--danger)}
+.aa-badge.high{background:var(--amber-soft);color:var(--amber)}
+.aa-badge.transparency{background:var(--water-soft);color:var(--water)}
+.aa-badge.minimal{background:var(--accent-soft);color:var(--accent)}
+.aa-badge.sectoral{background:var(--magenta-soft);color:var(--magenta)}
+.aa-card p{margin:.3em 0;font-size:.92rem}
+select.aa-sel{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-elev);color:var(--ink);font:500 .9rem var(--font-sans)}
+</style>
+</head>
+<body data-page="lesson" data-slug="digital-twins">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Digital twins, data governance and responsible AI</h1>
+      <p class="lead">Imagine every lettuce in a greenhouse accompanied by a virtual copy that grows in step with it, updated each night from camera images, that can tell the grower when the crop will be ready and what would happen if the lights were dimmed during tomorrow's price peak. That is the promise of the digital twin — and it pulls together everything in this module: models (Lesson 10.1), learning (10.2), vision (10.3) and control (10.4). This lesson explains what a twin really is, how it stays synchronised with reality through data assimilation, and where twins are used today. It then asks the questions that decide whether data-driven farming is a good thing: who owns and may use the data, whether the models are fair and explainable, how much energy AI consumes, what the EU AI Act requires — and who benefits.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Define a digital twin (Grieves; Verdouw et al., 2021), distinguish digital models, shadows and twins, and describe the layers of an agricultural twin (LO5).</li>
+        <li>Explain data assimilation and calculate Kalman-filter predictions, gains and updates by hand; describe how a particle filter works (LO5, LO4).</li>
+        <li>Describe use cases of digital twins in controlled-environment and field agriculture and judge their maturity (LO5, LO2).</li>
+        <li>Explain who may access and use farm data under the EU Data Act, the EU code of conduct on agricultural data sharing and the GDPR (LO6, LO5).</li>
+        <li>Identify sources of algorithmic bias, compute a simple fairness metric, and explain model predictions with Shapley values and local surrogate models (LO5).</li>
+        <li>Estimate the energy and carbon footprint of AI workloads and classify agricultural AI systems under the EU AI Act risk categories and timeline (LO5, LO6, LO7).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="what-is-twin">What a digital twin is — and is not</h2>
+      <p class="lede-drop">The idea came from manufacturing. In 2002, at the University of Michigan, Michael Grieves presented a concept for product lifecycle management with three parts: a physical product in real space, a virtual product in virtual space, and the flows of data and information that link them; the name “digital twin” was later coined by John Vickers of NASA (Grieves &amp; Vickers, 2017). The essential word is <em>link</em>: a twin is not a model sitting on a hard disk but a model that is continuously fed with data from its physical counterpart and that, in its most developed form, acts back on it. For agriculture, Verdouw et al. (2021) define a digital twin as “a digital equivalent to a real-life object of which it mirrors its behaviour and states over its lifetime in a virtual space”.</p>
+      <p>Because the term has become fashionable, it is worth being precise. Kritzinger et al. (2018) distinguish three levels of integration by the <em>direction and automation of data flows</em> (Figure 1). A <strong>digital model</strong> exchanges no data automatically: a crop-growth model run with manually typed weather data, however sophisticated, is a model. A <strong>digital shadow</strong> is updated automatically from the physical object, but changes in the digital object do not flow back: a dashboard of live sensor data with a crop model that re-estimates leaf area every night is a shadow. Only when data flow automatically in <em>both</em> directions — when the virtual object's conclusions change set-points, irrigation or lighting in the real greenhouse — do we have a <strong>digital twin</strong> in the strict sense.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 230" role="img" aria-label="Digital model, digital shadow and digital twin: in a model data flow manually in both directions; in a shadow data flow automatically from the physical to the digital object but manually back; in a twin data flow automatically in both directions">
+            <defs><marker id="dt-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <g class="t-small" text-anchor="middle">
+              <text x="120" y="22" font-weight="650" style="font-size:13px">Digital model</text><text x="360" y="22" font-weight="650" style="font-size:13px">Digital shadow</text><text x="600" y="22" font-weight="650" style="font-size:13px">Digital twin</text>
+              <rect x="50" y="40" width="140" height="44" rx="10" class="fill-accent-soft" stroke="currentColor"/><text x="120" y="66">physical crop</text>
+              <rect x="50" y="146" width="140" height="44" rx="10" class="fill-magenta-soft" stroke="currentColor"/><text x="120" y="172">digital object</text>
+              <rect x="290" y="40" width="140" height="44" rx="10" class="fill-accent-soft" stroke="currentColor"/><text x="360" y="66">physical crop</text>
+              <rect x="290" y="146" width="140" height="44" rx="10" class="fill-magenta-soft" stroke="currentColor"/><text x="360" y="172">digital object</text>
+              <rect x="530" y="40" width="140" height="44" rx="10" class="fill-accent-soft" stroke="currentColor"/><text x="600" y="66">physical crop</text>
+              <rect x="530" y="146" width="140" height="44" rx="10" class="fill-magenta-soft" stroke="currentColor"/><text x="600" y="172">digital object</text>
+            </g>
+            <g stroke-width="1.6">
+              <line x1="100" y1="86" x2="100" y2="144" class="stroke-muted" stroke-dasharray="5 4" marker-end="url(#dt-a1)"/><line x1="140" y1="144" x2="140" y2="86" class="stroke-muted" stroke-dasharray="5 4" marker-end="url(#dt-a1)"/>
+              <line x1="340" y1="86" x2="340" y2="144" class="stroke" marker-end="url(#dt-a1)"/><line x1="380" y1="144" x2="380" y2="86" class="stroke-muted" stroke-dasharray="5 4" marker-end="url(#dt-a1)"/>
+              <line x1="580" y1="86" x2="580" y2="144" class="stroke" marker-end="url(#dt-a1)"/><line x1="620" y1="144" x2="620" y2="86" class="stroke" marker-end="url(#dt-a1)"/>
+            </g>
+            <g class="t-small t-muted"><text x="120" y="212" text-anchor="middle">manual data flows both ways</text><text x="360" y="212" text-anchor="middle">automatic upward, manual back</text><text x="600" y="212" text-anchor="middle">automatic in both directions</text></g>
+            <line x1="200" y1="120" x2="230" y2="120" class="stroke-muted" stroke-width="1" stroke-dasharray="5 4"/><text x="206" y="113" class="t-small t-muted">— manual</text>
+            <line x1="440" y1="120" x2="470" y2="120" class="stroke" stroke-width="1.6"/><text x="446" y="113" class="t-small t-muted">automatic</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Three levels of integration after Kritzinger et al. (2018). The difference is not the sophistication of the model but the automation and direction of the data flows between physical and virtual object.</figcaption>
+      </figure>
+
+      <p>Verdouw et al. (2021) add a second dimension: the <em>purpose</em> of the twin along the lifecycle of the object (Table 1). The typology is useful when you read claims about “digital twins in agriculture”: most published examples are monitoring twins; predictive and prescriptive twins are emerging; autonomous twins are still rare.</p>
+
+      <table>
+        <caption>Table 1. Types of digital twin by purpose (after Verdouw et al., 2021), with greenhouse examples.</caption>
+        <thead><tr><th>Type</th><th>What it does</th><th>Greenhouse example</th></tr></thead>
+        <tbody>
+          <tr><td>Imaginary</td><td>represents an object that does not yet exist</td><td>virtual design of a new vertical farm to test layouts and energy use</td></tr>
+          <tr><td>Monitoring</td><td>mirrors the current state and behaviour of the real object</td><td>live map of climate, water use and plant size per bench</td></tr>
+          <tr><td>Predictive</td><td>projects future states and behaviour</td><td>harvest-date and yield forecast from a crop model updated with images</td></tr>
+          <tr><td>Prescriptive</td><td>recommends interventions by evaluating what-if scenarios</td><td>advice to dim lamps during tomorrow's price peak, with the predicted effect on yield</td></tr>
+          <tr><td>Autonomous</td><td>acts on the real object without human intervention</td><td>algorithms controlling climate and irrigation, as in the Autonomous Greenhouse Challenge (Lesson 10.4)</td></tr>
+          <tr><td>Recollection</td><td>keeps the history of an object that no longer exists</td><td>record of a finished crop cycle, used to learn for the next one</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>“A 3D visualisation of the greenhouse is a digital twin.” A beautiful 3D scene without live data is a digital model; with live data but no feedback it is a digital shadow. Conversely, a twin needs no graphics at all: a Kalman filter that keeps a two-number crop state synchronised with daily images and adjusts the irrigation is a genuine (if modest) digital twin.</p></div>
+
+      <h2 id="architecture">Architecture of an agricultural digital twin</h2>
+      <p>Whatever its purpose, an agricultural twin is built from the same layers (Figure 2; Verdouw et al., 2021; Pylianidis et al., 2021). At the bottom is the <strong>physical system</strong>: crop, greenhouse, animals, field. The <strong>sensing and actuation layer</strong> measures it and acts on it — the sensors and IoT networks of <a href="/lessons/sensor-physics/">Module 9</a>, cameras (Lesson 10.3), and the actuators of Lesson 10.4. A <strong>data layer</strong> stores time series, images and metadata, checks their quality and makes them findable and reusable (the FAIR principles; Wilkinson et al., 2016). The <strong>model layer</strong> contains mechanistic models — such as Van Henten's lettuce model (Van Henten, 1994) or the GreenLight greenhouse model (Katzin et al., 2020) — and data-driven models, often in hybrid form (Lesson 10.1). <strong>Data assimilation</strong> keeps the model state synchronised with reality (Section 10.5.3). On top, <strong>services</strong> deliver what the user needs: monitoring, forecasting, what-if analysis and optimisation, and — through the control layer — autonomous action.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 330" role="img" aria-label="Layered architecture of an agricultural digital twin: physical system at the bottom; sensing and actuation; data platform with quality control; model layer with mechanistic, data-driven and hybrid models synchronised by data assimilation; services for monitoring, prediction, what-if analysis and optimisation; users and control acting back on the physical system">
+            <defs><marker id="dt-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <g class="t-small">
+              <rect x="120" y="272" width="480" height="44" rx="10" class="fill-accent-soft" stroke="currentColor"/><text x="360" y="292" text-anchor="middle" font-weight="650">physical system</text><text x="360" y="307" text-anchor="middle" class="t-muted">crop · greenhouse or field · water · energy</text>
+              <rect x="120" y="212" width="230" height="44" rx="10" class="fill-water-soft" stroke="currentColor"/><text x="235" y="232" text-anchor="middle" font-weight="650">sensing</text><text x="235" y="247" text-anchor="middle" class="t-muted">IoT sensors, cameras, drones</text>
+              <rect x="370" y="212" width="230" height="44" rx="10" class="fill-water-soft" stroke="currentColor"/><text x="485" y="232" text-anchor="middle" font-weight="650">actuation</text><text x="485" y="247" text-anchor="middle" class="t-muted">heating, vents, lamps, irrigation</text>
+              <rect x="120" y="152" width="480" height="44" rx="10" class="fill-sunk" stroke="currentColor"/><text x="360" y="172" text-anchor="middle" font-weight="650">data layer</text><text x="360" y="187" text-anchor="middle" class="t-muted">time series · images · metadata · anomaly detection · FAIR · access rights</text>
+              <rect x="120" y="92" width="480" height="44" rx="10" class="fill-magenta-soft" stroke="currentColor"/><text x="360" y="112" text-anchor="middle" font-weight="650">model layer + data assimilation</text><text x="360" y="127" text-anchor="middle" class="t-muted">mechanistic (crop, climate) · machine learning · hybrid · Kalman / particle filters</text>
+              <rect x="120" y="32" width="480" height="44" rx="10" class="fill-amber-soft" stroke="currentColor"/><text x="360" y="52" text-anchor="middle" font-weight="650">services</text><text x="360" y="67" text-anchor="middle" class="t-muted">monitor · predict · what-if · optimise (MPC, economic control) · explain</text>
+            </g>
+            <line x1="235" y1="270" x2="235" y2="258" class="stroke" stroke-width="1.4" marker-end="url(#dt-a2)"/>
+            <line x1="485" y1="258" x2="485" y2="270" class="stroke" stroke-width="1.4" marker-end="url(#dt-a2)"/>
+            <line x1="235" y1="210" x2="235" y2="198" class="stroke" stroke-width="1.4" marker-end="url(#dt-a2)"/>
+            <line x1="485" y1="198" x2="485" y2="210" class="stroke" stroke-width="1.4" marker-end="url(#dt-a2)"/>
+            <line x1="300" y1="150" x2="300" y2="138" class="stroke" stroke-width="1.4" marker-end="url(#dt-a2)"/><line x1="420" y1="138" x2="420" y2="150" class="stroke" stroke-width="1.4" marker-end="url(#dt-a2)"/>
+            <line x1="300" y1="90" x2="300" y2="78" class="stroke" stroke-width="1.4" marker-end="url(#dt-a2)"/><line x1="420" y1="78" x2="420" y2="90" class="stroke" stroke-width="1.4" marker-end="url(#dt-a2)"/>
+            <path d="M610 54 C 690 54, 690 234, 612 234" class="stroke-magenta" stroke-width="1.6" fill="none" marker-end="url(#dt-a2)" color="var(--magenta)"/><text x="630" y="130" class="t-small" style="fill:var(--magenta)">decisions</text><text x="630" y="144" class="t-small" style="fill:var(--magenta)">act back</text>
+            <path d="M110 294 C 30 294, 30 54, 108 54" class="stroke-muted" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#dt-a2)"/><text x="16" y="170" class="t-small t-muted">grower,</text><text x="16" y="184" class="t-small t-muted">advisor</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> The layers of an agricultural digital twin. Information flows up from the physical system through sensors, data platform and models to services; decisions flow back down to the actuators — automatically in an autonomous twin, through the grower in a prescriptive one.</figcaption>
+      </figure>
+
+      <p>A twin is only as good as its data. A drifting pH electrode or a frozen temperature sensor does not only give a wrong number on a dashboard; assimilated into a twin, it silently corrupts the model state and every forecast and decision that follows. Automatic <strong>anomaly detection</strong> — spikes, drift, flat-lining — is therefore part of the data layer, the subject of the sensor-anomaly laboratory:</p>
+      <a class="lab-link" data-lab="sensor-anomaly" data-why="Detect spikes, drift and stuck sensors in greenhouse data streams with rolling statistics and simple machine-learning detectors — the quality gate that protects a digital twin from bad data."></a>
+
+      <p>Formally, every twin rests on a <strong>state-space model</strong>: a set of state variables that summarise the system (plant dry mass, leaf area, air temperature, substrate water content), an equation that moves them forward in time, and an equation that says what the sensors should read for a given state.</p>
+
+      <div class="eq-box" id="eq-statespace">
+        <div class="eq-head"><span class="eq-label">State-space model of a digital twin</span><span class="eq-num">(10.5.1)</span></div>
+        <div class="eq-main">\[ \mathbf x_{k+1} = f(\mathbf x_k, \mathbf u_k, \boldsymbol\theta) + \mathbf w_k,\qquad \mathbf z_k = h(\mathbf x_k) + \mathbf v_k,\qquad \mathbf w_k\sim\mathcal N(\mathbf 0,\mathbf Q),\quad \mathbf v_k\sim\mathcal N(\mathbf 0,\mathbf R) \]</div>
+        <p class="eq-read">the state at the next time step is a function of the current state, the controls and the weather, and the model parameters, plus a random process error; the measurements are a function of the state plus a random measurement error. The process errors, with covariance \(\mathbf Q\), express how much we distrust the model; the measurement errors, with covariance \(\mathbf R\), how much we distrust the sensors.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Lettuce twin example</th></tr>
+          <tr><td>\(\mathbf x_k\)</td><td>state vector at time step \(k\)</td><td>\(\ln\) projected leaf area and relative growth rate</td></tr>
+          <tr><td>\(\mathbf u_k\)</td><td>inputs: controls and weather</td><td>light, temperature, CO₂</td></tr>
+          <tr><td>\(\boldsymbol\theta\)</td><td>model parameters</td><td>light-use efficiency, maintenance respiration</td></tr>
+          <tr><td>\(f\), \(h\)</td><td>process model and observation model</td><td>growth model; area → image measurement</td></tr>
+          <tr><td>\(\mathbf z_k\)</td><td>measurement vector</td><td>\(\ln\) of image-based leaf area (Lesson 10.3)</td></tr>
+          <tr><td>\(\mathbf Q\), \(\mathbf R\)</td><td>process- and measurement-noise covariance matrices</td><td>model error per day; image error ≈ 10 %</td></tr>
+        </table>
+        <details><summary>Why log leaf area makes the lettuce twin linear</summary>
+          <ol class="steps">
+            <li>Early growth is close to exponential: \(A_{k+1} = A_k e^{\rho\Delta t}\), with relative growth rate \(\rho\) (Eq. 10.1.4).</li>
+            <li>Taking logarithms, \(\ell = \ln A\) grows linearly: \(\ell_{k+1} = \ell_k + \rho\,\Delta t\). If we also let the growth rate drift slowly, \(\rho_{k+1} = \rho_k + w_\rho\), the state \(\mathbf x = (\ell, \rho)\) evolves with the linear matrix \(\mathbf F = \begin{pmatrix}1 & \Delta t\\ 0 & 1\end{pmatrix}\).</li>
+            <li>Image errors are roughly proportional to plant size (a few per cent), which is an additive error on the log scale: \(z = \ell + v\). So both equations are linear with Gaussian errors — the ideal case for the Kalman filter (Figure 3).</li>
+            <li>A logistic slow-down then appears as a gradually decreasing \(\rho\), which the filter tracks from the data without being told the growth curve.</li>
+          </ol>
+        </details>
+        <div class="eq-units">Each term of the state equation has the unit of the corresponding state variable (e.g., \(\ln\)(cm²) is dimensionless, \(\rho\) in d⁻¹, \(\rho\,\Delta t\) dimensionless) ✓.</div>
+        <div class="mini-calc" data-formula="A0*exp(rho*n)" data-output="Predicted leaf area after n days (process model only)" data-unit="cm²" data-digits="0" data-plot="n" data-ymin="0" data-title="Try it — the state equation run forward">
+          <div data-var="A0" data-label="Current leaf area A" data-min="5" data-max="300" data-step="1" data-value="50" data-unit="cm²"></div>
+          <div data-var="rho" data-label="Relative growth rate ρ" data-min="0" data-max="0.4" data-step="0.005" data-value="0.2" data-unit="d⁻¹"></div>
+          <div data-var="n" data-label="Days ahead n" data-min="0" data-max="20" data-step="1" data-value="5" data-unit="d"></div>
+        </div>
+      </div>
+
+      <h2 id="assimilation">Keeping the twin in sync: data assimilation</h2>
+      <p>Every model drifts away from reality: parameters are uncertain, some processes are missing, the weather forecast was wrong. Every sensor is noisy and some days are missing. <strong>Data assimilation</strong> combines the two in a statistically optimal way. The idea goes back to Rudolf Kálmán, who in 1960 published a recursive algorithm for estimating the state of a linear system from noisy measurements (Kalman, 1960). Within a few years a version of his filter was navigating the Apollo spacecraft to the Moon (Grewal &amp; Andrews, 2010); today it runs in every phone's GPS, in weather forecasting and in crop models updated with satellite data (Jin et al., 2018). The filter alternates two steps: <em>predict</em> with the model, then <em>update</em> with the measurement.</p>
+
+      <div class="eq-box" id="eq-kf-predict">
+        <div class="eq-head"><span class="eq-label">Kalman filter, step 1: predict</span><span class="eq-num">(10.5.2)</span></div>
+        <div class="eq-main">\[ \hat{\mathbf x}^{-}_{k} = \mathbf F\,\hat{\mathbf x}_{k-1} + \mathbf B\,\mathbf u_{k-1},\qquad \mathbf P^{-}_{k} = \mathbf F\,\mathbf P_{k-1}\mathbf F^{\mathsf T} + \mathbf Q \qquad\bigl(\text{scalar: } P^{-} = a^2P + q\bigr) \]</div>
+        <p class="eq-read">push the best current estimate through the model to obtain a prior estimate for the next time step, and propagate its uncertainty: the covariance is transformed by the model and grows by the process noise. In the scalar case the variance is multiplied by the square of the model coefficient and increased by the process variance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit (lettuce)</th></tr>
+          <tr><td>\(\hat{\mathbf x}_{k-1}\), \(\mathbf P_{k-1}\)</td><td>estimate and its covariance after the previous update</td><td>state units; squared</td></tr>
+          <tr><td>\(\hat{\mathbf x}^{-}_{k}\), \(\mathbf P^{-}_{k}\)</td><td>prior (predicted) estimate and covariance</td><td>as above</td></tr>
+          <tr><td>\(\mathbf F\), \(\mathbf B\)</td><td>state-transition and input matrices (linearised \(f\))</td><td>–</td></tr>
+          <tr><td>\(\mathbf Q\) (\(q\))</td><td>process-noise covariance (variance)</td><td>e.g. \(0.02^2\) per day for \(\ell\)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Mean: \(\mathbb E[\mathbf x_k] = \mathbf F\,\mathbb E[\mathbf x_{k-1}] + \mathbf B\mathbf u_{k-1} + \mathbb E[\mathbf w_{k-1}]\), and the noise has zero mean.</li>
+            <li>Covariance: the prediction error is \(\mathbf F(\mathbf x_{k-1}-\hat{\mathbf x}_{k-1}) + \mathbf w_{k-1}\). Because the estimation error and the new process noise are independent, their covariances add: \(\mathbf F\mathbf P\mathbf F^{\mathsf T} + \mathbf Q\) (for a scalar, \(\operatorname{Var}(aX + W) = a^2\operatorname{Var}X + \operatorname{Var}W\)).</li>
+            <li>Without measurements the uncertainty only grows: a forecast further into the future is less certain. That is what the widening band in the forecast part of Figure 3 shows.</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(\mathbf F\mathbf P\mathbf F^{\mathsf T}\) and \(\mathbf Q\) are both covariances of the state (squared state units) ✓.</div>
+        <div class="mini-calc" data-formula="100*sqrt(P0 + n*q)" data-output="Uncertainty after n days without images (SD)" data-unit="%" data-digits="1" data-plot="n" data-ymin="0" data-title="Try it — how fast a forecast loses precision">
+          <div data-var="P0" data-label="Variance now P" data-min="0" data-max="0.02" data-step="0.0005" data-value="0.0021"></div>
+          <div data-var="q" data-label="Process variance per day q" data-min="0" data-max="0.01" data-step="0.0001" data-value="0.0004"></div>
+          <div data-var="n" data-label="Days without data n" data-min="0" data-max="30" data-step="1" data-value="7" data-unit="d"></div>
+        </div>
+      </div>
+
+      <div class="eq-box" id="eq-kf-update">
+        <div class="eq-head"><span class="eq-label">Kalman filter, step 2: update with a measurement</span><span class="eq-num">(10.5.3)</span></div>
+        <div class="eq-main">\[ \mathbf K_k = \mathbf P^{-}_{k}\mathbf H^{\mathsf T}\bigl(\mathbf H\mathbf P^{-}_{k}\mathbf H^{\mathsf T}+\mathbf R\bigr)^{-1},\qquad \hat{\mathbf x}_k = \hat{\mathbf x}^{-}_{k} + \mathbf K_k\bigl(\mathbf z_k - \mathbf H\hat{\mathbf x}^{-}_{k}\bigr),\qquad \mathbf P_k = (\mathbf I-\mathbf K_k\mathbf H)\,\mathbf P^{-}_{k} \]
+        \[ \text{scalar: } K = \frac{P^{-}}{P^{-}+R},\qquad \hat x = \hat x^{-} + K\,(z-\hat x^{-}),\qquad P = (1-K)\,P^{-} \]</div>
+        <p class="eq-read">the Kalman gain weighs the model against the measurement: it is the prior variance divided by the total of prior and measurement variance. The new estimate is the prediction plus the gain times the surprise — the difference between what was measured and what was expected. The uncertainty shrinks by the factor \(1-K\).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit / range</th></tr>
+          <tr><td>\(\mathbf K\) (\(K\))</td><td>Kalman gain</td><td>0 (ignore data) to 1 (ignore model)</td></tr>
+          <tr><td>\(\mathbf H\)</td><td>observation matrix (linearised \(h\)): which states are measured</td><td>e.g. \((1\ \ 0)\) — only \(\ell\) is measured</td></tr>
+          <tr><td>\(\mathbf R\) (\(R\))</td><td>measurement-noise covariance (variance)</td><td>\(0.10^2\) for a 10 % image error</td></tr>
+          <tr><td>\(\mathbf z_k-\mathbf H\hat{\mathbf x}^{-}_k\)</td><td>innovation (measurement surprise)</td><td>measurement units</td></tr>
+        </table>
+        <details><summary>Follow the derivation of the optimal gain (scalar case)</summary>
+          <ol class="steps">
+            <li>We have two independent, unbiased estimates of the same quantity: the prediction \(\hat x^-\) with error variance \(P^-\), and the measurement \(z\) with error variance \(R\). Combine them linearly: \(\hat x = (1-K)\hat x^- + Kz = \hat x^- + K(z-\hat x^-)\).</li>
+            <li>The error of the combination is \((1-K)e^- + Kv\) with independent parts, so its variance is \(P(K) = (1-K)^2P^- + K^2R\).</li>
+            <li>Minimise over \(K\): \(\mathrm dP/\mathrm dK = -2(1-K)P^- + 2KR = 0\;\Rightarrow\; K = P^-/(P^-+R)\).</li>
+            <li>Insert back: \(P = (1-K)^2P^- + K^2R = (1-K)P^-\) (use \(KR = (1-K)P^-\)). Equivalently \(1/P = 1/P^- + 1/R\): information (inverse variance) adds.</li>
+            <li>For Gaussian errors this is exactly Bayes' theorem: the posterior of a Gaussian prior times a Gaussian likelihood is Gaussian with this mean and variance. The matrix form follows the same logic for several states and measurements (Kalman, 1960).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The Kalman filter is optimal for linear models with Gaussian, independent errors whose covariances are known. For non-linear crop models, the <em>extended</em> Kalman filter linearises \(f\) and \(h\) at each step, and the <em>ensemble</em> Kalman filter (Evensen, 1994) propagates an ensemble of model runs instead of a covariance matrix — the standard in weather forecasting and common in crop models. A badly chosen \(\mathbf Q\) or \(\mathbf R\) makes the filter either sluggish (trusting the model too much) or nervous (chasing every noisy measurement); try both in Figure 3.</p>
+        </details>
+        <div class="eq-units">\(K = P^-/(P^-+R)\): variance/variance, dimensionless ✓; \(K(z-\hat x^-)\) has the unit of the state ✓.</div>
+        <div class="mini-calc" data-fn="kalman" data-output="Updated estimate x̂ (log leaf area)" data-unit="" data-digits="4" data-plot="R" data-title="Try it — one predict-and-update cycle">
+          <div data-var="x" data-label="Predicted log area x̂⁻" data-min="3" data-max="7" data-step="0.001" data-value="4.112"></div>
+          <div data-var="P" data-label="Previous variance P" data-min="0" data-max="0.05" data-step="0.0005" data-value="0.0025"></div>
+          <div data-var="q" data-label="Process variance q" data-min="0" data-max="0.02" data-step="0.0001" data-value="0.0004"></div>
+          <div data-var="z" data-label="Measured log area z" data-min="3" data-max="7" data-step="0.001" data-value="4.043"></div>
+          <div data-var="R" data-label="Measurement variance R" data-min="0.0001" data-max="0.05" data-step="0.0001" data-value="0.01"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">Two days of a lettuce twin by hand</span></div>
+        <div class="we-problem"><p>A twin tracks \(\ell = \ln A\) of one lettuce, assuming a known relative growth rate of 0.20 d⁻¹. Its current estimate is \(A = 50\) cm² (\(\ell = 3.912\)) with standard deviation 0.05 on the log scale. Process noise is 0.02 per day, image measurement noise 0.10 (≈ 10 %), both as standard deviations on the log scale. The next two daily images give 57 cm² and 72 cm². Run two predict–update cycles.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Variances.</strong> \(P_0 = 0.05^2 = 0.0025\); \(q = 0.02^2 = 0.0004\); \(R = 0.10^2 = 0.01\).</li>
+            <li><strong>Day 1, predict.</strong> \(\hat\ell^- = 3.912 + 0.20 = 4.112\) (61.1 cm²); \(P^- = 0.0025 + 0.0004 = 0.0029\).</li>
+            <li><strong>Day 1, update.</strong> \(z = \ln 57 = 4.043\); innovation \(= -0.069\); \(K = 0.0029/(0.0029+0.01) = 0.225\). \(\hat\ell = 4.112 - 0.225\times0.069 = 4.097\) → \(A = 60.1\) cm²; \(P = 0.775\times0.0029 = 0.00225\).</li>
+            <li><strong>Day 2.</strong> \(\hat\ell^- = 4.297\) (73.4 cm²), \(P^- = 0.00265\); \(z = \ln 72 = 4.277\); \(K = 0.00265/0.01265 = 0.209\); \(\hat\ell = 4.297 - 0.209\times0.020 = 4.292\) → 73.1 cm²; \(P = 0.00209\) (SD 0.046).</li>
+            <li><strong>Interpretation.</strong> The image said 57 cm², the model 61 cm²; the twin settled at 60 cm² because it trusts its prediction (variance 0.0029) more than a single image (0.01). With every update the gain falls a little, towards a steady value of about 0.18 — the balance between how fast the model drifts (\(q\)) and how noisy the images are (\(R\)).</li>
+          </ol>
+          <span class="answer">Day 1: K = 0.22, A ≈ 60 cm²; day 2: K = 0.21, A ≈ 73 cm² (SD ≈ 4.6 %)</span>
+        </div></details>
+      </div>
+
+      <figure class="figure wide" id="fig-kf">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — a lettuce digital twin with a Kalman filter</div>
+          <div class="sliders-inline">
+            <div class="mc-var"><div class="mc-lab"><span>Today (last day with data)</span><output id="kf-day-out"></output></div><input id="kf-day" type="range" min="1" max="35" step="1" value="16" aria-label="Today"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Image error (SD)</span><output id="kf-r-out"></output></div><input id="kf-r" type="range" min="0.02" max="0.3" step="0.01" value="0.10" aria-label="Measurement error"></div>
+            <div class="mc-var"><div class="mc-lab"><span>RGR drift σ_ρ</span><output id="kf-q-out"></output></div><input id="kf-q" type="range" min="0.001" max="0.05" step="0.001" value="0.012" aria-label="Process noise of growth rate"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Missing images</span><output id="kf-m-out"></output></div><input id="kf-m" type="range" min="0" max="0.7" step="0.05" value="0.2" aria-label="Fraction of missing images"></div>
+          </div>
+          <div class="fig-ctl">
+            <label class="chk"><input type="checkbox" id="kf-truth" checked> show the (normally unknown) truth</label>
+            <label class="chk"><input type="checkbox" id="kf-stress"> pump failure on day 12 (growth slows)</label>
+            <button class="btn btn-sm btn-ghost" type="button" id="kf-new">New season</button>
+          </div>
+          <div id="kf-A"></div>
+          <div id="kf-g"></div>
+          <div class="readouts" id="kf-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> A two-state Kalman filter (state: log leaf area and relative growth rate; Eqs. 10.5.1–10.5.3) tracks a lettuce whose true growth follows a logistic curve (\(K\) = 520 cm², \(r\) = 0.20 d⁻¹; Lesson 10.1). Points: daily image measurements (some missing); grey: the open-loop <em>digital model</em>, which starts from the same initial belief but never sees data; magenta: the <em>twin</em> estimate with its 95 % band; dotted: the forecast from “today” to harvest (target 420 cm²). Bottom: Kalman gain and the estimated RGR against the truth. Slide “today” back to day 8: the forecast is wide and early. Tick “pump failure”: the twin notices the slowdown within days, the open-loop model never does. Make σ_ρ tiny: the twin becomes stubborn; make the image error large: it becomes sluggish but calm. Note also a <em>structural</em> limitation: this twin forecasts with the current growth rate held constant, so while the plant is still decelerating its forecasts are early — a process model that knows about saturation (logistic, or the mechanistic model of the lettuce-twin laboratory) forecasts better. Data assimilation corrects the state, not a wrong model structure.</figcaption>
+      </figure>
+
+      <p>The Kalman filter needs linear models and Gaussian errors. Many agricultural problems are neither: a crop model with thresholds, a disease that is either present or absent, a sensor that sometimes returns wild outliers. <strong>Particle filters</strong> replace the Gaussian description of uncertainty by a cloud of samples — "particles" — each a complete guess of the state, which is simulated forward with the model, weighted by how well it explains the latest measurement, and occasionally resampled so that improbable guesses are replaced by copies of good ones (Gordon et al., 1993; Arulampalam et al., 2002).</p>
+
+      <div class="eq-box" id="eq-pf">
+        <div class="eq-head"><span class="eq-label">Particle filter: weights, estimate and effective sample size</span><span class="eq-num">(10.5.4)</span></div>
+        <div class="eq-main">\[ w^{(i)}_k \propto w^{(i)}_{k-1}\;p\bigl(z_k \mid x^{(i)}_k\bigr),\qquad \sum_{i=1}^{N} w^{(i)}_k = 1,\qquad \hat x_k = \sum_{i=1}^{N} w^{(i)}_k\,x^{(i)}_k,\qquad N_{\text{eff}} = \frac{1}{\sum_i \bigl(w^{(i)}_k\bigr)^2} \]</div>
+        <p class="eq-read">each particle's weight is multiplied by the likelihood of the new measurement given that particle's state, then all weights are rescaled to sum to one. The estimate is the weighted average of the particles. The effective sample size counts how many particles really carry weight; when it falls below about half of \(N\), the particles are resampled in proportion to their weights.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x^{(i)}_k\)</td><td>state of particle \(i\) at step \(k\) (simulated with the model plus random process noise)</td><td>state units</td></tr>
+          <tr><td>\(w^{(i)}_k\)</td><td>normalised weight of particle \(i\)</td><td>–</td></tr>
+          <tr><td>\(p(z_k\mid x^{(i)}_k)\)</td><td>likelihood: e.g. \(\exp[-(z_k-h(x^{(i)}))^2/2R]\) for Gaussian noise</td><td>–</td></tr>
+          <tr><td>\(N\), \(N_{\text{eff}}\)</td><td>number of particles; effective sample size</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Bayes' theorem: posterior ∝ prior × likelihood. If the particles are samples from the prior, weighting each by the likelihood turns them into weighted samples from the posterior — whatever the shapes of the distributions.</li>
+            <li>After a few updates most weights become tiny (degeneracy). \(N_{\text{eff}}\) measures this: equal weights give \(N_{\text{eff}} = N\), one dominant particle gives 1. Weights (0.5, 0.3, 0.1, 0.1) give \(1/0.36 = 2.8\) effective particles out of four.</li>
+            <li>Resampling draws \(N\) new particles from the old ones with probabilities \(w^{(i)}\) and resets the weights to \(1/N\): good hypotheses multiply, poor ones die out — a small-scale natural selection.</li>
+            <li>The price is computing: thousands of model runs per step instead of one. For low-dimensional crop states this is cheap; for spatial field models it is the reason ensemble Kalman filters are preferred.</li>
+          </ol>
+        </details>
+        <div class="eq-units">Weights are dimensionless probabilities; \(\hat x\) inherits the state units ✓.</div>
+        <div class="mini-calc" data-fn="ess" data-output="Effective sample size N_eff" data-unit="of 4" data-digits="2" data-plot="w1" data-ymin="1" data-ymax="4" data-title="Try it — how many particles really count?">
+          <div data-var="w1" data-label="Weight 1" data-min="0" data-max="1" data-step="0.01" data-value="0.5"></div>
+          <div data-var="w2" data-label="Weight 2" data-min="0" data-max="1" data-step="0.01" data-value="0.3"></div>
+          <div data-var="w3" data-label="Weight 3" data-min="0" data-max="1" data-step="0.01" data-value="0.1"></div>
+          <div data-var="w4" data-label="Weight 4" data-min="0" data-max="1" data-step="0.01" data-value="0.1"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="fig-pf">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — a particle filter on the same lettuce</div>
+          <div class="fig-ctl">
+            <button class="btn btn-sm btn-primary" type="button" id="pf-step">Next day</button>
+            <button class="btn btn-sm" type="button" id="pf-run">Run to day 35</button>
+            <button class="btn btn-sm btn-ghost" type="button" id="pf-reset">Reset</button>
+            <div class="mc-var" style="min-width:220px;flex:1;margin:0"><div class="mc-lab"><span>Number of particles N</span><output id="pf-n-out"></output></div><input id="pf-n" type="range" min="20" max="1000" step="10" value="200" aria-label="Number of particles"></div>
+          </div>
+          <div class="fig-grid2"><div id="pf-cloud"></div><div id="pf-track"></div></div>
+          <div class="readouts" id="pf-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 4.</b> Left: the particle cloud on the current day in the plane of leaf area and relative growth rate (large dots carry most weight; the magenta dot is the truth). Right: weighted mean and 5–95 % range of the particles over time, with the measurements. Press “Next day” repeatedly: each day the particles are simulated forward, re-weighted by the new image and, when \(N_{\text{eff}}\) drops below \(N/2\), resampled. With 20 particles the cloud can collapse onto a wrong guess; with 1000 it describes the uncertainty smoothly.</figcaption>
+      </figure>
+
+      <a class="lab-link" data-lab="lettuce-digital-twin" data-why="A 3D lettuce driven by the Van Henten mechanistic growth model assimilates noisy measurements and forecasts the harvest date — a complete digital twin to experiment with."></a>
+
+      <h2 id="use-cases">Use cases in controlled environments and fields</h2>
+      <p>How far has agriculture come? Pylianidis et al. (2021) reviewed the literature from 2017 to 2020, identified 28 agricultural use cases and compared them with digital twins in other industries: most agricultural examples were at an early stage of technology readiness and focused on monitoring. Ariesen-Verschuur et al. (2022) reviewed greenhouse horticulture specifically and found only 8 articles that explicitly addressed digital twins but 115 studies that applied the concept implicitly in IoT-based systems; the dominant focus was climate control, energy management and lighting at greenhouse level, only about 9 % of the articles virtualised the plants themselves, and none considered the company level. Predictive and prescriptive capabilities were still in an early stage, although predictive twins were gaining prominence. Purcell and Neubauer (2023) reach a similar conclusion for agriculture as a whole.</p>
+
+      <table>
+        <caption>Table 2. Digital-twin use cases and their typical ingredients.</caption>
+        <thead><tr><th>Use case</th><th>State and model</th><th>Data assimilated</th><th>Decision supported</th><th>Maturity</th></tr></thead>
+        <tbody>
+          <tr><td>Greenhouse climate and energy</td><td>air temperature, humidity, CO₂; greenhouse model such as GreenLight (Katzin et al., 2020)</td><td>climate sensors, weather forecast, energy prices</td><td>heating, screening, lighting strategy (Lesson 10.4)</td><td>operational in advanced climate computers</td></tr>
+          <tr><td>Crop growth and harvest forecast</td><td>biomass or leaf area; Van Henten lettuce model or growth curves (Lesson 10.1)</td><td>images (Lesson 10.3), destructive harvests</td><td>harvest planning, spacing, sales</td><td>research and early commercial use</td></tr>
+          <tr><td>Autonomous greenhouse</td><td>climate + crop states; learned or model-based policies</td><td>all sensors and cameras</td><td>fully automatic cultivation (Autonomous Greenhouse Challenge)</td><td>demonstrated in competitions</td></tr>
+          <tr><td>Field crop monitoring</td><td>crop model state (leaf area index, biomass, soil water)</td><td>satellite or drone reflectance, weather (Jin et al., 2018)</td><td>yield forecast, nitrogen and irrigation timing (Module 11)</td><td>widely researched</td></tr>
+          <tr><td>Irrigation and water</td><td>soil water balance (FAO-56)</td><td>soil-moisture sensors, rainfall</td><td>irrigation scheduling (Lesson 11.3)</td><td>operational</td></tr>
+          <tr><td>Livestock and dairy</td><td>animal health, feed intake, milk yield</td><td>wearables, milking robots</td><td>health alerts, feeding (Verdouw et al., 2021)</td><td>operational for monitoring</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout key"><div class="callout-title">Key idea</div><p>The value of a twin lies in its <em>decisions</em>, not in its graphics. Ask of any proposed twin: which decisions will it change, how much better will they be, and what does it cost — in sensors, data management, modelling effort and energy? A calibrated growth curve updated with weekly photos may deliver most of the value of a full 3D twin for a fraction of the cost.</p></div>
+
+      <h2 id="data-governance">Who controls farm data? Sharing, ownership and the law</h2>
+      <p>A digital twin is fed by data that someone produces and that someone else often stores: the grower's climate computer reports to the supplier's cloud, the tractor sends its logs to the manufacturer, the advisor's app collects field photos. Data differ from physical goods in two ways that make "ownership" slippery. They are <em>non-rival</em> — a copy costs nothing and deprives nobody — and their value grows when they are <em>aggregated</em>: one farm's yield map says little, a million farms' maps reveal regional harvests before the market does. In EU law there is no general property right in raw data; control is shaped by contracts, trade secrets, database rights, the GDPR and, since 2025, the Data Act.</p>
+
+      <h3>The voluntary code of conduct (2018)</h3>
+      <p>In 2018 nine EU organisations of the agri-food chain — Copa-Cogeca (farmers and cooperatives), CEMA (machinery), Fertilizers Europe, CEETTAR (contractors), CEJA (young farmers), ECPA (crop protection), EFFAB (animal breeders), FEFAC (feed) and ESA (seeds) — published the <em>EU code of conduct on agricultural data sharing by contractual agreement</em>. It avoids the word "owner" and speaks of the <strong>data originator</strong>: the party that created or commissioned the data, which has the right to decide who may access and use them. For data produced on the farm or during farming operations this is, in principle, the farmer. The code sets out principles for contracts — transparency about the purpose of data use, consent before sharing with third parties, portability, security, and liability — but, as it states itself, compliance is voluntary (Copa-Cogeca et al., 2018).</p>
+
+      <h3>The GDPR: when farm data are personal data</h3>
+      <p>The General Data Protection Regulation (Regulation (EU) 2016/679), applied since 25 May 2018, protects <em>personal data</em>: any information relating to an identified or identifiable natural person. Many farms are family businesses, so data linked to a farmer's name, a land register entry or the coordinates of a field can be personal data — the code of conduct makes the same point. Data about workers — wearables, performance logs, greenhouse cameras that capture people (Lesson 10.3) — are personal data too. Processing them needs a lawful basis, a specified purpose and data minimisation, and gives the persons rights of access, rectification, erasure and portability. In Sweden the Authority for Privacy Protection (IMY) supervises compliance.</p>
+
+      <h3>The Data Act: a right to your machines' data</h3>
+      <p>The <strong>Data Act</strong> (Regulation (EU) 2023/2854) entered into force on 11 January 2024 and has applied since 12 September 2025. It targets exactly the situation of the connected farm. Its central idea is that the <em>user</em> of a connected product — a tractor, a milking robot, a greenhouse climate computer, a weather station — and of a related digital service has a right to the data that the use generates:</p>
+      <ul>
+        <li><strong>Access.</strong> The data holder must make readily available product and service data accessible to the user without undue delay, easily, securely and free of charge (Art. 4(1)).</li>
+        <li><strong>Sharing.</strong> At the user's request, the data holder must make the data available to a third party of the user's choice — an independent advisor, a farm-management app, a cooperative (Art. 5(1)). Companies designated as “gatekeepers” under the Digital Markets Act are not eligible recipients (Art. 5(3)).</li>
+        <li><strong>Protection of the farmer's position.</strong> The data holder may not use such data to derive insights about the economic situation, assets and production methods of the user in a way that could undermine the user's commercial position (Art. 4(13)). In return the user may not use the data to develop a product that competes with the one that produced them (Art. 4(10)).</li>
+        <li><strong>Access by design.</strong> Connected products and related services placed on the market after <strong>12 September 2026</strong> must be designed so that the data are directly accessible to the user (Art. 3(1); Art. 50(3)) — a deadline that has just passed as this course runs.</li>
+        <li><strong>Fair contracts and switching.</strong> Unfair contractual terms on data imposed unilaterally on a business are not binding (Chapter IV, for contracts concluded after 12 September 2025, and from 12 September 2027 also for older long-term contracts), and charges for switching between cloud and data-processing services are to disappear entirely from 12 January 2027 (European Commission, 2025).</li>
+      </ul>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="Data flows under the EU Data Act: the connected product sends data to the manufacturer's cloud (data holder); the farmer as user has a right of access free of charge and can direct the data holder to share the data with a third party of the farmer's choice, such as an advisor or cooperative; gatekeeper platforms are not eligible third parties; the data holder may not use the data to undermine the farmer's commercial position">
+            <defs><marker id="dt-a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <g class="t-small" text-anchor="middle">
+              <rect x="20" y="120" width="150" height="60" rx="10" class="fill-accent-soft" stroke="currentColor"/><text x="95" y="145" font-weight="650">farmer = user</text><text x="95" y="162" class="t-muted">(data originator)</text>
+              <rect x="250" y="20" width="200" height="56" rx="10" class="fill-water-soft" stroke="currentColor"/><text x="350" y="44" font-weight="650">connected product</text><text x="350" y="61" class="t-muted">tractor, climate computer, robot</text>
+              <rect x="250" y="130" width="200" height="56" rx="10" class="fill-sunk" stroke="currentColor"/><text x="350" y="154" font-weight="650">data holder</text><text x="350" y="171" class="t-muted">manufacturer's cloud / service</text>
+              <rect x="540" y="96" width="160" height="56" rx="10" class="fill-magenta-soft" stroke="currentColor"/><text x="620" y="120" font-weight="650">third party of the</text><text x="620" y="137" font-weight="650">farmer's choice</text>
+              <rect x="540" y="200" width="160" height="50" rx="10" class="fill-bg" stroke="var(--danger)" stroke-dasharray="5 4"/><text x="620" y="222" style="fill:var(--danger)">gatekeeper platform</text><text x="620" y="238" class="t-muted">not eligible (Art. 5(3))</text>
+            </g>
+            <line x1="350" y1="78" x2="350" y2="128" class="stroke" stroke-width="1.5" marker-end="url(#dt-a3)"/><text x="358" y="106" class="t-small t-muted">generated data</text>
+            <path d="M248 158 L 172 152" class="stroke-accent" stroke-width="2" marker-end="url(#dt-a3)" color="var(--accent)"/><text x="176" y="206" class="t-small" style="fill:var(--accent)">access, free of charge (Art. 4(1))</text>
+            <path d="M95 118 C 95 60, 200 40, 246 44" class="stroke-muted" stroke-width="1.3" fill="none" marker-end="url(#dt-a3)"/><text x="60" y="64" class="t-small t-muted">uses the product</text>
+            <path d="M452 150 L 538 130" class="stroke-magenta" stroke-width="2" marker-end="url(#dt-a3)" color="var(--magenta)"/><text x="456" y="112" class="t-small" style="fill:var(--magenta)">share on request</text><text x="456" y="126" class="t-small" style="fill:var(--magenta)">(Art. 5(1))</text>
+            <path d="M452 176 L 530 214" class="stroke-danger" stroke-width="1.6" stroke-dasharray="4 3" color="var(--danger)"/><path d="M500 188 l14 14 M514 188 l-14 14" class="stroke-danger" stroke-width="2"/>
+            <text x="250" y="222" class="t-small">no use to undermine the farmer's</text><text x="250" y="236" class="t-small">commercial position (Art. 4(13))</text>
+            <text x="20" y="276" class="t-small t-muted">Access by design for products placed on the market after 12 September 2026 (Art. 3(1)); unfair B2B terms not binding.</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 5.</b> The farmer's position under the Data Act. The regulation does not create "ownership" of data, but it gives the user of a connected product enforceable rights to access and direct the sharing of the data the product generates, and limits how the data holder may use them.</figcaption>
+      </figure>
+
+      <table>
+        <caption>Table 3. EU instruments that govern agricultural data (as of September 2026).</caption>
+        <thead><tr><th>Instrument</th><th>Type</th><th>Scope</th><th>Key rule for a digital twin</th></tr></thead>
+        <tbody>
+          <tr><td>Code of conduct on agricultural data sharing (2018)</td><td>voluntary industry code</td><td>contracts in the agri-food chain</td><td>the data originator (usually the farmer) decides on access and use; transparency and consent</td></tr>
+          <tr><td>GDPR, Regulation (EU) 2016/679</td><td>binding, since 25 May 2018</td><td>personal data</td><td>lawful basis, purpose limitation, minimisation; rights of the persons concerned</td></tr>
+          <tr><td>Data Governance Act, Regulation (EU) 2022/868</td><td>binding, since 24 September 2023</td><td>data intermediaries, re-use of public-sector data, data altruism</td><td>neutral, trusted intermediaries — a legal home for farmer data cooperatives</td></tr>
+          <tr><td>Data Act, Regulation (EU) 2023/2854</td><td>binding, since 12 September 2025</td><td>data from connected products and related services; B2B contracts; cloud switching</td><td>user access and sharing rights; access by design after 12 September 2026</td></tr>
+          <tr><td>AI Act, Regulation (EU) 2024/1689</td><td>binding, staged 2025–2028</td><td>AI systems placed on the EU market or used in the EU</td><td>obligations by risk class (Section 10.5.8)</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout note"><div class="callout-title">Your project data</div><p>Research data from your own experiment should follow the FAIR principles — Findable, Accessible, Interoperable and Reusable (Wilkinson et al., 2016): a tidy table with units (Lesson 10.1), a short metadata description of methods and sensors, a persistent place where it is stored, and a licence that says how others may reuse it. FAIR does not mean "open to everyone": personal data stay protected, but they are described well enough that authorised people can find and use them.</p></div>
+
+      <h2 id="bias-explainability">Bias, fairness and explainability</h2>
+      <p>A model learns the world that its data describe. When the data describe some farms, crops, regions or conditions better than others, the model works better for them — <strong>algorithmic bias</strong>. Mehrabi et al. (2022) catalogue its sources; in agriculture the most important are <em>representation bias</em> (training images from laboratories, from large commercial greenhouses, from temperate regions or from a few popular cultivars), <em>measurement bias</em> (sensors calibrated under conditions that differ from those of use), <em>label bias</em> (experts disagree on disease severity or quality grades), <em>aggregation bias</em> (one model for very different farm types) and <em>feedback loops</em> (recommendations change the data the next model is trained on). The PlantVillage story of Lesson 10.3 — 99 % in the laboratory, 31 % on field images, and even 49 % from background pixels alone (Noyan, 2022) — is a textbook case. Bias becomes a fairness problem when errors fall systematically on some groups of users.</p>
+
+      <div class="eq-box" id="eq-fairness">
+        <div class="eq-head"><span class="eq-label">Group fairness: the equal-opportunity gap</span><span class="eq-num">(10.5.5)</span></div>
+        <div class="eq-main">\[ \text{TPR}_g = \frac{TP_g}{TP_g+FN_g},\qquad \Delta_{\text{EO}} = \text{TPR}_A - \text{TPR}_B,\qquad \Delta_{\text{PPV}} = \frac{TP_A}{TP_A+FP_A}-\frac{TP_B}{TP_B+FP_B} \]</div>
+        <p class="eq-read">compute the true-positive rate (recall, Lesson 10.2) separately for each group of users; the equal-opportunity gap is their difference — how much more likely a real problem is to be caught for group A than for group B. The same can be done for precision (positive predictive value): how much more trustworthy an alarm is for one group than for the other.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(g\in\{A,B\}\)</td><td>groups of users or conditions (e.g., large commercial greenhouses vs small growers)</td><td>–</td></tr>
+          <tr><td>\(TP_g, FN_g, FP_g\)</td><td>confusion-matrix counts within group \(g\)</td><td>counts</td></tr>
+          <tr><td>\(\text{TPR}_g\)</td><td>true-positive rate (recall) in group \(g\)</td><td>–</td></tr>
+          <tr><td>\(\Delta_{\text{EO}}\), \(\Delta_{\text{PPV}}\)</td><td>equal-opportunity gap; precision gap</td><td>– (0 = equal)</td></tr>
+        </table>
+        <details><summary>Why several fairness metrics — and why they conflict</summary>
+          <ol class="steps">
+            <li><strong>Equal opportunity</strong> asks that real cases (diseased plants, faulty sensors) are detected equally often in every group: \(\text{TPR}_A = \text{TPR}_B\).</li>
+            <li><strong>Predictive parity</strong> asks that an alarm is equally reliable: equal precision. Because precision depends on prevalence (Lesson 10.2, Eq. 10.2.10), two groups with different disease prevalence cannot in general have both equal recall and equal precision with the same classifier.</li>
+            <li>Fairness therefore requires a <em>choice</em> of which errors matter most for which users — a value judgement, not a purely technical one — and it must be measured per group; an overall accuracy hides it.</li>
+          </ol>
+        </details>
+        <div class="eq-units">All terms are ratios of counts — dimensionless ✓.</div>
+        <div class="mini-calc" data-formula="tpA/(tpA + fnA) - tpB/(tpB + fnB)" data-output="Equal-opportunity gap Δ_EO" data-unit="" data-digits="3" data-plot="tpB" data-ymin="-1" data-ymax="1" data-title="Try it — who does the detector serve?">
+          <div data-var="tpA" data-label="Group A: true positives" data-min="1" data-max="200" data-step="1" data-value="90"></div>
+          <div data-var="fnA" data-label="Group A: false negatives" data-min="0" data-max="200" data-step="1" data-value="10"></div>
+          <div data-var="tpB" data-label="Group B: true positives" data-min="1" data-max="200" data-step="1" data-value="60"></div>
+          <div data-var="fnB" data-label="Group B: false negatives" data-min="0" data-max="200" data-step="1" data-value="40"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">A disease alarm that serves some growers better</span></div>
+        <div class="we-problem"><p>A camera-based downy-mildew alarm was trained mostly on images from large commercial greenhouses. An evaluation on 100 infected plants in each of two groups gives: large greenhouses (A) TP = 90, FN = 10, FP = 20; small growers with other cultivars and cameras (B) TP = 60, FN = 40, FP = 30. Compute recall and precision per group and the gaps, and discuss the consequences.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Recall.</strong> A: 90/100 = 0.90; B: 60/100 = 0.60. \(\Delta_{\text{EO}} = 0.30\): an infection is missed four times as often for small growers (40 % vs 10 %).</li>
+            <li><strong>Precision.</strong> A: 90/110 = 0.82; B: 60/90 = 0.67. \(\Delta_{\text{PPV}} = 0.15\): small growers also get more false alarms.</li>
+            <li><strong>Overall accuracy</strong> on the pooled data would look acceptable and hide both gaps.</li>
+            <li><strong>Consequences and remedies.</strong> The group that can least afford crop losses benefits least. Remedies: collect and label images from group B, report metrics per group, fine-tune or use separate thresholds, and tell users where the tool has been validated. Under the AI Act, such a system is usually minimal-risk, so these steps are good practice rather than legal obligations (Section 10.5.8).</li>
+          </ol>
+          <span class="answer">Recall 0.90 vs 0.60 (Δ_EO = 0.30); precision 0.82 vs 0.67 — the alarm serves large greenhouses markedly better</span>
+        </div></details>
+      </div>
+
+      <p><strong>Explainability</strong> is the second pillar of trustworthy AI. A grower who is told to dim the lamps, an advisor who must justify a fungicide recommendation, an inspector who audits a high-risk system: all need to know <em>why</em> a model decided as it did. Explanations are <em>global</em> (which features matter on average) or <em>local</em> (why this prediction for this greenhouse today). The most principled local method borrows from cooperative game theory: treat the features as players who cooperate to produce the prediction, and share the "payout" — the difference between the prediction and the average prediction — fairly among them (Shapley, 1953; Lundberg &amp; Lee, 2017).</p>
+
+      <div class="eq-box" id="eq-shapley">
+        <div class="eq-head"><span class="eq-label">Shapley value of a feature</span><span class="eq-num">(10.5.6)</span></div>
+        <div class="eq-main">\[ \phi_j = \sum_{S\subseteq F\setminus\{j\}} \frac{|S|!\,(|F|-|S|-1)!}{|F|!}\,\bigl[v(S\cup\{j\})-v(S)\bigr],\qquad v(S) = \mathbb E\bigl[f(\mathbf x_S, \mathbf X_{\bar S})\bigr],\qquad \sum_{j}\phi_j = f(\mathbf x) - \mathbb E[f] \]</div>
+        <p class="eq-read">the contribution of feature \(j\) is its average marginal effect: for every subset \(S\) of the other features, compare the model's expected output when the features in \(S\) are known with and without also knowing feature \(j\), and average these differences with weights that treat every order of adding features as equally likely. The contributions of all features add up exactly to the difference between this prediction and the average prediction.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(F\), \(|F|\)</td><td>set of features, number of features</td><td>–</td></tr>
+          <tr><td>\(S\)</td><td>a subset (coalition) of features not containing \(j\)</td><td>–</td></tr>
+          <tr><td>\(v(S)\)</td><td>expected model output when the features in \(S\) are fixed to this instance's values and the others vary as in background data</td><td>unit of the prediction</td></tr>
+          <tr><td>\(\phi_j\)</td><td>Shapley value (SHAP value) of feature \(j\)</td><td>unit of the prediction</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Imagine the features "arriving" one at a time in random order. When feature \(j\) arrives after the coalition \(S\), it changes the expected prediction by \(v(S\cup\{j\})-v(S)\).</li>
+            <li>There are \(|F|!\) orders; the coalition \(S\) precedes \(j\) in \(|S|!\,(|F|-|S|-1)!\) of them. Averaging over all orders gives the formula.</li>
+            <li>Shapley proved that this is the <em>only</em> attribution with four fairness properties: efficiency (contributions sum to the total), symmetry (identical features get identical credit), dummy (a feature that never changes the output gets zero) and additivity. Lundberg and Lee (2017) showed that several earlier explanation methods are approximations of Shapley values and named the approach SHAP.</li>
+            <li>With 3 features there are only \(2^3 = 8\) coalitions and the exact values are cheap (Figure 6); with hundreds of features they are estimated by sampling or with model-specific shortcuts.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The result depends on the chosen background (what "average" means) and, when features are correlated — light and temperature in a greenhouse — on how the missing features are filled in. Shapley values explain the <em>model</em>, not the plant: a large contribution of CO₂ says the model relies on CO₂, not that CO₂ causes growth. For high-stakes decisions, Rudin (2019) argues for inherently interpretable models instead of explaining black boxes afterwards.</p>
+        </details>
+        <div class="eq-units">Every \(\phi_j\) has the unit of the prediction (e.g., g d⁻¹), and so does their sum ✓; the weights are dimensionless and sum to 1 ✓.</div>
+        <div class="mini-calc" data-fn="shap1" data-output="Shapley value of feature 1, φ₁" data-unit="g d⁻¹" data-digits="3" data-plot="b12" data-title="Try it — who gets the credit for an interaction?">
+          <div data-var="x1" data-label="Feature 1 (standardised DLI)" data-min="-2" data-max="2" data-step="0.1" data-value="1"></div>
+          <div data-var="x2" data-label="Feature 2 (standardised CO₂)" data-min="-2" data-max="2" data-step="0.1" data-value="2"></div>
+          <div data-var="b1" data-label="Main effect b₁" data-min="-5" data-max="5" data-step="0.1" data-value="3"></div>
+          <div data-var="b12" data-label="Interaction b₁₂" data-min="-4" data-max="4" data-step="0.1" data-value="2"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">Shapley values by hand</span></div>
+        <div class="we-problem"><p>A yield model uses two standardised features, \(x_1\) (light) and \(x_2\) (CO₂): \(f = 2 + 3x_1 + x_2 + 2x_1x_2\) (g d⁻¹). The background average is \(x_1 = x_2 = 0\), i.e. \(\mathbb E[f] = 2\). Explain the prediction for a day with \(x_1 = 1\), \(x_2 = 2\).</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Coalition values.</strong> \(v(\varnothing) = f(0,0) = 2\); \(v(\{1\}) = f(1,0) = 5\); \(v(\{2\}) = f(0,2) = 4\); \(v(\{1,2\}) = f(1,2) = 2+3+2+4 = 11\).</li>
+            <li><strong>Feature 1.</strong> Two orders: 1 first → \(5-2 = 3\); 1 after 2 → \(11-4 = 7\). \(\phi_1 = (3+7)/2 = 5\).</li>
+            <li><strong>Feature 2.</strong> 2 first → \(4-2 = 2\); 2 after 1 → \(11-5 = 6\). \(\phi_2 = (2+6)/2 = 4\).</li>
+            <li><strong>Check efficiency.</strong> \(5+4 = 9 = 11-2\) ✓. The interaction term \(2x_1x_2 = 4\) was split equally (2 each): \(\phi_1 = 3\cdot1 + 2\), \(\phi_2 = 1\cdot2 + 2\) — the general rule \(\phi_1 = b_1x_1 + \tfrac12 b_{12}x_1x_2\) used in the mini-calculator.</li>
+          </ol>
+          <span class="answer">φ₁ = 5 g d⁻¹ (light), φ₂ = 4 g d⁻¹ (CO₂); together they explain the 9 g d⁻¹ above average</span>
+        </div></details>
+      </div>
+
+      <p>A second popular approach, <strong>LIME</strong> (local interpretable model-agnostic explanations), fits a simple model — usually a weighted linear regression — to the black-box predictions in the neighbourhood of the instance to be explained (Ribeiro et al., 2016).</p>
+
+      <div class="eq-box" id="eq-lime">
+        <div class="eq-head"><span class="eq-label">LIME: a local surrogate model</span><span class="eq-num">(10.5.7)</span></div>
+        <div class="eq-main">\[ \hat g = \arg\min_{g\in G}\ \sum_{m=1}^{M} \pi_{\mathbf x}(\mathbf z_m)\,\bigl[f(\mathbf z_m)-g(\mathbf z_m)\bigr]^2 + \Omega(g),\qquad \pi_{\mathbf x}(\mathbf z) = \exp\!\Bigl(-\frac{\lVert\mathbf z-\mathbf x\rVert^2}{\sigma^2}\Bigr) \]</div>
+        <p class="eq-read">sample many perturbed inputs around the instance, ask the black box for its predictions, and fit an interpretable model — here a straight line or plane — by least squares, giving more weight to samples closer to the instance and penalising complexity. The slopes of the local model are the explanation.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\mathbf z_m\)</td><td>perturbed samples around the instance \(\mathbf x\)</td><td>feature units</td></tr>
+          <tr><td>\(g\), \(G\)</td><td>surrogate model from a simple family (linear models)</td><td>–</td></tr>
+          <tr><td>\(\pi_{\mathbf x}\)</td><td>proximity weight with kernel width \(\sigma\)</td><td>–</td></tr>
+          <tr><td>\(\Omega(g)\)</td><td>complexity penalty (e.g., number of non-zero coefficients)</td><td>–</td></tr>
+        </table>
+        <details><summary>Assumptions and validity</summary>
+          <p>LIME is weighted least squares (Lesson 10.1) on synthetic data. Its explanation depends on the sampling distribution and the kernel width, and it can change between runs; it describes the local slope, which differs from the Shapley contribution whenever the model is curved or has interactions — Figure 6 lets you compare the two. Ryo (2022) reviews the use of such methods in agricultural data analysis.</p>
+        </details>
+        <div class="eq-units">The loss is in (unit of prediction)², weights are dimensionless; the fitted slopes have units of prediction per unit feature ✓.</div>
+        <div class="mini-calc" data-formula="exp(-(d*d)/(sig*sig))" data-output="Proximity weight π(z)" data-unit="" data-digits="3" data-plot="d" data-ymin="0" data-ymax="1" data-title="Try it — how local is “local”?">
+          <div data-var="d" data-label="Distance of sample from instance (standardised)" data-min="0" data-max="2" data-step="0.01" data-value="0.3"></div>
+          <div data-var="sig" data-label="Kernel width σ" data-min="0.05" data-max="1.5" data-step="0.01" data-value="0.25"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="fig-shap">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — explain one prediction of a lettuce growth model</div>
+          <div class="sliders-inline">
+            <div class="mc-var"><div class="mc-lab"><span>Daily light integral</span><output id="sh-d-out"></output></div><input id="sh-d" type="range" min="6" max="24" step="0.5" value="20" aria-label="Daily light integral"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Air temperature</span><output id="sh-t-out"></output></div><input id="sh-t" type="range" min="14" max="28" step="0.5" value="24" aria-label="Temperature"></div>
+            <div class="mc-var"><div class="mc-lab"><span>CO₂ concentration</span><output id="sh-c-out"></output></div><input id="sh-c" type="range" min="400" max="1200" step="10" value="900" aria-label="CO2"></div>
+          </div>
+          <div class="fig-grid2"><div id="sh-bars"></div><div id="sh-wf"></div></div>
+          <div class="readouts" id="sh-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 6.</b> An illustrative stand-in for a trained model predicts lettuce growth (g d⁻¹) from DLI, temperature and CO₂, with a temperature optimum near 21 °C and a light × CO₂ interaction. Left: exact Shapley values (Eq. 10.5.6, computed over all 8 coalitions with 400 background greenhouse-days) and LIME contributions (local slope × distance from the background mean, Eq. 10.5.7). Right: the waterfall from the average prediction to this prediction. Move temperature to 21 °C and watch its Shapley value; raise CO₂ at low and at high light to see the interaction being shared.</figcaption>
+      </figure>
+
+      <h2 id="energy-carbon">The energy and carbon footprint of AI</h2>
+      <p>AI runs on electricity. The International Energy Agency estimated that data centres used about 415 TWh in 2024 — around 1.5 % of the world's electricity — with the United States accounting for 45 %, China 25 % and Europe 15%, and projected consumption to more than double to around 945 TWh by 2030, with AI the most important driver (IEA, 2025). Early studies drew attention to the cost of training large language models (Strubell et al., 2019); Patterson et al. (2021) showed that the choice of model architecture, data centre and processor can change the carbon footprint of training by a factor of roughly 100–1000, and the location alone by 5–10 because grids differ so much. The life-cycle footprint of the BLOOM language model's final training was estimated at about 24.7 t CO₂-equivalent from electricity use alone and 50.5 t when manufacturing of the equipment and idle consumption were included (Luccioni et al., 2022). For <em>using</em> models, Luccioni et al. (2024) found that multi-purpose generative models consume orders of magnitude more energy than task-specific models for the same task, and Google reported that the median text prompt to its Gemini assistant used 0.24 Wh and 0.26 mL of water in 2025, after a 33-fold reduction in energy per prompt within one year (Elsworth et al., 2025). The numbers change quickly; the method for estimating them does not.</p>
+
+      <div class="eq-box" id="eq-energy">
+        <div class="eq-head"><span class="eq-label">Energy and carbon of a computation</span><span class="eq-num">(10.5.8)</span></div>
+        <div class="eq-main">\[ E = \frac{\bar P\,t\cdot\text{PUE}}{1000},\qquad E_{\text{use}} = \frac{n\,e\cdot\text{PUE}}{1000},\qquad m_{\text{CO}_2} = E\cdot \text{CI} \]</div>
+        <p class="eq-read">the electricity of a computation, in kilowatt-hours, is the average power of the hardware times the running time times the power usage effectiveness of the data centre, divided by a thousand; for use of a model it is the number of requests times the energy per request. The carbon footprint is the energy times the carbon intensity of the electricity.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical</th></tr>
+          <tr><td>\(\bar P\)</td><td>average power of processors, memory and cooling fans of the hardware</td><td>W</td><td>10–25 W (edge device); 300–700 W (data-centre GPU)</td></tr>
+          <tr><td>\(t\)</td><td>running time</td><td>h</td><td></td></tr>
+          <tr><td>PUE</td><td>power usage effectiveness: total facility energy ÷ IT energy (cooling, power conversion)</td><td>–</td><td>≥ 1; ≈ 1.7 as a default average (Lannelongue et al., 2021)</td></tr>
+          <tr><td>\(n\), \(e\)</td><td>number of requests; energy per request</td><td>–, Wh</td><td>0.24 Wh per median Gemini text prompt (2025)</td></tr>
+          <tr><td>CI</td><td>carbon intensity of electricity</td><td>kg CO₂e kWh⁻¹</td><td>≈ 0.035 (Swedish production mix), ≈ 0.211 (EU-27), 2024 (Lesson 15.1)</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Energy is power × time: W × h = Wh; dividing by 1000 gives kWh.</li>
+            <li>The IT hardware is not the only consumer: cooling and power distribution add a fraction that the PUE captures; on-farm edge devices without special cooling have PUE ≈ 1.</li>
+            <li>Emissions follow from the electricity's carbon intensity — which, as Lesson 15.1 showed, varies by a factor of about 20 across Europe. The same training run emits six times less in Sweden than on the EU-average grid.</li>
+            <li>This is the calculation behind tools such as Green Algorithms (Lannelongue et al., 2021), which add the separate power of processor cores and memory.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The formula covers operational electricity only. Embodied emissions of hardware manufacturing, water use for cooling, and systemic effects (rebound: cheaper computation invites more of it) are extra. Published per-query or per-training figures differ widely because system boundaries differ; always check what was included (Luccioni et al., 2024; de Vries, 2023).</p>
+        </details>
+        <div class="eq-units">W × h × (–)/1000 = kWh ✓; kWh × kg CO₂e kWh⁻¹ = kg CO₂e ✓.</div>
+        <div class="mini-calc" data-formula="n*P*8760/1000*CI" data-output="Annual emissions of always-on edge devices" data-unit="kg CO₂e" data-digits="1" data-plot="CI" data-ymin="0" data-title="Try it — the grid decides">
+          <div data-var="n" data-label="Number of devices" data-min="1" data-max="50" data-step="1" data-value="12"></div>
+          <div data-var="P" data-label="Power per device" data-min="2" data-max="60" data-step="1" data-value="10" data-unit="W"></div>
+          <div data-var="CI" data-label="Carbon intensity" data-min="0" data-max="0.8" data-step="0.005" data-value="0.211" data-unit="kg CO₂e kWh⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">The AI energy budget of a one-hectare greenhouse</span></div>
+        <div class="we-problem"><p>A 1 ha tomato greenhouse runs a crop twin with four camera trolleys, each with an edge computer drawing 15 W around the clock. Every month a disease model is retrained in the cloud: 10 h on a 300 W GPU in a data centre with PUE 1.5. Staff ask an LLM assistant 50 questions a day at 0.24 Wh each. Estimate the annual electricity and emissions on the Swedish production mix (35 g kWh⁻¹) and the EU mix (211 g kWh⁻¹), and compare with the heating demand of the Västerås glasshouse of Lesson 8.1 (≈ 650 kWh m⁻² yr⁻¹).</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Edge computers.</strong> \(4\times15\ \text{W}\times8760\ \text{h} = 525.6\) kWh (PUE ≈ 1 on the farm).</li>
+            <li><strong>Retraining.</strong> \(12\times10\ \text{h}\times300\ \text{W}\times1.5/1000 = 54\) kWh.</li>
+            <li><strong>LLM questions.</strong> \(50\times365\times0.24/1000 = 4.4\) kWh (data-centre overhead is included in the reported figure).</li>
+            <li><strong>Total.</strong> ≈ 584 kWh yr⁻¹ → 20.4 kg CO₂e on the Swedish mix, 123 kg on the EU mix.</li>
+            <li><strong>Comparison.</strong> Heating: \(650\times10\,000 = 6.5\) GWh yr⁻¹. The AI system uses about 0.009 % of that. For a farm, its own AI is negligible next to heating and lighting — the relevant question is whether it helps save a few per cent of the heat.</li>
+            <li><strong>The larger picture.</strong> The footprint of AI is systemic: training and serving very large general-purpose models for millions of users, which is why task-specific, small models deserve preference when they do the job (Luccioni et al., 2024).</li>
+          </ol>
+          <span class="answer">≈ 580 kWh yr⁻¹ (≈ 20 kg CO₂e in Sweden, ≈ 120 kg on the EU mix) — about 0.01 % of the greenhouse's heat demand</span>
+        </div></details>
+      </div>
+
+      <figure class="figure wide" id="fig-energy">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — an AI energy budget for your own system</div>
+          <div class="sliders-inline">
+            <div class="mc-var"><div class="mc-lab"><span>Edge devices × power</span><output id="en-ed-out"></output></div><input id="en-ed" type="range" min="0" max="400" step="5" value="60" aria-label="Edge power in watts"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Training GPU-hours per year</span><output id="en-gh-out"></output></div><input id="en-gh" type="range" min="0" max="2000" step="10" value="120" aria-label="GPU hours"></div>
+            <div class="mc-var"><div class="mc-lab"><span>GPU power</span><output id="en-gp-out"></output></div><input id="en-gp" type="range" min="100" max="1000" step="10" value="300" aria-label="GPU power"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Data-centre PUE</span><output id="en-pue-out"></output></div><input id="en-pue" type="range" min="1" max="2.2" step="0.05" value="1.5" aria-label="PUE"></div>
+            <div class="mc-var"><div class="mc-lab"><span>LLM questions per day</span><output id="en-q-out"></output></div><input id="en-q" type="range" min="0" max="2000" step="10" value="50" aria-label="Questions per day"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Energy per question</span><output id="en-e-out"></output></div><input id="en-e" type="range" min="0.01" max="10" step="0.01" value="0.24" aria-label="Energy per question"></div>
+          </div>
+          <div class="fig-ctl"><div class="seg" id="en-grid" role="group" aria-label="Electricity grid"><button type="button" data-v="0.035" aria-pressed="true">Sweden 35 g</button><button type="button" data-v="0.1">Nordic 100 g</button><button type="button" data-v="0.211">EU 211 g</button><button type="button" data-v="0.471">World 471 g</button></div></div>
+          <div id="en-bars"></div>
+          <div class="readouts" id="en-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 7.</b> Annual electricity of the three components of Eq. 10.5.8 and their emissions for four grid intensities (per kWh, 2024 values from Lesson 15.1). The last readouts compare the total with the heat demand of a 1 ha Swedish glasshouse (Lesson 8.1) and with the lighting of one square metre of a vertical farm (≈ 1.7 kWh m⁻² d⁻¹, Lesson 4.1). Raise the questions per day to a thousand and the energy per question to a few watt-hours (long reasoning or image generation) to see when AI use starts to matter.</figcaption>
+      </figure>
+
+      <div class="callout key"><div class="callout-title">Key idea</div><p>For a single farm, AI's direct energy use is small compared with heating, lighting and cooling; its indirect effects — energy saved by better control, or extra consumption induced by cheaper production — are usually far larger. At the scale of society, however, AI is becoming a significant electricity consumer, and the choice between a small task-specific model and a large general-purpose one is also an environmental choice.</p></div>
+
+      <h2 id="ai-act">The EU AI Act and responsible AI</h2>
+      <p>The <strong>Artificial Intelligence Act</strong> (Regulation (EU) 2024/1689) is the world's first comprehensive horizontal law on AI. It entered into force on 1 August 2024 and regulates AI systems according to the <em>risk</em> they pose to health, safety and fundamental rights (European Commission, 2026).</p>
+      <ul>
+        <li><strong>Unacceptable risk — prohibited</strong> (Art. 5), since 2 February 2025: for example social scoring, manipulative techniques that cause significant harm, exploitation of vulnerabilities, untargeted scraping of facial images, emotion recognition in workplaces and education (with medical and safety exceptions) and certain biometric uses. A prohibition of AI systems generating non-consensual intimate content and child sexual abuse material was added in 2026 and applies from December 2026.</li>
+        <li><strong>High risk</strong> (Art. 6): AI used as a safety component of regulated products (Annex I) and AI in the areas listed in Annex III — biometrics, critical infrastructure (e.g., water, gas, heating and electricity supply), education, employment and management of workers, access to essential services such as credit, law enforcement, migration, and justice. Providers must operate a risk-management system, ensure data governance (including examination of training data for bias), keep technical documentation and logs, provide transparency to deployers, enable human oversight, and achieve adequate accuracy, robustness and cybersecurity, before a conformity assessment and registration.</li>
+        <li><strong>Transparency risk</strong> (Art. 50): people must be told when they interact with an AI system such as a chatbot, and AI-generated or manipulated content (deepfakes) must be disclosed and marked.</li>
+        <li><strong>Minimal risk</strong>: everything else — the great majority of AI in agriculture, from climate control to yield forecasting — with no specific obligations beyond voluntary codes.</li>
+        <li><strong>General-purpose AI models</strong> such as large language models have their own obligations since 2 August 2025 (documentation, copyright policy, a summary of training content), with extra duties for models with systemic risk.</li>
+      </ul>
+      <p>Penalties reach €35 million or 7 % of worldwide annual turnover for prohibited practices and €15 million or 3 % for most other infringements (Art. 99).</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="AI Act risk pyramid with agricultural examples: prohibited at the top (emotion recognition of workers), high risk (hiring and worker management, credit scoring of farmers, water-supply control), transparency (farm advice chatbot, AI-generated marketing images), minimal risk at the base (climate control, yield forecasting, disease apps)">
+            <path d="M360 18 L420 78 L300 78 Z" class="fill-bg" stroke="var(--danger)" stroke-width="1.6" style="fill:var(--danger-soft)"/>
+            <path d="M300 82 L420 82 L480 142 L240 142 Z" style="fill:var(--amber-soft)" stroke="var(--amber)" stroke-width="1.4"/>
+            <path d="M240 146 L480 146 L540 206 L180 206 Z" class="fill-water-soft" stroke="var(--water)" stroke-width="1.4"/>
+            <path d="M180 210 L540 210 L600 270 L120 270 Z" class="fill-accent-soft" stroke="var(--accent)" stroke-width="1.4"/>
+            <g text-anchor="middle" font-weight="650" class="t-small"><text x="360" y="62" style="fill:var(--danger)">prohibited</text><text x="360" y="117" style="fill:var(--amber)">high risk</text><text x="360" y="181" style="fill:var(--water)">transparency</text><text x="360" y="238" style="fill:var(--accent)">minimal risk</text></g>
+            <g class="t-small">
+              <text x="440" y="40">emotion recognition of packing-house workers</text>
+              <text x="494" y="100">ranking seasonal workers for hiring;</text><text x="494" y="114">credit scoring; water-supply control</text>
+              <text x="554" y="168">farm-advice chatbot;</text><text x="554" y="182">AI-generated marketing images</text>
+              <text x="360" y="258" text-anchor="middle">climate control · irrigation advice · yield forecasts · disease apps · crop twins</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 8.</b> The AI Act's risk classes with agricultural examples. Most agricultural AI is minimal-risk; obligations bite where AI decides about people (workers, credit), controls critical infrastructure, or talks to and creates content for the public. Classification depends on the concrete use, not on the technology.</figcaption>
+      </figure>
+
+      <div class="timeline">
+        <div><div class="t-date">1 August 2024</div><p>AI Act enters into force.</p></div>
+        <div><div class="t-date">2 February 2025</div><p>Prohibited practices and AI-literacy provisions apply.</p></div>
+        <div><div class="t-date">2 August 2025</div><p>Governance rules and obligations for general-purpose AI models apply.</p></div>
+        <div><div class="t-date">8 July 2026</div><p>The “Digital Omnibus on AI” amending regulation, proposed by the Commission on 19 November 2025 and adopted by Parliament (16 June 2026) and Council (29 June 2026), is signed; it entered into force on 27 July 2026 (European Parliament, 2026; European Commission, 2026).</p></div>
+        <div><div class="t-date">2 August 2026</div><p>General date of application: enforcement begins, including the transparency obligations.</p></div>
+        <div><div class="t-date">2 December 2026</div><p>Marking of AI-generated content for systems placed on the market before 2 August 2026; prohibition of AI generating non-consensual intimate content and child sexual abuse material.</p></div>
+        <div><div class="t-date">20 January 2027</div><p>The Machinery Regulation (EU) 2023/1230 applies; after the 2026 amendment, AI functions in machinery such as autonomous field robots are handled through this sectoral route rather than directly under the AI Act's high-risk regime.</p></div>
+        <div><div class="t-date">2 December 2027</div><p>Obligations for stand-alone high-risk systems (Annex III), postponed from August 2026 by the Omnibus.</p></div>
+        <div><div class="t-date">2 August 2028</div><p>Obligations for high-risk AI embedded in regulated products (Annex I).</p></div>
+      </div>
+
+      <figure class="figure" id="fig-aiact">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — classify an agricultural AI system</div>
+          <label for="aa-sel" style="font-size:.86rem;color:var(--ink-2)">Choose a use case:</label>
+          <select id="aa-sel" class="aa-sel"></select>
+          <div class="aa-card" id="aa-card" aria-live="polite"></div>
+        </div>
+        <figcaption><b>Figure 9.</b> A simplified guide to the AI Act for nine agricultural use cases (as amended in 2026). It is teaching material, not legal advice: the classification of a real system depends on its intended purpose and on details of the regulation and of guidance that continue to evolve.</figcaption>
+      </figure>
+
+      <p>Law sets minimum requirements; <strong>responsible AI</strong> is broader. The European Commission's High-Level Expert Group on AI (2019) formulated seven requirements for trustworthy AI: human agency and oversight; technical robustness and safety; privacy and data governance; transparency; diversity, non-discrimination and fairness; societal and environmental well-being; and accountability. For a digital twin in a greenhouse they translate into concrete engineering practice: a grower who can override the twin, sensor-fault detection and safe fallback settings (Lesson 10.4), clear rules on who may use the data, explanations of recommendations, validation for all the kinds of farms that will use it, an energy budget, and a named person responsible when things go wrong.</p>
+
+      <h2 id="who-benefits">Who benefits? Farmers, platforms and society</h2>
+      <p>Digital agriculture is often presented as a win for everyone: higher yields, fewer inputs, less waste. Social scientists ask a sharper question: <em>who captures the value?</em> Data flow from many farms to few platforms, where aggregation creates knowledge — about yields, input use, land values — that individual farmers do not have (Wolfert et al., 2017; Rotz et al., 2019). Proprietary formats and closed ecosystems create <em>lock-in</em>: the climate computer, the sensors and the advisory service must come from the same supplier. Studies of farmers' attitudes find that trust depends on transparency about what is done with the data and on a fair share of the benefits (Jakku et al., 2019), and that a patchwork of contracts and laws that farmers find hard to navigate explains much of their reluctance to share (Wiseman et al., 2019). Klerkx et al. (2019) set out a research agenda on how digitalisation reshapes farm work, knowledge and power, and Ryan (2023) maps the ethical issues raised by agricultural AI, from data control to impacts on employment. Robotics and autonomy change the nature of farm work — removing heavy and repetitive tasks but also jobs, and concentrating skills in fewer hands (Sparrow &amp; Howard, 2021). In low-income countries, AI advisory services could reach farmers who have never had an extension officer, but only if they work in local languages and conditions and are accountable for their advice (Tzachor et al., 2023; Lesson 10.2).</p>
+
+      <table>
+        <caption>Table 4. Design choices that shift the benefits of a digital twin towards growers.</caption>
+        <thead><tr><th>Design choice</th><th>Why it matters</th></tr></thead>
+        <tbody>
+          <tr><td>Open, documented data formats and APIs</td><td>prevents lock-in; lets growers combine tools and change suppliers (the Data Act's sharing and switching rules point the same way)</td></tr>
+          <tr><td>Grower-controlled data sharing (cooperatives, trusted intermediaries)</td><td>aggregated insight returns to the farms that produced the data (Data Governance Act)</td></tr>
+          <tr><td>Open models and data sets</td><td>open-source models such as GreenLight (Katzin et al., 2020) and the published data of the Autonomous Greenhouse Challenges let others verify and build on results</td></tr>
+          <tr><td>Per-group validation and honest statements of scope</td><td>reveals bias before small or unusual farms bear its cost</td></tr>
+          <tr><td>Explanations and human override</td><td>keeps the grower's knowledge in the loop and responsibility clear</td></tr>
+          <tr><td>Small, task-specific models and a clean grid</td><td>keeps the energy and carbon cost proportionate to the benefit</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout frontier"><div class="callout-title">Frontier 2024–2026</div><p>Three developments are shaping digital twins in food production: the application of the Data Act to connected farm equipment from 2025 and its access-by-design requirement from September 2026; the staged application of the AI Act, amended in 2026; and the arrival of foundation models that let twins be queried in natural language (Lesson 10.2) — which makes explanation, validation and data governance more, not less, important. For your own project, the lesson is simple: document your data, validate your models on data they have not seen, say what they cannot do, and keep a human — you — responsible for the decisions.</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="digital-twins-main">
+        <script type="application/json">
+        {"title":"Digital twins, data governance and responsible AI","questions":[
+          {"type":"mcq","q":"A crop model receives live sensor and camera data automatically every night, and its recommendations are then typed into the climate computer by the grower. According to Kritzinger et al. (2018), this is a …","options":["digital model","digital shadow","digital twin","3D visualisation"],"answer":1,"feedback":["A digital model has no automatic data flow at all; here data flow in automatically.","","A twin also needs an automatic flow back to the physical system; here the grower types the settings.","Graphics are irrelevant to the classification."],"explain":"<p>Automatic physical → digital flow, manual digital → physical flow: a digital shadow.</p>"},
+          {"type":"numeric","q":"A scalar Kalman filter has prior variance P⁻ = 0.04 and measurement variance R = 0.01. What is the Kalman gain?","answer":0.8,"abstol":0.005,"explain":"<p>\\(K = 0.04/(0.04+0.01) = 0.8\\): the measurement is trusted four times more than the prediction.</p>"},
+          {"type":"numeric","q":"The prediction is x̂⁻ = 100 cm², the measurement 110 cm² and K = 0.3. What is the updated estimate?","answer":103,"tol":0.005,"unit":"cm²","explain":"<p>\\(100 + 0.3\\times(110-100) = 103\\) cm².</p>"},
+          {"type":"numeric","q":"With P⁻ = 0.04 and K = 0.8, what is the variance after the update?","answer":0.008,"tol":0.02,"explain":"<p>\\(P = (1-K)P^- = 0.2\\times0.04 = 0.008\\).</p>"},
+          {"type":"numeric","q":"Four particles have normalised weights 0.5, 0.3, 0.1 and 0.1. What is the effective sample size?","answer":2.78,"tol":0.02,"explain":"<p>\\(N_{\\text{eff}} = 1/(0.25+0.09+0.01+0.01) = 1/0.36 = 2.78\\).</p>"},
+          {"type":"numeric","q":"For f = 2 + 3x₁ + x₂ + 2x₁x₂ with baseline (0, 0), what is the Shapley value of x₁ at x = (1, 2)?","answer":5,"abstol":0.01,"hint":"Average the marginal contribution of x₁ over both orders, or use φ₁ = b₁x₁ + ½ b₁₂x₁x₂.","explain":"<p>\\(\\phi_1 = [(f(1,0)-f(0,0)) + (f(1,2)-f(0,2))]/2 = (3+7)/2 = 5\\).</p>"},
+          {"type":"tf","q":"The Shapley values of all features of a prediction add up to the difference between that prediction and the average (background) prediction.","answer":true,"explain":"<p>This is the efficiency property that makes Shapley values a complete attribution.</p>"},
+          {"type":"numeric","q":"Twelve always-on edge computers of 10 W each run for a year on the EU-average grid (0.211 kg CO₂e kWh⁻¹). What are their annual emissions?","answer":221.8,"tol":0.02,"unit":"kg CO₂e","explain":"<p>\\(12\\times10\\times8760/1000 = 1051\\) kWh; \\(\\times0.211 = 222\\) kg CO₂e (about 37 kg on the Swedish production mix).</p>"},
+          {"type":"mcq","q":"Under the Data Act, from when must connected products be designed so that their data are directly accessible to the user (Art. 3(1))?","options":["From the Act's entry into force on 11 January 2024.","From 12 September 2025 for all products in use.","For products placed on the market after 12 September 2026.","Only from 2 August 2027."],"answer":2,"feedback":["Entry into force started the transition periods; obligations came later.","12 September 2025 is the general date of application, but the design obligation has its own later date.","","2 August 2027 is a date of the AI Act, not the Data Act."],"explain":"<p>Art. 50(3): the obligation of Art. 3(1) applies to connected products and related services placed on the market after 12 September 2026.</p>"},
+          {"type":"multi","q":"A farmer uses a connected tractor. Which statements reflect the Data Act? (Select all that apply.)","options":["The manufacturer must give the farmer access to the readily available data, free of charge.","At the farmer's request, the data must be shared with an advisor chosen by the farmer.","A company designated as a gatekeeper cannot be the third party that receives the data.","The manufacturer may use the data to infer the farm's economic situation and use this against the farmer in negotiations.","The farmer may use the data to build a competing tractor."],"answer":[0,1,2],"explain":"<p>Art. 4(1), 5(1) and 5(3) grant and limit the sharing rights; Art. 4(13) forbids using the data to undermine the user's commercial position; Art. 4(10) forbids developing a competing product with the data.</p>"},
+          {"type":"mcq","q":"An AI system ranks applicants for seasonal harvest work. How is it classified under the AI Act?","options":["Prohibited practice","High-risk system (employment and worker management, Annex III)","Transparency obligations only","Minimal risk"],"answer":1,"feedback":["It is not on the list of prohibited practices (emotion recognition of workers would be).","","Transparency duties apply to chatbots and synthetic content; hiring decisions are high-risk.","Decisions about access to employment are explicitly listed as high-risk."],"explain":"<p>Annex III lists AI for recruitment and selection and for decisions affecting workers. After the 2026 amendment its obligations apply from 2 December 2027.</p>"},
+          {"type":"numeric","q":"A disease alarm detects 90 of 100 infected plants on large farms and 60 of 100 on small farms. What is the equal-opportunity gap (TPR_large − TPR_small)?","answer":0.3,"abstol":0.005,"explain":"<p>\\(0.90 - 0.60 = 0.30\\): infections are missed four times as often on small farms.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Digital twin</dt><dd>A digital equivalent of a real-life object that mirrors its states and behaviour over its lifetime, with automatic data flows in both directions.</dd>
+        <dt>Digital shadow</dt><dd>A digital object updated automatically from its physical counterpart but without automatic feedback to it.</dd>
+        <dt>Digital model</dt><dd>A digital representation without automatic data exchange with the physical object.</dd>
+        <dt>State-space model</dt><dd>Model with a state vector, a process equation that moves it in time and an observation equation that predicts measurements.</dd>
+        <dt>Data assimilation</dt><dd>Statistically optimal combination of model predictions and measurements to estimate the state of a system.</dd>
+        <dt>Kalman gain</dt><dd>Weight given to the measurement surprise in the Kalman update; \(P^-/(P^-+R)\) in the scalar case.</dd>
+        <dt>Particle filter</dt><dd>Sequential Monte Carlo method that represents uncertainty by weighted samples, re-weighted with each measurement and resampled.</dd>
+        <dt>Data originator</dt><dd>In the EU code of conduct, the party that created or commissioned data and decides on access and use — on the farm, usually the farmer.</dd>
+        <dt>Connected product</dt><dd>In the Data Act, a product that obtains or generates data about its use or environment and can communicate them; its user has access and sharing rights.</dd>
+        <dt>Personal data</dt><dd>Information relating to an identified or identifiable natural person, protected by the GDPR.</dd>
+        <dt>Algorithmic bias</dt><dd>Systematic differences in model performance or outcomes between groups, caused by data, labels, design or use.</dd>
+        <dt>Shapley value (SHAP)</dt><dd>Attribution of a prediction to features as their average marginal contribution over all coalitions; contributions sum to prediction minus average.</dd>
+        <dt>LIME</dt><dd>Local explanation method that fits a weighted, simple surrogate model to a black box's predictions near one instance.</dd>
+        <dt>Power usage effectiveness (PUE)</dt><dd>Ratio of a data centre's total energy use to the energy used by its IT equipment.</dd>
+        <dt>High-risk AI system</dt><dd>Under the AI Act, AI used in regulated products or listed areas such as employment, credit or critical infrastructure, subject to strict obligations.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can explain the difference between a digital model, shadow and twin, and name the layers of a twin for a greenhouse crop.</li>
+        <li>I can carry out Kalman-filter predict and update steps by hand and explain what the gain does.</li>
+        <li>I can explain how a particle filter represents uncertainty and when it is preferred over a Kalman filter.</li>
+        <li>I can explain what the Data Act, the code of conduct and the GDPR mean for data from my own sensors and equipment.</li>
+        <li>I can compute a fairness gap and Shapley values for a simple model, and explain their limits.</li>
+        <li>I can estimate the energy and carbon footprint of an AI system and classify agricultural AI uses under the AI Act.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Verdouw, C., Tekinerdogan, B., Beulens, A., &amp; Wolfert, S. (2021). Digital twins in smart farming. <em>Agricultural Systems</em>, 189, 103046. <a href="https://doi.org/10.1016/j.agsy.2020.103046" target="_blank" rel="noopener">doi:10.1016/j.agsy.2020.103046</a><span class="r-why">The reference definition, the typology of twins and an implementation framework, illustrated with five farming use cases.</span></li>
+        <li><span class="r-type">Required · open access</span>Pylianidis, C., Osinga, S., &amp; Athanasiadis, I. N. (2021). Introducing digital twins to agriculture. <em>Computers and Electronics in Agriculture</em>, 184, 105942. <a href="https://doi.org/10.1016/j.compag.2020.105942" target="_blank" rel="noopener">doi:10.1016/j.compag.2020.105942</a><span class="r-why">A sober review of what agriculture has actually built so far, compared with other industries, and a roadmap.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Jakku, E., Taylor, B., Fleming, A., Mason, C., Fielke, S., Sounness, C., &amp; Thorburn, P. (2019). “If they don't tell us what they do with it, why would we trust them?” Trust, transparency and benefit-sharing in Smart Farming. <em>NJAS: Wageningen Journal of Life Sciences</em>, 90–91, 100285. <a href="https://doi.org/10.1016/j.njas.2018.11.002" target="_blank" rel="noopener">doi:10.1016/j.njas.2018.11.002</a><span class="r-why">Farmers' own voices on data, trust and who benefits.</span></li>
+        <li><span class="r-type">Recommended</span>Rudin, C. (2019). Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. <em>Nature Machine Intelligence</em>, 1(5), 206–215. <a href="https://doi.org/10.1038/s42256-019-0048-x" target="_blank" rel="noopener">doi:10.1038/s42256-019-0048-x</a><span class="r-why">A provocative argument that complements the SHAP and LIME methods of this lesson.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Lannelongue, L., Grealey, J., &amp; Inouye, M. (2021). Green algorithms: Quantifying the carbon footprint of computation. <em>Advanced Science</em>, 8(12), 2100707. <a href="https://doi.org/10.1002/advs.202100707" target="_blank" rel="noopener">doi:10.1002/advs.202100707</a><span class="r-why">How to estimate the energy and carbon of your own computations — the method of Eq. 10.5.8.</span></li>
+        <li><span class="r-type">Primary sources</span>Regulation (EU) 2023/2854 (Data Act) and Regulation (EU) 2024/1689 (AI Act), freely available on EUR-Lex.<span class="r-why">Read the articles cited in this lesson (Data Act Arts. 3–5 and 50; AI Act Arts. 5, 6, 50 and Annex III) — primary texts are shorter and clearer than their reputation.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Ariesen-Verschuur, N., Verdouw, C., &amp; Tekinerdogan, B. (2022). Digital twins in greenhouse horticulture: A review. <em>Computers and Electronics in Agriculture</em>, 199, 107183. <a href="https://doi.org/10.1016/j.compag.2022.107183" target="_blank" rel="noopener">doi:10.1016/j.compag.2022.107183</a></li>
+        <li>Arulampalam, M. S., Maskell, S., Gordon, N., &amp; Clapp, T. (2002). A tutorial on particle filters for online nonlinear/non-Gaussian Bayesian tracking. <em>IEEE Transactions on Signal Processing</em>, 50(2), 174–188. <a href="https://doi.org/10.1109/78.978374" target="_blank" rel="noopener">doi:10.1109/78.978374</a></li>
+        <li>Copa-Cogeca, CEMA, Fertilizers Europe, CEETTAR, CEJA, ECPA, EFFAB, FEFAC, &amp; ESA. (2018). <em>EU code of conduct on agricultural data sharing by contractual agreement</em>. Copa-Cogeca.</li>
+        <li>de Vries, A. (2023). The growing energy footprint of artificial intelligence. <em>Joule</em>, 7(10), 2191–2194. <a href="https://doi.org/10.1016/j.joule.2023.09.004" target="_blank" rel="noopener">doi:10.1016/j.joule.2023.09.004</a></li>
+        <li>Elsworth, C., Huang, K., Patterson, D., Schneider, I., Sedivy, R., Goodman, S., Townsend, B., Ranganathan, P., Dean, J., Vahdat, A., Gomes, B., &amp; Manyika, J. (2025). <em>Measuring the environmental impact of delivering AI at Google scale</em> (arXiv:2508.15734). arXiv. <a href="https://doi.org/10.48550/arXiv.2508.15734" target="_blank" rel="noopener">doi:10.48550/arXiv.2508.15734</a></li>
+        <li>European Commission. (2025). <em>Data Act explained</em>. Shaping Europe's digital future. <a href="https://digital-strategy.ec.europa.eu/en/policies/data-act-explained" target="_blank" rel="noopener">digital-strategy.ec.europa.eu</a></li>
+        <li>European Commission. (2026). <em>AI Act</em>. Shaping Europe's digital future. Retrieved September 26, 2026, from <a href="https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai" target="_blank" rel="noopener">digital-strategy.ec.europa.eu</a></li>
+        <li>European Parliament. (2026). <em>Digital omnibus on AI</em>. Legislative Train Schedule. Retrieved September 26, 2026, from <a href="https://www.europarl.europa.eu/legislative-train/package-digital-package/file-digital-omnibus-on-ai" target="_blank" rel="noopener">europarl.europa.eu</a></li>
+        <li>Evensen, G. (1994). Sequential data assimilation with a nonlinear quasi-geostrophic model using Monte Carlo methods to forecast error statistics. <em>Journal of Geophysical Research: Oceans</em>, 99(C5), 10143–10162. <a href="https://doi.org/10.1029/94JC00572" target="_blank" rel="noopener">doi:10.1029/94JC00572</a></li>
+        <li>Gordon, N. J., Salmond, D. J., &amp; Smith, A. F. M. (1993). Novel approach to nonlinear/non-Gaussian Bayesian state estimation. <em>IEE Proceedings F – Radar and Signal Processing</em>, 140(2), 107–113. <a href="https://doi.org/10.1049/ip-f-2.1993.0015" target="_blank" rel="noopener">doi:10.1049/ip-f-2.1993.0015</a></li>
+        <li>Grewal, M. S., &amp; Andrews, A. P. (2010). Applications of Kalman filtering in aerospace 1960 to the present. <em>IEEE Control Systems Magazine</em>, 30(3), 69–78. <a href="https://doi.org/10.1109/MCS.2010.936465" target="_blank" rel="noopener">doi:10.1109/MCS.2010.936465</a></li>
+        <li>Grieves, M., &amp; Vickers, J. (2017). Digital twin: Mitigating unpredictable, undesirable emergent behavior in complex systems. In F.-J. Kahlen, S. Flumerfelt, &amp; A. Alves (Eds.), <em>Transdisciplinary Perspectives on Complex Systems</em> (pp. 85–113). Springer. <a href="https://doi.org/10.1007/978-3-319-38756-7_4" target="_blank" rel="noopener">doi:10.1007/978-3-319-38756-7_4</a></li>
+        <li>High-Level Expert Group on Artificial Intelligence. (2019). <em>Ethics guidelines for trustworthy AI</em>. European Commission.</li>
+        <li>International Energy Agency. (2025). <em>Energy and AI</em>. IEA. <a href="https://www.iea.org/reports/energy-and-ai" target="_blank" rel="noopener">iea.org/reports/energy-and-ai</a></li>
+        <li>Jakku, E., Taylor, B., Fleming, A., Mason, C., Fielke, S., Sounness, C., &amp; Thorburn, P. (2019). “If they don't tell us what they do with it, why would we trust them?” Trust, transparency and benefit-sharing in Smart Farming. <em>NJAS: Wageningen Journal of Life Sciences</em>, 90–91, 100285. <a href="https://doi.org/10.1016/j.njas.2018.11.002" target="_blank" rel="noopener">doi:10.1016/j.njas.2018.11.002</a></li>
+        <li>Jin, X., Kumar, L., Li, Z., Feng, H., Xu, X., Yang, G., &amp; Wang, J. (2018). A review of data assimilation of remote sensing and crop models. <em>European Journal of Agronomy</em>, 92, 141–152. <a href="https://doi.org/10.1016/j.eja.2017.11.002" target="_blank" rel="noopener">doi:10.1016/j.eja.2017.11.002</a></li>
+        <li>Kalman, R. E. (1960). A new approach to linear filtering and prediction problems. <em>Journal of Basic Engineering</em>, 82(1), 35–45. <a href="https://doi.org/10.1115/1.3662552" target="_blank" rel="noopener">doi:10.1115/1.3662552</a></li>
+        <li>Katzin, D., van Mourik, S., Kempkes, F., &amp; van Henten, E. J. (2020). GreenLight – An open source model for greenhouses with supplemental lighting: Evaluation of heat requirements under LED and HPS lamps. <em>Biosystems Engineering</em>, 194, 61–81. <a href="https://doi.org/10.1016/j.biosystemseng.2020.03.010" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2020.03.010</a></li>
+        <li>Klerkx, L., Jakku, E., &amp; Labarthe, P. (2019). A review of social science on digital agriculture, smart farming and agriculture 4.0: New contributions and a future research agenda. <em>NJAS: Wageningen Journal of Life Sciences</em>, 90–91, 100315. <a href="https://doi.org/10.1016/j.njas.2019.100315" target="_blank" rel="noopener">doi:10.1016/j.njas.2019.100315</a></li>
+        <li>Kritzinger, W., Karner, M., Traar, G., Henjes, J., &amp; Sihn, W. (2018). Digital twin in manufacturing: A categorical literature review and classification. <em>IFAC-PapersOnLine</em>, 51(11), 1016–1022. <a href="https://doi.org/10.1016/j.ifacol.2018.08.474" target="_blank" rel="noopener">doi:10.1016/j.ifacol.2018.08.474</a></li>
+        <li>Lannelongue, L., Grealey, J., &amp; Inouye, M. (2021). Green algorithms: Quantifying the carbon footprint of computation. <em>Advanced Science</em>, 8(12), 2100707. <a href="https://doi.org/10.1002/advs.202100707" target="_blank" rel="noopener">doi:10.1002/advs.202100707</a></li>
+        <li>Luccioni, A. S., Jernite, Y., &amp; Strubell, E. (2024). Power hungry processing: Watts driving the cost of AI deployment? In <em>The 2024 ACM Conference on Fairness, Accountability, and Transparency</em> (pp. 85–99). <a href="https://doi.org/10.1145/3630106.3658542" target="_blank" rel="noopener">doi:10.1145/3630106.3658542</a></li>
+        <li>Luccioni, A. S., Viguier, S., &amp; Ligozat, A.-L. (2022). <em>Estimating the carbon footprint of BLOOM, a 176B parameter language model</em> (arXiv:2211.02001). arXiv. <a href="https://doi.org/10.48550/arXiv.2211.02001" target="_blank" rel="noopener">doi:10.48550/arXiv.2211.02001</a></li>
+        <li>Lundberg, S. M., &amp; Lee, S.-I. (2017). A unified approach to interpreting model predictions. In <em>Advances in Neural Information Processing Systems 30</em> (pp. 4765–4774). <a href="https://doi.org/10.48550/arXiv.1705.07874" target="_blank" rel="noopener">doi:10.48550/arXiv.1705.07874</a></li>
+        <li>Mehrabi, N., Morstatter, F., Saxena, N., Lerman, K., &amp; Galstyan, A. (2022). A survey on bias and fairness in machine learning. <em>ACM Computing Surveys</em>, 54(6), 115. <a href="https://doi.org/10.1145/3457607" target="_blank" rel="noopener">doi:10.1145/3457607</a></li>
+        <li>Noyan, M. A. (2022). <em>Uncovering bias in the PlantVillage dataset</em> (arXiv:2206.04374). arXiv. <a href="https://doi.org/10.48550/arXiv.2206.04374" target="_blank" rel="noopener">doi:10.48550/arXiv.2206.04374</a></li>
+        <li>Patterson, D., Gonzalez, J., Le, Q., Liang, C., Munguia, L.-M., Rothchild, D., So, D., Texier, M., &amp; Dean, J. (2021). <em>Carbon emissions and large neural network training</em> (arXiv:2104.10350). arXiv. <a href="https://doi.org/10.48550/arXiv.2104.10350" target="_blank" rel="noopener">doi:10.48550/arXiv.2104.10350</a></li>
+        <li>Purcell, W., &amp; Neubauer, T. (2023). Digital twins in agriculture: A state-of-the-art review. <em>Smart Agricultural Technology</em>, 3, 100094. <a href="https://doi.org/10.1016/j.atech.2022.100094" target="_blank" rel="noopener">doi:10.1016/j.atech.2022.100094</a></li>
+        <li>Pylianidis, C., Osinga, S., &amp; Athanasiadis, I. N. (2021). Introducing digital twins to agriculture. <em>Computers and Electronics in Agriculture</em>, 184, 105942. <a href="https://doi.org/10.1016/j.compag.2020.105942" target="_blank" rel="noopener">doi:10.1016/j.compag.2020.105942</a></li>
+        <li>Regulation (EU) 2016/679 of the European Parliament and of the Council of 27 April 2016 on the protection of natural persons with regard to the processing of personal data and on the free movement of such data (General Data Protection Regulation). <em>Official Journal of the European Union</em>, L 119, 1–88.</li>
+        <li>Regulation (EU) 2022/868 of the European Parliament and of the Council of 30 May 2022 on European data governance (Data Governance Act). <em>Official Journal of the European Union</em>, L 152, 1–44.</li>
+        <li>Regulation (EU) 2023/2854 of the European Parliament and of the Council of 13 December 2023 on harmonised rules on fair access to and use of data (Data Act). <em>Official Journal of the European Union</em>, L, 2023/2854. <a href="http://data.europa.eu/eli/reg/2023/2854/oj" target="_blank" rel="noopener">data.europa.eu/eli/reg/2023/2854/oj</a></li>
+        <li>Regulation (EU) 2024/1689 of the European Parliament and of the Council of 13 June 2024 laying down harmonised rules on artificial intelligence (Artificial Intelligence Act). <em>Official Journal of the European Union</em>, L, 2024/1689. <a href="http://data.europa.eu/eli/reg/2024/1689/oj" target="_blank" rel="noopener">data.europa.eu/eli/reg/2024/1689/oj</a></li>
+        <li>Ribeiro, M. T., Singh, S., &amp; Guestrin, C. (2016). “Why should I trust you?”: Explaining the predictions of any classifier. In <em>Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining</em> (pp. 1135–1144). <a href="https://doi.org/10.1145/2939672.2939778" target="_blank" rel="noopener">doi:10.1145/2939672.2939778</a></li>
+        <li>Rotz, S., Duncan, E., Small, M., Botschner, J., Dara, R., Mosby, I., Reed, M., &amp; Fraser, E. D. G. (2019). The politics of digital agricultural technologies: A preliminary review. <em>Sociologia Ruralis</em>, 59(2), 203–229. <a href="https://doi.org/10.1111/soru.12233" target="_blank" rel="noopener">doi:10.1111/soru.12233</a></li>
+        <li>Rudin, C. (2019). Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. <em>Nature Machine Intelligence</em>, 1(5), 206–215. <a href="https://doi.org/10.1038/s42256-019-0048-x" target="_blank" rel="noopener">doi:10.1038/s42256-019-0048-x</a></li>
+        <li>Ryan, M. (2023). The social and ethical impacts of artificial intelligence in agriculture: Mapping the agricultural AI literature. <em>AI &amp; Society</em>, 38(6), 2473–2485. <a href="https://doi.org/10.1007/s00146-021-01377-9" target="_blank" rel="noopener">doi:10.1007/s00146-021-01377-9</a></li>
+        <li>Ryo, M. (2022). Explainable artificial intelligence and interpretable machine learning for agricultural data analysis. <em>Artificial Intelligence in Agriculture</em>, 6, 257–265. <a href="https://doi.org/10.1016/j.aiia.2022.11.003" target="_blank" rel="noopener">doi:10.1016/j.aiia.2022.11.003</a></li>
+        <li>Shapley, L. S. (1953). A value for n-person games. In H. W. Kuhn &amp; A. W. Tucker (Eds.), <em>Contributions to the Theory of Games II</em> (Annals of Mathematics Studies 28, pp. 307–318). Princeton University Press. <a href="https://doi.org/10.1515/9781400881970-018" target="_blank" rel="noopener">doi:10.1515/9781400881970-018</a></li>
+        <li>Sparrow, R., &amp; Howard, M. (2021). Robots in agriculture: Prospects, impacts, ethics, and policy. <em>Precision Agriculture</em>, 22(3), 818–833. <a href="https://doi.org/10.1007/s11119-020-09757-9" target="_blank" rel="noopener">doi:10.1007/s11119-020-09757-9</a></li>
+        <li>Strubell, E., Ganesh, A., &amp; McCallum, A. (2019). Energy and policy considerations for deep learning in NLP. In <em>Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics</em> (pp. 3645–3650). <a href="https://doi.org/10.18653/v1/P19-1355" target="_blank" rel="noopener">doi:10.18653/v1/P19-1355</a></li>
+        <li>Tzachor, A., Devare, M., Richards, C., Pypers, P., Ghosh, A., Koo, J., Johal, S., &amp; King, B. (2023). Large language models and agricultural extension services. <em>Nature Food</em>, 4(11), 941–948. <a href="https://doi.org/10.1038/s43016-023-00867-x" target="_blank" rel="noopener">doi:10.1038/s43016-023-00867-x</a></li>
+        <li>Van Henten, E. J. (1994). Validation of a dynamic lettuce growth model for greenhouse climate control. <em>Agricultural Systems</em>, 45(1), 55–72. <a href="https://doi.org/10.1016/S0308-521X(94)90280-1" target="_blank" rel="noopener">doi:10.1016/S0308-521X(94)90280-1</a></li>
+        <li>Verdouw, C., Tekinerdogan, B., Beulens, A., &amp; Wolfert, S. (2021). Digital twins in smart farming. <em>Agricultural Systems</em>, 189, 103046. <a href="https://doi.org/10.1016/j.agsy.2020.103046" target="_blank" rel="noopener">doi:10.1016/j.agsy.2020.103046</a></li>
+        <li>Wilkinson, M. D., Dumontier, M., Aalbersberg, I. J., et al. (2016). The FAIR guiding principles for scientific data management and stewardship. <em>Scientific Data</em>, 3, 160018. <a href="https://doi.org/10.1038/sdata.2016.18" target="_blank" rel="noopener">doi:10.1038/sdata.2016.18</a></li>
+        <li>Wiseman, L., Sanderson, J., Zhang, A., &amp; Jakku, E. (2019). Farmers and their data: An examination of farmers' reluctance to share their data through the lens of the laws impacting smart farming. <em>NJAS: Wageningen Journal of Life Sciences</em>, 90–91, 100301. <a href="https://doi.org/10.1016/j.njas.2019.04.007" target="_blank" rel="noopener">doi:10.1016/j.njas.2019.04.007</a></li>
+        <li>Wolfert, S., Ge, L., Verdouw, C., &amp; Bogaardt, M.-J. (2017). Big data in smart farming – A review. <em>Agricultural Systems</em>, 153, 69–80. <a href="https://doi.org/10.1016/j.agsy.2017.01.023" target="_blank" rel="noopener">doi:10.1016/j.agsy.2017.01.023</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+<script type="module">
+import { Plot, BarChart, linspace } from '/assets/js/plot.js';
+import { mulberry32, randn, mean, ols } from '/assets/js/stats.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+
+const $ = s => document.querySelector(s);
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const segInit = (el, cb) => el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); cb(b.dataset.v); });
+const rangeFill = r => r.style.setProperty('--fill', ((+r.value - +r.min) / (+r.max - +r.min) * 100) + '%');
+function bind(id, show, cb) {
+  const r = $('#' + id), o = $('#' + id + '-out');
+  const upd = () => { rangeFill(r); if (o) o.textContent = show(+r.value); };
+  r.addEventListener('input', () => { upd(); cb && cb(); }); upd();
+  return { get v() { return +r.value; }, set(v) { r.value = v; upd(); } };
+}
+
+/* shared "true lettuce" (logistic, Lesson 10.1) and image measurements */
+const KMAX = 520, R0 = 0.20, TI = 18, TARGET = 420, DAYS = 35;
+function makeTruth(stress) {
+  const A = [], rgr = []; let a = KMAX / (1 + Math.exp(R0 * TI));
+  for (let d = 0; d <= 45; d++) { const r = stress && d >= 12 ? 0.11 : R0; A.push(a); rgr.push(r * (1 - a / KMAX)); for (let s = 0; s < 24; s++) a += r * a * (1 - a / KMAX) / 24; }
+  return { A, rgr };
+}
+function noiseSet(seed) { const r = mulberry32(seed); const e = [], u = []; for (let d = 0; d <= 45; d++) { e.push(randn(r)); u.push(r()); } return { e, u }; }
+const crossDay = (arr, lvl) => { for (let d = 1; d < arr.length; d++) if (arr[d - 1] < lvl && arr[d] >= lvl) return d - 1 + (lvl - arr[d - 1]) / (arr[d] - arr[d - 1]); return NaN; };
+
+/* =============================== Figure 3: Kalman-filter twin =============================== */
+{
+  let seed = 5;
+  const pA = new Plot('#kf-A', { x: { label: 'Days after transplanting', min: 0, max: 40 }, y: { label: 'Projected leaf area', unit: 'cm²', min: 0, max: 700 }, legend: true, height: 320 });
+  const pG = new Plot('#kf-g', { x: { label: 'Days after transplanting', min: 0, max: 40 }, y: { label: 'Kalman gain for log area', min: 0, max: 1 }, y2: { label: 'Relative growth rate', unit: 'd⁻¹', min: -0.05, max: 0.45 }, legend: true, height: 220 });
+  const ro = new Readouts('#kf-ro');
+  ro.add({ id: 'A', label: 'Twin estimate today', unit: 'cm²', digits: 0 }).add({ id: 'Ap', label: '95 % range today', format: v => v }).add({ id: 'rho', label: 'Estimated RGR today', unit: 'd⁻¹', digits: 3 })
+    .add({ id: 'K', label: 'Kalman gain today', digits: 3 }).add({ id: 'hf', label: 'Forecast harvest day (420 cm²)', format: v => v }).add({ id: 'ht', label: 'True harvest day', unit: 'd', digits: 1 });
+  function run() {
+    const today = sDay.v, sig = sR.v, sq = sQ.v, pm = sM.v, stress = $('#kf-stress').checked;
+    const T = makeTruth(stress), N = noiseSet(seed), R = sig * sig;
+    let l = Math.log(20), rho = 0.25, P00 = 0.09, P01 = 0, P11 = 0.0025;
+    const est = [[0, Math.exp(l)]], lo = [Math.exp(l - 2 * 0.3)], hi = [Math.exp(l + 2 * 0.3)], xs = [0], rhoE = [rho], rhoLo = [rho - 0.1], rhoHi = [rho + 0.1], gains = [], meas = [], open = [];
+    for (let d = 0; d <= 40; d++) open.push([d, Math.min(2000, 20 * Math.exp(0.25 * d))]);
+    let Ktoday = NaN;
+    for (let d = 1; d <= today; d++) {
+      // predict (Eq. 10.5.2)
+      l = l + rho; const a = P00, b = P01, c = P11;
+      P00 = a + 2 * b + c + 0.0004; P01 = b + c; P11 = c + sq * sq;
+      // update (Eq. 10.5.3) if an image exists
+      const has = N.u[d] >= pm;
+      if (has) {
+        const z = Math.log(T.A[d]) + sig * N.e[d]; meas.push([d, Math.exp(z)]);
+        const S = P00 + R, K0 = P00 / S, K1 = P01 / S, y = z - l;
+        l += K0 * y; rho += K1 * y; const n00 = (1 - K0) * P00, n01 = (1 - K0) * P01, n11 = P11 - K1 * P01; P00 = n00; P01 = n01; P11 = n11;
+        gains.push([d, K0]); Ktoday = d === today ? K0 : NaN;
+      } else { gains.push([d, NaN]); if (d === today) Ktoday = 0; }
+      xs.push(d); est.push([d, Math.exp(l)]); lo.push(Math.exp(l - 2 * Math.sqrt(P00))); hi.push(Math.exp(l + 2 * Math.sqrt(P00)));
+      rhoE.push(rho); rhoLo.push(rho - 2 * Math.sqrt(P11)); rhoHi.push(rho + 2 * Math.sqrt(P11));
+    }
+    // forecast (predict only)
+    const fx = [today], fm = [Math.exp(l)], flo = [Math.exp(l - 2 * Math.sqrt(P00))], fhi = [Math.exp(l + 2 * Math.sqrt(P00))];
+    let fl = l, f00 = P00, f01 = P01, f11 = P11;
+    for (let d = today + 1; d <= 40; d++) { fl += rho; const a = f00, b = f01, c = f11; f00 = a + 2 * b + c + 0.0004; f01 = b + c; f11 = c + sq * sq; fx.push(d); fm.push(Math.exp(fl)); flo.push(Math.exp(fl - 2 * Math.sqrt(f00))); fhi.push(Math.exp(fl + 2 * Math.sqrt(f00))); }
+    // plot
+    pA.hline('tg', TARGET, { color: 'amber', dash: [4, 4], label: 'harvest target' });
+    pA.vline('today', today, { color: 'muted', dash: [2, 4], label: 'today' });
+    if ($('#kf-truth').checked) pA.line('truth', linspace(0, 40, 41), T.A.slice(0, 41), { color: 'ink', width: 1.4, dash: [6, 4], label: 'truth (hidden)' }); else pA.remove('truth');
+    pA.line('open', open, { color: 'muted', width: 1.6, label: 'digital model (no data)' });
+    pA.band('band', xs, lo, hi, { color: 'magenta', alpha: 0.16 });
+    pA.band('fband', fx, flo, fhi.map(v => Math.min(v, 5000)), { color: 'magenta', alpha: 0.07 });
+    pA.line('est', est, { color: 'magenta', width: 2.4, label: 'twin (Kalman)' });
+    pA.line('fc', fx, fm, { color: 'magenta', width: 1.8, dash: [2, 3], label: 'forecast' });
+    pA.scatter('z', meas, { color: 'accent', r: 3.5, label: 'image measurements' });
+    pG.line('K', gains, { color: 'accent', width: 2, label: 'Kalman gain' });
+    pG.line('rlo', xs, rhoLo, { color: 'magenta', width: 1, dash: [2, 3], y2: true }); pG.line('rhi', xs, rhoHi, { color: 'magenta', width: 1, dash: [2, 3], y2: true, label: '± 2 SD' });
+    pG.line('rho', xs, rhoE, { color: 'magenta', width: 2, y2: true, label: 'estimated RGR' });
+    pG.line('rt', linspace(0, 40, 41), T.rgr.slice(0, 41), { color: 'ink', width: 1.2, dash: [5, 4], y2: true, label: 'true RGR' });
+    // readouts
+    const hMean = crossDay(fm.map((v, i) => i === 0 ? est[est.length - 1][1] : v), TARGET), hEarly = crossDay(fhi, TARGET), hLate = crossDay(flo, TARGET);
+    const already = Math.exp(l) >= TARGET;
+    ro.set('A', Math.exp(l)); ro.set('Ap', `${fmt(lo[lo.length - 1], 0)}–${fmt(hi[hi.length - 1], 0)} cm²`); ro.set('rho', rho); ro.set('K', Ktoday);
+    const fcTxt = already ? 'target reached' : isFinite(hMean) ? `day ${fmt(today + hMean, 1)} (${isFinite(hEarly) ? fmt(today + hEarly, 0) : '?'}–${isFinite(hLate) ? fmt(today + hLate, 0) : '> 40'})` : 'after day 40';
+    const tH = crossDay(T.A, TARGET);
+    ro.set('hf', fcTxt, isFinite(hMean) && Math.abs(today + hMean - tH) < 2 ? 'ok' : 'warn'); ro.set('ht', tH);
+  }
+  const sDay = bind('kf-day', v => 'day ' + v, run), sR = bind('kf-r', v => fmt(v * 100, 0) + ' %', run), sQ = bind('kf-q', v => fmt(v, 3) + ' d⁻¹', run), sM = bind('kf-m', v => fmt(v * 100, 0) + ' %', run);
+  ['kf-truth', 'kf-stress'].forEach(id => $('#' + id).addEventListener('change', run));
+  $('#kf-new').addEventListener('click', () => { seed++; run(); });
+  run();
+}
+
+/* =============================== Figure 4: particle filter =============================== */
+{
+  const pc = new Plot('#pf-cloud', { x: { label: 'Leaf area', unit: 'cm²', min: 0 }, y: { label: 'Relative growth rate', unit: 'd⁻¹' }, legend: true, crosshair: false, height: 290 });
+  const pt = new Plot('#pf-track', { x: { label: 'Days after transplanting', min: 0, max: 35 }, y: { label: 'Leaf area', unit: 'cm²', min: 0, max: 650 }, legend: true, height: 290 });
+  const ro = new Readouts('#pf-ro');
+  ro.add({ id: 'day', label: 'Day', digits: 0 }).add({ id: 'ess', label: 'Effective sample size', format: v => v }).add({ id: 'rs', label: 'Resamplings so far', digits: 0 }).add({ id: 'est', label: 'Particle estimate', unit: 'cm²', digits: 0 }).add({ id: 'tr', label: 'True leaf area', unit: 'cm²', digits: 0 });
+  const T = makeTruth(false), Nz = noiseSet(8), sig = 0.10;
+  let rng, parts, day, track, rs, lastESS;
+  const sN = bind('pf-n', v => v, () => reset());
+  function reset() {
+    rng = mulberry32(17); const n = sN.v; parts = [];
+    for (let i = 0; i < n; i++) parts.push({ l: Math.log(20) + 0.3 * randn(rng), r: 0.25 + 0.05 * randn(rng), w: 1 / n });
+    day = 0; rs = 0; lastESS = n; track = [];
+    record(); draw();
+  }
+  function wq(vals, ws, q) { const idx = vals.map((v, i) => i).sort((a, b) => vals[a] - vals[b]); let c = 0; for (const i of idx) { c += ws[i]; if (c >= q) return vals[i]; } return vals[idx[idx.length - 1]]; }
+  function record() {
+    const A = parts.map(p => Math.exp(p.l)), W = parts.map(p => p.w);
+    track.push({ d: day, m: A.reduce((s, a, i) => s + a * W[i], 0), lo: wq(A, W, 0.05), hi: wq(A, W, 0.95) });
+  }
+  function step() {
+    if (day >= DAYS) return;
+    day++;
+    for (const p of parts) { p.l += p.r + 0.02 * randn(rng); p.r += 0.012 * randn(rng); }
+    if (Nz.u[day] >= 0.2) {
+      const z = Math.log(T.A[day]) + sig * Nz.e[day];
+      let s = 0; for (const p of parts) { p.w *= Math.exp(-((z - p.l) ** 2) / (2 * sig * sig)); s += p.w; }
+      if (s <= 0 || !isFinite(s)) parts.forEach(p => p.w = 1 / parts.length); else parts.forEach(p => p.w /= s);
+    }
+    lastESS = 1 / parts.reduce((a, p) => a + p.w * p.w, 0);
+    if (lastESS < parts.length / 2) {   // systematic resampling
+      const n = parts.length, cum = []; let c = 0; parts.forEach(p => { c += p.w; cum.push(c); });
+      const u0 = rng() / n, np = []; let j = 0;
+      for (let i = 0; i < n; i++) { const u = u0 + i / n; while (j < n - 1 && cum[j] < u) j++; np.push({ l: parts[j].l, r: parts[j].r, w: 1 / n }); }
+      parts = np; rs++;
+    }
+    record();
+  }
+  function draw() {
+    const n = parts.length, ws = parts.map(p => p.w).slice().sort((a, b) => b - a), hiW = ws[Math.floor(n * 0.1)] || 0, loW = ws[Math.floor(n * 0.5)] || 0;
+    const big = parts.filter(p => p.w >= hiW && p.w > 0), mid = parts.filter(p => p.w < hiW && p.w >= loW), small = parts.filter(p => p.w < loW);
+    pc.scatter('s', small.map(p => Math.exp(p.l)), small.map(p => p.r), { color: 'muted', r: 1.6, label: 'low weight' });
+    pc.scatter('m', mid.map(p => Math.exp(p.l)), mid.map(p => p.r), { color: 'water', r: 2.8, label: 'medium' });
+    pc.scatter('b', big.map(p => Math.exp(p.l)), big.map(p => p.r), { color: 'accent', r: 4.2, label: 'high weight' });
+    pc.point('truth', T.A[day], T.rgr[day], { color: 'magenta', r: 6, label: 'truth' });
+    pt.band('band', track.map(t => t.d), track.map(t => t.lo), track.map(t => t.hi), { color: 'accent', alpha: 0.18, label: '5–95 % of particles' });
+    pt.line('mean', track.map(t => t.d), track.map(t => t.m), { color: 'accent', width: 2.2, label: 'particle mean' });
+    pt.line('truth', linspace(0, 35, 36), T.A.slice(0, 36), { color: 'ink', width: 1.2, dash: [6, 4], label: 'truth' });
+    const meas = []; for (let d = 1; d <= day; d++) if (Nz.u[d] >= 0.2) meas.push([d, Math.exp(Math.log(T.A[d]) + sig * Nz.e[d])]);
+    pt.scatter('z', meas, { color: 'magenta', r: 3.2, label: 'measurements' });
+    ro.set('day', day); ro.set('ess', `${fmt(lastESS, 0)} of ${n}`, lastESS < n / 2 ? 'warn' : 'ok'); ro.set('rs', rs); ro.set('est', track[track.length - 1].m); ro.set('tr', T.A[day]);
+  }
+  $('#pf-step').addEventListener('click', () => { step(); draw(); });
+  $('#pf-run').addEventListener('click', () => { while (day < DAYS) step(); draw(); });
+  $('#pf-reset').addEventListener('click', reset);
+  reset(); for (let i = 0; i < 10; i++) step(); draw();
+}
+
+/* =============================== Figure 6: Shapley values and LIME =============================== */
+{
+  const f = (D, T, C) => { const lc = Math.log(C / 600); return 6 + 0.45 * (D - 14) - 0.12 * (T - 21) ** 2 + 2.2 * lc + 0.15 * (D - 14) * lc; };
+  const rng = mulberry32(99), BG = [];
+  for (let i = 0; i < 400; i++) BG.push([6 + 16 * rng(), clamp(20 + 2.5 * randn(rng), 14, 28), 400 + 600 * rng()]);
+  const mBG = [0, 1, 2].map(j => mean(BG.map(b => b[j]))), EF = mean(BG.map(b => f(...b))), RNG = [16, 14, 800];
+  const names = ['DLI', 'Temperature', 'CO₂'];
+  const bars = new BarChart('#sh-bars', { horizontal: true, y: { label: 'Contribution', unit: 'g d⁻¹' }, height: 250 });
+  const wf = new Plot('#sh-wf', { x: { label: '', min: -0.6, max: 4.6, format: () => '' }, y: { label: 'Growth rate', unit: 'g d⁻¹' }, legend: false, crosshair: false, height: 250 });
+  const ro = new Readouts('#sh-ro');
+  ro.add({ id: 'f', label: 'Prediction f(x)', unit: 'g d⁻¹', digits: 2 }).add({ id: 'e', label: 'Average prediction E[f]', unit: 'g d⁻¹', digits: 2 }).add({ id: 's', label: 'Sum of Shapley values', unit: 'g d⁻¹', digits: 2 })
+    .add({ id: 'l1', label: 'LIME slope, DLI', unit: 'g d⁻¹ per mol m⁻² d⁻¹', digits: 3 }).add({ id: 'l2', label: 'LIME slope, temperature', unit: 'g d⁻¹ °C⁻¹', digits: 3 }).add({ id: 'l3', label: 'LIME slope, CO₂', unit: 'g d⁻¹ per 100 ppm', digits: 3 });
+  function update() {
+    const x = [sD.v, sT.v, sC.v];
+    const v = S => mean(BG.map(b => f(...[0, 1, 2].map(j => S & (1 << j) ? x[j] : b[j]))));
+    const V = []; for (let S = 0; S < 8; S++) V.push(v(S));
+    const w = [1 / 3, 1 / 6, 1 / 6, 1 / 3], pop = S => (S & 1) + ((S >> 1) & 1) + ((S >> 2) & 1);
+    const phi = [0, 1, 2].map(j => { let s = 0; for (let S = 0; S < 8; S++) if (!(S & (1 << j))) s += (pop(S) === 0 ? 1 / 3 : pop(S) === 1 ? 1 / 6 : 1 / 3) * (V[S | (1 << j)] - V[S]); return s; });
+    // LIME: weighted linear surrogate around x
+    const lr = mulberry32(7), X = [], Y = [];
+    for (let m = 0; m < 500; m++) {
+      const z = x.map((xi, j) => xi + 0.15 * RNG[j] * randn(lr)); z[1] = clamp(z[1], 8, 34); z[2] = Math.max(250, z[2]);
+      const d2 = z.reduce((s, zi, j) => s + ((zi - x[j]) / RNG[j]) ** 2, 0), sw = Math.sqrt(Math.exp(-d2 / (0.25 * 0.25)));
+      X.push([sw, sw * z[0], sw * z[1], sw * z[2]]); Y.push(sw * f(...z));
+    }
+    const fit = ols(X, Y, { intercept: false });
+    const slopes = fit ? fit.beta.slice(1) : [NaN, NaN, NaN], lime = slopes.map((s, j) => s * (x[j] - mBG[j]));
+    bars.set(names, [{ label: 'Shapley value', values: phi.map(p => +p.toFixed(3)), color: 'magenta' }, { label: 'LIME slope × (x − mean)', values: lime.map(p => +p.toFixed(3)), color: 'water' }]);
+    const fx = f(...x); let run = EF;
+    wf.custom('wf', (ctx, p, P) => {
+      const steps = [['E[f]', 0, EF, P.muted], ...phi.map((ph, j) => [names[j], run + (j ? phi.slice(0, j).reduce((a, b) => a + b, 0) : 0), ph, ph >= 0 ? P.accent : P.danger]), ['f(x)', 0, fx, P.magenta]];
+      steps.forEach(([lab, base, h, col], k) => {
+        const x0 = p.px(k - 0.32), x1 = p.px(k + 0.32), yA = p.py(base), yB = p.py(base + h);
+        ctx.fillStyle = col; ctx.globalAlpha = 0.85; ctx.fillRect(x0, Math.min(yA, yB), x1 - x0, Math.max(1, Math.abs(yB - yA))); ctx.globalAlpha = 1;
+        ctx.fillStyle = P.ink; ctx.font = '600 11px Inter, sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText((k === 0 || k === 4 ? '' : h >= 0 ? '+' : '') + h.toFixed(2), (x0 + x1) / 2, Math.min(yA, yB) - 4);
+      });
+    });
+    ['E[f]', 'DLI', 'T', 'CO₂', 'f(x)'].forEach((lab, k) => wf.text('lab' + k, k, 0, lab, { align: 'center', dy: 14, color: 'muted', size: 11, weight: 600 }));
+    const lo = Math.min(0, ...[EF, fx]), hi = Math.max(EF, fx, EF + Math.max(0, phi[0]), EF + Math.max(0, phi[0]) + Math.max(0, phi[1]), EF + phi.reduce((a, b) => a + Math.max(0, b), 0));
+    wf.setAxis('y', { min: Math.min(0, lo), max: Math.ceil((hi + 1.5) / 2) * 2 });
+    ro.set('f', fx); ro.set('e', EF); ro.set('s', phi[0] + phi[1] + phi[2], Math.abs(phi[0] + phi[1] + phi[2] - (fx - EF)) < 1e-6 ? 'ok' : 'bad');
+    ro.set('l1', slopes[0]); ro.set('l2', slopes[1]); ro.set('l3', slopes[2] * 100);
+  }
+  const sD = bind('sh-d', v => fmt(v, 1) + ' mol m⁻² d⁻¹', update), sT = bind('sh-t', v => fmt(v, 1) + ' °C', update), sC = bind('sh-c', v => v + ' ppm', update);
+  update();
+}
+
+/* =============================== Figure 7: AI energy budget =============================== */
+{
+  let ci = 0.035;
+  const bars = new BarChart('#en-bars', { horizontal: true, y: { label: 'Electricity per year', unit: 'kWh' }, height: 190 });
+  const ro = new Readouts('#en-ro');
+  ro.add({ id: 'tot', label: 'Total electricity', unit: 'kWh yr⁻¹', digits: 0 }).add({ id: 'co2', label: 'Emissions', unit: 'kg CO₂e yr⁻¹', digits: 1 })
+    .add({ id: 'heat', label: 'Share of 1 ha glasshouse heat (6.5 GWh)', unit: '%', digits: 4 }).add({ id: 'vf', label: 'Equivalent: lighting 1 m² of vertical farm', unit: 'days', digits: 0 });
+  function update() {
+    const edge = sEd.v * 8760 / 1000, train = sGh.v * sGp.v * sPue.v / 1000, llm = sQ.v * sE.v * 365 / 1000, tot = edge + train + llm;
+    bars.set(['Edge devices', 'Model training', 'LLM questions'], [{ label: 'kWh per year', values: [edge, train, llm].map(v => +v.toFixed(1)), colors: ['#2e9a55', '#1c78a3', '#b23f8c'] }]);
+    ro.set('tot', tot); ro.set('co2', tot * ci); ro.set('heat', tot / 6.5e6 * 100); ro.set('vf', tot / 1.7);
+  }
+  const sEd = bind('en-ed', v => v + ' W', update), sGh = bind('en-gh', v => v + ' h', update), sGp = bind('en-gp', v => v + ' W', update), sPue = bind('en-pue', v => fmt(v, 2), update), sQ = bind('en-q', v => v, update), sE = bind('en-e', v => fmt(v, 2) + ' Wh', update);
+  segInit($('#en-grid'), v => { ci = +v; update(); });
+  update();
+}
+
+/* =============================== Figure 9: AI Act classifier =============================== */
+{
+  const CASES = [
+    { n: 'Reinforcement-learning climate control in a greenhouse', c: 'minimal', l: 'Minimal risk', why: 'Controlling heating, vents and lighting of a crop is not a listed high-risk area and not a safety component of a regulated product.', duty: 'No specific AI Act obligations; good practice: human override, safe fallback settings, logging.', when: '—' },
+    { n: 'Smartphone app that recognises leaf diseases', c: 'minimal', l: 'Minimal risk', why: 'Plant diagnosis is not an Annex III area.', duty: 'No specific obligations; validate on the users’ conditions and state the app’s limits (Lesson 10.3).', when: '—' },
+    { n: 'LLM chatbot giving farmers agronomic advice', c: 'transparency', l: 'Transparency obligations', why: 'People interacting with an AI system must be informed that they are talking to a machine (Art. 50); the provider of the underlying general-purpose model has its own obligations.', duty: 'Disclose that the user is interacting with AI; the GPAI model provider must document the model and publish a summary of training content.', when: 'GPAI obligations since 2 August 2025; Art. 50 from 2 August 2026.' },
+    { n: 'AI that ranks applicants for seasonal harvest work', c: 'high', l: 'High risk (Annex III: employment)', why: 'AI used for recruitment, selection and decisions affecting workers is listed in Annex III.', duty: 'Provider: risk management, data governance and bias examination, documentation, logging, human oversight, accuracy and robustness, conformity assessment, registration. Deployer: use as instructed, human oversight, inform workers.', when: 'Stand-alone high-risk obligations from 2 December 2027 (after the 2026 amendment).' },
+    { n: 'Credit scoring of farmers for loans', c: 'high', l: 'High risk (Annex III: access to essential services)', why: 'Evaluating the creditworthiness of natural persons is listed in Annex III.', duty: 'Full high-risk obligations, including examination of training data for bias.', when: 'From 2 December 2027.' },
+    { n: 'AI controlling a municipal water-supply network that also feeds irrigation', c: 'high', l: 'High risk (Annex III: critical infrastructure)', why: 'AI used as a safety component in the management and operation of water supply is listed in Annex III.', duty: 'Full high-risk obligations; robustness and cybersecurity are central.', when: 'From 2 December 2027.' },
+    { n: 'Cameras that infer the emotions of packing-house workers', c: 'prohibited', l: 'Prohibited practice', why: 'Emotion recognition in the workplace is prohibited (Art. 5), except for medical or safety reasons.', duty: 'May not be placed on the market or used; fines up to €35 million or 7 % of worldwide turnover.', when: 'Prohibited since 2 February 2025.' },
+    { n: 'Autonomous weeding robot with AI vision', c: 'sectoral', l: 'Machinery rules (sectoral route)', why: 'After the 2026 amendment, AI functions in machinery are handled through the Machinery Regulation (EU) 2023/1230 rather than directly under the AI Act’s high-risk regime.', duty: 'Machinery safety requirements and conformity assessment, including for safety functions that rely on AI.', when: 'Machinery Regulation applies from 20 January 2027.' },
+    { n: 'AI-generated photos and videos used to market vegetables', c: 'transparency', l: 'Transparency obligations', why: 'Synthetic or manipulated images and video must be disclosed; generative systems must mark their output in a machine-readable way (Art. 50).', duty: 'Label deepfakes; providers of generative systems mark outputs.', when: 'From 2 August 2026; marking for systems already on the market by 2 December 2026.' }
+  ];
+  const sel = $('#aa-sel'), card = $('#aa-card');
+  sel.innerHTML = CASES.map((c, i) => `<option value="${i}">${c.n}</option>`).join('');
+  const show = () => { const c = CASES[+sel.value]; card.innerHTML = `<span class="aa-badge ${c.c}">${c.l}</span><h4>${c.n}</h4><p><b>Why:</b> ${c.why}</p><p><b>What it means:</b> ${c.duty}</p><p><b>When:</b> ${c.when}</p>`; };
+  sel.addEventListener('change', show); sel.value = '3'; show();
+}
+</script>
+</body>
+</html>

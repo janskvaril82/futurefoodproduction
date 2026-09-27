@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agricultural robotics and automation · Future Food Production</title>
+<meta name="description" content="Anatomy of agricultural robots (perception, localisation, planning, actuation), levels of autonomy, machine vision for crop–weed discrimination, mechanical, laser and spot-spray weeding, harvesting and milking robots, spraying drones and EU rules, swarms, safety standards and liability, economics and social implications, with herbicide-saving calculations.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator functions for Lesson 11.4 */
+window.FFP_CALC = window.FFP_CALC || {};
+(function (C) {
+  /* pure pursuit: steering angle (deg) from lateral offset y of the look-ahead point, look-ahead distance Ld and wheelbase L */
+  C.arSteer = function (v) { var s = Math.max(-1, Math.min(1, v.y / v.Ld)); return Math.atan(v.L * 2 * s / v.Ld) * 180 / Math.PI; };
+  /* spot spraying: saving (%) for Poisson weeds, square cells of side a (cm), recall r (%), false-positive rate q (%) */
+  C.arSave = function (v) { var A = Math.pow(v.a / 100, 2), pw = 1 - Math.exp(-v.lam * A), fT = (v.r / 100) * pw + (v.q / 100) * (1 - pw); return 100 * (1 - fT); };
+})(window.FFP_CALC);
+</script>
+<style>
+  .ar-grid{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start}
+  @media (max-width:760px){.ar-grid{grid-template-columns:1fr}}
+  .ar-ctl .mc-var{margin-bottom:10px}
+  .ar-ctl .seg{margin-bottom:10px;flex-wrap:wrap}
+  .ar-note{font-size:.8rem;color:var(--muted);margin-top:6px;line-height:1.45}
+</style>
+</head>
+<body data-page="lesson" data-slug="agricultural-robotics">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Agricultural robotics and automation</h1>
+      <p class="lead">At four in the morning a solar-powered robot the size of a small car creeps along a sugar-beet field, hoeing between plants whose exact positions it recorded when it sowed them. In a barn in Västmanland a cow walks into a milking robot because she has decided it is time to be milked. In a Dutch greenhouse a robotic arm reaches for a pepper — and, more often than its designers would like, misses. Robots have been part of dairy farming for three decades but are still rare in orchards and vegetable fields. This lesson asks why: it takes a robot apart into its sensing, thinking and acting parts, puts numbers on machine vision, weeding and harvesting, and examines the rules, costs and social consequences of handing field work to machines.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Describe the anatomy of an agricultural robot — perception, localisation, planning and actuation — and classify systems by their level of autonomy (LO5).</li>
+        <li>Explain machine-vision crop–weed discrimination from colour indices and thresholding to deep learning, and evaluate a detector with precision, recall and F1 (LO5).</li>
+        <li>Compare mechanical, laser and spot-spray weeding and calculate herbicide savings from weed density, detection performance and spray resolution, judging manufacturers' claims critically (LO3, LO7).</li>
+        <li>Explain with quantitative performance measures why harvesting robots remain difficult while milking robots succeeded (LO1, LO5).</li>
+        <li>Discuss safety standards (ISO 18497, the EU Machinery Regulation), liability, the EU rules for spraying drones, and the economic and social implications of agricultural robots (LO6, LO7).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="why-robots">Why robots, and why now?</h2>
+      <p class="lede-drop">For a century, agricultural mechanisation meant bigger machines: wider booms, heavier combines, more horsepower per driver. That strategy made one farmer able to cultivate hundreds of hectares, but it has limits. Heavy machines compact soil (<a href="/lessons/precision-farming/">Lesson 11.1</a>); wide implements treat every square metre the same; and some tasks — picking fruit, weeding within crop rows, milking — resisted mechanisation because they require perception and dexterity at the scale of the individual plant or animal. Robotics attacks exactly these limits by adding sensing and decision-making to the machine, so that it can treat each plant individually and work without a driver.</p>
+      <p>Four pressures push in the same direction (Duckett et al., 2018; Oliveira et al., 2021). <strong>Labour</strong>: seasonal work in horticulture depends on migrant workers who are increasingly hard to recruit. <strong>Chemicals</strong>: the EU Farm to Fork strategy aims to reduce the use and risk of chemical pesticides by 50 % by 2030 (European Commission, 2020), few new herbicides reach the market, and herbicide-resistant weeds are spreading — especially a problem in vegetables and organic crops, where robotic weeders fill a gap (Fennimore &amp; Cutulle, 2019). <strong>Precision</strong>: the data–decision–action cycle of precision agriculture reaches its logical end at the single plant. <strong>Enabling technology</strong>: centimetre-level RTK positioning, cheap cameras, embedded processors and deep learning have made perception affordable.</p>
+      <div class="timeline">
+        <div><div class="t-date">Early 1990s</div><p>First commercial automatic milking systems in dairy barns in the Netherlands; automatic milking spreads through northern Europe in the following decades (Jacobs &amp; Siegford, 2012).</p></div>
+        <div><div class="t-date">1995</div><p>Woebbecke et al. publish colour indices, including the excess-green index, for separating plants from soil and residues in images (Woebbecke et al., 1995).</p></div>
+        <div><div class="t-date">2008</div><p>Slaughter, Giles and Downey review autonomous robotic weed control: robust weed detection is identified as the main obstacle (Slaughter et al., 2008).</p></div>
+        <div><div class="t-date">2014</div><p>A review of 50 harvesting robots finds no improvement in performance over three decades and no commercial success (Bac et al., 2014).</p></div>
+        <div><div class="t-date">2017</div><p>The Hands Free Hectare project in the UK grows a cereal crop with autonomous machinery only (Lowenberg-DeBoer et al., 2021).</p></div>
+        <div><div class="t-date">2020–2022</div><p>Commercial camera-guided spot sprayers, seed-mapping weeding robots and a tractor-drawn laser weeder reach farmers; deep learning becomes the standard for weed detection (Hasan et al., 2021).</p></div>
+        <div><div class="t-date">2027</div><p>The new EU Machinery Regulation, with explicit requirements for autonomous mobile machinery, applies from 20 January 2027.</p></div>
+      </div>
+
+      <h2 id="anatomy">Anatomy of a field robot</h2>
+      <p>Every robot, from a milking arm to a weeding rover, runs the same loop: <strong>sense → perceive and localise → plan → act</strong>, many times per second, with a safety layer that can override everything else. Figure 1 shows the components of a typical autonomous field robot.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 410" role="img" aria-label="Block diagram of an agricultural robot: sensors feed localisation and perception, which feed planning and control, which drive actuators and tools; a safety system and a remote supervisor can stop the robot">
+            <defs><marker id="ar-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <rect x="20" y="30" width="170" height="210" rx="10" class="fill-water-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="105" y="52" text-anchor="middle" font-weight="600">Sensors</text>
+            <text x="34" y="78" class="t-small">RTK-GNSS (± 2 cm)</text>
+            <text x="34" y="98" class="t-small">IMU, wheel odometry</text>
+            <text x="34" y="118" class="t-small">RGB / multispectral cameras</text>
+            <text x="34" y="138" class="t-small">3D: stereo, LiDAR, ToF</text>
+            <text x="34" y="158" class="t-small">bumpers, ultrasonic, radar</text>
+            <text x="34" y="178" class="t-small">tool sensors (force, flow)</text>
+            <text x="34" y="222" class="t-small t-muted">"where am I, what is here?"</text>
+            <rect x="240" y="30" width="200" height="90" rx="10" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="340" y="52" text-anchor="middle" font-weight="600">Localisation</text>
+            <text x="340" y="74" text-anchor="middle" class="t-small">sensor fusion (Kalman filter)</text>
+            <text x="340" y="92" text-anchor="middle" class="t-small">position, heading, row offset</text>
+            <rect x="240" y="150" width="200" height="90" rx="10" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="340" y="172" text-anchor="middle" font-weight="600">Perception</text>
+            <text x="340" y="194" text-anchor="middle" class="t-small">crop rows, plants, weeds, fruit</text>
+            <text x="340" y="212" text-anchor="middle" class="t-small">obstacles, people, animals</text>
+            <rect x="490" y="30" width="190" height="90" rx="10" class="fill-amber-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="585" y="52" text-anchor="middle" font-weight="600">Planning &amp; control</text>
+            <text x="585" y="74" text-anchor="middle" class="t-small">route and task plan</text>
+            <text x="585" y="92" text-anchor="middle" class="t-small">path following (pure pursuit)</text>
+            <rect x="490" y="150" width="190" height="90" rx="10" class="fill-magenta-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="585" y="172" text-anchor="middle" font-weight="600">Actuation &amp; tools</text>
+            <text x="585" y="194" text-anchor="middle" class="t-small">drive, steering</text>
+            <text x="585" y="212" text-anchor="middle" class="t-small">hoe, nozzle, laser, gripper</text>
+            <path d="M190 90 L238 76" class="stroke" stroke-width="1.5" marker-end="url(#ar-a)"/>
+            <path d="M190 180 L238 194" class="stroke" stroke-width="1.5" marker-end="url(#ar-a)"/>
+            <path d="M440 76 L488 76" class="stroke" stroke-width="1.5" marker-end="url(#ar-a)"/>
+            <path d="M440 194 L488 110" class="stroke" stroke-width="1.5" marker-end="url(#ar-a)"/>
+            <path d="M585 120 L585 148" class="stroke" stroke-width="1.5" marker-end="url(#ar-a)"/>
+            <path d="M585 242 Q585 272 400 272 Q120 272 105 244" class="stroke-muted" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ar-a)"/>
+            <text x="350" y="296" text-anchor="middle" class="t-small t-muted">feedback: the world changes, sensors measure again (10–100 times per second)</text>
+            <rect x="20" y="318" width="660" height="80" rx="10" class="fill-sunk" stroke="currentColor" stroke-width="1"/>
+            <text x="350" y="340" text-anchor="middle" font-weight="600" style="fill:var(--danger)">Safety layer (independent)</text>
+            <text x="350" y="362" text-anchor="middle" class="t-small">emergency stops, obstacle detection, speed limits, geofence;</text><text x="350" y="380" text-anchor="middle" class="t-small">a remote supervisor can stop, start or move the machine to a safe state</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The anatomy of an autonomous field robot. Localisation answers "where am I?", perception "what is around me?", planning "what should I do next?", and actuation does it. An independent safety layer, required by the machinery safety rules discussed in Section 11.4.8, can stop the robot whatever the other layers decide.</figcaption>
+      </figure>
+
+      <p><strong>Localisation</strong> fuses RTK-GNSS (the centimetre positioning of Lesson 11.1) with inertial sensors and wheel odometry, usually in a Kalman filter, so that short GNSS outages under trees or buildings do not stop the machine. In row crops, cameras that detect the rows themselves often provide the most relevant reference: what matters is the position relative to the plants, not to the satellites. <strong>Planning</strong> ranges from covering a field in parallel passes (the same geometry as guidance, Lesson 11.1) to choosing which weed to shoot next. <strong>Control</strong> turns the plan into steering and speed commands. A classic, simple path-following law — used in many field robots — is <em>pure pursuit</em>: aim at a point on the path a fixed distance ahead, and steer along the circular arc that reaches it.</p>
+
+      <div class="eq-box" id="eq-ar-pursuit">
+        <div class="eq-head"><span class="eq-label">Pure-pursuit path following</span><span class="eq-num">(11.4.1)</span></div>
+        <div class="eq-main">\[ \kappa=\frac{2\,y_L}{L_d^{2}}=\frac{2\sin\alpha}{L_d},\qquad \delta=\arctan\left(W_b\,\kappa\right) \]</div>
+        <p class="eq-read">the curvature of the arc that takes the robot to a look-ahead point on the path equals twice the lateral offset of that point divided by the square of the look-ahead distance (or twice the sine of the angle to the point divided by the look-ahead distance); the front-wheel steering angle is the arctangent of the wheelbase times the curvature.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(L_d\)</td><td>look-ahead distance from the rear axle to the target point on the path</td><td>m</td><td>1–5</td></tr>
+          <tr><td>\(y_L\)</td><td>lateral offset of the target point in the robot's frame</td><td>m</td><td>0–0.5</td></tr>
+          <tr><td>\(\alpha\)</td><td>angle between the robot's heading and the line to the target, \(\sin\alpha=y_L/L_d\)</td><td>rad</td><td>–</td></tr>
+          <tr><td>\(\kappa\)</td><td>curvature of the steering arc (1/radius)</td><td>m⁻¹</td><td>0–0.5</td></tr>
+          <tr><td>\(W_b\)</td><td>wheelbase (bicycle model)</td><td>m</td><td>1–3</td></tr>
+          <tr><td>\(\delta\)</td><td>front-wheel steering angle</td><td>rad (°)</td><td>±30°</td></tr>
+        </table>
+        <details><summary>Follow the derivation (circle geometry)</summary>
+          <ol class="steps">
+            <li>Place the robot's rear axle at the origin, heading along the x axis. The target point is at \((x_L, y_L)\) with \(x_L^2+y_L^2=L_d^2\).</li>
+            <li>A circle of radius \(R\) tangent to the heading passes through the origin with its centre at \((0,R)\): \(x^2+(y-R)^2=R^2\), i.e. \(x^2+y^2=2Ry\).</li>
+            <li>For the circle to pass through the target: \(L_d^2 = 2Ry_L\), so \(\kappa = 1/R = 2y_L/L_d^2\). With \(y_L = L_d\sin\alpha\): \(\kappa = 2\sin\alpha/L_d\). ✓</li>
+            <li>In the bicycle model a vehicle with wheelbase \(W_b\) and steering angle \(\delta\) drives on a circle with \(\tan\delta = W_b/R = W_b\kappa\). ✓</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>No wheel slip, low speed, flat ground. A short look-ahead tracks tightly but oscillates; a long one is smooth but cuts corners — the look-ahead is usually increased with speed. On soft soil, slopes and with implements that pull sideways, real controllers add feedback terms or model-predictive control (Lesson 10.4).</p></details>
+        <div class="eq-units">κ: m/m² = m⁻¹ ✓; \(W_b\kappa\): m × m⁻¹ = dimensionless, as the argument of arctan must be ✓</div>
+        <div class="mini-calc" data-fn="arSteer" data-output="Steering angle δ" data-unit="°" data-digits="1" data-plot="y" data-title="Try it — how hard must the robot steer?">
+          <div data-var="y" data-label="Lateral offset of target y<sub>L</sub>" data-min="-1" data-max="1" data-step="0.01" data-value="0.3" data-unit="m"></div>
+          <div data-var="Ld" data-label="Look-ahead distance L<sub>d</sub>" data-min="0.5" data-max="6" data-step="0.1" data-value="2" data-unit="m"></div>
+          <div data-var="L" data-label="Wheelbase W<sub>b</sub>" data-min="0.8" data-max="3" data-step="0.1" data-value="1.5" data-unit="m"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">Getting back onto the row</span></div>
+        <div class="we-problem"><p>A weeding robot with a 1.5 m wheelbase has drifted so that its target point, 2.0 m ahead on the planned path, lies 0.30 m to the left. Calculate the curvature, the turning radius and the steering angle commanded by pure pursuit. What happens if the look-ahead is shortened to 1.0 m?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Curvature</strong> (Eq. 11.4.1): \(\kappa = 2\times0.30/2.0^2 = 0.15\) m⁻¹; radius \(R = 1/0.15 = 6.7\) m.</li>
+              <li><strong>Steering angle:</strong> \(\delta = \arctan(1.5\times0.15) = \arctan(0.225) = 12.7^{\circ}\).</li>
+              <li><strong>Shorter look-ahead:</strong> \(\kappa = 2\times0.30/1.0^2 = 0.60\) m⁻¹ and \(\delta = \arctan(0.90) = 42^{\circ}\) — beyond the steering limit of most machines, and a recipe for oscillation.</li>
+              <li><strong>Engineering choice.</strong> The look-ahead trades responsiveness against stability; at 1 m s⁻¹ in a sugar-beet row, 1.5–3 m is a reasonable range.</li>
+            </ol>
+            <span class="answer">κ = 0.15 m⁻¹ (R ≈ 6.7 m), δ ≈ 12.7°; with L<sub>d</sub> = 1 m, δ ≈ 42°</span>
+          </div>
+        </details>
+      </div>
+
+      <h3>Levels of autonomy</h3>
+      <p>"Autonomous" is used loosely in marketing. It helps to distinguish levels, analogous to those used for road vehicles. Table 1 is a simplified scale; the EU Machinery Regulation defines <em>autonomous mobile machinery</em> precisely as mobile machinery "which has an autonomous mode, in which all the essential safety functions of the mobile machinery are ensured in its travel and working operations area without permanent interaction of an operator" (Regulation (EU) 2023/1230).</p>
+      <table>
+        <caption>Table 1. A simplified scale of automation in agricultural machinery.</caption>
+        <thead><tr><th>Level</th><th>Description</th><th>Who is responsible for safety?</th><th>Examples</th></tr></thead>
+        <tbody>
+          <tr><td>0 — manual</td><td>driver steers and operates everything</td><td>driver</td><td>conventional tractor</td></tr>
+          <tr><td>1 — assisted</td><td>one function automated</td><td>driver</td><td>GNSS auto-steer, section control (Lesson 11.1)</td></tr>
+          <tr><td>2 — partially automated</td><td>several functions automated, driver supervises continuously</td><td>driver on board</td><td>automated headland turns, camera-guided hoes</td></tr>
+          <tr><td>3 — supervised autonomy</td><td>machine works alone within a defined area; a supervisor watches remotely and intervenes on alerts</td><td>machine safety functions + remote supervisor</td><td>field robots for seeding, weeding and spraying</td></tr>
+          <tr><td>4 — full autonomy in a defined domain</td><td>no human needed within the operating domain</td><td>machine within the domain</td><td>automatic milking systems inside the barn</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="vision">Machine vision: telling crop from weed</h2>
+      <p>For a weeding robot, everything depends on one question asked thousands of times per minute: <em>is this plant a crop or a weed?</em> A digital image is a grid of pixels, each with red, green and blue values (and, in multispectral cameras, near-infrared and red-edge values — the physics of <a href="/lessons/remote-sensing/">Lesson 11.2</a>). The processing chain has three stages: separate plants from background (<em>segmentation</em>), find individual plants (<em>detection</em>), and decide what each one is (<em>classification</em>) — see also <a href="/lessons/computer-vision/">Lesson 10.3</a>.</p>
+      <p>The first stage exploits the fact that green vegetation reflects relatively more green than red or blue light. Woebbecke et al. (1995) compared colour indices under various soils, residues and lighting and found the <strong>excess-green index</strong> among the best:</p>
+
+      <div class="eq-box" id="eq-ar-exg">
+        <div class="eq-head"><span class="eq-label">Excess-green index for plant segmentation</span><span class="eq-num">(11.4.2)</span></div>
+        <div class="eq-main">\[ r=\frac{R}{R+G+B},\quad g=\frac{G}{R+G+B},\quad b=\frac{B}{R+G+B},\qquad \text{ExG}=2g-r-b \]</div>
+        <p class="eq-read">first normalise each colour channel by the sum of all three to obtain chromatic coordinates; the excess-green index is twice the green coordinate minus the red and blue coordinates. A pixel is classified as plant if its ExG exceeds a threshold.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(R, G, B\)</td><td>pixel values in the red, green and blue channels</td><td>digital number (0–255)</td><td>–</td></tr>
+          <tr><td>\(r, g, b\)</td><td>chromatic coordinates, \(r+g+b=1\)</td><td>–</td><td>≈ 1/3 each for grey soil</td></tr>
+          <tr><td>ExG</td><td>excess-green index, −1 to +2</td><td>–</td><td>≈ 0 soil; 0.1–0.5 green leaves</td></tr>
+          <tr><td>\(t\)</td><td>segmentation threshold (e.g. from Otsu's method)</td><td>–</td><td>0.05–0.2</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li><strong>Normalisation</strong> removes overall brightness: a leaf in sun and in shadow has similar \(r, g, b\) although its \(R, G, B\) values differ by a factor of several — the same idea as the normalised difference of Lesson 11.2.</li>
+            <li>For grey soil \(r\approx g\approx b\approx 1/3\), so ExG ≈ 0. For a green leaf \(g\) is larger than \(r\) and \(b\), so ExG is positive.</li>
+            <li><strong>Thresholding.</strong> Otsu (1979) chooses the threshold \(t\) that maximises the between-class variance of the histogram of index values: \(\sigma_B^2(t)=\omega_0(t)\,\omega_1(t)\,[\mu_0(t)-\mu_1(t)]^2\), where \(\omega\) are the fractions of pixels below and above \(t\) and \(\mu\) their mean values. It adapts automatically to each image.</li>
+            <li>Connected groups of plant pixels ("blobs") are then treated as plant candidates for classification.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>ExG separates <em>green from not-green</em>, not crop from weed; green weeds among a green crop ("green-on-green") need shape, texture, position or deep learning. Red-leaved plants, green algae on soil, strong shadows and specular reflections cause errors. Near-infrared bands, where available, give a much stronger plant–soil contrast.</p></details>
+        <div class="eq-units">all quantities dimensionless ratios ✓</div>
+        <div class="mini-calc" data-formula="(2*G - R - B)/(R + G + B)" data-output="ExG" data-digits="3" data-plot="G" data-ymin="-0.5" data-ymax="1" data-title="Try it — ExG of a pixel">
+          <div data-var="R" data-label="Red value R" data-min="0" data-max="255" data-step="1" data-value="70"></div>
+          <div data-var="G" data-label="Green value G" data-min="0" data-max="255" data-step="1" data-value="120"></div>
+          <div data-var="B" data-label="Blue value B" data-min="0" data-max="255" data-step="1" data-value="50"></div>
+        </div>
+      </div>
+
+      <p>Separating crop from weed ("green-on-green") is harder. Earlier systems used hand-crafted features — leaf shape, size, texture, position in the row. Since about 2018, convolutional neural networks trained on thousands of labelled images have become standard (Hasan et al., 2021; Lesson 10.3). A second strategy avoids the problem: if the robot records the position of every crop seed when it sows (as the FarmDroid robots do with RTK-GNSS), any plant elsewhere is a weed by definition (Allmendinger et al., 2022). A third uses 3D cameras: crop plants of a known age have a predictable height and structure.</p>
+
+      <h3>How good is the detector?</h3>
+      <p>A detector makes two kinds of mistakes: it misses weeds (false negatives) and it attacks crop plants or bare soil (false positives). Accuracy — the fraction of correct decisions — is a poor summary when weeds are rare. The standard measures come from the confusion matrix:</p>
+
+      <div class="eq-box" id="eq-ar-metrics">
+        <div class="eq-head"><span class="eq-label">Precision, recall and F1 score</span><span class="eq-num">(11.4.3)</span></div>
+        <div class="eq-main">\[ \text{precision}=\frac{TP}{TP+FP},\qquad \text{recall}=\frac{TP}{TP+FN},\qquad F_1=\frac{2\,\text{precision}\cdot\text{recall}}{\text{precision}+\text{recall}} \]</div>
+        <p class="eq-read">precision is the fraction of plants called "weed" that really are weeds; recall is the fraction of real weeds that were found; the F1 score is their harmonic mean.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning (for the class "weed")</th><th>Consequence in the field</th></tr>
+          <tr><td>TP</td><td>true positives: weeds detected as weeds</td><td>weed controlled</td></tr>
+          <tr><td>FP</td><td>false positives: crop plants (or soil) called weeds</td><td>crop damaged or herbicide wasted</td></tr>
+          <tr><td>FN</td><td>false negatives: weeds missed</td><td>weed survives, competes, sets seed</td></tr>
+          <tr><td>TN</td><td>true negatives: crop plants left alone</td><td>–</td></tr>
+        </table>
+        <details><summary>Why the harmonic mean?</summary>
+          <ol class="steps">
+            <li>A detector can reach recall = 1 trivially by calling everything a weed (and spraying the whole field), or high precision by calling only the most obvious plants weeds. Neither is useful.</li>
+            <li>The harmonic mean \(2PR/(P+R)\) is dominated by the smaller of the two, so F1 is high only if both are high.</li>
+            <li>Moving the decision threshold trades precision against recall; plotting one against the other gives the precision–recall curve, whose area summarises detector quality. Figure 2 lets you explore this trade-off.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Metrics depend on the test images: a detector trained in one field and season may perform much worse in another (different soils, light, growth stages, weed species). Report metrics on independent test data from the conditions of use, and state the prevalence of weeds, which affects precision.</p></details>
+        <div class="eq-units">counts/counts = dimensionless (0–1) ✓</div>
+        <div class="mini-calc" data-formula="2*(TP/(TP+FP))*(TP/(TP+FN))/((TP/(TP+FP))+(TP/(TP+FN)))" data-output="F1 score" data-digits="3" data-plot="FP" data-ymin="0" data-ymax="1">
+          <div data-var="TP" data-label="True positives TP" data-min="1" data-max="200" data-step="1" data-value="180"></div>
+          <div data-var="FP" data-label="False positives FP" data-min="0" data-max="200" data-step="1" data-value="40"></div>
+          <div data-var="FN" data-label="False negatives FN" data-min="0" data-max="200" data-step="1" data-value="20"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">A 94 % accurate detector that damages 5 % of the crop</span></div>
+        <div class="we-problem"><p>A weed detector is tested on 1000 plants in a sugar-beet field: 200 weeds and 800 beet plants. It detects 180 of the weeds and wrongly labels 40 beet plants as weeds. Calculate accuracy, precision, recall and F1, and the share of beet plants that a spot sprayer with a non-selective herbicide would hit.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Confusion matrix:</strong> TP = 180, FN = 20, FP = 40, TN = 760.</li>
+              <li><strong>Accuracy</strong> \(= (180+760)/1000 = 0.94\).</li>
+              <li><strong>Precision</strong> \(= 180/(180+40) = 0.818\); <strong>recall</strong> \(= 180/200 = 0.90\).</li>
+              <li><strong>F1</strong> \(= 2\times0.818\times0.90/(0.818+0.90) = 0.857\).</li>
+              <li><strong>Crop hit:</strong> \(40/800 = 5\) % of the beet plants would be sprayed — with a non-selective herbicide, 5 % of the crop killed. And 10 % of the weeds survive.</li>
+              <li><strong>Lesson.</strong> "94 % accuracy" sounds excellent but hides the two numbers that matter agronomically. Manufacturers should report precision and recall under realistic field conditions.</li>
+            </ol>
+            <span class="answer">Accuracy 0.94; precision 0.82; recall 0.90; F1 0.86; 5 % of crop plants hit</span>
+          </div>
+        </details>
+      </div>
+
+      <figure class="figure wide" id="threshold-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — where should the detector draw the line?</div>
+          <div class="ar-grid">
+            <div id="th-plot" style="min-height:300px"></div>
+            <div class="ar-ctl">
+              <div class="mc-var"><div class="mc-lab"><span>Decision threshold</span><output id="th-t-o"></output></div><input id="th-t" type="range" min="-2" max="4" step="0.05" value="1.0" aria-label="Decision threshold"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Detector quality d′</span><output id="th-d-o"></output></div><input id="th-d" type="range" min="0.5" max="4" step="0.1" value="2.2" aria-label="Separation of score distributions"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Weeds per 100 plants</span><output id="th-w-o"></output></div><input id="th-w" type="range" min="2" max="60" step="1" value="20" aria-label="Weed share"></div>
+              <p class="ar-note">Each plant gets a "weediness" score from the classifier. Crop scores (green) and weed scores (magenta) overlap; plants above the threshold are treated as weeds.</p>
+            </div>
+          </div>
+          <div class="readouts" id="th-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 2.</b> The precision–recall trade-off. Moving the threshold to the left finds more weeds (higher recall) but attacks more crop plants (lower precision); moving it right protects the crop but leaves weeds. A better detector (larger d′, the separation of the two score distributions in standard deviations) relaxes the trade-off. Rare weeds make precision worse at the same threshold — why a detector that works in a weedy field may disappoint in a clean one.</figcaption>
+      </figure>
+
+      <h2 id="weeding">Weeding robots: mechanical, laser and spot spraying</h2>
+      <p>Weeding is where field robotics has come furthest commercially, because it combines a clear economic need, a tolerable consequence of occasional errors and a task that suits slow, light machines. Three families of actuators are used (Slaughter et al., 2008; Gerhards et al., 2022):</p>
+      <ul>
+        <li><strong>Mechanical weeding.</strong> Camera-guided inter-row hoes keep their blades centred between rows; Gerhards et al. (2022) report that camera guidance increased selectivity and weed-control efficacy compared with manually steered hoeing, at higher driving speeds. The hard part is the <em>intra-row</em> weeds between crop plants in the same row, which robots remove with blades or fingers that move in and out around each crop plant. The Danish FarmDroid robots avoid vision altogether: they record the RTK position of every seed at sowing (the manufacturer states an accuracy of 8 mm) and later hoe around those positions, both between and within rows. According to the manufacturer, the FD20 model works up to 12 rows over a 3.5 m width, is powered by four solar panels, weighs 1250 kg and is intended for about 20 ha per season.</li>
+        <li><strong>Thermal and laser weeding.</strong> A laser beam aimed at the apical meristem heats the water in the growing point until the tissue dies; efficacy depends on wavelength, spot size, exposure time and weed species (Mathiassen et al., 2006). Carbon Robotics' tractor-drawn LaserWeeder, commercial since 2022, carries 30 CO₂ lasers of 150 W and 42 cameras; the company states a work rate of 0.20–0.61 ha h⁻¹, "5,000+ weeds per minute" and control of "up to 99 %" of weeds. Equation 11.4.5 below checks whether such numbers are physically plausible.</li>
+        <li><strong>Spot spraying.</strong> Cameras detect weeds and individual nozzles open only over them. "Green-on-brown" systems spray any green plant on bare soil (before sowing, between rows); "green-on-green" systems must distinguish weeds within the crop. The Swiss Ecorobotix ARA sprayer carries 156 nozzles spaced 4 cm apart and states a spray spot of 6 cm × 6 cm, a working width of 6.2 m at 7.2 km h⁻¹ and savings of plant-protection products "from 50 % to over 95 %, depending on the target, crop stage and weed infestation". John Deere's See &amp; Spray, developed from the Blue River Technology company acquired in 2017, uses boom-mounted cameras to switch individual nozzles in large-scale row crops. Independently, a review of patch-spraying trials found herbicide savings of at least 50 % in various crops without additional weed-control costs in the following years (Gerhards et al., 2022).</li>
+      </ul>
+
+      <div class="callout warn"><div class="callout-title">Reading manufacturers' claims critically</div><p>"Up to 95 % savings" is a best case, not an average. The saving of any spot sprayer depends above all on <strong>how much of the field actually has weeds</strong> at the resolution of the sprayer — which Eq. 11.4.4 makes explicit. Ask: savings compared with what (the same product broadcast, or a different programme)? At which weed density and growth stage? Measured by whom, and over how many fields? Can the herbicide programme be spot-applied at all (soil-acting residual herbicides cannot)? How many crop plants were damaged? Peer-reviewed on-farm comparisons are still scarce.</p></div>
+
+      <div class="eq-box" id="eq-ar-spot">
+        <div class="eq-head"><span class="eq-label">Treated area and herbicide saving of a spot sprayer</span><span class="eq-num">(11.4.4)</span></div>
+        <div class="eq-main">\[ p_w = 1-e^{-\lambda a},\qquad f_T = r\,p_w + q\,(1-p_w),\qquad S = 1-f_T \]</div>
+        <p class="eq-read">for weeds scattered at random with density lambda, the probability that a spray cell of area a contains at least one weed is one minus e to the minus lambda a; the treated fraction of the field is the recall times that probability plus the false-positive rate times the probability of an empty cell; the saving compared with broadcast spraying is one minus the treated fraction.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(\lambda\)</td><td>weed density</td><td>weeds m⁻²</td><td>1–100</td></tr>
+          <tr><td>\(a\)</td><td>area of one spray cell (nozzle width × pulse length)</td><td>m²</td><td>0.0036 (6 × 6 cm) – 9 (3 m boom section)</td></tr>
+          <tr><td>\(p_w\)</td><td>probability that a cell contains ≥ 1 weed</td><td>–</td><td>–</td></tr>
+          <tr><td>\(r\)</td><td>recall: probability that a weedy cell is sprayed</td><td>–</td><td>0.85–0.98</td></tr>
+          <tr><td>\(q\)</td><td>false-positive rate: probability that a weed-free cell is sprayed</td><td>–</td><td>0.005–0.05</td></tr>
+          <tr><td>\(f_T\), \(S\)</td><td>treated fraction of the area; saving relative to broadcast</td><td>–</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Random weeds.</strong> If weeds are placed independently at random (a Poisson process) with mean density λ, the number in a cell of area \(a\) is Poisson-distributed with mean \(\lambda a\). The probability of zero weeds is \(e^{-\lambda a}\), so a cell contains at least one weed with probability \(p_w = 1-e^{-\lambda a}\).</li>
+            <li><strong>Imperfect detection.</strong> A weedy cell is sprayed with probability \(r\) (recall at cell level); an empty cell is sprayed by mistake with probability \(q\). By the law of total probability, the expected treated fraction is \(f_T = r\,p_w + q(1-p_w)\).</li>
+            <li><strong>Saving.</strong> If the treated cells receive the full label rate, product use is proportional to treated area, so \(S = 1-f_T\).</li>
+            <li><strong>Limits.</strong> Small cells or few weeds (\(\lambda a\ll1\)): \(p_w\approx\lambda a\) and \(f_T\approx r\lambda a + q\) — the saving is limited by the false-positive rate. Large cells or many weeds (\(\lambda a\gg1\)): \(p_w\to1\) and \(f_T\to r\) — spot spraying degenerates into broadcast spraying.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Real weeds are clustered in patches; for the same mean density, clustering leaves more cells empty and raises the saving (explore this in Figure 3). Spray drift, nozzle response time and the minimum dose per spot are ignored, and so is the time-dependence: weeds that emerge after the pass need another treatment.</p></details>
+        <div class="eq-units">λa: m⁻² × m² = dimensionless (the Poisson mean) ✓; all fractions dimensionless ✓</div>
+        <div class="mini-calc" data-fn="arSave" data-output="Herbicide saving S" data-unit="%" data-digits="1" data-plot="a" data-ymin="0" data-ymax="100" data-title="Try it — spray-cell size decides the saving">
+          <div data-var="lam" data-label="Weed density λ" data-min="0.5" data-max="100" data-step="0.5" data-value="5" data-unit="weeds m⁻²" data-scale="log"></div>
+          <div data-var="a" data-label="Cell side (square cell)" data-min="4" data-max="300" data-step="1" data-value="6" data-unit="cm" data-scale="log"></div>
+          <div data-var="r" data-label="Recall r" data-min="50" data-max="100" data-step="1" data-value="95" data-unit="%"></div>
+          <div data-var="q" data-label="False-positive rate q" data-min="0" data-max="20" data-step="0.5" data-value="1" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">Spot spraying sugar beet: why resolution matters</span></div>
+        <div class="we-problem"><p>A sugar-beet field has 5 weeds m⁻², scattered at random. Compare the herbicide saving of (a) a sprayer with 6 cm × 6 cm cells and (b) one that switches 0.5 m boom sections in 0.5 m pulses, both with recall 0.95 and false-positive rate 0.01. The broadcast programme would use 1.0 kg of active ingredient per hectare.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>(a) Fine cells:</strong> \(a = 0.06^2 = 0.0036\) m², \(\lambda a = 0.018\), \(p_w = 1-e^{-0.018} = 0.0178\). \(f_T = 0.95\times0.0178+0.01\times0.9822 = 0.0169+0.0098 = 0.0268\) → saving 97.3 %, i.e. 0.027 kg a.i. ha⁻¹.</li>
+              <li><strong>(b) Coarse cells:</strong> \(a = 0.25\) m², \(\lambda a = 1.25\), \(p_w = 1-e^{-1.25} = 0.713\). \(f_T = 0.95\times0.713+0.01\times0.287 = 0.681\) → saving 32 %, i.e. 0.68 kg a.i. ha⁻¹.</li>
+              <li><strong>Note</strong> that in (a) more than a third of the treated area comes from false positives — at low weed densities, precision matters as much as resolution.</li>
+              <li><strong>Sanity check.</strong> At 50 weeds m⁻² even the fine sprayer treats \(1-e^{-0.18} = 16\) % of cells and saves "only" about 83 %: savings claims are only meaningful together with the weed density.</li>
+            </ol>
+            <span class="answer">(a) ≈ 97 % saving (0.027 kg a.i. ha⁻¹); (b) ≈ 32 % saving (0.68 kg a.i. ha⁻¹)</span>
+          </div>
+        </details>
+      </div>
+
+      <figure class="figure wide" id="spot-sim">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — a spot sprayer over 100 m² of sugar beet</div>
+          <div class="ar-grid">
+            <div id="ss-plot" style="height:400px"></div>
+            <div class="ar-ctl">
+              <div class="mc-var"><div class="mc-lab"><span>Weed density λ</span><output id="ss-l-o"></output></div><input id="ss-l" type="range" min="0.5" max="40" step="0.5" value="5" aria-label="Weed density"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Spray-cell size</span><output id="ss-a-o"></output></div><input id="ss-a" type="range" min="0" max="6" step="1" value="1" aria-label="Spray cell size"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Recall r</span><output id="ss-r-o"></output></div><input id="ss-r" type="range" min="50" max="100" step="1" value="95" aria-label="Recall"></div>
+              <div class="mc-var"><div class="mc-lab"><span>False-positive rate q</span><output id="ss-q-o"></output></div><input id="ss-q" type="range" min="0" max="10" step="0.5" value="1" aria-label="False positive rate"></div>
+              <div class="seg" id="ss-pat" role="group" aria-label="Weed pattern"><button type="button" data-v="random" aria-pressed="true">Random</button><button type="button" data-v="patchy" aria-pressed="false">Patchy</button></div>
+              <button class="btn btn-sm" type="button" id="ss-new">New weeds</button>
+            </div>
+          </div>
+          <div class="readouts" id="ss-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> Weeds (dots: green = hit, black = missed) and sprayed cells (magenta) in a 10 m × 10 m plot. Cell sizes run from 4 cm (nozzle-by-nozzle) through 6, 10, 25 and 50 cm to 1 m and 3 m (a boom section). The readouts compare the simulated saving with the Poisson prediction of Eq. 11.4.4. With patchy weeds the same mean density leaves far more empty cells — and larger savings — than random weeds.</figcaption>
+      </figure>
+
+      <h3>Is a laser weeder physically plausible?</h3>
+      <div class="eq-box" id="eq-ar-laser">
+        <div class="eq-head"><span class="eq-label">Energy per weed and maximum throughput of a laser weeder</span><span class="eq-num">(11.4.5)</span></div>
+        <div class="eq-main">\[ E_{\text{w}} \approx \frac{m\left(c_w\,\Delta T + f_v\,L_v\right)}{\eta_{\text{abs}}},\qquad \dot n_{\max}=\frac{N_{\text{L}}\,P_{\text{L}}}{E_{\text{w}}} \]</div>
+        <p class="eq-read">the laser energy needed per weed is roughly the mass of tissue to be killed times the heat to warm it plus the heat to evaporate a fraction of its water, divided by the fraction of the beam energy that the tissue absorbs; the maximum number of weeds treated per second is the total laser power divided by that energy.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Illustrative value</th></tr>
+          <tr><td>\(m\)</td><td>mass of meristem tissue to be killed (young weed)</td><td>kg</td><td>≈ 5 × 10⁻⁶ (5 mg)</td></tr>
+          <tr><td>\(c_w\)</td><td>specific heat of water-rich tissue</td><td>J kg⁻¹ K⁻¹</td><td>4186</td></tr>
+          <tr><td>\(\Delta T\)</td><td>temperature rise to a lethal level</td><td>K</td><td>≈ 60 (from 20 to 80 °C)</td></tr>
+          <tr><td>\(f_v, L_v\)</td><td>fraction of water evaporated; latent heat of vaporisation</td><td>–; J kg⁻¹</td><td>0–1; 2.26 × 10⁶</td></tr>
+          <tr><td>\(\eta_{\text{abs}}\)</td><td>fraction of beam energy absorbed by the target</td><td>–</td><td>0.3–0.8</td></tr>
+          <tr><td>\(N_L, P_L\)</td><td>number of lasers; optical power per laser</td><td>–; W</td><td>30; 150</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Killing a meristem thermally means raising its temperature to a level at which proteins denature (roughly 60–80 °C), or boiling off part of its water. The sensible heat is \(mc_w\Delta T\); boiling a fraction \(f_v\) adds \(f_vmL_v\).</li>
+            <li>With \(m = 5\) mg, \(\Delta T = 60\) K: \(5\times10^{-6}\times4186\times60 = 1.3\) J; evaporating half the water adds \(0.5\times5\times10^{-6}\times2.26\times10^{6} = 5.7\) J. With 50 % absorption, \(E_w\approx (1.3+5.7)/0.5 \approx 14\) J per weed.</li>
+            <li>30 lasers of 150 W deliver 4500 J s⁻¹, enough for up to \(4500/14\approx 320\) weeds per second if lasers were always firing on target.</li>
+            <li>The manufacturer's "5,000 weeds per minute" is 83 weeds s⁻¹, i.e. an average budget of \(4500/83 = 54\) J per weed — four times our estimate, which leaves room for aiming, tracking and larger weeds. The claim is therefore physically plausible; whether 99 % of weeds die in a given field is an agronomic question only field trials can answer.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>An order-of-magnitude energy balance: heat conduction away from the spot, reflection, the size of the weed and whether the meristem is hit are all simplified. Larger weeds need much more energy, which is why laser weeding works best at early growth stages (Mathiassen et al., 2006). Lasers also require strict eye-safety measures (the implement is a class 4 laser product).</p></details>
+        <div class="eq-units">kg × (J kg⁻¹ K⁻¹ × K + J kg⁻¹) = J ✓; W / J = s⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="NL*PL/(m*1e-6*(4186*dT + fv*2.26e6)/(eta/100))" data-output="Maximum weeds per second" data-unit="s⁻¹" data-digits="0" data-plot="m">
+          <div data-var="m" data-label="Meristem tissue mass m" data-min="1" data-max="50" data-step="0.5" data-value="5" data-unit="mg"></div>
+          <div data-var="dT" data-label="Temperature rise ΔT" data-min="30" data-max="80" data-step="1" data-value="60" data-unit="K"></div>
+          <div data-var="fv" data-label="Fraction of water evaporated f<sub>v</sub>" data-min="0" data-max="1" data-step="0.05" data-value="0.5"></div>
+          <div data-var="eta" data-label="Absorbed fraction η<sub>abs</sub>" data-min="10" data-max="100" data-step="5" data-value="50" data-unit="%"></div>
+          <div data-var="NL" data-label="Number of lasers N<sub>L</sub>" data-min="1" data-max="40" data-step="1" data-value="30"></div>
+          <div data-var="PL" data-label="Power per laser P<sub>L</sub>" data-min="20" data-max="300" data-step="10" data-value="150" data-unit="W"></div>
+        </div>
+      </div>
+      <a class="lab-link" data-lab="field-robot" data-why="Drive a camera-guided weeding robot along crop rows, tune its detection threshold and compare spot spraying with broadcast herbicide use for different weed densities."></a>
+
+      <h2 id="harvesting">Harvesting robots: why picking is hard</h2>
+      <p>Picking a strawberry is trivial for a person and extraordinarily difficult for a machine. The fruit must be found among leaves, judged ripe, reached without collisions, detached without bruising and placed gently — in an environment that is never the same twice. In a systematic review of 50 harvesting robots for high-value crops, Bac et al. (2014) found averages of 85 % localisation success, 75 % detachment success, <strong>66 % overall harvest success</strong>, 5 % fruit damage, 45 % peduncle damage and a <strong>cycle time of 33 s per fruit</strong>; performance had not improved over three decades, and none of the robots had been commercialised.</p>
+      <p>The EU project SWEEPER built and tested a sweet-pepper harvesting robot in a commercial Dutch greenhouse (Arad et al., 2020). Over a four-week test with 262 fruits, the average cycle time was 24 s, of which about half was logistics (7.8 s to discharge the fruit and 4.7 s for platform movements). The harvest success rate was 61 % under the best-fit crop conditions — but only 18 % in current commercial crop conditions. Laboratory tests showed that the cycle time could be cut to 15 s by running the arm faster.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 200" role="img" aria-label="Bar showing the 24 second harvest cycle of the SWEEPER robot: 7.8 seconds fruit discharge, 4.7 seconds platform movement and 11.5 seconds for detection, planning, approach, grasping and cutting">
+            <text x="20" y="30" font-weight="600">SWEEPER cycle time per fruit: 24 s (Arad et al., 2020)</text>
+            <rect x="20" y="50" width="287.5" height="46" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+            <rect x="307.5" y="50" width="195" height="46" class="fill-amber-soft" stroke="currentColor" stroke-width="1"/>
+            <rect x="502.5" y="50" width="117.5" height="46" class="fill-water-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="163" y="78" text-anchor="middle" class="t-small">detect, plan, approach, grasp, cut ≈ 11.5 s</text>
+            <text x="405" y="78" text-anchor="middle" class="t-small">discharge fruit 7.8 s</text>
+            <text x="561" y="78" text-anchor="middle" class="t-small">platform 4.7 s</text>
+            <line x1="20" y1="112" x2="620" y2="112" class="stroke" stroke-width="1"/>
+            <text x="20" y="128" class="t-small t-muted">0 s</text><text x="620" y="128" text-anchor="end" class="t-small t-muted">24 s</text>
+            <text x="20" y="160" class="t-small">success: 61 % in best-fit crop conditions, 18 % in current crop conditions → 0.61 × 3600/24 ≈ 92 fruits per hour at best</text>
+            <text x="20" y="182" class="t-small t-muted">"logistics" (discharge + platform) take about half of the cycle: a reason to rethink the whole system, not only the arm</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 4.</b> Where a harvesting robot's time goes. Half of SWEEPER's cycle was spent on logistics rather than picking; and its success depended strongly on whether the crop was trained to suit the robot (data from Arad et al., 2020).</figcaption>
+      </figure>
+
+      <div class="eq-box" id="eq-ar-harvest">
+        <div class="eq-head"><span class="eq-label">Throughput of a harvesting robot and robots needed</span><span class="eq-num">(11.4.6)</span></div>
+        <div class="eq-main">\[ \dot n = \frac{3600\,s}{t_c}\,k_{\text{arm}},\qquad N_{\text{rob}}=\left\lceil\frac{\dot n_{\text{req}}}{\dot n\,\eta_t}\right\rceil \]</div>
+        <p class="eq-read">the number of fruits a robot harvests per hour is 3600 seconds times its success rate, divided by the cycle time in seconds, times the number of arms; the number of robots needed is the required harvest rate divided by the throughput of one robot times its fraction of productive time, rounded up.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>SWEEPER value</th></tr>
+          <tr><td>\(s\)</td><td>harvest success rate (fraction of target fruits picked)</td><td>–</td><td>0.61 (best-fit) / 0.18</td></tr>
+          <tr><td>\(t_c\)</td><td>cycle time per attempt</td><td>s</td><td>24</td></tr>
+          <tr><td>\(k_{\text{arm}}\)</td><td>number of arms working in parallel</td><td>–</td><td>1</td></tr>
+          <tr><td>\(\eta_t\)</td><td>fraction of time the robot is productive (not charging, moving, failing)</td><td>–</td><td>0.5–0.9</td></tr>
+          <tr><td>\(\dot n_{\text{req}}\)</td><td>required harvest rate of the farm</td><td>fruits h⁻¹</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>In one hour a robot makes \(3600/t_c\) attempts; a fraction \(s\) succeeds. Parallel arms multiply the rate (if they do not get in each other's way).</li>
+            <li>Missed fruit must be picked by hand, so the human labour saved is proportional to \(s\), not to the number of attempts.</li>
+            <li>Dividing the farm's required rate by the effective rate of one robot, \(\dot n\eta_t\), gives the fleet size.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Assumes every attempt takes the same time and that failures do not damage plants or fruit. In reality damaged fruit reduce value, and a robot must also move between plants and rows. The equation shows the two levers: shorter cycles and higher success — the second often requires changing the crop (variety, training system, plant spacing) as much as the robot (Bac et al., 2014).</p></details>
+        <div class="eq-units">s⁻¹·s·(–) → h⁻¹ when multiplied by 3600 s h⁻¹ ✓; fleet: (h⁻¹)/(h⁻¹) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="3600*s/100/tc*k" data-output="Fruits harvested per hour" data-unit="h⁻¹" data-digits="0" data-plot="tc">
+          <div data-var="s" data-label="Success rate s" data-min="10" data-max="100" data-step="1" data-value="61" data-unit="%"></div>
+          <div data-var="tc" data-label="Cycle time t<sub>c</sub>" data-min="2" data-max="40" data-step="0.5" data-value="24" data-unit="s"></div>
+          <div data-var="k" data-label="Arms k<sub>arm</sub>" data-min="1" data-max="8" data-step="1" data-value="1"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">How many pepper robots would a greenhouse need?</span></div>
+        <div class="we-problem"><p>Suppose a pepper greenhouse must harvest 2 000 fruits per hour during the harvest shift (an assumed figure). Using SWEEPER's measured performance (24 s cycle; 61 % success in best-fit and 18 % in current crop conditions) and a productive-time fraction of 0.8, how many single-arm robots are needed? What if the cycle time is cut to 15 s?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Best-fit crop:</strong> \(\dot n = 3600\times0.61/24 = 91.5\) fruits h⁻¹; effective \(91.5\times0.8 = 73.2\); robots \(= \lceil2000/73.2\rceil = 28\).</li>
+              <li><strong>Current crop:</strong> \(\dot n = 3600\times0.18/24 = 27\) fruits h⁻¹; effective 21.6; robots \(= \lceil2000/21.6\rceil = 93\) — and 82 % of the fruit still needs hand picking.</li>
+              <li><strong>15 s cycle, best-fit crop:</strong> \(\dot n = 3600\times0.61/15 = 146\); effective 117; robots = 18.</li>
+              <li><strong>Interpretation.</strong> Improving success from 18 % to 61 % (mainly by adapting the crop) matters more than any speed-up of the arm — the central message of Bac et al. (2014).</li>
+            </ol>
+            <span class="answer">≈ 28 robots (best-fit crop), ≈ 93 (current crop); ≈ 18 with a 15 s cycle</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="milking">The success story: milking robots</h2>
+      <p>If harvesting robots show how hard agricultural robotics is, automatic milking systems (AMS) show what success looks like. Commercial AMS have been available since the early 1990s and are now common on dairy farms across northern Europe (Jacobs &amp; Siegford, 2012). Two of the leading manufacturers are Lely (the Netherlands; Astronaut) and <strong>DeLaval</strong>, a Swedish company with its head office in Tumba near Stockholm, whose roots go back to AB Separator, founded in 1883 by Gustaf de Laval — inventor of the centrifugal cream separator — and Oscar Lamm. DeLaval's robot is called the VMS, the voluntary milking system.</p>
+      <p>The key idea is <em>voluntary milking</em>: instead of being herded to the parlour twice a day, each cow decides when to visit the robot, attracted by concentrate feed. In the box, the robot identifies the cow, cleans the teats, locates them with a laser or 3D camera, attaches the cups one by one, milks each quarter separately, measures yield, conductivity and milk quality, and releases the cow. Jacobs and Siegford (2012) summarise the potential as up to 12 % more milk (more frequent milking) and up to 18 % less labour, with welfare benefits from cows choosing their own rhythm — while stressing that many farms do not realise these benefits fully, because management and barn layout matter more than the machine.</p>
+      <div class="callout key"><div class="callout-title">Key idea — why milking robots succeeded</div><p>Compare with harvesting: (1) the environment is <strong>structured</strong> — a milking box, not an open field; (2) <strong>the animal comes to the robot</strong>, not the robot to the plant; (3) the task is <strong>one</strong> task repeated 2–3 times per cow per day, all year; (4) the labour saved is exceptionally valuable — twice-daily milking, 365 days a year, ties a farm family down; and (5) the robot produces <strong>data</strong> on every cow at every milking. Successful agricultural robots simplify the world they work in.</p></div>
+
+      <h2 id="drones-swarms">Spraying drones and robot swarms</h2>
+      <p><strong>Spraying drones</strong> are widely used in parts of Asia, but the EU is restrictive. The Sustainable Use Directive requires member states to "ensure that aerial spraying is prohibited", with derogations only in special cases where there are no viable alternatives or where aerial application has clear advantages for health and the environment (Directive 2009/128/EC, Art. 9). The Directive defines aerial spraying as application from an aircraft (plane or helicopter); in practice spraying drones have generally been treated as aerial application requiring a derogation, and how the rules should apply to small drones has been under discussion in the EU (as of 2026). Aviation rules add a second layer: in the EU "open" drone category, the aircraft must stay within 120 m of the ground, must not carry dangerous goods and must not drop any material; operations that do not meet these conditions — spraying included — fall in the "specific" category and need an operational authorisation (Commission Implementing Regulation (EU) 2019/947). Drones are, however, freely used for <em>sensing</em> (Lesson 11.2).</p>
+      <p>A <strong>swarm</strong> replaces one large machine by many small, light, cooperating robots. The appeal is physical and economic: small machines compact the soil less, a failure stops one unit rather than the whole operation, capacity scales by adding units, and — with no driver to pay per machine — the traditional economies of size of big tractors weaken. Using experience from the Hands Free Hectare project, Lowenberg-DeBoer et al. (2021) showed that autonomous equipment allowed a medium-sized UK grain farm to approach minimum production costs, keeping even small, irregular fields economic and reducing the pressure to remove hedges and field trees. The capacity of a machine — and thus the number of robots needed — follows from simple kinematics:</p>
+
+      <div class="eq-box" id="eq-ar-capacity">
+        <div class="eq-head"><span class="eq-label">Effective field capacity and fleet size</span><span class="eq-num">(11.4.7)</span></div>
+        <div class="eq-main">\[ C_e=\frac{w\,v\,\eta_f}{10},\qquad N=\left\lceil\frac{A}{C_e\,t_{\text{day}}\,D}\right\rceil \]</div>
+        <p class="eq-read">the effective field capacity in hectares per hour is the working width in metres times the speed in kilometres per hour times the field efficiency, divided by ten; the number of machines needed is the area divided by the capacity times the working hours per day times the number of days in the window, rounded up.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Tractor hoe / small robot</th></tr>
+          <tr><td>\(w\)</td><td>working width</td><td>m</td><td>6 / 3.5</td></tr>
+          <tr><td>\(v\)</td><td>working speed</td><td>km h⁻¹</td><td>8 / ≈ 1</td></tr>
+          <tr><td>\(\eta_f\)</td><td>field efficiency (turns, refilling, stops)</td><td>–</td><td>0.75 / 0.7</td></tr>
+          <tr><td>\(C_e\)</td><td>effective field capacity</td><td>ha h⁻¹</td><td>3.6 / ≈ 0.25</td></tr>
+          <tr><td>\(t_{\text{day}}\), \(D\)</td><td>working hours per day; days in the operation window</td><td>h d⁻¹; d</td><td>10 / up to 24; 10</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>In one hour a machine of width \(w\) (m) at speed \(v\) (km h⁻¹ = 1000 m h⁻¹) sweeps \(1000\,w\,v\) m² = \(w v/10\) ha.</li>
+            <li>Turning, overlapping, refilling and stops reduce this by the field efficiency \(\eta_f\).</li>
+            <li>The work that must be done in the window is \(A\) ha; one machine does \(C_e t_{\text{day}} D\) ha; the ratio, rounded up, is the fleet size.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Uniform fields; the window is set by agronomy (weeds must be removed while small) and by weather. Robots can work 24 h per day, which compensates for their low speed — if the battery or solar supply allows.</p></details>
+        <div class="eq-units">m × km h⁻¹ / 10 = ha h⁻¹ (since 1 m × 1 km = 1000 m² = 0.1 ha) ✓</div>
+        <div class="mini-calc" data-formula="w*v*eta/10" data-output="Effective field capacity Cₑ" data-unit="ha h⁻¹" data-digits="2" data-plot="v">
+          <div data-var="w" data-label="Working width w" data-min="1" data-max="12" data-step="0.5" data-value="3.5" data-unit="m"></div>
+          <div data-var="v" data-label="Speed v" data-min="0.5" data-max="12" data-step="0.1" data-value="1" data-unit="km h⁻¹"></div>
+          <div data-var="eta" data-label="Field efficiency η<sub>f</sub>" data-min="0.4" data-max="0.95" data-step="0.01" data-value="0.7"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">One tractor or a fleet of solar robots?</span></div>
+        <div class="we-problem"><p>A farm grows 120 ha of sugar beet. Each weeding pass must be completed within 10 days. Compare a 6 m tractor-mounted camera hoe (8 km h⁻¹, field efficiency 0.75, 10 h per day with a driver) with solar robots that, according to their manufacturer, can cover up to 5–6 ha per day each (5 ha in the FD20 factsheet, up to 6 ha on the website).</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Tractor hoe:</strong> \(C_e = 6\times8\times0.75/10 = 3.6\) ha h⁻¹ → 36 ha per 10 h day → 120 ha in 3.3 days: one machine and one driver suffice, with time to spare for bad weather.</li>
+              <li><strong>Robots:</strong> at 5 ha per day each, \(\lceil 120/(5\times10)\rceil = 3\) robots; at the optimistic 6 ha per day, \(\lceil 120/(6\times10)\rceil = 2\) (more if weather or charging reduces the daily rate).</li>
+              <li><strong>What the numbers do not show.</strong> The robots also hoe <em>within</em> the rows, which the camera hoe cannot, saving hand weeding; they weigh about a quarter of a tractor; they need no driver, but someone must supervise and move them between fields. The comparison is therefore about labour and intra-row weeding, not capacity.</li>
+            </ol>
+            <span class="answer">1 tractor hoe (≈ 3.3 days) versus 2–3 robots (10 days)</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="safety">Safety, standards and liability</h2>
+      <p>A driver notices a child, a deer or a sleeping farm dog; a robot must be designed to. For highly automated agricultural machinery the international standard <strong>ISO 18497</strong> was first published in 2018 as "Safety of highly automated agricultural machines — Principles for design", and has since been revised into a multi-part standard on the "Safety of partially automated, semi-autonomous and autonomous machinery", with parts covering machine design principles and vocabulary and design principles for obstacle protection systems, among others. Standards like these define how a manufacturer can demonstrate that a machine meets the essential requirements of the law.</p>
+      <p>In the EU, the law is changing. The new <strong>Machinery Regulation (EU) 2023/1230</strong> replaces the Machinery Directive and applies from 20 January 2027. For the first time it contains explicit requirements for autonomous mobile machinery: where relevant, such machinery must have a <em>supervisory function</em> that lets a remote supervisor receive information and only "stop and start remotely the machinery … or move it to a safe position and a safe state". Safety components with "fully or partially self-evolving behaviour using machine learning approaches ensuring safety functions" are placed among the high-risk categories that require third-party conformity assessment. In parallel, the revised <strong>Product Liability Directive (EU) 2024/2853</strong>, which applies to products placed on the market after 9 December 2026, makes clear that no-fault liability for defective products covers software, including AI systems — so a manufacturer can be liable for damage caused by a faulty detection algorithm even without negligence.</p>
+
+      <div class="eq-box" id="eq-ar-stop">
+        <div class="eq-head"><span class="eq-label">Stopping distance and required detection range</span><span class="eq-num">(11.4.8)</span></div>
+        <div class="eq-main">\[ d_{\text{stop}} = v\,t_r+\frac{v^{2}}{2a},\qquad d_{\text{detect}}\ \ge\ d_{\text{stop}}+d_{\text{margin}} \]</div>
+        <p class="eq-read">the stopping distance is the distance travelled during the reaction time of the detection and control chain plus the braking distance, the speed squared over twice the deceleration; the obstacle-detection system must see at least that far plus a safety margin.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Small robot / autonomous tractor</th></tr>
+          <tr><td>\(v\)</td><td>travel speed</td><td>m s⁻¹</td><td>0.3–1.5 / 2–5</td></tr>
+          <tr><td>\(t_r\)</td><td>total reaction time: sensing, processing, actuating brakes</td><td>s</td><td>0.2–1.0</td></tr>
+          <tr><td>\(a\)</td><td>achievable deceleration (depends on soil, slope, load)</td><td>m s⁻²</td><td>1–3</td></tr>
+          <tr><td>\(d_{\text{margin}}\)</td><td>safety margin (e.g. for detection uncertainty)</td><td>m</td><td>0.5–2</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>During the reaction time the machine continues at speed \(v\): distance \(vt_r\).</li>
+            <li>Braking at constant deceleration \(a\) from \(v\) to rest takes time \(v/a\) and distance \(v^2/2a\) (from \(v^2 = 2as\)).</li>
+            <li>Add the two, then a margin: the sensor must reliably detect a person at that distance under all expected conditions (dust, crop, rain, darkness).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Constant deceleration on firm ground; wet clay or a downhill slope lowers \(a\) sharply. Because the braking term grows with \(v^2\), doubling speed more than doubles the required detection range — one reason why many field robots are slow.</p></details>
+        <div class="eq-units">m s⁻¹ × s + (m² s⁻²)/(m s⁻²) = m ✓</div>
+        <div class="mini-calc" data-formula="v/3.6*tr + pow(v/3.6,2)/(2*acc)" data-output="Stopping distance" data-unit="m" data-digits="2" data-plot="v">
+          <div data-var="v" data-label="Speed v" data-min="0.5" data-max="20" data-step="0.5" data-value="3.6" data-unit="km h⁻¹"></div>
+          <div data-var="tr" data-label="Reaction time tᵣ" data-min="0.1" data-max="2" data-step="0.05" data-value="0.5" data-unit="s"></div>
+          <div data-var="acc" data-label="Deceleration a" data-min="0.5" data-max="4" data-step="0.1" data-value="1.5" data-unit="m s⁻²"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 6</span><span class="we-title">How far must the robot see?</span></div>
+        <div class="we-problem"><p>Compare a small weeding robot at 3.6 km h⁻¹ with an autonomous tractor at 12 km h⁻¹. Both have a reaction time of 0.5 s and a deceleration of 1.5 m s⁻² on a moist field. Add a 1 m margin. What detection range is needed?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Robot:</strong> \(v = 1.0\) m s⁻¹: \(d = 1.0\times0.5 + 1.0^2/3.0 = 0.50+0.33 = 0.83\) m → detection range ≥ 1.8 m.</li>
+              <li><strong>Tractor:</strong> \(v = 3.33\) m s⁻¹: \(d = 1.67 + 3.33^2/3.0 = 1.67+3.70 = 5.37\) m → detection range ≥ 6.4 m.</li>
+              <li><strong>Consequence.</strong> Tripling the speed multiplies the braking distance by nine. The tractor must detect a person lying in a standing crop at more than 6 m — a much harder perception problem than the robot's 2 m, and one reason why the first autonomous machines were small and slow.</li>
+            </ol>
+            <span class="answer">≈ 0.8 m (robot) vs ≈ 5.4 m (tractor) stopping distance; detection ≥ 1.8 m and ≥ 6.4 m</span>
+          </div>
+        </details>
+      </div>
+      <p>Who is liable when something goes wrong? The manufacturer answers for defects in the product — hardware and, now explicitly, software; the farmer or contractor for how the machine is used, supervised and maintained; and insurers need data to assign responsibility, which is why autonomous machines log their decisions. Clear rules on data access, cybersecurity and software updates are part of what makes autonomy acceptable (Sparrow &amp; Howard, 2021).</p>
+
+      <h2 id="economics-society">Economics and society</h2>
+      <p>Do robots pay? Lowenberg-DeBoer et al. (2020) screened almost 5 000 documents on the economics of agricultural automation and robotics and analysed the 18 relevant studies in depth. All found some scenarios in which the technologies were profitable; most used partial budgets — the method of Lesson 11.1 — and relied on design targets or prototype data rather than farm experience; all were set in developed countries. The robot's cost per hectare is the key quantity:</p>
+
+      <div class="eq-box" id="eq-ar-cost">
+        <div class="eq-head"><span class="eq-label">Annual cost per hectare of a robot</span><span class="eq-num">(11.4.9)</span></div>
+        <div class="eq-main">\[ c_{\text{ha}}=\frac{K\,\dfrac{i}{1-(1+i)^{-n}} + C_{\text{O\&M}} + h_s\,w_s}{A} \]</div>
+        <p class="eq-read">the cost per hectare per year is the investment times the annuity factor, plus the annual operation and maintenance cost, plus the supervision hours times the wage, all divided by the area the robot covers per year.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(K\)</td><td>purchase price</td><td>€</td></tr>
+          <tr><td>\(i, n\)</td><td>interest rate; economic life</td><td>yr⁻¹; yr</td></tr>
+          <tr><td>\(C_{\text{O\&M}}\)</td><td>maintenance, insurance, software subscriptions, energy</td><td>€ yr⁻¹</td></tr>
+          <tr><td>\(h_s, w_s\)</td><td>hours of supervision and moving between fields; wage</td><td>h yr⁻¹; € h⁻¹</td></tr>
+          <tr><td>\(A\)</td><td>area served per year (per pass or per season)</td><td>ha yr⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>The annuity factor \(i/[1-(1+i)^{-n}]\) converts an investment into an equal annual payment that repays it with interest over \(n\) years (Lesson 11.1, Eq. 11.1.12).</li>
+            <li>Add the running costs and the value of the human time the robot still needs.</li>
+            <li>Divide by the area served. Compare with the cost of the operation it replaces — for intra-row weeding in organic vegetables or sugar beet, often manual labour.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A static comparison: it ignores changes in yield, timeliness, soil compaction, herbicide costs and environmental benefits, which a full partial budget would include, and the fact that early machines may have shorter lives or rapid obsolescence.</p></details>
+        <div class="eq-units">(€ × yr⁻¹ + € yr⁻¹ + h yr⁻¹ × € h⁻¹)/ha = € ha⁻¹ yr⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="(Kk*1000*(ir/100)/(1-pow(1+ir/100,-n)) + om*1000 + hs*ws)/Ar" data-output="Cost per hectare" data-unit="€ ha⁻¹ yr⁻¹" data-digits="0" data-plot="Ar">
+          <div data-var="Kk" data-label="Investment K" data-min="20" data-max="300" data-step="5" data-value="80" data-unit="k€"></div>
+          <div data-var="ir" data-label="Interest rate i" data-min="0.5" data-max="10" data-step="0.5" data-value="5" data-unit="%"></div>
+          <div data-var="n" data-label="Economic life n" data-min="3" data-max="15" data-step="1" data-value="8" data-unit="yr"></div>
+          <div data-var="om" data-label="O&amp;M cost" data-min="0" data-max="20" data-step="0.5" data-value="2" data-unit="k€ yr⁻¹"></div>
+          <div data-var="hs" data-label="Supervision hours h<sub>s</sub>" data-min="0" data-max="600" data-step="10" data-value="150" data-unit="h yr⁻¹"></div>
+          <div data-var="ws" data-label="Wage w<sub>s</sub>" data-min="10" data-max="60" data-step="1" data-value="30" data-unit="€ h⁻¹"></div>
+          <div data-var="Ar" data-label="Area served A" data-min="5" data-max="100" data-step="1" data-value="20" data-unit="ha yr⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 7</span><span class="we-title">What does robotic weeding cost per hectare?</span></div>
+        <div class="we-problem"><p>Assume (illustrative figures) that a seeding-and-weeding robot costs €80 000, lasts 8 years at 5 % interest, costs €2 000 per year to maintain, and needs 150 h per year of supervision and moving at €30 h⁻¹. It serves 20 ha of organic sugar beet per season. What is the cost per hectare? How does it change if it serves 30 ha?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Annuity factor:</strong> \(0.05/[1-1.05^{-8}] = 0.05/0.3232 = 0.1547\) yr⁻¹ → capital cost \(80\,000\times0.1547 = \)€12 380 yr⁻¹.</li>
+              <li><strong>Running costs:</strong> €2 000 + 150 × €30 = €6 500 yr⁻¹. <strong>Total</strong> ≈ €18 880 yr⁻¹.</li>
+              <li><strong>Per hectare:</strong> 18 880/20 = <strong>€944 ha⁻¹</strong>; at 30 ha: €629 ha⁻¹.</li>
+              <li><strong>Interpretation.</strong> The robot pays if it replaces more than this in hand weeding, herbicides and yield losses. In organic sugar beet or vegetables, where intra-row hand weeding can require many hours per hectare, that threshold can be reached; in conventional cereals it cannot. Utilisation (hectares per robot per year) is the strongest lever — which favours contractors and machine sharing.</li>
+            </ol>
+            <span class="answer">≈ €944 ha⁻¹ yr⁻¹ at 20 ha; ≈ €629 ha⁻¹ yr⁻¹ at 30 ha</span>
+          </div>
+        </details>
+      </div>
+
+      <p>Beyond profit, robots change farming and rural society (Sparrow &amp; Howard, 2021). They can relieve people of heavy, repetitive and hazardous work and reduce dependence on precarious seasonal labour — but they also displace jobs, demand new skills (programming, data interpretation, maintenance) and may concentrate power and data with a few machinery and software companies. Environmental benefits — less herbicide, less compaction, less fuel — are real but depend on how the technology is used: cheaper weed control could also make it profitable to farm land that is better left uncultivated (a rebound effect). Who owns the data a robot collects, whether farmers may repair their own machines, and whether small farms and poorer regions can access the technology are political as well as technical questions.</p>
+      <div class="callout frontier"><div class="callout-title">Frontier (2024–2026)</div><p>Research is moving towards <strong>generalist</strong> field robots that swap tools (seeding, weeding, sensing) and learn new crops from few labelled images; towards <strong>crop systems designed for robots</strong>, from planting patterns to varieties with accessible fruit; towards <strong>fleets</strong> coordinated from the cloud; and towards certified safety for machine-learning perception, as required by the new EU Machinery Regulation. The bottleneck is shifting from hardware to reliable perception in all conditions and to business models that make the machines affordable.</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="agricultural-robotics-main">
+        <script type="application/json">
+        {"title":"Agricultural robotics and automation","questions":[
+          {"type":"mcq","q":"In the sense–perceive–plan–act loop of a field robot, what is the role of the independent safety layer?","options":["It increases the speed of the robot when no obstacles are present.","It can stop the machine or bring it to a safe state regardless of what the planning layer decides.","It replaces the localisation system when GNSS is lost.","It trains the weed-detection network during operation."],"answer":1,"feedback":["Safety functions limit, never push, performance.","","Localisation fusion (IMU, odometry) handles GNSS outages.","Training on the fly would itself be a safety concern."],"explain":"<p>Safety functions must be independent of the performance functions so that a failure in perception or planning cannot disable them.</p>"},
+          {"type":"numeric","q":"A robot's look-ahead point lies 2.5 m ahead and 0.25 m to the side. Its wheelbase is 1.2 m. What steering angle (degrees) does pure pursuit command?","answer":5.48,"tol":0.03,"unit":"°","hint":"κ = 2y/L_d², δ = arctan(W_b κ).","explain":"<p>\\(\\kappa = 2\\times0.25/2.5^2 = 0.08\\) m⁻¹; \\(\\delta = \\arctan(1.2\\times0.08) = \\arctan(0.096) = 5.48^{\\circ}\\).</p>"},
+          {"type":"numeric","q":"A pixel has R = 90, G = 150, B = 60. What is its excess-green index ExG = 2g − r − b?","answer":0.5,"abstol":0.005,"unit":"","hint":"First r = R/(R+G+B) etc.","explain":"<p>Sum = 300; r = 0.3, g = 0.5, b = 0.2; ExG = 1.0 − 0.3 − 0.2 = 0.5.</p>"},
+          {"type":"numeric","q":"A detector finds 170 of 200 weeds and wrongly flags 30 crop plants. What is its F1 score?","answer":0.85,"tol":0.01,"unit":"","hint":"Precision = TP/(TP + FP), recall = TP/(TP + FN).","explain":"<p>Precision 170/200 = 0.85; recall 170/200 = 0.85; F1 = 0.85.</p>"},
+          {"type":"mcq","q":"Why is accuracy a misleading measure for a weed detector in a field where weeds are rare?","options":["Because accuracy can only be computed for balanced data.","Because a detector that calls every plant 'crop' would have high accuracy while finding no weeds.","Because accuracy ignores true negatives.","Because accuracy is always lower than precision."],"answer":1,"feedback":["Accuracy can be computed for any data; it is just uninformative when classes are imbalanced.","","Accuracy includes true negatives — that is precisely the problem.","Not generally true."],"explain":"<p>With 2 % weeds, 'all crop' gives 98 % accuracy and zero recall.</p>"},
+          {"type":"numeric","q":"Weeds are randomly distributed at 10 weeds m⁻². A spot sprayer has 5 cm × 5 cm cells, recall 1.0 and no false positives. What percentage of the field is sprayed?","answer":2.47,"tol":0.02,"unit":"%","hint":"p_w = 1 − exp(−λa) with a = 0.0025 m².","explain":"<p>\\(\\lambda a = 0.025\\); \\(p_w = 1-e^{-0.025} = 0.0247\\) → 2.47 % sprayed, a 97.5 % saving.</p>"},
+          {"type":"multi","q":"Which statements about the SWEEPER sweet-pepper robot (Arad et al., 2020) are correct? (Select all that apply.)","options":["Its average cycle time was about 24 s per fruit.","Its harvest success was 61 % in best-fit crop conditions but 18 % in current crop conditions.","Logistics (fruit discharge and platform movement) took about half of the cycle time.","It was commercialised immediately after the project."],"answer":[0,1,2],"explain":"<p>The results showed the importance of adapting the crop to the robot; a reduction to 15 s was demonstrated in the laboratory.</p>"},
+          {"type":"numeric","q":"A robot hoe is 3 m wide, drives at 1.2 km h⁻¹ with a field efficiency of 0.8. What is its effective field capacity (ha h⁻¹)?","answer":0.288,"tol":0.02,"unit":"ha h⁻¹","hint":"Cₑ = w v η/10.","explain":"<p>\\(3\\times1.2\\times0.8/10 = 0.288\\) ha h⁻¹ — about 6.9 ha in 24 h.</p>"},
+          {"type":"numeric","q":"What is the stopping distance (m) of an autonomous machine at 7.2 km h⁻¹ with a reaction time of 0.4 s and a deceleration of 2 m s⁻²?","answer":1.8,"tol":0.02,"unit":"m","hint":"Convert to m s⁻¹ first: 7.2 km h⁻¹ = 2 m s⁻¹.","explain":"<p>\\(2\\times0.4 + 2^2/(2\\times2) = 0.8+1.0 = 1.8\\) m.</p>"},
+          {"type":"tf","q":"Under Directive 2009/128/EC, member states must ensure that aerial spraying of pesticides is prohibited, with derogations only possible in special cases under strict conditions.","answer":true,"explain":"<p>Article 9 of the Sustainable Use Directive; spraying drones have generally been treated as aerial application needing a derogation.</p>"},
+          {"type":"mcq","q":"Which feature best explains why milking robots became commercially successful decades before harvesting robots?","options":["Cows are smaller than fruit trees.","The task takes place in a structured environment where the animal comes to the robot and one task is repeated many times a day, all year.","Milking robots do not need sensors.","Milk is cheaper than fruit, so errors do not matter."],"answer":1,"feedback":["Size is not the issue.","","They need sophisticated sensors (teat detection, milk quality).","Errors matter a great deal in milking (udder health, milk quality)."],"explain":"<p>Structure, repetition and the high value of the labour saved made automatic milking viable; harvesting robots face unstructured, variable scenes and short seasons.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Agricultural robot</dt><dd>A machine that senses its environment, decides and acts in agricultural tasks with some degree of autonomy.</dd>
+        <dt>Localisation</dt><dd>Estimating the robot's position and heading, typically by fusing RTK-GNSS, inertial sensors, odometry and cameras.</dd>
+        <dt>Pure pursuit</dt><dd>A path-following law that steers along the circular arc to a look-ahead point on the path; curvature κ = 2 sin α / L<sub>d</sub>.</dd>
+        <dt>Autonomous mobile machinery</dt><dd>In EU law, mobile machinery with an autonomous mode in which all essential safety functions are ensured without permanent operator interaction.</dd>
+        <dt>Excess-green index (ExG)</dt><dd>2g − r − b computed from chromatic coordinates; separates green plants from soil and residues in colour images.</dd>
+        <dt>Green-on-green detection</dt><dd>Distinguishing weeds from crop plants (both green), as opposed to detecting any green plant on bare soil (green-on-brown).</dd>
+        <dt>Precision and recall</dt><dd>The fraction of detections that are correct, and the fraction of true targets that are detected; combined in the F1 score.</dd>
+        <dt>Spot spraying</dt><dd>Applying herbicide only to detected weeds by switching individual nozzles or small boom sections.</dd>
+        <dt>Intra-row weeding</dt><dd>Removing weeds between crop plants within the same row, where conventional hoes cannot work.</dd>
+        <dt>Cycle time</dt><dd>The time a harvesting robot needs per attempt, including detection, motion, detachment and fruit handling.</dd>
+        <dt>Automatic milking system (AMS)</dt><dd>A robot that milks cows that visit it voluntarily, attaching cups automatically and recording milk data for each cow.</dd>
+        <dt>Swarm robotics</dt><dd>The use of many small cooperating robots instead of one large machine.</dd>
+        <dt>Supervisory function</dt><dd>A remote, non-permanent surveillance of autonomous machinery that can only stop, start or move it to a safe state.</dd>
+        <dt>ISO 18497</dt><dd>The international standard series on the safety of partially automated, semi-autonomous and autonomous agricultural machinery.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can describe the sensing, localisation, perception, planning, actuation and safety components of a field robot and place a machine on a scale of autonomy.</li>
+        <li>I can compute ExG, precision, recall and F1 and explain why accuracy can mislead.</li>
+        <li>I can calculate the treated area and herbicide saving of a spot sprayer and use it to question a manufacturer's claim.</li>
+        <li>I can explain, with cycle times and success rates, why harvesting robots are hard and why milking robots succeeded.</li>
+        <li>I can summarise the EU rules relevant to spraying drones, autonomous machinery and product liability, and compute the stopping distance a safety system must cover.</li>
+        <li>I can estimate the cost per hectare of a robot and discuss its social consequences.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Oliveira, L. F. P., Moreira, A. P., &amp; Silva, M. F. (2021). Advances in agriculture robotics: A state-of-the-art review and challenges ahead. <em>Robotics</em>, <em>10</em>(2), 52. <a href="https://doi.org/10.3390/robotics10020052" target="_blank" rel="noopener">doi:10.3390/robotics10020052</a><span class="r-why">A broad, readable survey of field robots for weeding, harvesting, monitoring and more.</span></li>
+        <li><span class="r-type">Required</span>Gerhards, R., Andújar Sanchez, D., Hamouz, P., Peteinatos, G. G., Christensen, S., &amp; Fernandez-Quintanilla, C. (2022). Advances in site-specific weed management in agriculture — A review. <em>Weed Research</em>, <em>62</em>(2), 123–133. <a href="https://doi.org/10.1111/wre.12526" target="_blank" rel="noopener">doi:10.1111/wre.12526</a><span class="r-why">What camera-guided hoeing and patch spraying really achieve, and why interoperability matters.</span></li>
+        <li><span class="r-type">Recommended</span>Bac, C. W., van Henten, E. J., Hemming, J., &amp; Edan, Y. (2014). Harvesting robots for high-value crops: State-of-the-art review and challenges ahead. <em>Journal of Field Robotics</em>, <em>31</em>(6), 888–911. <a href="https://doi.org/10.1002/rob.21525" target="_blank" rel="noopener">doi:10.1002/rob.21525</a><span class="r-why">The quantitative benchmark for harvesting robots and the four challenges ahead.</span></li>
+        <li><span class="r-type">Recommended</span>Lowenberg-DeBoer, J., Huang, I. Y., Grigoriadis, V., &amp; Blackmore, S. (2020). Economics of robots and automation in field crop production. <em>Precision Agriculture</em>, <em>21</em>(2), 278–299. <a href="https://doi.org/10.1007/s11119-019-09667-5" target="_blank" rel="noopener">doi:10.1007/s11119-019-09667-5</a><span class="r-why">What the economic literature does — and does not — tell us about robot profitability.</span></li>
+        <li><span class="r-type">Recommended</span>Sparrow, R., &amp; Howard, M. (2021). Robots in agriculture: Prospects, impacts, ethics, and policy. <em>Precision Agriculture</em>, <em>22</em>(3), 818–833. <a href="https://doi.org/10.1007/s11119-020-09757-9" target="_blank" rel="noopener">doi:10.1007/s11119-020-09757-9</a><span class="r-why">The social, political and ethical questions behind agricultural automation.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Allmendinger, A., Spaeth, M., Saile, M., Peteinatos, G. G., &amp; Gerhards, R. (2022). Precision chemical weed management strategies: A review and a design of a new CNN-based modular spot sprayer. <em>Agronomy</em>, <em>12</em>(7), 1620. <a href="https://doi.org/10.3390/agronomy12071620" target="_blank" rel="noopener">doi:10.3390/agronomy12071620</a></li>
+        <li>Arad, B., Balendonck, J., Barth, R., Ben-Shahar, O., Edan, Y., Hellström, T., Hemming, J., Kurtser, P., Ringdahl, O., Tielen, T., &amp; van Tuijl, B. (2020). Development of a sweet pepper harvesting robot. <em>Journal of Field Robotics</em>, <em>37</em>(6), 1027–1039. <a href="https://doi.org/10.1002/rob.21937" target="_blank" rel="noopener">doi:10.1002/rob.21937</a></li>
+        <li>Bac, C. W., van Henten, E. J., Hemming, J., &amp; Edan, Y. (2014). Harvesting robots for high-value crops: State-of-the-art review and challenges ahead. <em>Journal of Field Robotics</em>, <em>31</em>(6), 888–911. <a href="https://doi.org/10.1002/rob.21525" target="_blank" rel="noopener">doi:10.1002/rob.21525</a></li>
+        <li>Carbon Robotics. (2026). <em>LaserWeeder</em> [Product specifications]. <a href="https://carbonrobotics.com/laserweeder" target="_blank" rel="noopener">https://carbonrobotics.com/laserweeder</a></li>
+        <li>Duckett, T., Pearson, S., Blackmore, S., &amp; Grieve, B. (2018). <em>Agricultural robotics: The future of robotic agriculture</em> (UK-RAS White Papers). UK-RAS Network. <a href="https://doi.org/10.31256/WP2018.2" target="_blank" rel="noopener">doi:10.31256/WP2018.2</a></li>
+        <li>Ecorobotix. (2026). <em>ARA620 UHP sprayer</em> [Product specifications]. <a href="https://ecorobotix.com/crop-care/ara-620-uhp-sprayer/" target="_blank" rel="noopener">https://ecorobotix.com/crop-care/ara-620-uhp-sprayer/</a></li>
+        <li>European Commission. (2020). <em>A Farm to Fork Strategy for a fair, healthy and environmentally-friendly food system</em> (COM(2020) 381 final). <a href="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52020DC0381" target="_blank" rel="noopener">https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52020DC0381</a></li>
+        <li>European Parliament and Council. (2009). Directive 2009/128/EC of 21 October 2009 establishing a framework for Community action to achieve the sustainable use of pesticides. <em>Official Journal of the European Union</em>, L 309, 71–86. <a href="https://eur-lex.europa.eu/eli/dir/2009/128/oj" target="_blank" rel="noopener">https://eur-lex.europa.eu/eli/dir/2009/128/oj</a></li>
+        <li>European Parliament and Council. (2023). Regulation (EU) 2023/1230 of 14 June 2023 on machinery. <em>Official Journal of the European Union</em>, L 165, 29.6.2023. <a href="https://eur-lex.europa.eu/eli/reg/2023/1230/oj" target="_blank" rel="noopener">https://eur-lex.europa.eu/eli/reg/2023/1230/oj</a></li>
+        <li>European Parliament and Council. (2024). Directive (EU) 2024/2853 of 23 October 2024 on liability for defective products. <em>Official Journal of the European Union</em>. <a href="https://eur-lex.europa.eu/eli/dir/2024/2853/oj" target="_blank" rel="noopener">https://eur-lex.europa.eu/eli/dir/2024/2853/oj</a></li>
+        <li>European Commission. (2019). Commission Implementing Regulation (EU) 2019/947 of 24 May 2019 on the rules and procedures for the operation of unmanned aircraft. <em>Official Journal of the European Union</em>, L 152, 11.6.2019, p. 45 (as amended). <a href="https://eur-lex.europa.eu/eli/reg_impl/2019/947/oj" target="_blank" rel="noopener">https://eur-lex.europa.eu/eli/reg_impl/2019/947/oj</a></li>
+        <li>FarmDroid. (2026). <em>FarmDroid FD20 and FD60</em> [Product information]. <a href="https://farmdroid.com/" target="_blank" rel="noopener">https://farmdroid.com/</a></li>
+        <li>Fennimore, S. A., &amp; Cutulle, M. (2019). Robotic weeders can improve weed control options for specialty crops. <em>Pest Management Science</em>, <em>75</em>(7), 1767–1774. <a href="https://doi.org/10.1002/ps.5337" target="_blank" rel="noopener">doi:10.1002/ps.5337</a></li>
+        <li>Gerhards, R., Andújar Sanchez, D., Hamouz, P., Peteinatos, G. G., Christensen, S., &amp; Fernandez-Quintanilla, C. (2022). Advances in site-specific weed management in agriculture — A review. <em>Weed Research</em>, <em>62</em>(2), 123–133. <a href="https://doi.org/10.1111/wre.12526" target="_blank" rel="noopener">doi:10.1111/wre.12526</a></li>
+        <li>Hasan, A. S. M. M., Sohel, F., Diepeveen, D., Laga, H., &amp; Jones, M. G. K. (2021). A survey of deep learning techniques for weed detection from images. <em>Computers and Electronics in Agriculture</em>, <em>184</em>, 106067. <a href="https://doi.org/10.1016/j.compag.2021.106067" target="_blank" rel="noopener">doi:10.1016/j.compag.2021.106067</a></li>
+        <li>International Organization for Standardization. (2018). <em>ISO 18497:2018 Agricultural machinery and tractors — Safety of highly automated agricultural machines — Principles for design</em>. ISO (since revised as the multi-part ISO 18497 series).</li>
+        <li>Jacobs, J. A., &amp; Siegford, J. M. (2012). Invited review: The impact of automatic milking systems on dairy cow management, behavior, health, and welfare. <em>Journal of Dairy Science</em>, <em>95</em>(5), 2227–2247. <a href="https://doi.org/10.3168/jds.2011-4943" target="_blank" rel="noopener">doi:10.3168/jds.2011-4943</a></li>
+        <li>Lowenberg-DeBoer, J., Franklin, K., Behrendt, K., &amp; Godwin, R. (2021). Economics of autonomous equipment for arable farms. <em>Precision Agriculture</em>, <em>22</em>(6), 1992–2006. <a href="https://doi.org/10.1007/s11119-021-09822-x" target="_blank" rel="noopener">doi:10.1007/s11119-021-09822-x</a></li>
+        <li>Lowenberg-DeBoer, J., Huang, I. Y., Grigoriadis, V., &amp; Blackmore, S. (2020). Economics of robots and automation in field crop production. <em>Precision Agriculture</em>, <em>21</em>(2), 278–299. <a href="https://doi.org/10.1007/s11119-019-09667-5" target="_blank" rel="noopener">doi:10.1007/s11119-019-09667-5</a></li>
+        <li>Mathiassen, S. K., Bak, T., Christensen, S., &amp; Kudsk, P. (2006). The effect of laser treatment as a weed control method. <em>Biosystems Engineering</em>, <em>95</em>(4), 497–505. <a href="https://doi.org/10.1016/j.biosystemseng.2006.08.010" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2006.08.010</a></li>
+        <li>Oliveira, L. F. P., Moreira, A. P., &amp; Silva, M. F. (2021). Advances in agriculture robotics: A state-of-the-art review and challenges ahead. <em>Robotics</em>, <em>10</em>(2), 52. <a href="https://doi.org/10.3390/robotics10020052" target="_blank" rel="noopener">doi:10.3390/robotics10020052</a></li>
+        <li>Otsu, N. (1979). A threshold selection method from gray-level histograms. <em>IEEE Transactions on Systems, Man, and Cybernetics</em>, <em>9</em>(1), 62–66. <a href="https://doi.org/10.1109/TSMC.1979.4310076" target="_blank" rel="noopener">doi:10.1109/TSMC.1979.4310076</a></li>
+        <li>Slaughter, D. C., Giles, D. K., &amp; Downey, D. (2008). Autonomous robotic weed control systems: A review. <em>Computers and Electronics in Agriculture</em>, <em>61</em>(1), 63–78. <a href="https://doi.org/10.1016/j.compag.2007.05.008" target="_blank" rel="noopener">doi:10.1016/j.compag.2007.05.008</a></li>
+        <li>Sparrow, R., &amp; Howard, M. (2021). Robots in agriculture: Prospects, impacts, ethics, and policy. <em>Precision Agriculture</em>, <em>22</em>(3), 818–833. <a href="https://doi.org/10.1007/s11119-020-09757-9" target="_blank" rel="noopener">doi:10.1007/s11119-020-09757-9</a></li>
+        <li>Woebbecke, D. M., Meyer, G. E., Von Bargen, K., &amp; Mortensen, D. A. (1995). Color indices for weed identification under various soil, residue, and lighting conditions. <em>Transactions of the ASAE</em>, <em>38</em>(1), 259–269. <a href="https://doi.org/10.13031/2013.27838" target="_blank" rel="noopener">doi:10.13031/2013.27838</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot } from '/assets/js/plot.js';
+import { Readouts } from '/assets/js/ui.js';
+import { normCdf, normPdf, mulberry32, randn } from '/assets/js/stats.js';
+import { withAlpha } from '/assets/js/colors.js';
+
+const $ = id => document.getElementById(id);
+const fillRange = el => el.style.setProperty('--fill', ((+el.value - +el.min) / (+el.max - +el.min) * 100) + '%');
+
+/* ================= Figure 2: precision-recall threshold explorer ================= */
+const tp = new Plot('#th-plot', { x: { label: 'Classifier "weediness" score', unit: '', min: -3, max: 7 }, y: { label: 'Plants per unit score', unit: 'per 100 plants', min: 0 }, legend: true });
+const tro = new Readouts('#th-ro');
+tro.add({ id: 'rec', label: 'Recall (weeds found)', unit: '%', digits: 0 }).add({ id: 'pre', label: 'Precision', unit: '%', digits: 0 }).add({ id: 'f1', label: 'F1 score', digits: 2 })
+   .add({ id: 'hit', label: 'Crop plants hit', unit: 'per 100 plants', digits: 1 }).add({ id: 'miss', label: 'Weeds missed', unit: 'per 100 plants', digits: 1 });
+const npdf = (x, m) => Math.exp(-0.5 * (x - m) ** 2) / Math.sqrt(2 * Math.PI);
+function thDraw() {
+  ['th-t', 'th-d', 'th-w'].forEach(i => fillRange($(i)));
+  const t = +$('th-t').value, d = +$('th-d').value, w = +$('th-w').value / 100;
+  $('th-t-o').textContent = t.toFixed(2); $('th-d-o').textContent = d.toFixed(1); $('th-w-o').textContent = Math.round(w * 100);
+  const xs = []; for (let x = -4; x <= 7.0001; x += 0.05) xs.push(+x.toFixed(2));
+  const crop = xs.map(x => 100 * (1 - w) * npdf(x, 0)), weed = xs.map(x => 100 * w * npdf(x, d));
+  tp.custom('fill', (ctx, p, P) => {
+    const area = (ys, col) => { ctx.fillStyle = withAlpha(col, 0.28); ctx.beginPath(); let started = false; xs.forEach((x, i) => { if (x < t) return; const X = p.px(x), Y = p.py(ys[i]); if (!started) { ctx.moveTo(X, p.py(0)); started = true; } ctx.lineTo(X, Y); }); ctx.lineTo(p.px(xs[xs.length - 1]), p.py(0)); ctx.closePath(); ctx.fill(); };
+    area(crop, P.accent); area(weed, P.magenta);
+  });
+  tp.line('crop', xs, crop, { color: 'accent', width: 2.2, label: 'crop plants' });
+  tp.line('weed', xs, weed, { color: 'magenta', width: 2.2, label: 'weeds' });
+  tp.vline('t', t, { color: 'ink', label: 'threshold' });
+  const rec = 1 - normCdf(t - d), fpr = 1 - normCdf(t);
+  const TP = w * rec, FP = (1 - w) * fpr, pre = TP + FP > 0 ? TP / (TP + FP) : NaN, f1 = 2 * pre * rec / (pre + rec);
+  tro.set('rec', 100 * rec, rec > 0.9 ? 'ok' : rec > 0.75 ? 'warn' : 'bad');
+  tro.set('pre', 100 * pre, pre > 0.9 ? 'ok' : pre > 0.7 ? 'warn' : 'bad');
+  tro.set('f1', f1); tro.set('hit', 100 * FP, 100 * FP < 1 ? 'ok' : 100 * FP < 5 ? 'warn' : 'bad'); tro.set('miss', 100 * w * (1 - rec));
+}
+['th-t', 'th-d', 'th-w'].forEach(i => $(i).addEventListener('input', thDraw));
+thDraw();
+
+/* ================= Figure 3: spot-spray simulator (10 m x 10 m) ================= */
+const SIZES = [0.04, 0.06, 0.10, 0.25, 0.50, 1.0, 3.0];     // cell side in metres (last one: a 3 m boom section)
+const ss = { seed: 5, pat: 'random' };
+const sp = new Plot('#ss-plot', { x: { label: 'Across the rows', unit: 'm', min: 0, max: 10 }, y: { label: 'Along the rows', unit: 'm', min: 0, max: 10 }, legend: false, crosshair: false });
+const sro = new Readouts('#ss-ro');
+sro.add({ id: 'nw', label: 'Weeds in plot', digits: 0 }).add({ id: 'area', label: 'Area sprayed', unit: '%', digits: 1 }).add({ id: 'save', label: 'Herbicide saving (simulated)', unit: '%', digits: 1 })
+   .add({ id: 'pred', label: 'Saving predicted by Eq. 11.4.4', unit: '%', digits: 1 }).add({ id: 'ctrl', label: 'Weeds hit', unit: '%', digits: 0 });
+function makeWeeds(lam, pat, rng) {
+  const W = [], n = Math.round(lam * 100);
+  if (pat === 'random') { for (let i = 0; i < n; i++) W.push([10 * rng(), 10 * rng()]); }
+  else { const np = Math.max(1, Math.round(n / 40)); for (let k = 0; k < np; k++) { const cx = 10 * rng(), cy = 10 * rng(); for (let j = 0; j < Math.round(n / np); j++) { const x = cx + 0.7 * randn(rng), y = cy + 0.7 * randn(rng); if (x >= 0 && x < 10 && y >= 0 && y < 10) W.push([x, y]); else j--; } } }
+  return W;
+}
+function ssDraw() {
+  ['ss-l', 'ss-a', 'ss-r', 'ss-q'].forEach(i => fillRange($(i)));
+  const lam = +$('ss-l').value, a = SIZES[+$('ss-a').value], r = +$('ss-r').value / 100, q = +$('ss-q').value / 100;
+  $('ss-l-o').textContent = lam + ' m⁻²'; $('ss-a-o').textContent = a < 1 ? (a * 100).toFixed(0) + ' cm' : a.toFixed(0) + ' m'; $('ss-r-o').textContent = (r * 100).toFixed(0) + ' %'; $('ss-q-o').textContent = (q * 100).toFixed(1) + ' %';
+  const rng = mulberry32(ss.seed * 31 + (ss.pat === 'patchy' ? 7 : 0));
+  const weeds = makeWeeds(lam, ss.pat, rng);
+  const nc = Math.round(10 / a), cellW = new Map();
+  weeds.forEach(([x, y], k) => { const key = Math.min(nc - 1, Math.floor(x / a)) * 100000 + Math.min(nc - 1, Math.floor(y / a)); if (!cellW.has(key)) cellW.set(key, []); cellW.get(key).push(k); });
+  const drng = mulberry32(ss.seed * 97 + 3), sprayed = []; const hit = new Uint8Array(weeds.length);
+  for (let i = 0; i < nc; i++) for (let j = 0; j < nc; j++) {
+    const key = i * 100000 + j, has = cellW.has(key);
+    if (has ? drng() < r : drng() < q) { sprayed.push([i, j]); if (has) cellW.get(key).forEach(k => hit[k] = 1); }
+  }
+  const fT = sprayed.length / (nc * nc), pw = 1 - Math.exp(-lam * a * a), pred = 1 - (r * pw + q * (1 - pw));
+  sp.clear();
+  sp.custom('cells', (ctx, p, P) => {
+    ctx.fillStyle = withAlpha(P.magenta, 0.45);
+    const wpx = p.px(a) - p.px(0), hpx = p.py(0) - p.py(a);
+    sprayed.forEach(([i, j]) => ctx.fillRect(p.px(i * a), p.py((j + 1) * a), Math.max(0.6, wpx), Math.max(0.6, hpx)));
+    ctx.strokeStyle = withAlpha(P.accent, 0.35); ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 0.25; x < 10; x += 0.5) { ctx.moveTo(p.px(x), p.py(0)); ctx.lineTo(p.px(x), p.py(10)); }   // crop rows 0.5 m apart
+    ctx.stroke();
+    weeds.forEach(([x, y], k) => { ctx.fillStyle = hit[k] ? P.accent : P.ink; ctx.beginPath(); ctx.arc(p.px(x), p.py(y), 2.2, 0, 2 * Math.PI); ctx.fill(); });
+  });
+  sro.set('nw', weeds.length); sro.set('area', 100 * fT);
+  const save = 100 * (1 - fT); sro.set('save', save, save > 80 ? 'ok' : save > 40 ? 'warn' : 'bad'); sro.set('pred', 100 * pred);
+  const ctrl = weeds.length ? 100 * hit.reduce((s, v) => s + v, 0) / weeds.length : NaN; sro.set('ctrl', ctrl, ctrl > 90 ? 'ok' : ctrl > 75 ? 'warn' : 'bad');
+}
+['ss-l', 'ss-a', 'ss-r', 'ss-q'].forEach(i => $(i).addEventListener('input', ssDraw));
+$('ss-pat').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; ss.pat = b.dataset.v; $('ss-pat').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); ssDraw(); });
+$('ss-new').addEventListener('click', () => { ss.seed++; ssDraw(); });
+ssDraw();
+</script>
+</body>
+</html>

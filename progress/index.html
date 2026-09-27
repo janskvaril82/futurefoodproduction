@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your progress · Future Food Production</title>
+<meta name="description" content="Your progress through lessons, laboratories, quizzes and practice in Future Food Production.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<style>
+  .ring { width: 150px; height: 150px; }
+  .overview { display: grid; grid-template-columns: 170px 1fr; gap: 28px; align-items: center; }
+  @media (max-width: 640px) { .overview { grid-template-columns: 1fr; } }
+  .pm-row { display: grid; grid-template-columns: 34px 1fr 90px; gap: 14px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .pm-row .n { font: 700 .85rem var(--font-mono); color: var(--mod-color); }
+  .pm-bar { height: 8px; border-radius: 6px; background: var(--bg-sunk); overflow: hidden; margin-top: 6px; }
+  .pm-bar i { display: block; height: 100%; background: var(--mod-color); }
+  .pm-row .pct { text-align: right; font: 600 .9rem var(--font-mono); }
+</style>
+</head>
+<body data-page="progress">
+<div data-site-header></div>
+<main id="main">
+  <header class="page-head"><div class="container">
+    <div class="breadcrumb"><a href="/">Home</a><span>/</span><span>Your progress</span></div>
+    <h1>Your progress</h1>
+    <p class="lead">Everything is stored privately in this browser. Export a backup file to move your progress, notes and project data to another computer.</p>
+  </div></header>
+  <div class="container">
+    <section class="section-sm overview">
+      <svg class="ring" viewBox="0 0 120 120" id="ring" role="img" aria-label="Overall progress"></svg>
+      <div><div class="readouts" id="kpis" style="margin:0"></div></div>
+    </section>
+    <section class="section-sm">
+      <h2>By module</h2>
+      <div id="mods"></div>
+    </section>
+    <section class="section-sm split">
+      <div><h2>Quiz results</h2><div id="quizzes" class="muted">No quizzes completed yet.</div></div>
+      <div><h2>Laboratories</h2><div id="labs" class="muted">No laboratories visited yet.</div></div>
+    </section>
+    <section class="section-sm">
+      <h2>Backup and reset</h2>
+      <p>Your data (studied lessons, completed labs, quiz scores, practice mastery, notebook, saved investigations; the grow log and sensory data are included too).</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="b-export" type="button">Download backup (.json)</button>
+        <label class="btn" style="cursor:pointer">Restore from backup<input type="file" id="f-import" accept="application/json" hidden></label>
+        <button class="btn btn-ghost" id="b-reset" type="button" style="color:var(--danger)">Reset all progress…</button>
+      </div>
+    </section>
+  </div>
+</main>
+<div data-site-footer></div>
+<script type="module">
+const ready = () => new Promise(r => (window.FFP && FFP.ready) ? r() : document.addEventListener('ffp:ready', r, { once: true }));
+await ready();
+const C = window.FFP_COURSE, st = FFP.store, esc = FFP.esc;
+function render() {
+  const raw = st.raw();
+  const nL = C.flatLessons.length, nLab = C.labs.length;
+  const sL = C.flatLessons.filter(l => st.isStudied(l.slug)).length, sLab = C.labs.filter(l => st.labDone(l.slug)).length;
+  const frac = (sL + sLab) / (nL + nLab);
+  const R = 52, circ = 2 * Math.PI * R;
+  document.getElementById('ring').innerHTML = `<circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--bg-sunk)" stroke-width="12"/><circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--accent)" stroke-width="12" stroke-linecap="round" stroke-dasharray="${circ * frac} ${circ}" transform="rotate(-90 60 60)"/><text x="60" y="58" text-anchor="middle" style="font:700 22px var(--font-mono);fill:var(--ink)">${Math.round(frac * 100)}%</text><text x="60" y="76" text-anchor="middle" style="font:500 9px var(--font-mono);fill:var(--muted)">COMPLETE</text>`;
+  const quizzes = Object.values(raw.quizzes || {});
+  const pr = raw.practice || {}; const meta = pr.__meta || { tries: 0, right: 0 };
+  const mastered = Object.entries(pr).filter(([k, v]) => k !== '__meta' && v.box >= 4).length;
+  const notes = Object.keys(raw.notes || {}).length;
+  document.getElementById('kpis').innerHTML = [
+    ['Lessons studied', `${sL}/${nL}`], ['Labs completed', `${sLab}/${nLab}`], ['Labs visited', `${Object.keys(raw.labs || {}).length}`],
+    ['Quizzes completed', `${quizzes.length}`], ['Quiz accuracy (best)', quizzes.length ? Math.round(100 * quizzes.reduce((s, q) => s + q.best, 0) / quizzes.reduce((s, q) => s + q.total, 0)) + '%' : '—'],
+    ['Practice problems solved', `${meta.right}/${meta.tries}`], ['Problem types mastered', `${mastered}`], ['Notebook pages', `${notes}`]
+  ].map(([l, v]) => `<div class="readout"><div class="ro-label">${l}</div><div class="ro-value">${v}</div></div>`).join('');
+  document.getElementById('mods').innerHTML = C.modules.map(m => {
+    const t = m.lessons.length + m.labs.length, d = m.lessons.filter(l => st.isStudied(l.slug)).length + m.labs.filter(s => st.labDone(s)).length;
+    return `<div class="pm-row" style="--mod-color:${m.color}"><span class="n">${String(m.n).padStart(2, '0')}</span><div><a href="/course/#module-${m.slug}" style="color:var(--ink);text-decoration:none;font-weight:600">${esc(m.title)}</a><div class="pm-bar"><i style="width:${100 * d / t}%"></i></div></div><span class="pct">${d}/${t}</span></div>`;
+  }).join('');
+  if (quizzes.length) document.getElementById('quizzes').innerHTML = `<div class="table-wrap"><table style="width:100%;border-collapse:collapse;font-size:.9rem"><thead><tr><th style="text-align:left;padding:8px">Page</th><th class="num" style="padding:8px">Best</th><th class="num" style="padding:8px">Attempts</th></tr></thead><tbody>${Object.entries(raw.quizzes).sort((a, b) => (b[1].t || 0) - (a[1].t || 0)).map(([id, q]) => { const L = Object.values(C.lessonIndex).find(l => l.url === q.page) || C.labs.find(l => l.url === q.page); return `<tr><td style="padding:8px;border-top:1px solid var(--line)"><a href="${q.page || '#'}">${esc(L ? L.title : id)}</a></td><td class="num" style="padding:8px;border-top:1px solid var(--line)">${q.best}/${q.total}</td><td class="num" style="padding:8px;border-top:1px solid var(--line)">${q.attempts}</td></tr>`; }).join('')}</tbody></table></div>`;
+  const labs = Object.entries(raw.labs || {});
+  if (labs.length) document.getElementById('labs').innerHTML = labs.sort((a, b) => (b[1].last || 0) - (a[1].last || 0)).map(([s, v]) => { const L = C.labIndex[s]; return L ? `<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line)"><a href="${L.url}">${esc(L.title)}</a><span class="mono muted" style="font-size:.8rem">${v.done ? '✓ done · ' : ''}${v.visits} visit${v.visits === 1 ? '' : 's'}</span></div>` : ''; }).join('');
+}
+render();
+document.getElementById('b-export').addEventListener('click', () => {
+  const extra = {}; ['ffp-growlog-v1', 'ffp-sensory-v1'].forEach(k => { try { const v = localStorage.getItem(k); if (v) extra[k] = JSON.parse(v); } catch (e) { } });
+  const data = { progress: st.raw(), extra, exported: new Date().toISOString() };
+  FFP.download('future-food-production-backup.json', JSON.stringify(data, null, 2), 'application/json');
+});
+document.getElementById('f-import').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { const d = JSON.parse(await f.text()); st.importJSON(JSON.stringify(d.progress || d)); Object.entries(d.extra || {}).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v))); FFP.toast('Backup restored'); render(); }
+  catch (err) { FFP.toast('That file could not be read'); }
+});
+document.getElementById('b-reset').addEventListener('click', () => { if (confirm('Delete all progress, quiz scores, practice data and notes stored in this browser? This cannot be undone.')) { st.reset(); FFP.toast('Progress reset'); render(); } });
+</script>
+</body>
+</html>

@@ -1,0 +1,1052 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resilience of food systems · Future Food Production</title>
+<meta name="description" content="Engineering versus ecological resilience, absorptive, adaptive and transformative capacity and the four Rs; the resilience triangle; shocks from the 2018 drought, COVID-19, the war in Ukraine and chokepoints; Shannon diversity, HHI, self-sufficiency and import dependency; Swedish food preparedness and emergency stocks; buffers; the energy dependency of controlled-environment agriculture; portfolio and network effects.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Eq. 15.2.1b with an exponential recovery Q(t) = 100 - dQ exp(-t/tau) */
+FFP_CALC.resIdxExp = v => 1 - v.dq * v.tau * (1 - Math.exp(-v.T / v.tau)) / (100 * v.T);
+/* Eq. 15.2.3 for three suppliers; p3 = 100 - p1 - p2 */
+FFP_CALC.resShannon3 = v => { const p = [v.p1 / 100, v.p2 / 100, 1 - v.p1 / 100 - v.p2 / 100]; if (p[2] < -1e-9) return NaN; return -p.filter(x => x > 1e-12).reduce((s, x) => s + x * Math.log(x), 0); };
+/* Eq. 15.2.4 effective number of suppliers 1/HHI for three suppliers */
+FFP_CALC.resNeff3 = v => { const p = [v.p1 / 100, v.p2 / 100, 1 - v.p1 / 100 - v.p2 / 100]; if (p[2] < -1e-9) return NaN; return 1 / p.reduce((s, x) => s + x * x, 0); };
+/* Eq. 15.2.6 buffer duration in days: S in kt, population in millions, c in kg per person per day */
+FFP_CALC.resBuffer = v => (v.S * 1000) / ((1 - v.phi) * v.pop * 1e6 * v.c / 1000);
+/* Eq. 15.2.8 coefficient of variation of a portfolio of n equal suppliers with common correlation rho */
+FFP_CALC.resCVtot = v => v.cv * Math.sqrt((1 + (v.n - 1) * v.rho) / v.n);
+</script>
+<style>
+.rs-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 22px}
+@media (max-width:760px){.rs-grid{grid-template-columns:1fr}}
+.rs-ctl .mc-var{margin-bottom:8px}
+.rs-note{font-size:.8rem;color:var(--muted);margin:.4em 0 0}
+.rs-presets{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+.rs-presets button{border:1px solid var(--line);background:var(--bg-elev);color:var(--ink-2);border-radius:999px;padding:4px 11px;font:600 .78rem var(--font-sans);cursor:pointer}
+.rs-presets button:hover{border-color:var(--line-strong);color:var(--ink)}
+.rs-tag{display:inline-block;font:600 .72rem var(--font-mono);padding:1px 7px;border-radius:6px;background:var(--bg-sunk);color:var(--ink-2)}
+</style>
+</head>
+<body data-page="lesson" data-slug="resilience">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Resilience of food systems</h1>
+      <p class="lead">In the summer of 2018 Swedish farmers harvested 45 % less grain than the year before. In early 2022, within weeks of Russia's full-scale invasion of Ukraine, world prices of staple foods and fertilisers reached all-time highs. In spring 2026, war in the Persian Gulf blocked a strait through which nearly a third of the world's fertiliser trade normally passes. Swedish shops stayed full through all of it — but not by accident, and not by guarantee. This lesson turns <em>resilience</em> from a buzzword into something an engineer can define, measure and design for: how deep a shock cuts, how fast a system recovers, how diverse its suppliers really are, how long its buffers last — and whether high-tech farms make a food system more or less secure.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Distinguish engineering and ecological resilience, the absorptive, adaptive and transformative capacities and the four Rs (robustness, redundancy, resourcefulness, rapidity), and explain why efficiency and resilience can conflict (LO7).</li>
+        <li>Quantify the loss of function after a shock with the resilience triangle and a resilience index, and show how buffers and faster recovery change them (LO3, LO7).</li>
+        <li>Calculate the Shannon diversity, evenness, Herfindahl–Hirschman index and effective number of suppliers, and the self-sufficiency and import-dependency ratios of a food supply (LO3, LO7).</li>
+        <li>Size an emergency stock and estimate how long it lasts when only part of the normal supply arrives, using Swedish preparedness data (LO3).</li>
+        <li>Evaluate the roles and vulnerabilities of controlled-environment and urban agriculture, including their energy dependency and financial fragility (LO1, LO7).</li>
+        <li>Explain portfolio and network effects — why correlated shocks and chokepoints defeat naive diversification (LO7).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="shocks">Four shocks in eight years</h2>
+      <p class="lede-drop">A food system is a network of flows: of seeds, fertiliser, fuel, feed, water, electricity, labour, money and information into farms, and of food out of them through processors, wholesalers and shops to households. Most of the time these flows are so reliable that we notice them only when they fail. Engineers distinguish two kinds of disturbance. A <strong>stress</strong> is slow and persistent — soil degradation, rising temperatures, an ageing farm workforce. A <strong>shock</strong> is sudden — a drought, a pandemic, a war, a blocked canal. Stresses erode the capacity to cope with shocks; shocks reveal how much capacity is left. The years since 2018 have delivered an unusually dense sequence of shocks, and they are the empirical material of this lesson.</p>
+      <div class="timeline">
+        <div><div class="t-date">Summer 2018</div><p><strong>Nordic drought and heat.</strong> Sweden harvested 3.25 million tonnes of cereals, 45 % less than in 2017; the roughage harvest from temporary grassland fell by a fifth, and more cereal fields than usual were cut as silage to feed livestock (SCB, 2018). Measured in energy, Swedish food production fell to about 2,710 kcal per person and day against an average of 3,530 kcal for 2013–2023 (Livsmedelsverket &amp; Jordbruksverket, 2025). Across Europe, above-normal yields in the south nearly offset the northern losses (Beillouin et al., 2020).</p></div>
+        <div><div class="t-date">2020</div><p><strong>COVID-19.</strong> Lockdowns disrupted labour, logistics and restaurants, but the main impact on food security came from lost income and purchasing power, especially among the poor (Béné, 2020; Laborde et al., 2020).</p></div>
+        <div><div class="t-date">23–29 March 2021</div><p><strong>Suez Canal blocked.</strong> The container ship <em>Ever Given</em> ran aground and closed a route that carries about 12 % of world trade for six days.</p></div>
+        <div><div class="t-date">2022–2023</div><p><strong>War in Ukraine.</strong> In 2021 Russia had shipped 18 % and Ukraine 10 % of the world's wheat exports; together they supplied close to 63 % of sunflower-oil exports, and Russia was the largest exporter of nitrogen fertiliser (FAO, 2022). Food prices hit all-time highs in early 2022 and urea prices had risen two and a half times in twelve months. The Black Sea Grain Initiative (22 July 2022 – 17 July 2023) let nearly 33 million tonnes of grain and other food leave Ukrainian ports (United Nations, 2023). Global food-price inflation peaked at 13.6 % in January 2023 and at 30 % in low-income countries in May 2023 (FAO et al., 2025).</p></div>
+        <div><div class="t-date">2026</div><p><strong>Strait of Hormuz.</strong> From 28 February 2026, war largely blocked shipping through the strait, which normally handles nearly a third of global fertiliser trade — about 30 % of world urea trade was held up at the start of the northern planting season (PBS NewsHour, 2026). In Sweden the first state emergency grain stocks were in place in the four northernmost counties by June 2026, and a new law on emergency stocks in the food chain took effect on 1 July 2026 (Jordbruksverket, 2026; Riksdagen, 2026).</p></div>
+      </div>
+      <p>Look at the list as an engineer. The 2018 drought was a <em>production</em> shock in one region; COVID-19 was a <em>labour, logistics and income</em> shock everywhere at once; Suez and Hormuz were <em>chokepoint</em> shocks in the transport network; the war in Ukraine combined a production shock, a trade shock and an <em>input</em> shock (fertiliser, energy). Each hit a different part of the system, and each was absorbed — or not — by different mechanisms: trade, stocks, substitution, public support. Table 1 summarises the pattern.</p>
+      <table>
+        <caption>Table 1. Recent shocks to food systems, classified by where they struck and what absorbed them.</caption>
+        <thead><tr><th>Shock</th><th>Type</th><th>What failed</th><th>What absorbed it</th><th>Lesson for design</th></tr></thead>
+        <tbody>
+          <tr><td>Nordic drought 2018</td><td>climate, production</td><td>cereal and roughage yields</td><td>intra-EU trade, stocks, early slaughter, crisis support</td><td>spatial diversity of production; feed buffers</td></tr>
+          <tr><td>COVID-19 2020</td><td>health, labour, income</td><td>seasonal labour, restaurants, household incomes</td><td>retail substitution, social protection</td><td>access is a resilience issue, not only supply</td></tr>
+          <tr><td>Suez 2021</td><td>transport chokepoint</td><td>one canal for six days</td><td>inventories along the chain</td><td>chokepoints couple many flows</td></tr>
+          <tr><td>Ukraine 2022</td><td>war, trade, inputs</td><td>exports of grain, oilseeds, fertiliser</td><td>corridors, substitution of suppliers, reserves</td><td>concentration of exporters and inputs</td></tr>
+          <tr><td>Hormuz 2026</td><td>war, inputs, energy</td><td>fertiliser and LNG shipping</td><td>stocks of inputs, alternative routes</td><td>input stocks are part of food security</td></tr>
+        </tbody>
+      </table>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Resilience is about the stability of a <strong>function</strong> — people having access to sufficient, safe and nutritious food — not about the stability of any particular component. A system can keep its function while individual farms, suppliers or technologies come and go; and a system in which every component looks efficient can still fail as a whole.</p></div>
+
+      <h2 id="definitions">What resilience means</h2>
+      <p>"Resilience" entered science from two directions, and the difference between them matters for how you assess a food technology.</p>
+      <p><strong>Engineering resilience</strong> is the speed with which a system returns to its equilibrium after a disturbance — a bridge that springs back after a load, a thermostat that restores the set-point. It presumes a single, known equilibrium and measures <em>efficiency of recovery</em>. <strong>Ecological resilience</strong>, introduced by C. S. Holling in 1973, asks a different question: how large a disturbance can a system absorb before it flips into a different state altogether? In Holling's words, resilience "determines the persistence of relationships within a system and is a measure of the ability of these systems to absorb changes of state variables, driving variables, and parameters, and still persist" (Holling, 1973, p. 17). Holling (1996) later named the two ideas engineering and ecological resilience and argued that systems optimised for fast return to one equilibrium often lose the capacity to persist when conditions change.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="Ball-and-cup diagrams. Left: a single steep cup; the ball returns quickly after a push (engineering resilience). Right: a landscape with two basins; the width of the basin is the ecological resilience, and a large shock pushes the ball over the threshold into a degraded state.">
+            <defs>
+              <marker id="rs-ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+            </defs>
+            <text x="170" y="24" text-anchor="middle" style="font-weight:600">Engineering resilience</text>
+            <text x="170" y="42" text-anchor="middle" class="t-small t-muted">one equilibrium; how fast does the ball return?</text>
+            <path d="M40 90 C110 250 230 250 300 90" class="stroke" stroke-width="2.2"/>
+            <circle cx="170" cy="199" r="11" class="fill-accent"/>
+            <circle cx="104" cy="170" r="11" class="fill-accent-soft" stroke="currentColor" stroke-width="1" stroke-dasharray="3 2"/>
+            <path d="M112 158 Q140 148 160 186" class="stroke-magenta" stroke-width="1.8" marker-end="url(#rs-ar1)"/>
+            <line x1="62" y1="206" x2="96" y2="179" class="stroke-muted" stroke-width="1"/>
+            <text x="22" y="220" class="t-small">disturbed</text>
+            <text x="170" y="232" text-anchor="middle" class="t-small">equilibrium</text>
+            <text x="170" y="262" text-anchor="middle" class="t-small t-muted">steeper cup = faster return (rapidity)</text>
+            <line x1="360" y1="40" x2="360" y2="280" class="stroke-muted" stroke-dasharray="3 4"/>
+            <text x="545" y="24" text-anchor="middle" style="font-weight:600">Ecological resilience</text>
+            <text x="545" y="42" text-anchor="middle" class="t-small t-muted">several possible states; how big a shock before a regime shift?</text>
+            <path d="M390 80 C405 235 505 240 545 150 C570 95 590 110 610 180 C630 255 685 250 705 90" class="stroke" stroke-width="2.2"/>
+            <path d="M390 104 C415 215 490 212 535 158 C560 128 590 132 612 190 C632 250 685 244 705 110" class="stroke-muted" stroke-width="1.3" stroke-dasharray="5 4"/>
+            <circle cx="462" cy="208" r="11" class="fill-accent"/>
+            <circle cx="652" cy="232" r="11" fill="var(--danger)" opacity=".85"/>
+            <path d="M470 196 C515 70 612 58 646 212" class="stroke-danger" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#rs-ar1)"/>
+            <line x1="570" y1="186" x2="570" y2="126" class="stroke-muted" stroke-width="1" stroke-dasharray="2 3"/>
+            <text x="570" y="200" text-anchor="middle" class="t-small">threshold</text>
+            <text x="528" y="82" text-anchor="middle" class="t-small" style="fill:var(--danger)">large shock</text>
+            <line x1="396" y1="266" x2="545" y2="266" class="stroke-accent" stroke-width="1.6" marker-start="url(#rs-ar1)" marker-end="url(#rs-ar1)"/>
+            <text x="470" y="284" text-anchor="middle" class="t-small" style="fill:var(--accent)">basin width = ecological resilience</text>
+            <text x="430" y="238" text-anchor="middle" class="t-small">state A</text>
+            <text x="430" y="252" text-anchor="middle" class="t-small t-muted">productive, diverse</text>
+            <text x="662" y="274" text-anchor="middle" class="t-small">state B: degraded</text>
+            <text x="712" y="58" text-anchor="end" class="t-small t-muted">dashed: slow stresses</text>
+            <text x="712" y="72" text-anchor="end" class="t-small t-muted">flatten the basin</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The ball-and-cup metaphor. Left: engineering resilience measures how quickly a system returns to its single equilibrium. Right: ecological resilience measures how large a disturbance the system can absorb before it crosses a threshold into another stable state — for a farming region, for example, from a productive mixed landscape into one of degraded soils and abandoned farms. Slow stresses (dashed) make the basin shallower and narrower, so that a smaller shock suffices (after Holling, 1973, 1996; Walker et al., 2004).</figcaption>
+      </figure>
+      <p>Walker et al. (2004) extended the idea to <em>social–ecological</em> systems — farms, markets, institutions and ecosystems together — and distinguished three properties: <strong>resilience</strong> (the capacity to absorb disturbance and reorganise while keeping essentially the same function, structure and feedbacks), <strong>adaptability</strong> (the capacity of the actors to manage resilience) and <strong>transformability</strong> (the capacity to create a fundamentally new system when the existing one becomes untenable). Development researchers turned these into three <em>capacities</em> that are now widely used in food-security work (Béné, 2020): <strong>absorptive</strong> capacity (coping without changing — buffers, stocks, insurance), <strong>adaptive</strong> capacity (incremental adjustment — switching suppliers, crops or diets) and <strong>transformative</strong> capacity (changing the system itself — a different energy base, new institutions). Which capacity is needed depends on the intensity and duration of the shock (Figure 2).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 270" role="img" aria-label="Three resilience capacities as a staircase: absorptive for small shocks, adaptive for larger ones, transformative for the largest or permanent changes.">
+            <defs><marker id="rs-ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <line x1="40" y1="232" x2="690" y2="232" class="stroke" stroke-width="1.4" marker-end="url(#rs-ar2)"/>
+            <text x="365" y="258" text-anchor="middle" class="t-small">intensity and duration of the shock or stress →</text>
+            <line x1="40" y1="232" x2="40" y2="24" class="stroke" stroke-width="1.4" marker-end="url(#rs-ar2)"/>
+            <text x="22" y="130" text-anchor="middle" class="t-small" transform="rotate(-90 22 130)">depth of change in the system →</text>
+            <rect x="60" y="160" width="190" height="62" rx="10" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/>
+            <text x="155" y="182" text-anchor="middle" style="font-weight:600">Absorptive capacity</text>
+            <text x="155" y="199" text-anchor="middle" class="t-small">persistence: buffers, stocks,</text>
+            <text x="155" y="213" text-anchor="middle" class="t-small">insurance, savings</text>
+            <rect x="260" y="98" width="200" height="62" rx="10" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/>
+            <text x="360" y="120" text-anchor="middle" style="font-weight:600">Adaptive capacity</text>
+            <text x="360" y="137" text-anchor="middle" class="t-small">incremental adjustment: new</text>
+            <text x="360" y="151" text-anchor="middle" class="t-small">suppliers, crops, recipes, routes</text>
+            <rect x="470" y="36" width="210" height="62" rx="10" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/>
+            <text x="575" y="58" text-anchor="middle" style="font-weight:600">Transformative capacity</text>
+            <text x="575" y="75" text-anchor="middle" class="t-small">system change: new energy base,</text>
+            <text x="575" y="89" text-anchor="middle" class="t-small">diets, institutions, land use</text>
+            <text x="155" y="148" text-anchor="middle" class="t-small t-muted">e.g. retail stock, 2 weeks</text>
+            <text x="360" y="86" text-anchor="middle" class="t-small t-muted">e.g. new wheat suppliers, 2022</text>
+            <text x="575" y="118" text-anchor="middle" class="t-small t-muted">e.g. domestic fertiliser from</text>
+            <text x="575" y="132" text-anchor="middle" class="t-small t-muted">residual streams, low-input diets</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> Absorptive, adaptive and transformative capacities (after Béné, 2020). Small, short shocks can be absorbed by buffers; larger or longer ones require adaptation; permanent changes — the end of cheap fossil energy, a new climate — require transformation. The capacities are complementary, and a food-system assessment should ask about all three.</figcaption>
+      </figure>
+      <p>Engineers who study infrastructure after earthquakes gave us a fourth, very practical vocabulary: the <strong>four Rs</strong> of Bruneau et al. (2003) — robustness, redundancy, resourcefulness and rapidity. They map directly onto food systems (Table 2) and onto the resilience triangle of the next section, which is why this lesson uses them as its organising frame.</p>
+      <table>
+        <caption>Table 2. The four Rs of resilience (Bruneau et al., 2003) translated to food systems.</caption>
+        <thead><tr><th>Property</th><th>Definition</th><th>Food-system example</th><th>Where it shows in the triangle</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Robustness</strong></td><td>ability to withstand a shock without losing function</td><td>drought-tolerant varieties, irrigation, a greenhouse's weather independence</td><td>smaller drop ΔQ</td></tr>
+          <tr><td><strong>Redundancy</strong></td><td>substitutable elements that can take over</td><td>several suppliers, a second cold store, two electricity feeds</td><td>smaller drop ΔQ</td></tr>
+          <tr><td><strong>Resourcefulness</strong></td><td>capacity to identify problems and mobilise resources</td><td>contingency plans, skilled staff, crisis funds, information systems</td><td>shorter recovery time</td></tr>
+          <tr><td><strong>Rapidity</strong></td><td>speed of restoring function</td><td>fast crop cycles, spare parts on site, pre-agreed contracts</td><td>shorter recovery time</td></tr>
+        </tbody>
+      </table>
+      <p>For food systems, Tendall et al. (2015) proposed a definition that combines these strands: food-system resilience is the capacity, over time, of a food system and its units at multiple levels to provide sufficient, appropriate and accessible food to all in the face of various, even unforeseen, disturbances. Note the three qualifiers — <em>sufficient</em> (quantity), <em>appropriate</em> (nutritious, culturally acceptable) and <em>accessible</em> (affordable, physically reachable) — and the phrase <em>even unforeseen</em>: resilience is precisely the capacity to cope with shocks nobody planned for.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"A resilient system bounces back to exactly where it was." Sometimes the old state is the problem. After the 2022 fertiliser shock, a region that simply waits for gas prices to fall has engineering resilience; a region that builds nutrient recycling and domestic production from residual streams has transformative capacity. Resilience thinking asks <em>which</em> state is worth returning to.</p></div>
+      <div class="callout history"><div class="callout-title">History</div><p>C. S. "Buzz" Holling (1930–2019) was an ecologist who studied predator–prey dynamics and managed forests in Canada. His 1973 paper, written to explain why managed ecosystems such as spruce forests plagued by budworm could suddenly collapse, became one of the most cited papers in ecology. Three decades later, the earthquake engineer Michel Bruneau and colleagues (2003) gave the concept its first widely used quantitative measure — the resilience triangle — for the recovery of hospitals, power networks and water systems after earthquakes.</p></div>
+
+      <h2 id="triangle">Measuring resilience: the resilience triangle</h2>
+      <p>To measure resilience you need a <strong>functionality</strong> indicator \(Q(t)\): a quantity that is 100 % when the system works normally. For a food system it could be the share of normal calorie supply that reaches consumers, the fraction of shops with a full assortment, the regional production relative to its long-term mean, or the share of households that can afford a healthy diet. When a shock strikes at time \(t_0\), \(Q\) drops and later recovers. The area between the normal level and the actual curve is the <strong>loss of resilience</strong>.</p>
+      <div class="eq-box" id="eq-res-loss">
+        <div class="eq-head"><span class="eq-label">Resilience loss and resilience index</span><span class="eq-num">(15.2.1)</span></div>
+        <div class="eq-main">\[ \text{(a)}\;\; L = \int_{t_0}^{t_0+T} \big[100 - Q(t)\big]\,\mathrm{d}t \qquad\qquad \text{(b)}\;\; \Phi = \frac{1}{T}\int_{t_0}^{t_0+T}\frac{Q(t)}{100}\,\mathrm{d}t = 1 - \frac{L}{100\,T} \]</div>
+        <p class="eq-read">(a) the resilience loss is the time integral of the functionality shortfall below 100 % over a control period T after the shock; (b) the resilience index is the average functionality over the control period as a fraction of normal — one minus the loss divided by the largest possible loss, 100 % times T.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Range</th></tr>
+          <tr><td>\(Q(t)\)</td><td>functionality: performance relative to normal</td><td>%</td><td>0–100</td></tr>
+          <tr><td>\(t_0\)</td><td>time of the shock</td><td>months (or days, years)</td><td>–</td></tr>
+          <tr><td>\(T\)</td><td>control period over which resilience is judged</td><td>same time unit</td><td>chosen by the analyst</td></tr>
+          <tr><td>\(L\)</td><td>resilience loss (area of the "triangle")</td><td>%·month</td><td>0 to \(100\,T\)</td></tr>
+          <tr><td>\(\Phi\)</td><td>resilience index</td><td>–</td><td>0 (total failure) to 1 (no loss)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Bruneau et al. (2003) measured the loss of resilience of a community after an earthquake as the area \(\int[100-Q(t)]\,\mathrm{d}t\): every day on which a hospital works at 60 % adds 40 %·day to the loss. The integral combines <em>depth</em> and <em>duration</em> in one number.</li>
+            <li>The loss depends on how long you look: a longer \(T\) cannot reduce it. To compare shocks of different length, Cimellaro et al. (2010) normalised the functionality by the control period: \(\Phi=\frac1T\int Q/100\,\mathrm{d}t\).</li>
+            <li>Write \(Q = 100-(100-Q)\) inside the integral: \(\frac1T\int\big(1-\frac{100-Q}{100}\big)\mathrm{d}t = 1-\frac{1}{100T}\int(100-Q)\,\mathrm{d}t = 1-\frac{L}{100T}\).</li>
+            <li>For an <strong>exponential</strong> recovery \(Q(t)=100-\Delta Q\,e^{-(t-t_0)/\tau}\) the integral is analytic: \(L=\Delta Q\,\tau\,(1-e^{-T/\tau})\), which tends to \(\Delta Q\,\tau\) when \(T\gg\tau\). The mini-calculator uses this form.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The result depends on the choice of \(Q\) (production? supply to consumers? affordability?), on the control period \(T\) and on the baseline (is "normal" last year's level or a trend?). \(\Phi\) treats a short deep dip and a long shallow one with the same area as equivalent — but a 90 % loss of food supply for three days is not ethically equivalent to a 3 % loss for three months. Report the depth and the duration alongside the area. The index also says nothing about <em>who</em> bears the loss: an average \(Q\) of 95 % can hide households at 0 % (Lesson 15.3).</p></details>
+        <div class="eq-units">(a) \(\% \times \text{month} = \%\cdot\text{month}\); (b) \(\dfrac{\%\cdot\text{month}}{\%\cdot\text{month}}\) = dimensionless ✓</div>
+        <div class="mini-calc" data-fn="resIdxExp" data-output="Resilience index Φ" data-unit="" data-digits="3" data-plot="tau" data-ymin="0" data-ymax="1" data-title="Try it — exponential recovery: how much does rapidity matter?">
+          <div data-var="dq" data-label="Initial drop ΔQ" data-min="5" data-max="90" data-step="1" data-value="40" data-unit="%"></div>
+          <div data-var="tau" data-label="Recovery time constant τ" data-min="0.2" data-max="24" data-step="0.1" data-value="3" data-unit="months"></div>
+          <div data-var="T" data-label="Control period T" data-min="3" data-max="36" data-step="1" data-value="12" data-unit="months"></div>
+        </div>
+      </div>
+      <p>When the functionality drops instantaneously and recovers linearly, the shaded area is a triangle — hence the name. Its area is easy to compute and easy to communicate:</p>
+      <div class="eq-box" id="eq-res-triangle">
+        <div class="eq-head"><span class="eq-label">The resilience triangle</span><span class="eq-num">(15.2.2)</span></div>
+        <div class="eq-main">\[ L_{\triangle} = \tfrac12\,\Delta Q\,T_r \]</div>
+        <p class="eq-read">for an instantaneous drop of ΔQ percentage points followed by a linear recovery lasting T<sub>r</sub>, the resilience loss is half the drop times the recovery time.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Controlled by</th></tr>
+          <tr><td>\(\Delta Q\)</td><td>depth of the drop in functionality</td><td>percentage points</td><td>robustness, redundancy</td></tr>
+          <tr><td>\(T_r\)</td><td>time to full recovery</td><td>months</td><td>resourcefulness, rapidity</td></tr>
+          <tr><td>\(L_\triangle\)</td><td>triangle area = resilience loss</td><td>%·month</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Linear recovery: \(Q(t) = 100-\Delta Q\,\big(1-\frac{t-t_0}{T_r}\big)\) for \(t_0\le t\le t_0+T_r\), and 100 % afterwards.</li>
+            <li>The shortfall \(100-Q=\Delta Q\,(1-s/T_r)\) with \(s=t-t_0\) falls linearly from \(\Delta Q\) to 0.</li>
+            <li>Integrate (Eq. 15.2.1a): \(\int_0^{T_r}\Delta Q(1-s/T_r)\,\mathrm{d}s=\Delta Q\,[s-s^2/(2T_r)]_0^{T_r}=\tfrac12\Delta Q\,T_r\) — the area of a right triangle.</li>
+            <li>Both factors enter linearly: halving the depth (robustness, redundancy) or halving the recovery time (resourcefulness, rapidity) halves the loss. This is the quantitative core of the four Rs.</li>
+          </ol>
+        </details>
+        <div class="eq-units">percentage points × months = %·month ✓</div>
+        <div class="mini-calc" data-formula="0.5*dq*tr" data-output="Resilience loss L" data-unit="%·month" data-digits="0" data-plot="tr" data-title="Try it — depth versus duration">
+          <div data-var="dq" data-label="Drop ΔQ" data-min="0" data-max="100" data-step="1" data-value="30" data-unit="%"></div>
+          <div data-var="tr" data-label="Recovery time T<sub>r</sub>" data-min="0" data-max="24" data-step="0.5" data-value="6" data-unit="months"></div>
+        </div>
+      </div>
+      <figure class="figure wide" id="tri-fig">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the resilience triangle and the value of a buffer</div>
+          <div class="rs-grid rs-ctl">
+            <div>
+              <div class="mc-var"><div class="mc-lab"><span>Depth of the shock ΔQ (robustness)</span><output id="tri-dq-o"></output></div><input id="tri-dq" type="range" min="5" max="90" step="1" value="40" aria-label="Depth of the shock"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Recovery time T<sub>r</sub> (rapidity)</span><output id="tri-tr-o"></output></div><input id="tri-tr" type="range" min="0.5" max="24" step="0.5" value="8" aria-label="Recovery time"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Buffer stock (absorptive capacity)</span><output id="tri-buf-o"></output></div><input id="tri-buf" type="range" min="0" max="4" step="0.1" value="0" aria-label="Buffer stock in months of normal supply"></div>
+            </div>
+            <div>
+              <div class="mc-lab"><span>Shape of the recovery</span></div>
+              <div class="seg" id="tri-shape" role="group" aria-label="Recovery shape">
+                <button type="button" data-v="lin" aria-pressed="true">Linear (triangle)</button>
+                <button type="button" data-v="exp" aria-pressed="false">Exponential</button>
+                <button type="button" data-v="s" aria-pressed="false">Slow start (S-curve)</button>
+              </div>
+              <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:.88rem"><input type="checkbox" id="tri-ann" checked> Show the four Rs on the plot</label>
+              <p class="rs-note">The buffer is expressed in months of <em>normal</em> supply. It is released to cover the shortfall until it is empty — so one month of stock covers 2.5 months of a 40 % shortfall.</p>
+            </div>
+          </div>
+          <div id="tri-plot" style="height:300px;margin-top:8px"></div>
+          <div class="readouts" id="tri-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> Functionality after a shock at month 0. Dashed grey: the capacity of the supply system (production, imports). Green: what actually reaches consumers after the buffer has been released. The red area is the resilience loss \(L\) of Eq. 15.2.1a; the blue area is the part of the shortfall covered by the buffer. The index \(\Phi\) is computed over 24 months. Exponential recovery uses a time constant \(T_r/3\), so that 95 % of the drop is recovered at \(T_r\).</figcaption>
+      </figure>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">The 2018 drought as a resilience triangle</span></div>
+        <div class="we-problem"><p>Swedish food production averaged 3,530 kcal per person and day in 2013–2023 but only about 2,710 kcal in the drought year 2018; the cereal harvest recovered to 6.1 million tonnes in 2019, 88 % more than in 2018 (Livsmedelsverket &amp; Jordbruksverket, 2025; SCB, 2019). (a) Taking annual production as the functionality \(Q\), compute the drop, the resilience loss and the resilience index over the two years 2018–2019. (b) Suppose instead that recovery had taken three years and proceeded linearly — the kind of slow recovery typical of livestock, where restoring a discontinued beef production alone takes 12–18 months (Livsmedelsverket &amp; Jordbruksverket, 2025). What are \(L\) and \(\Phi\) over four years?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Functionality in 2018.</strong> \(Q = 2710/3530 = 0.768\), i.e. 76.8 %, so \(\Delta Q = 23.2\) percentage points.</li>
+            <li><strong>(a) Shape.</strong> Crop production recovers with the next harvest, so the shortfall is a rectangle, not a triangle: one year at −23.2 points. \(L = 23.2\ \%\times1\ \text{yr} = 23.2\ \%\cdot\text{yr}\).</li>
+            <li><strong>Index over two years</strong> (Eq. 15.2.1b): \(\Phi = 1-23.2/(100\times2) = 0.884\).</li>
+            <li><strong>(b) Slow linear recovery</strong> (Eq. 15.2.2): \(L = \tfrac12\times23.2\times3 = 34.8\ \%\cdot\text{yr}\); \(\Phi = 1-34.8/(100\times4)=0.913\) over four years. The loss is 50 % larger than in (a) although the drop is the same: rapidity matters as much as robustness.</li>
+            <li><strong>Interpretation.</strong> This is the <em>production</em> triangle. Consumers noticed little in 2018 because trade within the EU single market filled the gap — and southern European harvests were above normal (Beillouin et al., 2020). The <em>supply</em> triangle was far smaller than the production triangle: trade acted as redundancy. Whether it would do so in a war that closes borders is exactly the question that Swedish preparedness planning now asks (Section 15.2.5).</li>
+          </ol>
+          <span class="answer">(a) ΔQ ≈ 23 points, L ≈ 23 %·yr, Φ ≈ 0.88 over 2 years; (b) L ≈ 35 %·yr, Φ ≈ 0.91 over 4 years</span>
+        </div></details>
+      </div>
+
+      <h2 id="diversity">Diversity and concentration</h2>
+      <p>The oldest rule of risk management is not to put all your eggs in one basket. For a food system the baskets are suppliers, crops, regions, transport routes and technologies. Two families of indicators measure how many baskets there are and how evenly the eggs are spread. The first comes from information theory.</p>
+      <div class="eq-box" id="eq-res-shannon">
+        <div class="eq-head"><span class="eq-label">Shannon diversity, evenness and effective number</span><span class="eq-num">(15.2.3)</span></div>
+        <div class="eq-main">\[ H = -\sum_{i=1}^{n} p_i \ln p_i, \qquad J = \frac{H}{\ln n}, \qquad D_1 = e^{H} \]</div>
+        <p class="eq-read">the Shannon index H is minus the sum over all suppliers of each supplier's share times the natural logarithm of that share; the evenness J is H divided by its maximum possible value, the logarithm of the number of suppliers; and the effective number of suppliers is e raised to the power H.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Range</th></tr>
+          <tr><td>\(p_i\)</td><td>share of supplier (crop, region…) \(i\) in total supply, \(\sum p_i = 1\)</td><td>–</td><td>0–1</td></tr>
+          <tr><td>\(n\)</td><td>number of suppliers with \(p_i&gt;0\)</td><td>–</td><td>≥ 1</td></tr>
+          <tr><td>\(H\)</td><td>Shannon diversity index (with ln: in "nats")</td><td>–</td><td>0 to \(\ln n\)</td></tr>
+          <tr><td>\(J\)</td><td>Pielou evenness</td><td>–</td><td>0–1</td></tr>
+          <tr><td>\(D_1\)</td><td>effective number of equally important suppliers (Hill number of order 1)</td><td>suppliers</td><td>1 to \(n\)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Shannon (1948) asked how much "surprise" a message carries. An event of probability \(p\) carries information \(-\ln p\): rare events surprise more. The average surprise over all events is \(H=-\sum p_i\ln p_i\).</li>
+            <li>Read \(p_i\) as the probability that a randomly chosen tonne of supply came from supplier \(i\). If one supplier delivers everything (\(p_1=1\)), there is no uncertainty: \(H=0\).</li>
+            <li>For fixed \(n\), \(H\) is maximal when all shares are equal. With \(p_i=1/n\): \(H=-n\cdot\frac1n\ln\frac1n=\ln n\). Dividing by this maximum gives the evenness \(J\) (Pielou).</li>
+            <li>\(H\) itself is hard to interpret (is 1.2 a lot?). Hill (1973) and Jost (2006) recommend converting it into an <em>effective number</em>: the number of equally sized suppliers that would give the same \(H\). Solve \(\ln D_1 = H\): \(D_1=e^{H}\).</li>
+            <li>Example: shares 0.5, 0.3, 0.2 give \(H = -(0.5\ln0.5+0.3\ln0.3+0.2\ln0.2)=0.347+0.361+0.322=1.030\); \(J=1.030/\ln3=0.937\); \(D_1=e^{1.030}=2.80\) effective suppliers.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The index counts shares, not risks. Two suppliers in the same war zone, the same river basin or the same monoculture are two names but one risk (Worked example 2). Kummu et al. (2020) used Shannon diversity of supply sources to show that between 1987 and 2013 most people gained supply diversity through trade — at the cost of higher import dependency and, often, fewer import partners.</p></details>
+        <div class="eq-units">shares and logarithms are dimensionless; \(D_1\) is a count of "equivalent suppliers" ✓</div>
+        <div class="mini-calc" data-fn="resShannon3" data-output="Shannon index H" data-unit="nats" data-digits="3" data-plot="p1" data-ymin="0" data-ymax="1.2" data-title="Try it — three suppliers (the third gets the remainder)">
+          <div data-var="p1" data-label="Share of supplier 1" data-min="0" data-max="100" data-step="1" data-value="50" data-unit="%"></div>
+          <div data-var="p2" data-label="Share of supplier 2" data-min="0" data-max="100" data-step="1" data-value="30" data-unit="%"></div>
+        </div>
+      </div>
+      <p>The second family comes from competition economics. The <strong>Herfindahl–Hirschman index</strong> (HHI) is the sum of squared shares. It is used by competition authorities to judge whether a market is concentrated, and it is now also used for supply risk: the Swedish Food Agency and Board of Agriculture classify the concentration of the EU's food imports with it (Livsmedelsverket &amp; Jordbruksverket, 2025).</p>
+      <div class="eq-box" id="eq-res-hhi">
+        <div class="eq-head"><span class="eq-label">Herfindahl–Hirschman index and effective number of suppliers</span><span class="eq-num">(15.2.4)</span></div>
+        <div class="eq-main">\[ \text{HHI} = \sum_{i=1}^{n} p_i^{2}, \qquad N_{\text{eff}} = \frac{1}{\text{HHI}} \]</div>
+        <p class="eq-read">the Herfindahl–Hirschman index is the sum of the squared supply shares; its reciprocal is the effective number of equally sized suppliers.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Thresholds (shares as fractions)</th></tr>
+          <tr><td>HHI</td><td>concentration index</td><td>–</td><td>&lt; 0.15 low · 0.15–0.25 medium · &gt; 0.25 high</td></tr>
+          <tr><td>\(N_{\text{eff}}\)</td><td>effective number of suppliers (Hill number of order 2)</td><td>suppliers</td><td>&gt; 6.7 · 4–6.7 · &lt; 4</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>\(p_i^2\) is the probability that <em>two</em> randomly chosen tonnes both came from supplier \(i\); summing gives the probability that two random tonnes share a supplier. High HHI = supply is "clumped".</li>
+            <li>For \(n\) equal suppliers: \(\text{HHI}=n\cdot(1/n)^2=1/n\), so \(1/\text{HHI}=n\). For unequal shares, \(1/\text{HHI}\) is the number of equal suppliers with the same concentration.</li>
+            <li>Squaring gives large shares more weight than \(H\) does, so \(N_{\text{eff}}=1/\text{HHI}\le D_1=e^H\): the HHI is more sensitive to a dominant supplier.</li>
+            <li>Competition authorities often express shares in per cent, giving HHI between 0 and 10,000; the thresholds 0.15 and 0.25 correspond to 1,500 and 2,500 (the classes of the 2010 US Horizontal Merger Guidelines, also applied by Livsmedelsverket &amp; Jordbruksverket, 2025; the European Commission's merger guidelines use 1,000 and 2,000).</li>
+          </ol>
+        </details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-fn="resNeff3" data-output="Effective number N<sub>eff</sub>" data-unit="suppliers" data-digits="2" data-plot="p1" data-ymin="0" data-ymax="3.2" data-title="Try it — how many suppliers do you really have?">
+          <div data-var="p1" data-label="Share of supplier 1" data-min="0" data-max="100" data-step="1" data-value="70" data-unit="%"></div>
+          <div data-var="p2" data-label="Share of supplier 2" data-min="0" data-max="100" data-step="1" data-value="20" data-unit="%"></div>
+        </div>
+      </div>
+      <p>What do real numbers look like? In 2024, 37 % of the tonnage of food imported into the EU had a <em>high</em> concentration index. Ukraine supplied 26 % of the 121 million tonnes imported, Brazil 9 % and the USA 8 %; for maize and wheat about 60 % came from Ukraine alone — partly an artefact of transit trade through the EU's "solidarity lanes" (Livsmedelsverket &amp; Jordbruksverket, 2025). The EU as a whole is nevertheless a net exporter of cereals, which is why this concentration is a risk for particular flows rather than for total supply.</p>
+      <figure class="figure wide" id="div-fig">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the supply-diversity explorer</div>
+          <div class="rs-presets" id="div-presets" role="group" aria-label="Presets">
+            <button type="button" data-p="eritrea">Eritrea, wheat 2021</button>
+            <button type="button" data-p="even">Five equal suppliers</button>
+            <button type="button" data-p="dominant">One dominant supplier</button>
+            <button type="button" data-p="region">Five suppliers, two regions</button>
+          </div>
+          <div class="rs-grid rs-ctl">
+            <div id="div-sliders"></div>
+            <div>
+              <div class="mc-lab"><span>Which suppliers share the same risk (region, weather, war)?</span></div>
+              <div class="seg" id="div-risk" role="group" aria-label="Shared risks">
+                <button type="button" data-v="none" aria-pressed="true">All independent</button>
+                <button type="button" data-v="12" aria-pressed="false">1 and 2 share a risk</button>
+                <button type="button" data-v="123" aria-pressed="false">1, 2 and 3 share a risk</button>
+              </div>
+              <div id="div-bars" style="height:230px;margin-top:10px"></div>
+            </div>
+          </div>
+          <div class="readouts" id="div-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 4.</b> Move the sliders (raw weights are normalised to shares). The readouts compute Eqs. 15.2.3 and 15.2.4 and classify the HHI with the thresholds 0.15 and 0.25. "Risk-group \(N_{\text{eff}}\)" merges suppliers that share a risk before computing \(1/\text{HHI}\): it is the number of <em>independent</em> baskets you really have. Eritrea's 2021 wheat imports came 53 % from Russia and 47 % from Ukraine (FAO, 2022).</figcaption>
+      </figure>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Two suppliers, one risk</span></div>
+        <div class="we-problem"><p>In 2021 Eritrea sourced all its wheat imports from Russia (53 %) and Ukraine (47 %) (FAO, 2022). (a) Compute \(H\), \(J\), \(D_1\), HHI and \(N_{\text{eff}}\). (b) Compare with an importer that buys 30, 25, 20, 15 and 10 % from five suppliers. (c) Why was Eritrea's supply nevertheless exposed in 2022?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>(a) Shannon.</strong> \(H=-(0.53\ln0.53+0.47\ln0.47)=0.336+0.355=0.691\). With \(n=2\): \(J=0.691/\ln2=0.997\) — almost perfectly even — and \(D_1=e^{0.691}=2.00\).</li>
+            <li><strong>HHI.</strong> \(0.53^2+0.47^2=0.281+0.221=0.502\): <em>high</em> concentration (&gt; 0.25); \(N_{\text{eff}}=1/0.502=1.99\).</li>
+            <li><strong>(b) Five suppliers.</strong> \(H=0.361+0.347+0.322+0.285+0.230=1.544\); \(J=1.544/\ln5=0.960\); \(D_1=4.69\); HHI \(=0.09+0.0625+0.04+0.0225+0.01=0.225\) (medium); \(N_{\text{eff}}=4.44\).</li>
+            <li><strong>(c) Correlated risk.</strong> The indices treat Russia and Ukraine as independent baskets, but both were hit by the same war, the same Black Sea port closures and the same sanctions and insurance problems. As one risk group, the risk-group HHI is \(1.00\) and the effective number of <em>independent</em> suppliers is 1. Evenness is not the same as independence — the subject of Section 15.2.8.</li>
+          </ol>
+          <span class="answer">(a) H = 0.69, J = 0.997, D₁ = 2.0, HHI = 0.50, N_eff = 2.0 — but only one independent risk; (b) H = 1.54, HHI = 0.225, N_eff = 4.4</span>
+        </div></details>
+      </div>
+      <p>Diversity matters within countries too. Using five decades of yields of 176 crops in 91 nations, Renard and Tilman (2019) found that nations with a greater effective diversity of crops have more stable total harvests, with fewer years of sharp losses — a stabilising effect similar in size to the destabilising effect of rainfall variability. The mechanism is the portfolio effect of Section 15.2.8: different crops fail in different years.</p>
+
+      <h2 id="self-sufficiency">Self-sufficiency and hidden dependencies</h2>
+      <p>"How self-sufficient are we?" is the first question politicians ask after a shock. FAO food balance sheets give it a precise meaning by comparing domestic production with the domestic supply available for use (FAO, 2001):</p>
+      <div class="eq-box" id="eq-res-ssr">
+        <div class="eq-head"><span class="eq-label">Self-sufficiency ratio and import dependency ratio</span><span class="eq-num">(15.2.5)</span></div>
+        <div class="eq-main">\[ \text{SSR} = \frac{P}{P + M - X}\times100\,\%, \qquad \text{IDR} = \frac{M}{P + M - X}\times100\,\% \]</div>
+        <p class="eq-read">the self-sufficiency ratio is domestic production divided by domestic supply — production plus imports minus exports; the import dependency ratio is imports divided by the same domestic supply.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(P\)</td><td>domestic production of the commodity (or of food energy)</td><td>t yr⁻¹ (or kcal person⁻¹ d⁻¹)</td></tr>
+          <tr><td>\(M\), \(X\)</td><td>imports and exports</td><td>same unit</td></tr>
+          <tr><td>\(P+M-X\)</td><td>domestic supply for all uses (stock changes neglected)</td><td>same unit</td></tr>
+          <tr><td>SSR, IDR</td><td>self-sufficiency and import dependency ratios</td><td>%</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The commodity balance of a food balance sheet: supply = production + imports − exports − stock increase; supply = food + feed + seed + processing + losses + other uses (FAO, 2001).</li>
+            <li>Neglecting stock changes, domestic supply is \(U = P + M - X\). The shares of this supply that come from domestic production and from imports are \(P/U\) and \(M/U\).</li>
+            <li>They add up to more than 100 % when the country also exports: \(\text{SSR}+\text{IDR}-X/U = 100\ \%\). A country can therefore have SSR &gt; 100 % <em>and</em> a large IDR — it exports one variety of a commodity and imports another.</li>
+            <li>With calories as the unit, commodities can be aggregated into a single food-energy self-sufficiency, which is how Swedish preparedness studies express it (Livsmedelsverket &amp; Jordbruksverket, 2025).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>SSR counts only the final product. It ignores the imported fertiliser, fuel, feed, seed and spare parts without which domestic production would collapse — the "hidden dependencies" below. It is also an annual average: a country can be self-sufficient in potatoes on average and still run out in June.</p></details>
+        <div class="eq-units">\(\dfrac{\text{t yr}^{-1}}{\text{t yr}^{-1}}\) = dimensionless, expressed in % ✓</div>
+        <div class="mini-calc" data-formula="100*P/(P+M-X)" data-output="Self-sufficiency ratio SSR" data-unit="%" data-digits="1" data-plot="M" data-title="Try it — the same production, different trade">
+          <div data-var="P" data-label="Production P" data-min="0" data-max="500" data-step="5" data-value="120" data-unit="kt yr⁻¹"></div>
+          <div data-var="M" data-label="Imports M" data-min="0" data-max="500" data-step="5" data-value="60" data-unit="kt yr⁻¹"></div>
+          <div data-var="X" data-label="Exports X" data-min="0" data-max="100" data-step="5" data-value="30" data-unit="kt yr⁻¹"></div>
+        </div>
+      </div>
+      <p>Sweden is an instructive case because the answer depends entirely on what you count. In energy terms Swedish agriculture, aquaculture and fisheries produced on average 3,530 kcal per person and day in 2013–2023 after losses, enough in theory to feed about 14 million people at the 2,627 kcal per day that the authorities assume for the population's actual needs in a crisis. Direct consumption was about 3,070 kcal per person and day in 2023. Yet Sweden imported 2,920 and exported 2,240 kcal per person and day in 2024, about 70 % of it within the EU; the largest net inflows are fruit and vegetables and edible oils. Production is also concentrated: Skåne and Västra Götaland alone produced 52 % of the food energy in 2023, while the four northernmost counties depend entirely on transport from the south (Livsmedelsverket &amp; Jordbruksverket, 2025).</p>
+      <p>Behind the production figures lies a second layer: the <strong>inputs</strong>. Figure 5 shows how much of each critical input reaches Swedish farms through foreign trade. Sweden produces no mineral fertiliser and no plant protection products; nine tenths of its motor fuel is imported. Until 2021 Russia and Belarus supplied on average about 22 % of Sweden's imported mineral fertiliser; by 2024 nothing came from them, and Germany and Finland supplied 62 % — but Finnish compound fertiliser is made from imported ammonia, and German nitrogen fertiliser from natural gas that may itself be Russian (Livsmedelsverket &amp; Jordbruksverket, 2025). Supply chains are longer than trade statistics show.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <div class="mini-calc-title">Figure — Sweden's hidden dependencies</div>
+          <div id="dep-bars" style="height:340px"></div>
+        </div>
+        <figcaption><b>Figure 5.</b> Share of critical inputs to Swedish food production that comes through foreign trade (2021; motor fuels 2024). Nitrogen, phosphorus and potassium are given as pure nutrients. Data: Livsmedelsverket &amp; Jordbruksverket (2025). A country that is "self-sufficient in calories" can still lose most of its production within a season if nitrogen fertiliser, diesel or crop protection stop arriving.</figcaption>
+      </figure>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">The self-sufficiency paradox</span></div>
+        <div class="we-problem"><p>(a) A greenhouse vegetable has, in a stylised year, domestic production 70 kt, imports 250 kt and exports 20 kt. Compute SSR and IDR. (b) Compute Sweden's food-energy self-sufficiency as production divided by direct consumption (3,070 kcal per person and day) for an average year (3,530 kcal) and for the drought year 2018 (2,710 kcal). (c) Why does neither number measure preparedness?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>(a)</strong> Supply \(U = 70+250-20 = 300\) kt. \(\text{SSR}=70/300=23\ \%\); \(\text{IDR}=250/300=83\ \%\). Check: \(23+83-20/300\times100 = 100\ \%\) ✓.</li>
+            <li><strong>(b)</strong> Average year: \(3530/3070 = 115\ \%\). Drought year: \(2710/3070 = 88\ \%\). One dry summer turned a calorie surplus into a deficit — but a deficit relative to a consumption that includes about 177 kcal of household and food-service waste per person and day (Livsmedelsverket &amp; Jordbruksverket, 2025).</li>
+            <li><strong>(c)</strong> Both are ratios of annual <em>averages of final products</em>. They say nothing about the inputs behind \(P\) (87 % of the nitrogen fertiliser is imported), about seasonality, about regional distribution, or about whether people can pay. Preparedness needs the input layer, the buffer layer (next section) and the access layer (Lesson 15.3).</li>
+          </ol>
+          <span class="answer">(a) SSR ≈ 23 %, IDR ≈ 83 %; (b) 115 % in an average year, 88 % in 2018</span>
+        </div></details>
+      </div>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"100 % self-sufficiency means food security." Autarky removes the redundancy that trade provides: in 2018 northern Europe was saved by southern European harvests, not by Swedish fields. Kummu et al. (2020) found that trade raised the supply diversity of most of the world's population between 1987 and 2013, at the cost of import dependency. The engineering goal is not zero imports but <em>diverse, redundant and buffered</em> imports, plus the capacity to produce essentials when trade fails.</p></div>
+
+      <h2 id="buffers">Stocks and buffers: from just-in-time to just-in-case</h2>
+      <p>Modern food chains are lean. Supermarkets replenish most products daily from central warehouses; fresh produce spends one to four days in the retail chain. Lean chains are efficient — little capital is tied up in inventory and little food spoils — but they have little <strong>absorptive capacity</strong>. How long would Swedish food last if deliveries stopped? The national indicator report gives rough answers (Livsmedelsverket &amp; Jordbruksverket, 2025):</p>
+      <ul>
+        <li><strong>Retail:</strong> about 42,000 kcal per person in stores and central warehouses — roughly 16 days of the 2,627 kcal per day needed in a crisis.</li>
+        <li><strong>Households:</strong> the authorities recommend that every household can manage at least one week without outside help (MSB, 2024). In a 2022 survey only 39 % said their food would last a week and only 19 % had water for a week; another 19 % said their water would not last beyond one day.</li>
+        <li><strong>Public meals:</strong> about 2.3 million people eat at least one meal a day in schools, hospitals and care homes, but only 60 % of municipalities had a preparedness plan for public meals in 2021.</li>
+        <li><strong>Fuel:</strong> Sweden holds emergency stocks of motor fuels equal to 90 days of net imports, under IEA and EU obligations.</li>
+        <li><strong>Alternative resources:</strong> about 1.6 million tonnes of grain went to animal feed in 2023, equivalent in theory to about 1,200 kcal per person and day if people ate it; living farm animals represent about 45,240 kcal per person, or about 500 kcal per person and day if slaughtered over three months — but rebuilding a beef herd takes 12–18 months.</li>
+      </ul>
+      <p>The physics of a buffer is a simple mass balance: a stock drains at the rate of the deficit it covers.</p>
+      <div class="eq-box" id="eq-res-buffer">
+        <div class="eq-head"><span class="eq-label">Duration of a buffer stock</span><span class="eq-num">(15.2.6)</span></div>
+        <div class="eq-main">\[ \tau = \frac{S}{(1-\varphi)\,D} \qquad\Longleftrightarrow\qquad S_{\text{req}} = \tau\,(1-\varphi)\,D \]</div>
+        <p class="eq-read">a stock S lasts for a time τ equal to the stock divided by the deficit, which is the fraction of normal supply that fails to arrive times the normal demand; read backwards, the stock needed to bridge a disruption of length τ is the duration times the deficit rate.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example</th></tr>
+          <tr><td>\(S\)</td><td>stock available at the start of the disruption</td><td>t (or kcal)</td><td>15,000 t of wheat</td></tr>
+          <tr><td>\(D\)</td><td>normal demand rate</td><td>t d⁻¹</td><td>270 t d⁻¹</td></tr>
+          <tr><td>\(\varphi\)</td><td>fraction of normal supply that still arrives during the disruption</td><td>–</td><td>0–1</td></tr>
+          <tr><td>\(\tau\)</td><td>time until the stock is empty</td><td>d</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Mass balance of the stock: \(\mathrm{d}S/\mathrm{d}t = \text{inflow} - \text{outflow} = \varphi D - D = -(1-\varphi)D\), assuming demand is met in full while stock remains.</li>
+            <li>With constant \(\varphi\) and \(D\), the stock declines linearly: \(S(t) = S_0-(1-\varphi)Dt\).</li>
+            <li>It is empty when \(S(\tau)=0\): \(\tau = S_0/[(1-\varphi)D]\). With \(\varphi=0\) this is the familiar "days of stock" \(S_0/D\); a stock covering 16 days of total demand lasts 32 days if half of normal deliveries continue.</li>
+            <li>Rationing reduces \(D\) and extends \(\tau\) proportionally — the same arithmetic as a household budget. With time-varying \(\varphi(t)\), integrate: \(\int_0^\tau[1-\varphi(t)]D\,\mathrm{d}t=S_0\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Assumes the stock is where people need it (regionalisation), that it can be processed (a grain store is useless without mills, fuel and bakeries), that it does not spoil and that distribution works. The Swedish model of <em>rotation stocks</em> — the state owns grain stored and continuously rotated by private firms — addresses spoilage and cost (Jordbruksverket, 2026).</p></details>
+        <div class="eq-units">\(\dfrac{\text{t}}{(-)\cdot\text{t d}^{-1}} = \text{d}\) ✓</div>
+        <div class="mini-calc" data-fn="resBuffer" data-output="Stock lasts τ" data-unit="days" data-digits="0" data-plot="phi" data-ymin="0" data-ymax="400" data-title="Try it — how long does a regional grain store last?">
+          <div data-var="S" data-label="Stock S" data-min="1" data-max="100" data-step="1" data-value="15" data-unit="kt"></div>
+          <div data-var="pop" data-label="Population served" data-min="0.1" data-max="3" data-step="0.05" data-value="0.9" data-unit="million"></div>
+          <div data-var="c" data-label="Grain need c" data-min="0.1" data-max="0.6" data-step="0.01" data-value="0.30" data-unit="kg person⁻¹ d⁻¹"></div>
+          <div data-var="phi" data-label="Supply still arriving φ" data-min="0" data-max="0.95" data-step="0.01" data-value="0.4"></div>
+        </div>
+      </div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">Sizing an emergency grain store for northern Sweden</span></div>
+        <div class="we-problem"><p>The four northernmost counties (Norrbotten, Västerbotten, Västernorrland and Jämtland; about 0.9 million inhabitants) depend on transport from the south. Suppose planners want grain to cover the cereal part of the diet — about 0.30 kg of grain per person and day — during a 90-day disruption in which only 40 % of normal deliveries arrive. (a) How much grain must be stored? (b) How long does the retail buffer of 42,000 kcal per person last at 2,627 kcal per day if nothing arrives, and if half of deliveries continue?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Demand.</strong> \(D = 0.9\times10^{6}\times0.30\ \text{kg d}^{-1} = 270{,}000\ \text{kg d}^{-1} = 270\ \text{t d}^{-1}\).</li>
+            <li><strong>(a) Deficit and stock</strong> (Eq. 15.2.6): \((1-\varphi)D = 0.6\times270 = 162\ \text{t d}^{-1}\); \(S_{\text{req}} = 90\times162 = 14{,}580\ \text{t}\) — about 15,000 t.</li>
+            <li><strong>Sanity check.</strong> Sweden's cereal harvest is about 6 million t in a normal year (SCB, 2019): the store is 0.25 % of one harvest. Its cost lies less in the grain than in storage, rotation, milling capacity and fuel — which is why Jordbruksverket is also procuring stocks of fertiliser, seed, crop protection and protein feed (Jordbruksverket, 2026).</li>
+            <li><strong>(b) Retail buffer.</strong> \(\tau = 42{,}000/2{,}627 = 16\) days with \(\varphi=0\), and \(42{,}000/(0.5\times2{,}627) = 32\) days with \(\varphi=0.5\).</li>
+          </ol>
+          <span class="answer">(a) ≈ 15,000 t of grain; (b) ≈ 16 days, or ≈ 32 days at half deliveries</span>
+        </div></details>
+      </div>
+      <div class="callout frontier"><div class="callout-title">Frontier · as of 2026</div><p>Sweden is rebuilding food stocks for the first time since the Cold War stores were sold off. The government funded Jordbruksverket to establish emergency stocks of grain for human consumption and of critical farm inputs during 2026–2028. Procurement started in the four northernmost counties on 15 October 2025; contracts were awarded on 6 March 2026 for firms able to sell at least 1,000 t of wheat to the agency and store and rotate it, and the first stocks were in place in June 2026. Grain stocks for the rest of the country and stocks of mineral fertiliser, crop protection, seed and protein feed are next. A new law on emergency stocks in the food chain, adopted by the Riksdag, applies from 1 July 2026; the government decides which goods, how much and where (Jordbruksverket, 2026; Riksdagen, 2026). The 2026 Hormuz crisis showed why inputs matter: oil is covered by internationally coordinated emergency stocks (the IEA and EU 90-day obligations), fertiliser is not.</p></div>
+
+      <h2 id="cea">Controlled-environment and urban agriculture: asset or liability?</h2>
+      <p>Vertical farms and greenhouses are often marketed as the answer to fragile supply chains: weather-proof, pest-free, close to consumers, harvesting every day of the year. The four Rs let you test that claim component by component.</p>
+      <ul>
+        <li><strong>Robustness to weather and pests — high.</strong> A plant factory is indifferent to drought, frost and hail, and its closed environment excludes most pests. A drought like 2018 would not touch its output.</li>
+        <li><strong>Rapidity — high.</strong> Lettuce cycles of four to six weeks mean a farm can re-plan production within a month, far faster than an orchard or a beef herd.</li>
+        <li><strong>Shorter chains — mixed.</strong> Local production removes long-distance transport and border crossings, but post-farmgate costs still dominate what consumers pay (FAO et al., 2026), and a farm still needs packaging, cold chains and retailers.</li>
+        <li><strong>Energy dependency — low robustness.</strong> A vertical farm uses about 8–15 kWh of electricity per kilogram of lettuce (Lesson 15.1); in Graamans et al. (2018) a plant factory needed 247 kWh per kilogram of dry matter. A multi-day power cut or an electricity price spike hits it directly.</li>
+        <li><strong>Input dependency — low robustness.</strong> Nutrient salts (whose nitrogen comes from natural gas), seeds from a few breeders, rock wool or coir, LEDs, sensors, software and spare parts all come through global supply chains (Figure 6).</li>
+        <li><strong>Financial fragility — low robustness.</strong> Plant factories are capital-intensive. Zhuang et al. (2022), analysing 26 plant factories, found that a 30 % fall in either the yield or the price of lettuce "would easily bring PFALs bankruptcy". High-profile failures have followed: AeroFarms, once a pioneer of vertical farming, filed for Chapter 11 bankruptcy in 2023 after struggling with high operating costs and declining investor confidence, and the greenhouse company AppHarvest also filed for bankruptcy (Rao et al., 2026). A farm that is insolvent after a shock has a resilience index of zero.</li>
+        <li><strong>Contribution to calories — very small.</strong> Leafy greens deliver vitamins, minerals and fibre, not energy.</li>
+      </ul>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 380" role="img" aria-label="Dependency web of a vertical farm: electricity, heat and cooling, water and nutrient salts, carbon dioxide, seeds, substrate, LEDs and spare parts, software and cloud services, skilled labour, packaging and logistics, and capital, each coloured by vulnerability.">
+            <defs><marker id="rs-ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g stroke="currentColor" stroke-width="1.2" marker-end="url(#rs-ar3)" opacity=".75">
+              <line x1="170" y1="60" x2="290" y2="150"/><line x1="360" y1="62" x2="360" y2="132"/><line x1="550" y1="60" x2="430" y2="150"/>
+              <line x1="140" y1="190" x2="272" y2="190"/><line x1="580" y1="190" x2="448" y2="190"/>
+              <line x1="170" y1="318" x2="290" y2="232"/><line x1="360" y1="318" x2="360" y2="248"/><line x1="550" y1="318" x2="430" y2="232"/>
+              <line x1="135" y1="252" x2="276" y2="214"/><line x1="585" y1="252" x2="444" y2="214"/>
+            </g>
+            <rect x="272" y="134" width="176" height="112" rx="16" class="fill-bg" stroke="currentColor" stroke-width="1.6"/>
+            <text x="360" y="172" text-anchor="middle" style="font-weight:700">Vertical farm</text>
+            <text x="360" y="190" text-anchor="middle" class="t-small t-muted">lettuce, herbs</text>
+            <text x="360" y="208" text-anchor="middle" class="t-small t-muted">8–15 kWh kg⁻¹</text>
+            <text x="360" y="226" text-anchor="middle" class="t-small t-muted">60–105 kg m⁻² yr⁻¹</text>
+            <rect x="80" y="30" width="180" height="40" rx="9" fill="var(--danger-soft)" stroke="currentColor" stroke-width=".8"/>
+            <text x="170" y="48" text-anchor="middle" class="t-small" style="font-weight:600">Electricity grid</text>
+            <text x="170" y="62" text-anchor="middle" class="t-small t-muted">LEDs, HVAC, pumps</text>
+            <rect x="280" y="22" width="160" height="40" rx="9" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/>
+            <text x="360" y="40" text-anchor="middle" class="t-small" style="font-weight:600">Nutrient salts</text>
+            <text x="360" y="54" text-anchor="middle" class="t-small t-muted">N from gas; P, K mined</text>
+            <rect x="460" y="30" width="180" height="40" rx="9" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/>
+            <text x="550" y="48" text-anchor="middle" class="t-small" style="font-weight:600">Seeds</text>
+            <text x="550" y="62" text-anchor="middle" class="t-small t-muted">few specialised breeders</text>
+            <rect x="20" y="170" width="120" height="40" rx="9" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/>
+            <text x="80" y="188" text-anchor="middle" class="t-small" style="font-weight:600">Water</text>
+            <text x="80" y="202" text-anchor="middle" class="t-small t-muted">municipal supply</text>
+            <rect x="580" y="170" width="130" height="40" rx="9" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/>
+            <text x="645" y="188" text-anchor="middle" class="t-small" style="font-weight:600">Substrate, CO₂</text>
+            <text x="645" y="202" text-anchor="middle" class="t-small t-muted">rock wool, coir, gas</text>
+            <rect x="15" y="236" width="140" height="40" rx="9" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/>
+            <text x="85" y="254" text-anchor="middle" class="t-small" style="font-weight:600">Software, cloud</text>
+            <text x="85" y="268" text-anchor="middle" class="t-small t-muted">control, cyber risk</text>
+            <rect x="565" y="236" width="140" height="40" rx="9" class="fill-sunk" stroke="currentColor" stroke-width=".8"/>
+            <text x="635" y="254" text-anchor="middle" class="t-small" style="font-weight:600">Skilled labour</text>
+            <text x="635" y="268" text-anchor="middle" class="t-small t-muted">25–30 % of costs</text>
+            <rect x="80" y="318" width="180" height="40" rx="9" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/>
+            <text x="170" y="336" text-anchor="middle" class="t-small" style="font-weight:600">LEDs, sensors, spares</text>
+            <text x="170" y="350" text-anchor="middle" class="t-small t-muted">global electronics chains</text>
+            <rect x="280" y="318" width="160" height="40" rx="9" class="fill-sunk" stroke="currentColor" stroke-width=".8"/>
+            <text x="360" y="336" text-anchor="middle" class="t-small" style="font-weight:600">Packaging, logistics</text>
+            <text x="360" y="350" text-anchor="middle" class="t-small t-muted">retail contracts</text>
+            <rect x="460" y="318" width="180" height="40" rx="9" fill="var(--danger-soft)" stroke="currentColor" stroke-width=".8"/>
+            <text x="550" y="336" text-anchor="middle" class="t-small" style="font-weight:600">Capital, investors</text>
+            <text x="550" y="350" text-anchor="middle" class="t-small t-muted">thin margins</text>
+            <g class="t-small">
+              <rect x="20" y="100" width="12" height="12" fill="var(--danger-soft)" stroke="currentColor" stroke-width=".6"/><text x="38" y="110">critical, no substitute</text>
+              <rect x="20" y="118" width="12" height="12" class="fill-amber-soft" stroke="currentColor" stroke-width=".6"/><text x="38" y="128">imported, storable</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 6.</b> The dependency web of a plant factory. Red: critical flows with no short-term substitute (a farm without power stops within hours; a farm without cash stops within weeks). Amber: imported inputs that can be stockpiled cheaply — six months of seeds and nutrient salts occupy a few pallets. Values from Lesson 15.1, Pennisi et al. (2025), Zhuang et al. (2022) and van Delden et al. (2021).</figcaption>
+      </figure>
+      <p>The energy dependency translates into a simple economic stress test. A farm survives a price shock as long as its revenue covers its costs; because electricity enters costs linearly, there is a critical electricity price above which every kilogram is sold at a loss.</p>
+      <div class="eq-box" id="eq-res-energy">
+        <div class="eq-head"><span class="eq-label">Energy-price stress test of a controlled-environment farm</span><span class="eq-num">(15.2.7)</span></div>
+        <div class="eq-main">\[ C = C_0 + e_{\text{el}}\,p_{\text{el}}, \qquad p^{*}_{\text{el}} = \frac{P_{\text{sale}} - C_0}{e_{\text{el}}}, \qquad \frac{\Delta C}{C} = s_{\text{el}}\,\frac{\Delta p_{\text{el}}}{p_{\text{el}}} \]</div>
+        <p class="eq-read">the cost per kilogram is the non-electric cost plus the electricity use per kilogram times the electricity price; the critical electricity price is the selling price minus the non-electric cost, divided by the electricity use; and the relative change in cost equals the electricity cost share times the relative change in the electricity price.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example</th></tr>
+          <tr><td>\(C\)</td><td>full cost per kg, including capital (the levelised cost of Lesson 15.3)</td><td>$ kg⁻¹</td><td>7.54</td></tr>
+          <tr><td>\(C_0\)</td><td>all costs except electricity</td><td>$ kg⁻¹</td><td>6.10</td></tr>
+          <tr><td>\(e_{\text{el}}\)</td><td>electricity use</td><td>kWh kg⁻¹</td><td>12</td></tr>
+          <tr><td>\(p_{\text{el}}\), \(p^{*}_{\text{el}}\)</td><td>electricity price; critical (break-even) price</td><td>$ kWh⁻¹</td><td>0.12</td></tr>
+          <tr><td>\(P_{\text{sale}}\)</td><td>price received per kg</td><td>$ kg⁻¹</td><td>11</td></tr>
+          <tr><td>\(s_{\text{el}}\)</td><td>electricity share of cost, \(e_{\text{el}}p_{\text{el}}/C\)</td><td>–</td><td>0.19</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Split the cost into an electricity term and everything else: \(C = C_0 + e_{\text{el}}p_{\text{el}}\) (capital, labour, seeds, packaging are in \(C_0\)).</li>
+            <li>The margin per kg is \(m = P_{\text{sale}} - C_0 - e_{\text{el}}p_{\text{el}}\). Setting \(m=0\) and solving for \(p_{\text{el}}\) gives \(p^{*}_{\text{el}}\).</li>
+            <li>Differentiate \(C\) with respect to \(p_{\text{el}}\): \(\mathrm{d}C = e_{\text{el}}\,\mathrm{d}p_{\text{el}}\). Divide by \(C\) and multiply and divide by \(p_{\text{el}}\): \(\mathrm{d}C/C = (e_{\text{el}}p_{\text{el}}/C)\,\mathrm{d}p_{\text{el}}/p_{\text{el}} = s_{\text{el}}\,\mathrm{d}p_{\text{el}}/p_{\text{el}}\) — an elasticity equal to the cost share.</li>
+            <li>The ratio \(p^{*}_{\text{el}}/p_{\text{el}}\) is the farm's "energy safety factor": how many times the electricity price can rise before the farm makes losses.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Short-run test: the selling price and non-electric costs are held constant. In a real crisis, input costs, interest rates and consumer demand move together, and a farm on a fixed-price electricity contract is protected until the contract ends — then exposed all at once.</p></details>
+        <div class="eq-units">\(\dfrac{\$\,\text{kg}^{-1}}{\text{kWh kg}^{-1}} = \$\,\text{kWh}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="(P-C0)/e" data-output="Critical electricity price p*" data-unit="$ kWh⁻¹" data-digits="3" data-plot="P" data-ymin="0" data-ymax="1" data-title="Try it — how much energy-price shock can the farm take?">
+          <div data-var="P" data-label="Selling price P<sub>sale</sub>" data-min="4" data-max="14" data-step="0.1" data-value="11" data-unit="$ kg⁻¹"></div>
+          <div data-var="C0" data-label="Non-electric cost C<sub>0</sub>" data-min="2" data-max="9" data-step="0.05" data-value="6.1" data-unit="$ kg⁻¹"></div>
+          <div data-var="e" data-label="Electricity use e<sub>el</sub>" data-min="3" data-max="20" data-step="0.5" data-value="12" data-unit="kWh kg⁻¹"></div>
+        </div>
+      </div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">An energy-price stress test with published cost data</span></div>
+        <div class="we-problem"><p>Zhuang et al. (2022) report, for lettuce in plant factories, a yield of 115 kg per m² of cultivation area per year, a price of US$11 per kg and annual current costs per m² of $279 labour, $166 electricity, $86 seeds and nutrients, $157 packaging and logistics and $12 water and other. Their investment analysis assumes a 15-year life, 5 % interest and 1.5 % annual maintenance. Take a construction cost of $1,500 per m² and an electricity use of 12 kWh kg⁻¹. (a) What is the full cost per kg and the implied electricity price? (b) What happens if the electricity price triples? (c) What is the critical electricity price at the reported price, and after a 30 % fall in the lettuce price?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Current costs per kg:</strong> \((279+166+86+157+12)/115 = 700/115 = 6.09\ \$\,\text{kg}^{-1}\); electricity alone \(166/115 = 1.44\ \$\,\text{kg}^{-1}\).</li>
+            <li><strong>Capital per kg</strong> (capital recovery factor from Lesson 15.3, Eq. 15.3.3, \(\text{CRF}=0.0963\) at 5 %, 15 years): \((0.0963+0.015)\times1500/115 = 1.45\ \$\,\text{kg}^{-1}\).</li>
+            <li><strong>(a)</strong> \(C = 6.09+1.45 = 7.54\ \$\,\text{kg}^{-1}\); implied price \(p_{\text{el}} = 1.44/12 = 0.120\ \$\,\text{kWh}^{-1}\); electricity share \(s_{\text{el}} = 1.44/7.54 = 19\ \%\); labour share \(2.43/7.54=32\ \%\), close to the 25–30 % reported by van Delden et al. (2021).</li>
+            <li><strong>(b)</strong> A tripling (\(\Delta p/p = +200\ \%\)) raises cost by \(0.19\times200 = 38\ \%\): \(\Delta C = 2\times1.44 = 2.89\), so \(C = 10.43\ \$\,\text{kg}^{-1}\). Still below the $11 price — the margin shrinks from $3.46 to $0.57.</li>
+            <li><strong>(c)</strong> \(C_0 = 7.54-1.44 = 6.10\). At $11: \(p^{*} = (11-6.10)/12 = 0.41\ \$\,\text{kWh}^{-1}\), 3.4 times the base price. At $7.70 (−30 %): \(p^{*} = (7.70-6.10)/12 = 0.13\ \$\,\text{kWh}^{-1}\) — only 11 % above the base price. A thin margin turns energy dependency into fragility.</li>
+          </ol>
+          <span class="answer">(a) C ≈ $7.5 kg⁻¹, p ≈ $0.12 kWh⁻¹; (b) C ≈ $10.4 kg⁻¹; (c) p* ≈ $0.41 kWh⁻¹, but only ≈ $0.13 kWh⁻¹ after a 30 % price fall</span>
+        </div></details>
+      </div>
+      <p>What about calories? Lettuce contains only 13–15 kcal per 100 g, about 150 kcal per kilogram (USDA, 2019). A large vertical farm producing 1,000 t of lettuce per year therefore delivers \(1.5\times10^{8}\) kcal per year, or 411,000 kcal per day — the energy needs of about 160 people at 2,627 kcal per day. Its contribution to preparedness lies in fresh vitamins and minerals, which domestic production covers least well (Livsmedelsverket &amp; Jordbruksverket, 2025), not in energy. The same holds for <strong>urban agriculture</strong>: a meta-analysis of 200 studies found urban yields on a par with or higher than conventional yields per area (Payen et al., 2022), and a global estimate put the potential of intensive urban agriculture at 100–180 million tonnes of food per year (Clinton et al., 2018) — valuable, but a small fraction of global food production. In Sweden, hobby gardening contributes about 8 kcal per person and day, recreational fishing 3 and wild berries 3 (Livsmedelsverket &amp; Jordbruksverket, 2025). Urban farms build skills, social capital and dietary diversity — all resourcefulness — more than calorie security.</p>
+      <div class="callout note"><div class="callout-title">Designing a resilient indoor farm</div><p>Resilience can be engineered in: on-site solar power and batteries or a standby generator for the critical loads (pumps, fans, controls) rather than the lights; a heat store; several smaller sites instead of one large one (redundancy); six months of seeds, nutrient salts and spare LED drivers on the shelf (cheap absorptive capacity); a control system that runs locally without the cloud; flexible contracts that let the farm dim its lights when electricity is scarce; and a crop mix that includes energy-dense or storable products where the physiology allows.</p></div>
+
+      <h2 id="networks">Networks, correlated shocks and chokepoints</h2>
+      <p>Diversification works only if the baskets do not fall at the same time. Portfolio theory, developed for financial assets by Markowitz (1952), makes this precise. Let total supply be the sum of the supplies of several sources, each fluctuating from year to year.</p>
+      <div class="eq-box" id="eq-res-portfolio">
+        <div class="eq-head"><span class="eq-label">Variance of a supply portfolio</span><span class="eq-num">(15.2.8)</span></div>
+        <div class="eq-main">\[ \sigma_{\text{tot}}^{2} = \sum_{i} w_i^{2}\sigma_i^{2} + \sum_{i}\sum_{j\ne i} w_i w_j\,\rho_{ij}\,\sigma_i\sigma_j \quad\Rightarrow\quad \text{CV}_{\text{tot}} = \text{CV}\,\sqrt{\frac{1+(n-1)\rho}{n}} \]</div>
+        <p class="eq-read">the variance of total supply is the sum of the variances of the weighted sources plus the sum of all pairwise covariances; for n equal sources with the same coefficient of variation and a common correlation ρ, the coefficient of variation of the total is the individual coefficient of variation times the square root of one plus (n − 1) ρ, divided by n.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(w_i\)</td><td>share of source \(i\) in expected supply, \(\sum w_i=1\)</td><td>–</td></tr>
+          <tr><td>\(\sigma_i\)</td><td>standard deviation of source \(i\), relative to its mean</td><td>–</td></tr>
+          <tr><td>\(\rho_{ij}\)</td><td>correlation between the fluctuations of sources \(i\) and \(j\)</td><td>–1 to 1</td></tr>
+          <tr><td>CV, CV\(_{\text{tot}}\)</td><td>coefficient of variation of one source and of the total</td><td>–</td></tr>
+          <tr><td>\(n\)</td><td>number of equal sources</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Total supply relative to its mean is \(Y=\sum_i w_iX_i\), where \(X_i\) has mean 1 and standard deviation \(\sigma_i\) (so \(\sigma_i\) is also its CV).</li>
+            <li>The variance of a sum is the sum of all covariances: \(\text{Var}(Y)=\sum_i\sum_j w_iw_j\,\text{Cov}(X_i,X_j)\) with \(\text{Cov}(X_i,X_j)=\rho_{ij}\sigma_i\sigma_j\) and \(\rho_{ii}=1\). Separate \(i=j\) from \(i\ne j\) to get the first form.</li>
+            <li>Equal sources: \(w_i=1/n\), \(\sigma_i=\sigma\), \(\rho_{ij}=\rho\). There are \(n\) diagonal terms and \(n(n-1)\) off-diagonal terms: \(\sigma_{\text{tot}}^2 = n\frac{\sigma^2}{n^2}+n(n-1)\frac{\rho\sigma^2}{n^2} = \sigma^2\frac{1+(n-1)\rho}{n}\).</li>
+            <li>Independent sources (\(\rho=0\)): \(\text{CV}_{\text{tot}}=\text{CV}/\sqrt n\) — four independent suppliers halve the variability. Perfectly correlated (\(\rho=1\)): \(\text{CV}_{\text{tot}}=\text{CV}\) — diversification is useless.</li>
+            <li>As \(n\to\infty\), \(\text{CV}_{\text{tot}}\to\text{CV}\sqrt{\rho}\): the <em>common</em> risk cannot be diversified away. The effective number of independent sources is \(n_{\text{eff}} = n/[1+(n-1)\rho]\), which can never exceed \(1/\rho\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Uses variance as the measure of risk, which suits frequent, moderate fluctuations. Food crises are driven by rare, large, simultaneous failures — the tails of the distribution — and correlations tend to rise precisely in crises (a global heat wave, a war, export bans). Use the equation for intuition and Monte Carlo simulation (Figure 7) for tail probabilities.</p></details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-fn="resCVtot" data-output="CV of total supply" data-unit="%" data-digits="1" data-plot="rho" data-ymin="0" data-title="Try it — diversification versus correlation">
+          <div data-var="cv" data-label="CV of each source" data-min="5" data-max="50" data-step="1" data-value="25" data-unit="%"></div>
+          <div data-var="n" data-label="Number of sources n" data-min="1" data-max="20" data-step="1" data-value="4"></div>
+          <div data-var="rho" data-label="Correlation ρ" data-min="0" data-max="1" data-step="0.01" data-value="0.3"></div>
+        </div>
+      </div>
+      <p>The evidence supports both halves of the equation. In 2018, northern and eastern Europe suffered multiple, simultaneous crop failures, but higher-than-usual yields in southern Europe nearly offset them (Beillouin et al., 2020): north and south were weakly correlated, and the European portfolio held. But correlations are not constant. Gaupp et al. (2020) found that the risk of <em>simultaneous</em> crop failures across the world's major breadbaskets has changed over recent decades as the joint behaviour of climate across regions has changed — and simultaneous failures are exactly what defeats diversification.</p>
+      <figure class="figure wide" id="pf-fig">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — Monte Carlo: diversification under correlated shocks</div>
+          <div class="rs-grid rs-ctl">
+            <div>
+              <div class="mc-var"><div class="mc-lab"><span>Number of equal suppliers n</span><output id="pf-n-o"></output></div><input id="pf-n" type="range" min="1" max="12" step="1" value="4" aria-label="Number of suppliers"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Year-to-year CV of each supplier</span><output id="pf-cv-o"></output></div><input id="pf-cv" type="range" min="5" max="50" step="1" value="25" aria-label="Coefficient of variation"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Correlation between suppliers ρ</span><output id="pf-rho-o"></output></div><input id="pf-rho" type="range" min="0" max="1" step="0.01" value="0.3" aria-label="Correlation"></div>
+            </div>
+            <div>
+              <div class="mc-var"><div class="mc-lab"><span>Shortfall threshold</span><output id="pf-thr-o"></output></div><input id="pf-thr" type="range" min="5" max="40" step="1" value="20" aria-label="Shortfall threshold"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Simulated years N</span><output id="pf-N-o"></output></div><input id="pf-N" type="range" min="2.7" max="4.3" step="0.1" value="3.7" aria-label="Number of simulated years (log scale)"></div>
+              <button class="btn btn-sm btn-primary" type="button" id="pf-run">Run again (new seed)</button>
+            </div>
+          </div>
+          <div id="pf-plot" style="height:280px;margin-top:10px"></div>
+          <div class="readouts" id="pf-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 7.</b> Histogram of total annual supply (% of expected) from \(N\) simulated years. Each supplier's output is \(1+\text{CV}\,(\sqrt{\rho}\,Z_0+\sqrt{1-\rho}\,Z_i)\) with a common standard-normal shock \(Z_0\) and independent shocks \(Z_i\), truncated at zero (random numbers from the course statistics library). Red bars are years with a shortfall larger than the threshold. The curve is the normal approximation from Eq. 15.2.8. Raise ρ and watch the benefit of more suppliers evaporate.</figcaption>
+      </figure>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 6</span><span class="we-title">Four suppliers — or one?</span></div>
+        <div class="we-problem"><p>A city buys lettuce from four equal suppliers, each with a year-to-year coefficient of variation of 25 %. Using the normal approximation, compare the probability of a shortfall of more than 20 % in total supply for (a) a single supplier, (b) four independent suppliers, (c) four suppliers with ρ = 0.5, e.g. farms in the same region. (d) What is the effective number of independent suppliers in (c)?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Shortfall probability</strong> for a normal total with mean 100 % and CV: \(P = \Phi(-0.20/\text{CV}_{\text{tot}})\).</li>
+            <li><strong>(a)</strong> \(\text{CV}=0.25\): \(P=\Phi(-0.8)=0.212\) — a bad year about one year in five.</li>
+            <li><strong>(b)</strong> \(\text{CV}_{\text{tot}}=0.25/\sqrt4=0.125\): \(P=\Phi(-1.6)=0.055\) — one year in eighteen.</li>
+            <li><strong>(c)</strong> \(\text{CV}_{\text{tot}}=0.25\sqrt{(1+3\times0.5)/4}=0.25\times0.791=0.198\): \(P=\Phi(-1.01)=0.156\) — hardly better than one supplier.</li>
+            <li><strong>(d)</strong> \(n_{\text{eff}} = 4/(1+3\times0.5) = 1.6\) independent suppliers.</li>
+          </ol>
+          <span class="answer">(a) 21 %; (b) 5.5 %; (c) 16 %; (d) n_eff = 1.6</span>
+        </div></details>
+      </div>
+      <p>Correlation is not only a matter of weather. Trade networks create it. Using staple-crop trade data for 1992–2009, Puma et al. (2015) showed that the number of wheat and rice trade connections doubled while flows grew by 42 % and 90 % — a more connected, more efficient network, but one in which large regional disruptions propagate further, not least because exporters tend to stop exporting when markets are tight. Least developed countries lost the most. In May 2022, after a heat wave had cut its harvest, India — the world's second-largest wheat producer — banned wheat exports: the kind of policy response that couples otherwise independent markets.</p>
+      <p>The physical network matters too. Bailey and Wellesley (2017) identified fourteen <strong>chokepoints</strong> — maritime straits and canals such as the Turkish Straits, the Suez Canal, Bab-el-Mandeb, the Strait of Hormuz, the Strait of Malacca and the Panama Canal, plus critical coastal and inland infrastructure such as the Black Sea ports and the inland waterways and Gulf Coast ports of the USA — through which a large share of internationally traded grain and fertiliser passes. A chokepoint couples every flow that crosses it: a single blockage raises the correlation of many suppliers to one. Figure 8 shows the logic, and Eq. 15.2.9 turns it into a first estimate of exposure.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 340" role="img" aria-label="Schematic trade network: exporting regions on the left, importing regions on the right, flows passing through chokepoints drawn as diamonds; one chokepoint carries several flows and couples their risks.">
+            <defs><marker id="rs-ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <text x="85" y="22" text-anchor="middle" class="t-small" style="font-weight:600">Exporters</text>
+            <text x="360" y="22" text-anchor="middle" class="t-small" style="font-weight:600">Chokepoints</text>
+            <text x="636" y="22" text-anchor="middle" class="t-small" style="font-weight:600">Importers</text>
+            <g stroke="currentColor" stroke-width="1.3" fill="none" marker-end="url(#rs-ar4)" opacity=".8">
+              <line x1="150" y1="72" x2="342" y2="72"/>
+              <line x1="150" y1="148" x2="342" y2="148"/>
+              <line x1="150" y1="224" x2="342" y2="224"/>
+              <line x1="150" y1="300" x2="342" y2="300"/>
+              <line x1="378" y1="72" x2="566" y2="72"/>
+              <path d="M378 76 C470 84 480 140 566 146"/>
+              <line x1="378" y1="148" x2="566" y2="148"/>
+              <path d="M378 152 C460 160 490 212 566 218"/>
+              <line x1="378" y1="224" x2="566" y2="228"/>
+              <line x1="378" y1="300" x2="566" y2="300"/>
+              <path d="M378 296 C470 290 480 238 566 234"/>
+            </g>
+            <g class="t-small">
+              <rect x="20" y="50" width="130" height="44" rx="9" class="fill-accent-soft" stroke="currentColor"/><text x="85" y="68" text-anchor="middle" style="font-weight:600">Black Sea</text><text x="85" y="84" text-anchor="middle" class="t-muted">wheat, sunflower oil</text>
+              <rect x="20" y="126" width="130" height="44" rx="9" class="fill-accent-soft" stroke="currentColor"/><text x="85" y="144" text-anchor="middle" style="font-weight:600">EU</text><text x="85" y="160" text-anchor="middle" class="t-muted">wheat, barley</text>
+              <rect x="20" y="202" width="130" height="44" rx="9" class="fill-accent-soft" stroke="currentColor"/><text x="85" y="220" text-anchor="middle" style="font-weight:600">Americas</text><text x="85" y="236" text-anchor="middle" class="t-muted">maize, soy, wheat</text>
+              <rect x="20" y="278" width="130" height="44" rx="9" class="fill-amber-soft" stroke="currentColor"/><text x="85" y="296" text-anchor="middle" style="font-weight:600">Persian Gulf</text><text x="85" y="312" text-anchor="middle" class="t-muted">urea, ammonia</text>
+            </g>
+            <g class="t-small">
+              <path d="M360 56 l16 16 l-16 16 l-16 -16 z" fill="var(--danger-soft)" stroke="currentColor"/><text x="360" y="48" text-anchor="middle">Turkish Straits</text>
+              <path d="M360 132 l16 16 l-16 16 l-16 -16 z" fill="var(--danger-soft)" stroke="currentColor"/><text x="360" y="124" text-anchor="middle">Suez Canal, Bab-el-Mandeb</text>
+              <path d="M360 208 l16 16 l-16 16 l-16 -16 z" class="fill-sunk" stroke="currentColor"/><text x="360" y="200" text-anchor="middle">Panama Canal, US Gulf ports</text>
+              <path d="M360 284 l16 16 l-16 16 l-16 -16 z" fill="var(--danger-soft)" stroke="currentColor"/><text x="360" y="276" text-anchor="middle">Strait of Hormuz</text>
+            </g>
+            <g class="t-small">
+              <rect x="568" y="50" width="136" height="44" rx="9" class="fill-bg" stroke="currentColor"/><text x="636" y="68" text-anchor="middle">North Africa,</text><text x="636" y="84" text-anchor="middle">Middle East</text>
+              <rect x="568" y="126" width="136" height="44" rx="9" class="fill-bg" stroke="currentColor"/><text x="636" y="152" text-anchor="middle">East Africa</text>
+              <rect x="568" y="202" width="136" height="44" rx="9" class="fill-bg" stroke="currentColor"/><text x="636" y="228" text-anchor="middle">South &amp; East Asia</text>
+              <rect x="568" y="278" width="136" height="44" rx="9" class="fill-bg" stroke="currentColor"/><text x="636" y="296" text-anchor="middle">Europe</text><text x="636" y="312" text-anchor="middle" class="t-muted">farm inputs</text>
+            </g>
+            <text x="360" y="336" text-anchor="middle" class="t-small t-muted">one blocked chokepoint cuts several flows at once → the suppliers behind it become correlated (ρ → 1)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 8.</b> Schematic of a food and fertiliser trade network (not to scale; only some of the fourteen chokepoints of Bailey and Wellesley, 2017, are shown). Black Sea grain to North Africa and the Middle East passes the Turkish Straits, and to East Africa also Suez and Bab-el-Mandeb. Urea and ammonia from producers inside the Persian Gulf reach world markets through the Strait of Hormuz.</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-res-exposure">
+        <div class="eq-head"><span class="eq-label">First-order exposure to exporter shocks</span><span class="eq-num">(15.2.9)</span></div>
+        <div class="eq-main">\[ s = \sum_i p_i\,\delta_i, \qquad \frac{\Delta U}{U} \approx \frac{\text{IDR}}{100\,\%}\; s \]</div>
+        <p class="eq-read">the fraction of a country's imports that is lost is the sum over suppliers of each supplier's import share times the fraction by which that supplier's exports are cut; multiplied by the import dependency ratio, it gives the fractional loss of total domestic supply.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(p_i\)</td><td>share of imports from supplier \(i\)</td><td>–</td></tr>
+          <tr><td>\(\delta_i\)</td><td>fractional cut in exports of supplier \(i\) (war, export ban, blocked chokepoint)</td><td>–</td></tr>
+          <tr><td>\(s\)</td><td>fraction of imports lost</td><td>–</td></tr>
+          <tr><td>IDR, \(\Delta U/U\)</td><td>import dependency ratio (Eq. 15.2.5); fractional loss of domestic supply</td><td>%, –</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Imports from supplier \(i\) are \(p_iM\); a cut \(\delta_i\) removes \(p_i\delta_iM\). Summing: lost imports \(= M\sum p_i\delta_i = sM\).</li>
+            <li>Domestic supply \(U=P+M-X\) loses \(sM\) if nothing else changes: \(\Delta U/U = sM/U = s\cdot\text{IDR}\).</li>
+            <li>"First order" because it ignores the responses that give resilience: substitute suppliers (adaptive capacity), stocks (absorptive capacity), reduced exports \(X\) and demand changes. Comparing the first-order loss with the realised loss measures how much these responses helped.</li>
+          </ol>
+        </details>
+        <div class="eq-units">dimensionless shares ✓</div>
+        <div class="mini-calc" data-formula="idr/100*(p1*d1+(100-p1)*d2)/100" data-output="Loss of domestic supply ΔU/U" data-unit="%" data-digits="1" data-plot="d1" data-title="Try it — two suppliers, one shock">
+          <div data-var="p1" data-label="Share of imports from supplier 1" data-min="0" data-max="100" data-step="1" data-value="53" data-unit="%"></div>
+          <div data-var="d1" data-label="Export cut of supplier 1, δ₁" data-min="0" data-max="100" data-step="1" data-value="20" data-unit="%"></div>
+          <div data-var="d2" data-label="Export cut of supplier 2, δ₂" data-min="0" data-max="100" data-step="1" data-value="60" data-unit="%"></div>
+          <div data-var="idr" data-label="Import dependency IDR" data-min="0" data-max="100" data-step="1" data-value="100" data-unit="%"></div>
+        </div>
+      </div>
+      <p>With the defaults — a country importing all its wheat, 53 % from one supplier whose exports fall by 20 % and 47 % from another whose exports fall by 60 % — the first-order loss is \(0.53\times0.2+0.47\times0.6 = 0.39\): almost 40 % of supply. That is why the Black Sea Grain Initiative, which reopened Ukrainian ports for a year, mattered so much to import-dependent countries.</p>
+
+      <h2 id="design">Designing for resilience</h2>
+      <p>Efficiency and resilience pull in opposite directions. Every spare warehouse, second supplier and unused hectare looks like waste on a balance sheet — until the shock arrives. Ecologists found the same tension in natural networks. Ulanowicz et al. (2009) measured the organisation of flow networks with Shannon's information theory and showed that sustainable ecosystems sit in a "window of vitality": neither maximally efficient (all flow along a few optimal pathways, brittle) nor maximally redundant (many parallel pathways, stagnant). In their measure, robustness \(R = -a\ln a\) peaks at intermediate values of the relative organisation \(a\) (Figure 9).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 300" role="img" aria-label="Robustness as a function of the degree of organisation of a network, peaking at intermediate values: left too redundant and stagnant, right too efficient and brittle.">
+            <line x1="70" y1="250" x2="660" y2="250" class="stroke" stroke-width="1.2"/>
+            <line x1="70" y1="250" x2="70" y2="30" class="stroke" stroke-width="1.2"/>
+            <text x="365" y="285" text-anchor="middle" class="t-small">relative organisation (efficiency) a = A/C →</text>
+            <text x="30" y="140" text-anchor="middle" class="t-small" transform="rotate(-90 30 140)">robustness R = −a ln a</text>
+            <rect x="188" y="30" width="236" height="220" class="fill-accent-soft" opacity=".55"/>
+            <text x="306" y="50" text-anchor="middle" class="t-small" style="fill:var(--accent);font-weight:600">window of vitality</text>
+            <polyline fill="none" class="stroke-accent" stroke-width="2.6" points="70,250 72.4,241.2 84.2,214.2 96.0,195.0 107.8,179.6 119.6,166.8 131.4,155.8 143.2,146.5 155.0,138.4 166.8,131.4 178.6,125.4 190.4,120.3 202.2,115.9 214.0,112.3 225.8,109.4 237.6,107.0 249.4,105.2 261.2,103.9 273.0,103.2 284.8,102.9 296.6,103.0 308.4,103.5 320.2,104.5 332.0,105.8 343.8,107.5 355.6,109.5 367.4,111.9 379.2,114.5 391.0,117.5 402.8,120.8 414.6,124.4 426.4,128.2 438.2,132.3 450.0,136.6 461.8,141.2 473.6,146.1 485.4,151.2 497.2,156.5 509.0,162.0 520.8,167.7 532.6,173.7 544.4,179.8 556.2,186.2 568.0,192.7 579.8,199.5 591.6,206.4 603.4,213.5 615.2,220.8 627.0,228.2 638.8,235.9 650.6,243.7 660,250"/>
+            <circle cx="287" cy="102.8" r="5" class="fill-accent"/>
+            <text x="298" y="90" class="t-small">maximum at a = 1/e ≈ 0.37</text>
+            <text x="100" y="80" class="t-small">redundant,</text><text x="100" y="94" class="t-small">stagnant,</text><text x="100" y="108" class="t-small">inefficient</text>
+            <text x="520" y="80" class="t-small">efficient,</text><text x="520" y="94" class="t-small">brittle,</text><text x="520" y="108" class="t-small">"just-in-time"</text>
+            <g class="t-small t-muted"><text x="70" y="266" text-anchor="middle">0</text><text x="365" y="266" text-anchor="middle">0.5</text><text x="660" y="266" text-anchor="middle">1</text></g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 9.</b> The efficiency–resilience trade-off in flow networks (after Ulanowicz et al., 2009). \(a\) is the fraction of a network's information capacity that is used to organise flows along efficient paths; the rest, \(1-a\), is redundancy held in reserve. The function \(-a\ln a\) — Shannon's entropy term from Eq. 15.2.3 — peaks at \(a=1/e\). The shaded window is schematic; the authors placed empirical ecosystems near the peak.</figcaption>
+      </figure>
+      <p>For the engineer assessing a food system or a new technology, the lesson condenses into a handful of design principles, each with an indicator you can now calculate:</p>
+      <table>
+        <caption>Table 3. Design principles for resilient food systems and how to measure them.</caption>
+        <thead><tr><th>Principle</th><th>What it means</th><th>Indicator (this lesson)</th></tr></thead>
+        <tbody>
+          <tr><td>Diversity of <em>risks</em></td><td>suppliers, crops and technologies that fail for different reasons</td><td>risk-group \(N_{\text{eff}}\) (15.2.4), \(n_{\text{eff}}\) (15.2.8)</td></tr>
+          <tr><td>Redundancy and modularity</td><td>several smaller units rather than one optimal one; alternative routes</td><td>depth \(\Delta Q\) after losing the largest unit</td></tr>
+          <tr><td>Buffers where they are needed</td><td>stocks of food <em>and inputs</em>, regionally distributed and rotated</td><td>\(\tau\) (15.2.6)</td></tr>
+          <tr><td>Managed connectivity</td><td>enough trade to share risks, not so concentrated that one chokepoint couples everything</td><td>IDR (15.2.5), exposure \(s\) (15.2.9)</td></tr>
+          <tr><td>Fast recovery</td><td>short cycles, spare parts, contingency contracts, skills</td><td>\(T_r\), \(\Phi\) (15.2.1–15.2.2)</td></tr>
+          <tr><td>Financial and energy margins</td><td>headroom before a price shock becomes insolvency</td><td>\(p^{*}/p\) (15.2.7)</td></tr>
+          <tr><td>Access for all</td><td>social protection, affordable diets, public meals</td><td>affordability (Lesson 15.3)</td></tr>
+        </tbody>
+      </table>
+      <div class="callout frontier"><div class="callout-title">Frontier 2024–2026</div><p>Researchers are beginning to argue that controlled-environment agriculture should be planned less as a venture-capital product and more as <em>public urban infrastructure</em> — sited, funded and governed like water and transport networks to deliver food access, health and climate resilience to underserved neighbourhoods (Rao et al., 2026). That reframing moves the resilience question from "will this farm survive?" to "does this network of farms make the city's food supply more robust, redundant and fair?" — the kind of integrated question that Lesson 15.4 teaches you to structure.</p></div>
+      <a class="lab-link" data-lab="resilience-simulator" data-why="Hit a regional food network with droughts, energy crises and trade shocks, then test diversity, storage and local production as buffers — and compare how deep and how long the loss of supply is under each strategy."></a>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="resilience-main">
+        <script type="application/json">
+        {"title":"Resilience of food systems","questions":[
+          {"type":"numeric","q":"A region buys its winter vegetables from three suppliers with shares of 50 %, 30 % and 20 %. Calculate the Shannon diversity index H (natural logarithm).","answer":1.0297,"tol":0.02,"unit":"nats","hint":"\\(H = -\\sum p_i \\ln p_i\\) with the shares as fractions.","explain":"<p>\\(H = -(0.5\\ln0.5+0.3\\ln0.3+0.2\\ln0.2) = 0.347+0.361+0.322 = 1.030\\). The maximum for three suppliers is \\(\\ln 3 = 1.099\\), so the evenness is 0.94 and the effective number \\(e^{H}\\) is 2.8.</p>"},
+          {"type":"numeric","q":"For the same shares (50 %, 30 %, 20 %), what is the effective number of suppliers \\(N_{\\text{eff}} = 1/\\text{HHI}\\)?","answer":2.632,"tol":0.02,"unit":"suppliers","hint":"HHI is the sum of the squared shares (as fractions).","explain":"<p>\\(\\text{HHI} = 0.25+0.09+0.04 = 0.38\\) — high concentration (&gt; 0.25) — and \\(N_{\\text{eff}} = 1/0.38 = 2.63\\). The HHI weights the dominant supplier more heavily than the Shannon index, so \\(1/\\text{HHI} &lt; e^{H}\\).</p>"},
+          {"type":"mcq","q":"Which statement best describes <em>ecological</em> resilience in Holling's (1973) sense?","options":["The speed with which a system returns to its single equilibrium after a disturbance.","The magnitude of disturbance a system can absorb before it shifts into a different state with a different structure and feedbacks.","The ability of a system to avoid being disturbed at all.","The average functionality of a system over a control period after a shock."],"answer":1,"feedback":["That is engineering resilience — it presumes one equilibrium and measures the rate of return.","","No real system avoids all disturbances; resilience is about persisting through them.","That is the resilience index Φ of Eq. 15.2.1b, a measurement, not Holling's concept."],"explain":"<p>Holling defined resilience as the persistence of relationships in a system — its ability to absorb change and still persist. In the ball-and-cup picture it is the width of the basin, not the steepness of its sides.</p>"},
+          {"type":"numeric","q":"After a cyberattack on a wholesaler, the share of normal deliveries reaching shops drops instantly by 40 percentage points and then recovers linearly in 8 weeks. Calculate the resilience index Φ over a control period of 26 weeks.","answer":0.9385,"abstol":0.005,"unit":"","hint":"First the triangle area \\(L=\\tfrac12\\Delta Q\\,T_r\\) in %·weeks, then \\(\\Phi = 1 - L/(100\\,T)\\).","explain":"<p>\\(L = 0.5\\times40\\times8 = 160\\ \\%\\cdot\\text{week}\\); \\(\\Phi = 1-160/(100\\times26) = 0.938\\).</p>"},
+          {"type":"numeric","q":"A commodity balance (thousand tonnes per year): production 120, imports 60, exports 30, no stock change. What is the self-sufficiency ratio?","answer":80,"tol":0.02,"unit":"%","explain":"<p>Domestic supply \\(= 120+60-30 = 150\\) kt; \\(\\text{SSR} = 120/150 = 80\\ \\%\\). The import dependency ratio is \\(60/150 = 40\\ \\%\\); SSR + IDR − X/U = 80 + 40 − 20 = 100 %.</p>"},
+          {"type":"numeric","q":"A region of 1.2 million people needs 0.28 kg of grain per person and day. During a disruption only 25 % of normal deliveries arrive. How many days does an emergency stock of 20,000 t cover the deficit?","answer":79.4,"tol":0.03,"unit":"days","hint":"Eq. 15.2.6: \\(\\tau = S/[(1-\\varphi)D]\\); convert the demand to t per day.","explain":"<p>\\(D = 1.2\\times10^6\\times0.28 = 336{,}000\\ \\text{kg d}^{-1} = 336\\ \\text{t d}^{-1}\\); deficit \\(0.75\\times336 = 252\\ \\text{t d}^{-1}\\); \\(\\tau = 20{,}000/252 = 79\\) days.</p>"},
+          {"type":"multi","q":"According to the Swedish indicator report (Livsmedelsverket &amp; Jordbruksverket, 2025), which of these inputs to Swedish food production came mostly (more than half) through foreign trade? Select all that apply.","options":["Nitrogen fertiliser (as N)","Plant protection products","Seed for cereals","Motor fuels","Feed grain"],"answer":[0,1,3],"explain":"<p>Nitrogen fertiliser 87 %, plant protection products 100 % and motor fuels 91 % came through foreign trade; cereal seed (3 %) and feed grain (2 %) are almost entirely domestic. Calorie self-sufficiency hides these input dependencies.</p>"},
+          {"type":"numeric","q":"Nine equally sized suppliers each have a year-to-year coefficient of variation of 30 %, and their fluctuations have a common correlation ρ = 0.2. What is the coefficient of variation of total supply?","answer":16.12,"tol":0.02,"unit":"%","hint":"\\(\\text{CV}_{\\text{tot}} = \\text{CV}\\sqrt{(1+(n-1)\\rho)/n}\\).","explain":"<p>\\(30\\times\\sqrt{(1+8\\times0.2)/9} = 30\\times\\sqrt{0.289} = 16.1\\ \\%\\). With independent suppliers it would be \\(30/\\sqrt9 = 10\\ \\%\\): even a modest correlation removes much of the benefit of diversification.</p>"},
+          {"type":"tf","q":"Because it is independent of the weather, a vertical farm powered by a low-carbon grid is robust to all the shocks discussed in this lesson.","answer":false,"explain":"<p>It is robust to drought, frost and pests, but highly exposed to electricity supply and price shocks, to imported inputs (nutrients, seeds, LEDs, software) and to financial shocks: Zhuang et al. (2022) found that a 30 % fall in yield or price could bankrupt plant factories.</p>"},
+          {"type":"numeric","q":"A greenhouse sells tomatoes for $6.00 kg⁻¹. Its costs other than electricity are $4.50 kg⁻¹ and it uses 10 kWh of electricity per kilogram. Above which electricity price does it make a loss on every kilogram?","answer":0.15,"tol":0.02,"unit":"$ kWh⁻¹","explain":"<p>Eq. 15.2.7: \\(p^{*} = (P_{\\text{sale}}-C_0)/e_{\\text{el}} = (6.00-4.50)/10 = 0.15\\ \\$\\,\\text{kWh}^{-1}\\).</p>"},
+          {"type":"mcq","q":"In 2021 Eritrea imported 53 % of its wheat from Russia and 47 % from Ukraine, an almost perfectly even split (evenness J = 0.997). Why did this not protect it in 2022?","options":["Because an HHI of 0.50 is below the threshold for high concentration.","Because both suppliers were exposed to the same war, ports and sanctions, so the two baskets were effectively one risk.","Because the Shannon index is only valid for more than two suppliers.","Because imports can never be diversified."],"answer":1,"feedback":["An HHI of 0.50 is well above the high-concentration threshold of 0.25.","","The Shannon index works for any number of categories; the problem is correlation, not the formula.","Imports can be diversified — across suppliers whose risks are independent."],"explain":"<p>Evenness measures shares, not risks. With ρ ≈ 1 between the two suppliers, the effective number of independent suppliers is about one (Eq. 15.2.8).</p>"},
+          {"type":"mcq","q":"A dairy cooperative builds a second, independent cold store in another municipality so that either store can serve all its customers. Which of Bruneau's four Rs does this primarily strengthen?","options":["Robustness","Redundancy","Resourcefulness","Rapidity"],"answer":1,"feedback":["Robustness is the ability of an element to withstand the shock itself — a stronger roof, a backup generator for the existing store.","","Resourcefulness is the capacity to mobilise people and resources — plans, skills, money.","Rapidity is the speed of recovery; a second store reduces the depth of the loss rather than speeding repair."],"explain":"<p>A substitutable element that can take over when another fails is redundancy; it reduces the depth ΔQ of the resilience triangle.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Food-system resilience</dt><dd>The capacity over time of a food system and its units at multiple levels to provide sufficient, appropriate and accessible food to all in the face of various, even unforeseen, disturbances (after Tendall et al., 2015).</dd>
+        <dt>Shock and stress</dt><dd>A shock is a sudden disturbance (drought, war, pandemic, blocked canal); a stress is a slow, persistent pressure (soil degradation, climate trends) that erodes the capacity to cope with shocks.</dd>
+        <dt>Engineering resilience</dt><dd>The speed with which a system returns to its single equilibrium after a disturbance.</dd>
+        <dt>Ecological resilience</dt><dd>The magnitude of disturbance a system can absorb before it shifts into a different state with different structure and feedbacks (Holling, 1973).</dd>
+        <dt>Absorptive, adaptive and transformative capacity</dt><dd>The capacities to cope without change (buffers), to adjust incrementally (new suppliers, crops, diets) and to change the system itself (new energy base, institutions).</dd>
+        <dt>Four Rs</dt><dd>Robustness (withstanding a shock), redundancy (substitutable elements), resourcefulness (mobilising resources) and rapidity (speed of recovery) (Bruneau et al., 2003).</dd>
+        <dt>Resilience triangle</dt><dd>The area between normal functionality and the functionality curve after a shock, \(L=\int(100-Q)\,\mathrm{d}t\); for a linear recovery \(\tfrac12\Delta Q\,T_r\). Normalised by the control period it gives the resilience index \(\Phi\).</dd>
+        <dt>Shannon diversity index</dt><dd>\(H=-\sum p_i\ln p_i\), the information entropy of supply shares; \(e^{H}\) is the effective number of equally important suppliers.</dd>
+        <dt>Herfindahl–Hirschman index (HHI)</dt><dd>The sum of squared shares; above 0.25 a supply (or market) is highly concentrated. \(1/\text{HHI}\) is the effective number of suppliers.</dd>
+        <dt>Self-sufficiency ratio (SSR)</dt><dd>Domestic production divided by domestic supply (production + imports − exports), in per cent.</dd>
+        <dt>Import dependency ratio (IDR)</dt><dd>Imports divided by domestic supply, in per cent.</dd>
+        <dt>Hidden dependency</dt><dd>Reliance of domestic production on imported inputs — fertiliser, fuel, feed, seed, crop protection, spare parts — that production statistics do not show.</dd>
+        <dt>Rotation stock</dt><dd>An emergency stock owned by the state but stored and continuously turned over by private firms, so that it does not spoil (the model used for Swedish emergency grain stocks from 2026).</dd>
+        <dt>Chokepoint</dt><dd>A strait, canal, port or inland route through which a large share of trade passes, so that its blockage couples many flows at once.</dd>
+        <dt>Portfolio effect</dt><dd>The reduction in the variability of total supply obtained by combining sources whose fluctuations are not perfectly correlated; it vanishes as the correlation approaches one.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can explain the difference between engineering and ecological resilience with a food-system example, and name the three resilience capacities.</li>
+        <li>I can compute the resilience loss and resilience index of a shock and show how the four Rs change them.</li>
+        <li>I can calculate H, J, e<sup>H</sup>, HHI and N<sub>eff</sub> from supply shares and explain why independent risks matter more than the number of suppliers.</li>
+        <li>I can compute the self-sufficiency and import-dependency ratios and explain why Sweden can be calorie self-sufficient yet dependent on imported inputs.</li>
+        <li>I can size an emergency stock with a mass balance and explain why its location and processing capacity matter.</li>
+        <li>I can stress-test a vertical farm against an electricity price shock and judge its real contribution to food preparedness.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Seekell, D., Carr, J., Dell’Angelo, J., D’Odorico, P., Fader, M., Gephart, J., Kummu, M., Magliocca, N., Porkka, M., Puma, M., Ratajczak, Z., Rulli, M. C., Suweis, S., &amp; Tavoni, A. (2017). Resilience in the global food system. <em>Environmental Research Letters</em>, 12(2), 025010. <a href="https://doi.org/10.1088/1748-9326/aa5730" target="_blank" rel="noopener">doi:10.1088/1748-9326/aa5730</a><span class="r-why">A compact example of turning resilience into national indicators — access, biophysical capacity and production diversity — and comparing countries over twenty years.</span></li>
+        <li><span class="r-type">Required · open access (Swedish, English summary)</span>Livsmedelsverket &amp; Jordbruksverket. (2025). <em>Livsmedelsförsörjningen i siffror. Nyckeltal och indikatorer (NIL 2025)</em>. Uppsala &amp; Jönköping. <a href="https://www.livsmedelsverket.se/globalassets/publikationsdatabas/rapporter/2025/2025---livsmedelsforsorjningen-i-siffror.pdf" target="_blank" rel="noopener">livsmedelsverket.se</a><span class="r-why">Read the English summary and sections 3.5–3.7: the data behind Sweden's production, trade, input dependencies, stocks and home preparedness used in this lesson.</span></li>
+        <li><span class="r-type">Recommended</span>Tendall, D. M., Joerin, J., Kopainsky, B., Edwards, P., Shreck, A., Le, Q. B., Kruetli, P., Grant, M., &amp; Six, J. (2015). Food system resilience: Defining the concept. <em>Global Food Security</em>, 6, 17–23. <a href="https://doi.org/10.1016/j.gfs.2015.08.001" target="_blank" rel="noopener">doi:10.1016/j.gfs.2015.08.001</a><span class="r-why">The standard conceptual framework for food-system resilience.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Béné, C. (2020). Resilience of local food systems and links to food security – A review of some important concepts in the context of COVID-19 and other shocks. <em>Food Security</em>, 12(4), 805–822. <a href="https://doi.org/10.1007/s12571-020-01076-1" target="_blank" rel="noopener">doi:10.1007/s12571-020-01076-1</a><span class="r-why">Absorptive, adaptive and transformative capacities, and why the pandemic hit food security mainly through incomes.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Kummu, M., Kinnunen, P., Lehikoinen, E., Porkka, M., Queiroz, C., Röös, E., Troell, M., &amp; Weil, C. (2020). Interplay of trade and food system resilience: Gains on supply diversity over time at the cost of trade independency. <em>Global Food Security</em>, 24, 100360. <a href="https://doi.org/10.1016/j.gfs.2020.100360" target="_blank" rel="noopener">doi:10.1016/j.gfs.2020.100360</a><span class="r-why">Shannon diversity and import dependency applied to every country's food supply, 1987–2013.</span></li>
+        <li><span class="r-type">Recommended</span>Bailey, R., &amp; Wellesley, L. (2017). <em>Chokepoints and vulnerabilities in global food trade</em>. Chatham House. <a href="https://www.chathamhouse.org/2017/06/chokepoints-and-vulnerabilities-global-food-trade" target="_blank" rel="noopener">chathamhouse.org</a><span class="r-why">The fourteen maritime, coastal and inland chokepoints of world grain and fertiliser trade — read it with the 2021 Suez and 2026 Hormuz blockages in mind.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Bailey, R., &amp; Wellesley, L. (2017). <em>Chokepoints and vulnerabilities in global food trade</em> (Chatham House Report). The Royal Institute of International Affairs. <a href="https://www.chathamhouse.org/2017/06/chokepoints-and-vulnerabilities-global-food-trade" target="_blank" rel="noopener">chathamhouse.org</a></li>
+        <li>Beillouin, D., Schauberger, B., Bastos, A., Ciais, P., &amp; Makowski, D. (2020). Impact of extreme weather conditions on European crop production in 2018. <em>Philosophical Transactions of the Royal Society B</em>, 375(1810), 20190510. <a href="https://doi.org/10.1098/rstb.2019.0510" target="_blank" rel="noopener">doi:10.1098/rstb.2019.0510</a></li>
+        <li>Béné, C. (2020). Resilience of local food systems and links to food security – A review of some important concepts in the context of COVID-19 and other shocks. <em>Food Security</em>, 12(4), 805–822. <a href="https://doi.org/10.1007/s12571-020-01076-1" target="_blank" rel="noopener">doi:10.1007/s12571-020-01076-1</a></li>
+        <li>Bruneau, M., Chang, S. E., Eguchi, R. T., Lee, G. C., O'Rourke, T. D., Reinhorn, A. M., Shinozuka, M., Tierney, K., Wallace, W. A., &amp; von Winterfeldt, D. (2003). A framework to quantitatively assess and enhance the seismic resilience of communities. <em>Earthquake Spectra</em>, 19(4), 733–752. <a href="https://doi.org/10.1193/1.1623497" target="_blank" rel="noopener">doi:10.1193/1.1623497</a></li>
+        <li>Cimellaro, G. P., Reinhorn, A. M., &amp; Bruneau, M. (2010). Framework for analytical quantification of disaster resilience. <em>Engineering Structures</em>, 32(11), 3639–3649. <a href="https://doi.org/10.1016/j.engstruct.2010.08.008" target="_blank" rel="noopener">doi:10.1016/j.engstruct.2010.08.008</a></li>
+        <li>Clinton, N., Stuhlmacher, M., Miles, A., Uludere Aragon, N., Wagner, M., Georgescu, M., Herwig, C., &amp; Gong, P. (2018). A global geospatial ecosystem services estimate of urban agriculture. <em>Earth's Future</em>, 6(1), 40–60. <a href="https://doi.org/10.1002/2017EF000536" target="_blank" rel="noopener">doi:10.1002/2017EF000536</a></li>
+        <li>FAO. (2001). <em>Food balance sheets: A handbook</em>. Food and Agriculture Organization of the United Nations. <a href="https://www.fao.org/4/x9892e/x9892e00.htm" target="_blank" rel="noopener">fao.org</a></li>
+        <li>FAO. (2022). <em>The importance of Ukraine and the Russian Federation for global agricultural markets and the risks associated with the current conflict</em> (Information note, 25 March 2022 update). FAO. <a href="https://www.fao.org/3/cb9236en/cb9236en.pdf" target="_blank" rel="noopener">fao.org</a></li>
+        <li>FAO, IFAD, UNICEF, WFP &amp; WHO. (2025). <em>In brief to The State of Food Security and Nutrition in the World 2025: Addressing high food price inflation for food security and nutrition</em>. FAO. <a href="https://doi.org/10.4060/cd6015en" target="_blank" rel="noopener">doi:10.4060/cd6015en</a></li>
+        <li>FAO, IFAD, UNICEF, WFP &amp; WHO. (2026). <em>The State of Food Security and Nutrition in the World 2026: Understanding and addressing the high cost of a healthy diet</em>. FAO. <a href="https://doi.org/10.4060/cd8306en" target="_blank" rel="noopener">doi:10.4060/cd8306en</a></li>
+        <li>Gaupp, F., Hall, J., Hochrainer-Stigler, S., &amp; Dadson, S. (2020). Changing risks of simultaneous global breadbasket failure. <em>Nature Climate Change</em>, 10(1), 54–57. <a href="https://doi.org/10.1038/s41558-019-0600-z" target="_blank" rel="noopener">doi:10.1038/s41558-019-0600-z</a></li>
+        <li>Graamans, L., Baeza, E., van den Dobbelsteen, A., Tsafaras, I., &amp; Stanghellini, C. (2018). Plant factories versus greenhouses: Comparison of resource use efficiency. <em>Agricultural Systems</em>, 160, 31–43. <a href="https://doi.org/10.1016/j.agsy.2017.11.003" target="_blank" rel="noopener">doi:10.1016/j.agsy.2017.11.003</a></li>
+        <li>Hill, M. O. (1973). Diversity and evenness: A unifying notation and its consequences. <em>Ecology</em>, 54(2), 427–432. <a href="https://doi.org/10.2307/1934352" target="_blank" rel="noopener">doi:10.2307/1934352</a></li>
+        <li>Holling, C. S. (1973). Resilience and stability of ecological systems. <em>Annual Review of Ecology and Systematics</em>, 4, 1–23. <a href="https://doi.org/10.1146/annurev.es.04.110173.000245" target="_blank" rel="noopener">doi:10.1146/annurev.es.04.110173.000245</a></li>
+        <li>Holling, C. S. (1996). Engineering resilience versus ecological resilience. In P. C. Schulze (Ed.), <em>Engineering within ecological constraints</em> (pp. 31–44). National Academy Press. <a href="https://doi.org/10.17226/4919" target="_blank" rel="noopener">doi:10.17226/4919</a></li>
+        <li>Jordbruksverket. (2026). <em>Beredskapslager av spannmål och insatsvaror</em> [Emergency stocks of grain and inputs]. Swedish Board of Agriculture. <a href="https://jordbruksverket.se/beredskapslager" target="_blank" rel="noopener">jordbruksverket.se</a></li>
+        <li>Jost, L. (2006). Entropy and diversity. <em>Oikos</em>, 113(2), 363–375. <a href="https://doi.org/10.1111/j.2006.0030-1299.14714.x" target="_blank" rel="noopener">doi:10.1111/j.2006.0030-1299.14714.x</a></li>
+        <li>Kummu, M., Kinnunen, P., Lehikoinen, E., Porkka, M., Queiroz, C., Röös, E., Troell, M., &amp; Weil, C. (2020). Interplay of trade and food system resilience: Gains on supply diversity over time at the cost of trade independency. <em>Global Food Security</em>, 24, 100360. <a href="https://doi.org/10.1016/j.gfs.2020.100360" target="_blank" rel="noopener">doi:10.1016/j.gfs.2020.100360</a></li>
+        <li>Laborde, D., Martin, W., Swinnen, J., &amp; Vos, R. (2020). COVID-19 risks to global food security. <em>Science</em>, 369(6503), 500–502. <a href="https://doi.org/10.1126/science.abc4765" target="_blank" rel="noopener">doi:10.1126/science.abc4765</a></li>
+        <li>Livsmedelsverket &amp; Jordbruksverket. (2025). <em>Livsmedelsförsörjningen i siffror. Nyckeltal och indikatorer (NIL 2025)</em>. Uppsala &amp; Jönköping. <a href="https://www.livsmedelsverket.se/globalassets/publikationsdatabas/rapporter/2025/2025---livsmedelsforsorjningen-i-siffror.pdf" target="_blank" rel="noopener">livsmedelsverket.se</a></li>
+        <li>Markowitz, H. (1952). Portfolio selection. <em>The Journal of Finance</em>, 7(1), 77–91. <a href="https://doi.org/10.1111/j.1540-6261.1952.tb01525.x" target="_blank" rel="noopener">doi:10.1111/j.1540-6261.1952.tb01525.x</a></li>
+        <li>MSB. (2024). <em>Om krisen eller kriget kommer</em> [If crisis or war comes] (brochure distributed to all Swedish households from 18 November 2024). Swedish Civil Contingencies Agency. <a href="https://www.msb.se/sv/publikationer/om-krisen-eller-kriget-kommer/" target="_blank" rel="noopener">msb.se</a></li>
+        <li>Payen, F. T., Evans, D. L., Falagán, N., Hardman, C. A., Kourmpetli, S., Liu, L., Marshall, R., Mead, B. R., &amp; Davies, J. A. C. (2022). How much food can we grow in urban areas? Food production and crop yields of urban agriculture: A meta-analysis. <em>Earth's Future</em>, 10(8), e2022EF002748. <a href="https://doi.org/10.1029/2022EF002748" target="_blank" rel="noopener">doi:10.1029/2022EF002748</a></li>
+        <li>PBS NewsHour. (2026, March 27). 'The planting season is now,' but war in Iran has sparked a global fertilizer shortage. <a href="https://www.pbs.org/newshour/world/the-planting-season-is-now-but-war-in-iran-has-sparked-a-global-fertilizer-shortage" target="_blank" rel="noopener">pbs.org</a></li>
+        <li>Pennisi, G., Gianquinto, G., Marcelis, L. F. M., Martin, M., &amp; Orsini, F. (2025). Vertical farming: productivity, environmental impact, and resource use. A review. <em>Agronomy for Sustainable Development</em>, 45(5), 57. <a href="https://doi.org/10.1007/s13593-025-01055-w" target="_blank" rel="noopener">doi:10.1007/s13593-025-01055-w</a></li>
+        <li>Puma, M. J., Bose, S., Chon, S. Y., &amp; Cook, B. I. (2015). Assessing the evolving fragility of the global food system. <em>Environmental Research Letters</em>, 10(2), 024007. <a href="https://doi.org/10.1088/1748-9326/10/2/024007" target="_blank" rel="noopener">doi:10.1088/1748-9326/10/2/024007</a></li>
+        <li>Rao, X., Zahid, A., Ye, X., Jain, D., &amp; Duffield, N. (2026). Controlled environment agriculture as urban infrastructure: advancing a public agenda for spatial equity. <em>Urban Informatics</em>, 5(1), 18. <a href="https://doi.org/10.1007/s44212-026-00109-y" target="_blank" rel="noopener">doi:10.1007/s44212-026-00109-y</a></li>
+        <li>Renard, D., &amp; Tilman, D. (2019). National food production stabilized by crop diversity. <em>Nature</em>, 571(7764), 257–260. <a href="https://doi.org/10.1038/s41586-019-1316-y" target="_blank" rel="noopener">doi:10.1038/s41586-019-1316-y</a></li>
+        <li>Riksdagen. (2026). <em>Beredskapslager i livsmedelskedjan</em> (Betänkande 2025/26:MJU25; Proposition 2025/26:205). Sveriges riksdag. <a href="https://www.riksdagen.se/sv/dokument-och-lagar/dokument/betankande/beredskapslager-i-livsmedelskedjan_hd01mju25/" target="_blank" rel="noopener">riksdagen.se</a></li>
+        <li>SCB. (2018). <em>Production of cereals, dried pulses, oilseed crops and temporary grasses 2018: Preliminary statistics for counties and the whole country</em> (statistical news, 14 December 2018). Statistics Sweden. <a href="https://www.scb.se/en/finding-statistics/statistics-by-subject-area/agriculture-forestry-and-fishery/agricultural-production/production-of-cereals-dried-pulses-and-oil-seeds/pong/statistical-news/production-of-cereals-dried-pulses-oilseed-crops-and-temporary-grasses-2018.-preliminary-statistics-for-counties-and-the-whole-country/" target="_blank" rel="noopener">scb.se</a></li>
+        <li>SCB. (2019). <em>Production of cereals, dried pulses and oilseeds 2019: Preliminary statistics for the whole country</em> (statistical news). Statistics Sweden. <a href="https://www.scb.se/en/finding-statistics/statistics-by-subject-area/agriculture-forestry-and-fishery/agricultural-production/production-of-cereals-dried-pulses-and-oil-seeds/pong/statistical-news/production-of-cereals-dried-pulses-and-oilseeds-2019.-preliminary-statistics-for-the-whole-country/" target="_blank" rel="noopener">scb.se</a></li>
+        <li>Seekell, D., Carr, J., Dell’Angelo, J., D’Odorico, P., Fader, M., Gephart, J., Kummu, M., Magliocca, N., Porkka, M., Puma, M., Ratajczak, Z., Rulli, M. C., Suweis, S., &amp; Tavoni, A. (2017). Resilience in the global food system. <em>Environmental Research Letters</em>, 12(2), 025010. <a href="https://doi.org/10.1088/1748-9326/aa5730" target="_blank" rel="noopener">doi:10.1088/1748-9326/aa5730</a></li>
+        <li>Shannon, C. E. (1948). A mathematical theory of communication. <em>Bell System Technical Journal</em>, 27(3), 379–423. <a href="https://doi.org/10.1002/j.1538-7305.1948.tb01338.x" target="_blank" rel="noopener">doi:10.1002/j.1538-7305.1948.tb01338.x</a></li>
+        <li>Tendall, D. M., Joerin, J., Kopainsky, B., Edwards, P., Shreck, A., Le, Q. B., Kruetli, P., Grant, M., &amp; Six, J. (2015). Food system resilience: Defining the concept. <em>Global Food Security</em>, 6, 17–23. <a href="https://doi.org/10.1016/j.gfs.2015.08.001" target="_blank" rel="noopener">doi:10.1016/j.gfs.2015.08.001</a></li>
+        <li>Ulanowicz, R. E., Goerner, S. J., Lietaer, B., &amp; Gomez, R. (2009). Quantifying sustainability: Resilience, efficiency and the return of information theory. <em>Ecological Complexity</em>, 6(1), 27–36. <a href="https://doi.org/10.1016/j.ecocom.2008.10.005" target="_blank" rel="noopener">doi:10.1016/j.ecocom.2008.10.005</a></li>
+        <li>United Nations. (2023). <em>Black Sea Grain Initiative: Joint Coordination Centre</em>. <a href="https://www.un.org/en/black-sea-grain-initiative" target="_blank" rel="noopener">un.org</a></li>
+        <li>van Delden, S. H., SharathKumar, M., Butturini, M., Graamans, L. J. A., Heuvelink, E., Kacira, M., Kaiser, E., Klamer, R. S., Klerkx, L., Kootstra, G., Loeber, A., Schouten, R. E., Stanghellini, C., van Ieperen, W., Verdonk, J. C., Vialet-Chabrand, S., Woltering, E. J., van de Zedde, R., Zhang, Y., &amp; Marcelis, L. F. M. (2021). Current status and future challenges in implementing and upscaling vertical farming systems. <em>Nature Food</em>, 2(12), 944–956. <a href="https://doi.org/10.1038/s43016-021-00402-w" target="_blank" rel="noopener">doi:10.1038/s43016-021-00402-w</a></li>
+        <li>USDA Agricultural Research Service. (2019). <em>FoodData Central</em> [database; lettuce, raw: green leaf, butterhead and iceberg]. U.S. Department of Agriculture. <a href="https://fdc.nal.usda.gov/" target="_blank" rel="noopener">fdc.nal.usda.gov</a></li>
+        <li>Walker, B., Holling, C. S., Carpenter, S. R., &amp; Kinzig, A. (2004). Resilience, adaptability and transformability in social–ecological systems. <em>Ecology and Society</em>, 9(2), 5. <a href="https://doi.org/10.5751/ES-00650-090205" target="_blank" rel="noopener">doi:10.5751/ES-00650-090205</a></li>
+        <li>Zhuang, Y., Lu, N., Shimamura, S., Maruyama, A., Kikuchi, M., &amp; Takagaki, M. (2022). Economies of scale in constructing plant factories with artificial lighting and the economic viability of crop production. <em>Frontiers in Plant Science</em>, 13, 992194. <a href="https://doi.org/10.3389/fpls.2022.992194" target="_blank" rel="noopener">doi:10.3389/fpls.2022.992194</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, BarChart } from '/assets/js/plot.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+import { mulberry32, randn, normCdf, normPdf } from '/assets/js/stats.js';
+import { withAlpha } from '/assets/js/colors.js';
+
+const $ = id => document.getElementById(id);
+const fill = el => el.style.setProperty('--fill', ((+el.value - +el.min) / (+el.max - +el.min) * 100) + '%');
+const segValue = el => { const b = el.querySelector('[aria-pressed="true"]'); return b ? b.dataset.v : null; };
+function bindSeg(el, cb) { el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); cb(b.dataset.v); }); }
+
+/* ================= Figure 3: resilience triangle with buffer ================= */
+const tp = new Plot('#tri-plot', { x: { label: 'Time after the shock', unit: 'months', min: -5, max: 24 }, y: { label: 'Functionality Q', unit: '% of normal', min: 0, max: 112 } });
+const tro = new Readouts('#tri-ro');
+tro.add({ id: 'L0', label: 'Capacity loss (Eq. 15.2.1a)', unit: '%·month', digits: 0 })
+  .add({ id: 'L1', label: 'Loss to consumers', unit: '%·month', digits: 0 })
+  .add({ id: 'phi', label: 'Resilience index Φ, 24 mo', unit: '', digits: 3 })
+  .add({ id: 'qmin', label: 'Lowest delivered Q', unit: '%', digits: 0 })
+  .add({ id: 'buf', label: 'Buffer lasts', unit: '', digits: 1, format: v => v });
+function Qcap(t, dq, tr, shape) {
+  if (t < 0) return 100;
+  if (shape === 'exp') return 100 - dq * Math.exp(-3 * t / tr);
+  if (t >= tr) return 100;
+  const u = t / tr;
+  if (shape === 's') return 100 - dq * (1 - u * u * (3 - 2 * u));
+  return 100 - dq * (1 - u);
+}
+function triUpdate() {
+  const dq = +$('tri-dq').value, tr = +$('tri-tr').value, buf = +$('tri-buf').value, shape = segValue($('tri-shape')), ann = $('tri-ann').checked;
+  $('tri-dq-o').textContent = dq + ' %'; $('tri-tr-o').textContent = fmt(tr, 1) + ' months'; $('tri-buf-o').textContent = buf > 0 ? fmt(buf, 1) + ' months of supply' : 'none';
+  ['tri-dq', 'tri-tr', 'tri-buf'].forEach(id => fill($(id)));
+  const dt = 0.02, T = 24; let stock = buf * 100, tEmpty = null, L0 = 0, L1 = 0, qmin = 100;
+  const xs = [], qc = [], qd = [];
+  for (let i = 0; ; i++) {
+    const t = -5 + i * dt; if (t > T + 1e-9) break;
+    const q = Qcap(t, dq, tr, shape); let d = q;
+    if (t >= 0) {
+      const need = (100 - q) * dt;
+      if (stock >= need) { stock -= need; d = 100; }
+      else { d = q + stock / dt; stock = 0; if (tEmpty === null && buf > 0) tEmpty = t; }
+      L0 += (100 - q) * dt; L1 += (100 - d) * dt; qmin = Math.min(qmin, d);
+    }
+    xs.push(t); qc.push(q); qd.push(Math.min(100, d));
+  }
+  tp.custom('areas', (ctx, p, P) => {
+    ctx.fillStyle = withAlpha(P.danger, 0.22); ctx.beginPath(); ctx.moveTo(p.px(xs[0]), p.py(100));
+    for (let i = 0; i < xs.length; i++) ctx.lineTo(p.px(xs[i]), p.py(qd[i]));
+    ctx.lineTo(p.px(xs[xs.length - 1]), p.py(100)); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = withAlpha(P.water, 0.28); ctx.beginPath(); ctx.moveTo(p.px(xs[0]), p.py(qd[0]));
+    for (let i = 0; i < xs.length; i++) ctx.lineTo(p.px(xs[i]), p.py(qd[i]));
+    for (let i = xs.length - 1; i >= 0; i--) ctx.lineTo(p.px(xs[i]), p.py(qc[i]));
+    ctx.closePath(); ctx.fill();
+    if (ann) {
+      ctx.strokeStyle = P.ink; ctx.fillStyle = P.ink; ctx.lineWidth = 1.3; ctx.setLineDash([]);
+      const x0 = p.px(0) - 10, yTop = p.py(100), yBot = p.py(100 - dq);
+      ctx.beginPath(); ctx.moveTo(x0, yTop); ctx.lineTo(x0, yBot); ctx.stroke();
+      [[yTop, 1], [yBot, -1]].forEach(([y, s]) => { ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 - 4, y + 7 * s); ctx.lineTo(x0 + 4, y + 7 * s); ctx.closePath(); ctx.fill(); });
+      ctx.font = '600 11.5px Inter, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText('ΔQ: robustness,', x0 - 8, (yTop + yBot) / 2 - 8); ctx.fillText('redundancy', x0 - 8, (yTop + yBot) / 2 + 7);
+      const yh = Math.min(p.py(0) - 12, yBot + 18), xa = p.px(0), xb = p.px(Math.min(tr, 24));
+      ctx.beginPath(); ctx.moveTo(xa, yh); ctx.lineTo(xb, yh); ctx.stroke();
+      [[xa, 1], [xb, -1]].forEach(([x, s]) => { ctx.beginPath(); ctx.moveTo(x, yh); ctx.lineTo(x + 7 * s, yh - 4); ctx.lineTo(x + 7 * s, yh + 4); ctx.closePath(); ctx.fill(); });
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText('Tr: resourcefulness, rapidity', (xa + xb) / 2 + (xb - xa < 190 ? 60 : 0), yh + 5);
+    }
+  });
+  tp.hline('normal', 100, { color: 'ink', dash: [2, 3], label: 'normal', width: 1 });
+  tp.line('cap', xs, qc, { color: 'muted', dash: [6, 4], width: 1.8, label: 'Supply capacity (production, imports)' });
+  tp.line('del', xs, qd, { color: 'accent', width: 2.6, label: 'Delivered to consumers' });
+  tro.set('L0', L0, null);
+  tro.set('L1', L1, L1 < 0.5 * L0 ? 'ok' : L1 < 0.9 * L0 ? 'warn' : 'bad');
+  const phi = 1 - L1 / (100 * T);
+  tro.set('phi', phi, phi > 0.95 ? 'ok' : phi > 0.85 ? 'warn' : 'bad');
+  tro.set('qmin', qmin, qmin >= 90 ? 'ok' : qmin >= 75 ? 'warn' : 'bad');
+  tro.set('buf', buf <= 0 ? 'no buffer' : tEmpty === null ? 'never emptied' : fmt(tEmpty, 1) + ' months', buf <= 0 ? null : tEmpty === null ? 'ok' : 'warn');
+}
+['tri-dq', 'tri-tr', 'tri-buf'].forEach(id => $(id).addEventListener('input', triUpdate));
+$('tri-ann').addEventListener('change', triUpdate);
+bindSeg($('tri-shape'), triUpdate);
+triUpdate();
+
+/* ================= Figure 4: supply-diversity explorer ================= */
+const DIV_PRESETS = {
+  eritrea: { names: ['Russia', 'Ukraine', 'S3', 'S4', 'S5'], w: [53, 47, 0, 0, 0], risk: '12' },
+  even: { names: ['S1', 'S2', 'S3', 'S4', 'S5'], w: [20, 20, 20, 20, 20], risk: 'none' },
+  dominant: { names: ['S1', 'S2', 'S3', 'S4', 'S5'], w: [70, 10, 10, 5, 5], risk: 'none' },
+  region: { names: ['S1', 'S2', 'S3', 'S4', 'S5'], w: [25, 25, 20, 15, 15], risk: '123' }
+};
+let divNames = ['S1', 'S2', 'S3', 'S4', 'S5'];
+const divHost = $('div-sliders');
+divHost.innerHTML = [0, 1, 2, 3, 4].map(i => `<div class="mc-var"><div class="mc-lab"><span id="div-l${i}">Supplier ${i + 1}</span><output id="div-o${i}"></output></div><input id="div-s${i}" type="range" min="0" max="100" step="1" value="${[30, 25, 20, 15, 10][i]}" aria-label="Weight of supplier ${i + 1}"></div>`).join('');
+const divBars = new BarChart('#div-bars', { y: { label: 'Share of supply', unit: '%', min: 0 }, height: 210, legend: false });
+const dro = new Readouts('#div-ro');
+dro.add({ id: 'H', label: 'Shannon H (Eq. 15.2.3)', unit: 'nats', digits: 3 })
+  .add({ id: 'J', label: 'Evenness J', unit: '', digits: 3 })
+  .add({ id: 'D1', label: 'Effective number e<sup>H</sup>', unit: '', digits: 2 })
+  .add({ id: 'HHI', label: 'HHI (Eq. 15.2.4)', unit: '', digits: 3 })
+  .add({ id: 'Neff', label: 'N<sub>eff</sub> = 1/HHI', unit: '', digits: 2 })
+  .add({ id: 'Nrisk', label: 'Risk-group N<sub>eff</sub>', unit: '', digits: 2 });
+function divUpdate() {
+  const w = [0, 1, 2, 3, 4].map(i => +$('div-s' + i).value);
+  const tot = w.reduce((s, x) => s + x, 0) || 1;
+  const p = w.map(x => x / tot);
+  [0, 1, 2, 3, 4].forEach(i => { $('div-o' + i).textContent = fmt(p[i] * 100, 1) + ' %'; $('div-l' + i).textContent = divNames[i]; fill($('div-s' + i)); });
+  const act = p.filter(x => x > 1e-9), n = act.length;
+  const H = -act.reduce((s, x) => s + x * Math.log(x), 0);
+  const hhi = p.reduce((s, x) => s + x * x, 0);
+  const risk = segValue($('div-risk'));
+  const grp = risk === '12' ? [0, 0, 1, 2, 3] : risk === '123' ? [0, 0, 0, 1, 2] : [0, 1, 2, 3, 4];
+  const gs = {}; p.forEach((x, i) => { gs[grp[i]] = (gs[grp[i]] || 0) + x; });
+  const hhiR = Object.values(gs).reduce((s, x) => s + x * x, 0);
+  const pal = ['c1', 'c2', 'c3', 'c4', 'c5'];
+  divBars.set(divNames, [{ label: 'Share', values: p.map(x => x * 100), colors: grp.map(g => pal[g]), format: v => fmt(v, 0) + ' %' }]);
+  divBars.refLines([{ v: 20, label: 'equal share (1/5)', color: 'muted' }]);
+  dro.set('H', H, null);
+  dro.set('J', n > 1 ? H / Math.log(n) : 0, null);
+  dro.set('D1', Math.exp(H), null);
+  const cls = hhi < 0.15 ? ['ok', 'low concentration'] : hhi <= 0.25 ? ['warn', 'medium concentration'] : ['bad', 'high concentration'];
+  dro.set('HHI', hhi, cls[0], cls[1]);
+  dro.set('Neff', 1 / hhi, cls[0]);
+  dro.set('Nrisk', 1 / hhiR, 1 / hhiR >= 4 ? 'ok' : 1 / hhiR >= 2 ? 'warn' : 'bad', risk === 'none' ? 'all risks independent' : 'suppliers sharing a risk merged');
+}
+[0, 1, 2, 3, 4].forEach(i => $('div-s' + i).addEventListener('input', divUpdate));
+bindSeg($('div-risk'), divUpdate);
+$('div-presets').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return; const pr = DIV_PRESETS[b.dataset.p]; if (!pr) return;
+  divNames = pr.names.slice(); pr.w.forEach((x, i) => { $('div-s' + i).value = x; });
+  $('div-risk').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.v === pr.risk));
+  divUpdate();
+});
+divUpdate();
+
+/* ================= Figure 5: hidden dependencies ================= */
+const deps = [
+  ['Plant protection products', 100], ['Sugar-beet seed', 97], ['Motor fuels (2024)', 91], ['Nitrogen fertiliser (N)', 87],
+  ['Protein feed', 70], ['Oilseed seed', 70], ['Phosphorus fertiliser (P)', 46], ['Potassium fertiliser (K)', 24], ['Cereal seed', 3], ['Feed grain', 2]
+];
+const depChart = new BarChart('#dep-bars', { y: { label: 'Share supplied through foreign trade', unit: '%', min: 0, max: 112 }, horizontal: true, height: 320, legend: false });
+depChart.set(deps.map(d => d[0]), [{ label: 'Imported share', values: deps.map(d => d[1]), colors: deps.map(d => d[1] >= 80 ? 'danger' : d[1] >= 40 ? 'amber' : 'accent'), format: v => v + ' %' }]);
+depChart.refLine(50, '50 %', 'muted');
+
+/* ================= Figure 7: portfolio Monte Carlo ================= */
+const pfp = new Plot('#pf-plot', { x: { label: 'Total supply in a simulated year', unit: '% of expected', min: 20, max: 180 }, y: { label: 'Share of years', unit: '% per 2 %-bin', min: 0 }, legend: true });
+const pro = new Readouts('#pf-ro');
+pro.add({ id: 'cvA', label: 'CV of total, Eq. 15.2.8', unit: '%', digits: 1 })
+  .add({ id: 'cvS', label: 'CV of total, simulated', unit: '%', digits: 1 })
+  .add({ id: 'pA', label: 'P(shortfall), normal approx.', unit: '%', digits: 1 })
+  .add({ id: 'pS', label: 'P(shortfall), simulated', unit: '%', digits: 1 })
+  .add({ id: 'neff', label: 'Independent suppliers n<sub>eff</sub>', unit: '', digits: 2 });
+let pfSeed = 2026;
+function pfUpdate() {
+  const n = +$('pf-n').value, cv = +$('pf-cv').value / 100, rho = +$('pf-rho').value, thr = +$('pf-thr').value, N = Math.round(Math.pow(10, +$('pf-N').value));
+  $('pf-n-o').textContent = n; $('pf-cv-o').textContent = fmt(cv * 100, 0) + ' %'; $('pf-rho-o').textContent = fmt(rho, 2);
+  $('pf-thr-o').textContent = '> ' + thr + ' % below expected'; $('pf-N-o').textContent = N.toLocaleString('en-GB');
+  ['pf-n', 'pf-cv', 'pf-rho', 'pf-thr', 'pf-N'].forEach(id => fill($(id)));
+  const rng = mulberry32(pfSeed); const tot = new Array(N); let short = 0, s1 = 0, s2 = 0;
+  const a = Math.sqrt(rho), b = Math.sqrt(1 - rho);
+  for (let k = 0; k < N; k++) {
+    const z0 = randn(rng); let sum = 0;
+    for (let i = 0; i < n; i++) sum += Math.max(0, 1 + cv * (a * z0 + b * randn(rng)));
+    const y = 100 * sum / n; tot[k] = y; s1 += y; s2 += y * y; if (y < 100 - thr) short++;
+  }
+  const mean = s1 / N, sdS = Math.sqrt(Math.max(0, s2 / N - mean * mean));
+  const cvA = cv * Math.sqrt((1 + (n - 1) * rho) / n) * 100;
+  const pA = normCdf(-thr / cvA) * 100, pS = short / N * 100;
+  const lo = 20, hi = 180, w = 2, nb = (hi - lo) / w, cnt = new Array(nb).fill(0);
+  tot.forEach(v => { const k = Math.floor((v - lo) / w); if (k >= 0 && k < nb) cnt[k]++; });
+  const share = cnt.map(c => c / N * 100), top = Math.max(...share, normPdf(0) * w / cvA * 100);
+  pfp.setAxis('y', { min: 0, max: Math.ceil(top * 1.12 + 0.5) });
+  pfp.line('legOK', [lo], [NaN], { color: 'water', label: 'Simulated years', noTip: true, width: 8 });
+  pfp.line('legBad', [lo], [NaN], { color: 'danger', label: 'Shortfall years', noTip: true, width: 8 });
+  pfp.custom('hist', (ctx, p, P) => {
+    for (let k = 0; k < nb; k++) {
+      if (!share[k]) continue; const x0 = lo + k * w, x1 = x0 + w;
+      ctx.fillStyle = withAlpha(x1 <= 100 - thr + 1e-9 ? P.danger : P.water, 0.75);
+      ctx.fillRect(p.px(x0) + 0.5, p.py(share[k]), Math.max(1, p.px(x1) - p.px(x0) - 1), p.py(0) - p.py(share[k]));
+    }
+  });
+  const X = []; for (let x = lo; x <= hi; x += 0.5) X.push(x);
+  pfp.line('norm', X, X.map(x => normPdf((x - 100) / cvA) / cvA * w * 100), { color: 'ink', width: 1.6, dash: [5, 3], label: 'Normal approximation' });
+  pfp.vline('thr', 100 - thr, { color: 'danger', label: 'shortfall threshold' });
+  pro.set('cvA', cvA, null); pro.set('cvS', sdS / mean * 100, null);
+  pro.set('pA', pA, pA < 5 ? 'ok' : pA < 15 ? 'warn' : 'bad'); pro.set('pS', pS, pS < 5 ? 'ok' : pS < 15 ? 'warn' : 'bad');
+  pro.set('neff', n / (1 + (n - 1) * rho), null, 'at most 1/ρ = ' + (rho > 0 ? fmt(1 / rho, 1) : '∞'));
+}
+['pf-n', 'pf-cv', 'pf-rho', 'pf-thr', 'pf-N'].forEach(id => $(id).addEventListener('input', pfUpdate));
+$('pf-run').addEventListener('click', () => { pfSeed = (pfSeed * 1103515245 + 12345) >>> 0; pfUpdate(); });
+pfUpdate();
+</script>
+</body>
+</html>

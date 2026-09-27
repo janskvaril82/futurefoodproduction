@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>References &amp; readings · Future Food Production</title>
+<meta name="description" content="The complete bibliography of Future Food Production: required and recommended readings and every reference cited in lessons and laboratories.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<style>
+  .ref-item { padding: 12px 0; border-bottom: 1px dashed var(--line); font-size: .93rem; }
+  .ref-item .cited { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .ref-item .cited a { font: 500 .72rem var(--font-mono); padding: 3px 7px; border-radius: 6px; background: var(--bg-sunk); color: var(--ink-2); text-decoration: none; }
+  .ref-item .cited a:hover { color: var(--accent); }
+</style>
+</head>
+<body data-page="references">
+<div data-site-header></div>
+<main id="main">
+  <header class="page-head"><div class="container">
+    <div class="breadcrumb"><a href="/">Home</a><span>/</span><span>References &amp; readings</span></div>
+    <h1>References &amp; readings</h1>
+    <p class="lead">Required readings by module, and the complete bibliography of every source cited in the lessons and laboratories — with DOIs and the pages that cite them.</p>
+    <div class="filters" style="margin:12px 0 0">
+      <div class="seg" id="view" role="group" aria-label="View"><button type="button" data-v="readings" aria-pressed="true">Readings by module</button><button type="button" data-v="all" aria-pressed="false">Full bibliography</button></div>
+      <input type="text" id="q" placeholder="Search author, title, journal…" style="max-width:360px" aria-label="Search references">
+    </div>
+    <div class="muted mono" id="status" style="font-size:.8rem;margin-top:10px"></div>
+  </div></header>
+  <div class="container narrow" id="out"></div>
+</main>
+<div data-site-footer></div>
+<script type="module">
+import { loadIndex } from '/assets/js/aggregate.js';
+const ready = () => new Promise(r => (window.FFP && FFP.ready) ? r() : document.addEventListener('ffp:ready', r, { once: true }));
+await ready();
+const C = window.FFP_COURSE, esc = FFP.esc;
+const idx = await loadIndex((d, n) => { document.getElementById('status').textContent = `Reading course pages… ${d}/${n}`; });
+// deduplicate references by DOI or normalised text
+const refs = new Map();
+idx.references.forEach(r => {
+  const key = r.doi || r.text.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 90);
+  if (!refs.has(key)) refs.set(key, { html: r.html, text: r.text, cites: [] });
+  const e = refs.get(key); if (!e.cites.some(c => c.url === r.url)) e.cites.push(r);
+});
+const all = [...refs.values()].sort((a, b) => a.text.localeCompare(b.text, 'en', { sensitivity: 'base' }));
+document.getElementById('status').textContent = `${all.length} unique references · ${idx.readings.length} reading-list entries`;
+let view = 'readings';
+function render(q = '') {
+  const w = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const out = document.getElementById('out');
+  if (view === 'all') {
+    const list = all.filter(r => w.every(x => r.text.toLowerCase().includes(x)));
+    out.innerHTML = `<h2 style="margin-top:28px">Bibliography (${list.length})</h2>` + list.map(r => `<div class="ref-item">${r.html}<div class="cited">${r.cites.map(c => `<a href="${c.url}${c.kind === 'lab' ? '#sources' : '#references'}">${c.kind === 'lesson' ? c.code : 'Lab'} · ${esc(c.title.length > 48 ? c.title.slice(0, 46) + '…' : c.title)}</a>`).join('')}</div></div>`).join('');
+  } else {
+    out.innerHTML = C.modules.map(m => {
+      const rs = idx.readings.filter(r => r.module === m.slug && r.kind === 'lesson' && w.every(x => r.html.toLowerCase().includes(x)));
+      if (!rs.length) return '';
+      return `<section style="margin-top:32px"><h2 style="font-size:1.35rem;border-left:4px solid ${m.color};padding-left:12px">${m.n}. ${esc(m.title)}</h2>${m.lessons.map(l => { const mine = rs.filter(r => r.slug === l.slug); return mine.length ? `<h3 style="font-size:1rem;font-family:var(--font-sans);margin:18px 0 8px">${l.code} <a href="${l.url}#readings">${esc(l.title)}</a></h3><ul class="reading-list">${mine.map(r => `<li>${r.html}</li>`).join('')}</ul>` : ''; }).join('')}</section>`;
+    }).join('') || '<p class="muted" style="margin-top:24px">No readings found.</p>';
+  }
+  FFP.renderMath(out);
+}
+document.getElementById('view').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; view = b.dataset.v; document.querySelectorAll('#view button').forEach(x => x.setAttribute('aria-pressed', x === b)); render(document.getElementById('q').value); });
+document.getElementById('q').addEventListener('input', e => render(e.target.value));
+render();
+</script>
+</body>
+</html>

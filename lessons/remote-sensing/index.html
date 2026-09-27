@@ -1,0 +1,1133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote sensing and vegetation indices · Future Food Production</title>
+<meta name="description" content="How leaves and canopies reflect light, spectral signatures of vegetation, soil and water, NDVI, SAVI, EVI, NDRE, GNDVI and NDWI, NDVI saturation, satellite, drone and proximal platforms, resolution, atmospheric correction, clouds and radar, thermal crop water stress, and estimating LAI, biomass and yield.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator functions for Lesson 11.2 (defined before site.js builds the mini-calculators). */
+window.FFP_CALC = window.FFP_CALC || {};
+(function (C) {
+  /* LAI from NDVI: scaled NDVI -> fractional cover (Carlson & Ripley 1997) -> Beer-Lambert gap fraction, k = 0.5 */
+  C.rsLai = function (v) {
+    var ns = Math.min(v.nd, v.nv - 0.002), s = (ns - v.n0) / (v.nv - v.n0);
+    if (s <= 0) return 0;
+    var fc = Math.min(0.9999, s * s);
+    return -Math.log(1 - fc) / v.k;
+  };
+})(window.FFP_CALC);
+</script>
+<style>
+  .rs-grid{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start}
+  @media (max-width:760px){.rs-grid{grid-template-columns:1fr}}
+  .rs-ctl .mc-var{margin-bottom:10px}
+  .rs-note{font-size:.8rem;color:var(--muted);margin-top:6px;line-height:1.45}
+  .rs-seg{margin-bottom:10px;flex-wrap:wrap}
+</style>
+</head>
+<body data-page="lesson" data-slug="remote-sensing">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Remote sensing and vegetation indices</h1>
+      <p class="lead">Every few days a Sentinel-2 satellite passes about 786 km above Västmanland and photographs every field in the county in thirteen colours, most of them invisible to us. The pictures are free. A farmer near Västerås can open them in a web browser, see that the north-east corner of a wheat field is paler than the rest, and send a variable-rate nitrogen file to the spreader before lunch. How can a camera in space tell a hungry crop from a healthy one? The answer lies in the physics of how leaves absorb, scatter and reflect light. This lesson follows a photon from the Sun to the leaf and back to the sensor, turns reflectances into vegetation indices, and asks the engineer's questions: how precise, how often, how fine — and how far can we trust a map made from space?</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Explain how pigments, leaf structure and water shape the reflectance spectrum of leaves and canopies, and contrast the spectral signatures of vegetation, soil and water (LO5).</li>
+        <li>Calculate NDVI, SAVI, EVI, NDRE, GNDVI and NDWI from band reflectances, explain what each index is designed for, and explain why NDVI saturates in dense canopies (LO3, LO5).</li>
+        <li>Compare satellite, drone and proximal platforms in terms of spatial, spectral, temporal and radiometric resolution, and calculate the ground sampling distance of a drone survey (LO5).</li>
+        <li>Describe the chain from at-sensor radiance to surface reflectance, estimate the chance of a cloud-free image in a Nordic growing season, and explain when radar or thermal data are needed (LO5, LO7).</li>
+        <li>Estimate leaf area index, absorbed radiation, biomass and yield from vegetation indices, stating the assumptions and the uncertainty (LO3, LO5).</li>
+        <li>Find open Copernicus data and judge the value and limits of remote sensing for Swedish and European farming (LO1, LO5).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="seeing-crops">Seeing crops from a distance</h2>
+      <p class="lede-drop">Remote sensing is the measurement of an object's properties without touching it — by recording electromagnetic radiation that the object reflects or emits. A farmer who walks into a field and notices that the leaves are yellow is doing a crude kind of remote sensing with two sensors (her eyes) that record three broad colour bands. Modern instruments do the same thing with dozens or hundreds of narrow bands, many of them outside the visible range, from platforms that range from a hand-held sensor 50 cm above the crop to satellites 700–800 km up. In <a href="/lessons/precision-farming/">Lesson 11.1</a> you saw how precision agriculture needs maps of within-field variability; remote sensing is the cheapest way to make such maps repeatedly during the season (Mulla, 2013; Weiss et al., 2020).</p>
+      <p>Two families of sensors exist. <strong>Passive</strong> sensors record radiation from a natural source: reflected sunlight in the visible, near-infrared (NIR) and shortwave-infrared (SWIR) regions (400–2500 nm), or thermal radiation emitted by the surface itself (8–14 µm). <strong>Active</strong> sensors bring their own illumination: a radar (such as the synthetic aperture radar on Sentinel-1) emits microwave pulses and records the echo; a LiDAR emits laser pulses; and a tractor-mounted crop sensor may carry its own flash lamp or LEDs. Active sensors work at night and — in the case of radar — through clouds.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 330" role="img" aria-label="The remote sensing chain: sunlight passes through the atmosphere, is reflected by the canopy and soil, and passes through the atmosphere again to a satellite sensor, with scattering, absorption and path radiance indicated">
+            <defs>
+              <marker id="rs-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+              <marker id="rs-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--amber)"/></marker>
+              <marker id="rs-a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--accent)"/></marker>
+            </defs>
+            <circle cx="70" cy="52" r="30" class="fill-amber-soft stroke-amber" stroke-width="2"/>
+            <text x="70" y="57" text-anchor="middle" font-weight="600">Sun</text>
+            <rect x="0" y="118" width="700" height="78" class="fill-water-soft" opacity=".55"/>
+            <text x="12" y="133" class="t-small">atmosphere: gases</text>
+            <text x="12" y="147" class="t-small">absorb (H₂O, O₂, O₃);</text>
+            <text x="12" y="161" class="t-small">molecules and</text>
+            <text x="12" y="175" class="t-small">aerosols scatter</text>
+            <g transform="translate(560,40)">
+              <rect x="-26" y="-12" width="52" height="24" rx="4" class="fill-sunk" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="-70" y="-6" width="40" height="12" class="fill-water" opacity=".8"/>
+              <rect x="30" y="-6" width="40" height="12" class="fill-water" opacity=".8"/>
+              <text x="0" y="-20" text-anchor="middle" class="t-small" font-weight="600">satellite sensor</text>
+            </g>
+            <line x1="92" y1="72" x2="300" y2="262" class="stroke-amber" stroke-width="2.2" marker-end="url(#rs-a2)"/>
+            <text x="150" y="112" class="t-small">irradiance E₀ cos θₛ</text>
+            <circle cx="205" cy="160" r="4" class="fill-amber"/>
+            <path d="M205 160 L160 200" class="stroke-amber" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#rs-a2)"/>
+            <text x="120" y="216" class="t-small t-muted">diffuse skylight</text>
+            <line x1="330" y1="262" x2="545" y2="58" class="stroke-accent" stroke-width="2.2" marker-end="url(#rs-a3)"/>
+            <text x="452" y="178" class="t-small">reflected radiance</text>
+            <text x="452" y="192" class="t-small">L = ρ E cos θₛ / π</text>
+            <circle cx="470" cy="150" r="4" class="fill-water"/>
+            <path d="M470 150 L540 64" class="stroke-water" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#rs-a1)"/>
+            <text x="560" y="140" class="t-small t-muted">path radiance</text>
+            <text x="560" y="154" class="t-small t-muted">(haze adds light</text>
+            <text x="560" y="168" class="t-small t-muted">that never touched</text>
+            <text x="560" y="182" class="t-small t-muted">the field)</text>
+            <rect x="0" y="262" width="700" height="68" class="fill-sunk"/>
+            <g class="fill-accent" opacity=".9">
+              <path d="M240 262 q8 -40 16 0z"/><path d="M262 262 q8 -46 16 0z"/><path d="M284 262 q8 -38 16 0z"/><path d="M306 262 q8 -44 16 0z"/><path d="M328 262 q8 -40 16 0z"/><path d="M350 262 q8 -46 16 0z"/><path d="M372 262 q8 -36 16 0z"/>
+            </g>
+            <text x="240" y="290" class="t-small">canopy + soil background: surface reflectance ρ(λ)</text>
+            <text x="240" y="306" class="t-small t-muted">the quantity agronomists want</text>
+            <text x="12" y="290" class="t-small t-muted">soil</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The remote sensing chain for a passive optical sensor. Sunlight is attenuated and scattered on its way down; the canopy and soil reflect a wavelength-dependent fraction ρ(λ); the reflected light is attenuated again on its way up, and haze adds "path radiance" that never touched the field. Atmospheric correction (Section 11.2.7) tries to undo both atmospheric passes and recover ρ(λ).</figcaption>
+      </figure>
+
+      <p>What a satellite actually records is <strong>radiance</strong>: power per unit area, per unit solid angle and per unit wavelength arriving at the sensor (W m⁻² sr⁻¹ µm⁻¹). Radiance depends on how bright the Sun is, how high it stands and how hazy the air is, so it changes from day to day even if the crop does not. What we want is a property of the surface itself: the <strong>reflectance</strong>, the fraction of the incoming light that the surface reflects at each wavelength. Reflectance is dimensionless and lies between 0 and 1, which makes images from different days, sensors and latitudes comparable.</p>
+
+      <div class="eq-box" id="eq-rs-reflectance">
+        <div class="eq-head"><span class="eq-label">From at-sensor radiance to reflectance</span><span class="eq-num">(11.2.1)</span></div>
+        <div class="eq-main">\[ \rho_\lambda = \frac{\pi\,L_\lambda\,d^{2}}{E_{0,\lambda}\,\cos\theta_s} \]</div>
+        <p class="eq-read">the reflectance in a band equals pi times the measured radiance in that band times the squared Earth–Sun distance in astronomical units, divided by the solar irradiance at the top of the atmosphere in that band times the cosine of the solar zenith angle.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(\rho_\lambda\)</td><td>reflectance in band λ (here top-of-atmosphere)</td><td>– (0–1)</td><td>0.03 (red, crop) – 0.5 (NIR, crop)</td></tr>
+          <tr><td>\(L_\lambda\)</td><td>spectral radiance measured by the sensor</td><td>W m⁻² sr⁻¹ µm⁻¹</td><td>5–150</td></tr>
+          <tr><td>\(E_{0,\lambda}\)</td><td>mean exo-atmospheric solar irradiance in the band</td><td>W m⁻² µm⁻¹</td><td>≈ 1900 (blue), 1500 (red), 1000 (NIR)</td></tr>
+          <tr><td>\(\theta_s\)</td><td>solar zenith angle (90° minus solar elevation)</td><td>°</td><td>35–70 at 60° N in the growing season</td></tr>
+          <tr><td>\(d\)</td><td>Earth–Sun distance</td><td>astronomical units</td><td>0.983–1.017</td></tr>
+          <tr><td>\(\pi\)</td><td>steradians — from integrating a Lambertian radiance over a hemisphere</td><td>sr</td><td>3.1416</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Irradiance on the ground.</strong> Sunlight arriving at an angle θₛ from the vertical spreads over a larger area: a horizontal square metre intercepts \(E = (E_0/d^2)\cos\theta_s\), where \(E_0/d^2\) corrects the mean solar irradiance for the actual Earth–Sun distance (inverse-square law).</li>
+            <li><strong>Reflected power.</strong> A surface with reflectance ρ sends back a flux density (exitance) \(M = \rho E\) in W m⁻² µm⁻¹.</li>
+            <li><strong>Lambertian assumption.</strong> A perfectly diffuse ("Lambertian") surface looks equally bright from every direction: its radiance \(L\) is the same at all viewing angles. Integrating \(L\cos\theta\) over the hemisphere gives \(M = \int_{0}^{2\pi}\!\int_{0}^{\pi/2} L\cos\theta\sin\theta\,d\theta\,d\phi = \pi L\).</li>
+            <li><strong>Combine.</strong> \(\pi L = \rho\,E_0\cos\theta_s/d^2\), so \(\rho = \pi L d^2/(E_0\cos\theta_s)\). ✓</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The equation ignores the atmosphere, so it gives <em>top-of-atmosphere</em> (TOA) reflectance — Sentinel-2 "Level-1C" products. Haze adds path radiance (making dark targets such as a red-absorbing crop look too bright) and absorbs light (making bright targets look too dark); correcting for this gives <em>bottom-of-atmosphere</em> or surface reflectance ("Level-2A"). Real canopies are not Lambertian: they look brighter when viewed with the Sun behind the observer (the "hot spot") and darker when looking into the Sun, so viewing geometry matters for off-nadir images and for drones with wide-angle lenses.</p>
+        </details>
+        <div class="eq-units">\(\dfrac{\text{sr}\cdot \text{W m}^{-2}\,\text{sr}^{-1}\,\mu\text{m}^{-1}\cdot \text{AU}^2/\text{AU}^2}{\text{W m}^{-2}\,\mu\text{m}^{-1}}\) = dimensionless ✓ (the steradian of π cancels the sr⁻¹ of radiance)</div>
+        <div class="mini-calc" data-formula="PI*L*d*d/(E0*cos(th*PI/180))" data-output="Reflectance ρ" data-digits="3" data-plot="th" data-title="Try it — the same radiance means different reflectance at different sun angles">
+          <div data-var="L" data-label="Radiance L" data-min="1" data-max="150" data-step="0.5" data-value="12" data-unit="W m⁻² sr⁻¹ µm⁻¹"></div>
+          <div data-var="E0" data-label="Solar irradiance E₀ (band)" data-min="900" data-max="2000" data-step="10" data-value="1500" data-unit="W m⁻² µm⁻¹"></div>
+          <div data-var="th" data-label="Solar zenith angle θₛ" data-min="20" data-max="75" data-step="1" data-value="50" data-unit="°"></div>
+          <div data-var="d" data-label="Earth–Sun distance d" data-min="0.983" data-max="1.017" data-step="0.001" data-value="1.014" data-unit="AU"></div>
+        </div>
+      </div>
+
+      <p>Keep two numbers in mind for the rest of the lesson: a green crop reflects only about 3–5 % of red light but 40–50 % of near-infrared light. That enormous contrast, and the way it changes when a crop is stressed, is what almost every agricultural remote-sensing method exploits. The next section explains where it comes from.</p>
+
+      <h2 id="leaf-optics">How leaves and canopies interact with light</h2>
+      <p>When a photon reaches a leaf it can be <em>reflected</em> (at the waxy surface or after scattering inside), <em>transmitted</em> (it leaves through the lower side) or <em>absorbed</em> (by a pigment, by water or by dry matter). Energy conservation requires that, at every wavelength, the three fractions add up to one: \(\rho_\lambda + \tau_\lambda + \alpha_\lambda = 1\). Which of the three dominates depends on the wavelength, and each region of the spectrum tells us about a different property of the plant (Gates et al., 1965; Knipling, 1970).</p>
+      <ul>
+        <li><strong>Visible (400–700 nm): pigments.</strong> Chlorophylls a and b absorb strongly in the blue (≈ 430–450 nm) and red (≈ 640–680 nm); carotenoids add absorption in the blue. Absorption is weaker in the green, so a healthy leaf reflects about 10–15 % of green light and looks green — but it still absorbs most of it. Because pigment absorption is so strong in the red, a canopy's red reflectance is only a few per cent.</li>
+        <li><strong>Red edge (≈ 690–750 nm): the steepest slope in nature.</strong> Chlorophyll absorption stops abruptly at about 700 nm, so reflectance climbs from ≈ 5 % to ≈ 45 % within a few tens of nanometres. The wavelength of the inflection point, the <em>red-edge position</em>, moves to longer wavelengths when chlorophyll content increases, because the absorption band widens (Horler et al., 1983). This makes the red edge a sensitive indicator of chlorophyll — and therefore of nitrogen status.</li>
+        <li><strong>Near-infrared plateau (≈ 750–1300 nm): structure.</strong> No leaf pigment absorbs here. Instead, light is scattered at the countless interfaces between wet cell walls (refractive index ≈ 1.4) and the air spaces of the spongy mesophyll (≈ 1.0). A leaf reflects roughly half and transmits most of the rest; absorption is only a few per cent. In a canopy, light transmitted through one leaf is reflected by the leaves below, so canopy NIR reflectance increases with the number of leaf layers — that is, with leaf area index (LAI).</li>
+        <li><strong>Shortwave infrared (1300–2500 nm): water and dry matter.</strong> Liquid water absorbs strongly at ≈ 1450 and 1940 nm and increasingly beyond 2000 nm, weakly at 970 and 1200 nm. SWIR reflectance therefore rises as a leaf dries. Cellulose, lignin and protein add weaker features near 1730, 2100 and 2300 nm.</li>
+      </ul>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 360" role="img" aria-label="Cross-section of a leaf showing epidermis, palisade and spongy mesophyll with air spaces; red and blue light absorbed by chloroplasts, green partly reflected, near-infrared scattered at cell-air interfaces and either reflected or transmitted, and shortwave infrared absorbed by water">
+            <defs>
+              <marker id="rs-b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d23c3c"/></marker>
+              <marker id="rs-b2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#3a6fd8"/></marker>
+              <marker id="rs-b3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#2f9e44"/></marker>
+              <marker id="rs-b4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8f3b8f"/></marker>
+            </defs>
+            <rect x="40" y="100" width="420" height="14" class="fill-water-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="470" y="111" class="t-small">cuticle + upper epidermis</text>
+            <g class="fill-accent-soft" stroke="currentColor" stroke-width="0.8">
+              <rect x="44" y="116" width="30" height="62" rx="12"/><rect x="78" y="116" width="30" height="62" rx="12"/><rect x="112" y="116" width="30" height="62" rx="12"/><rect x="146" y="116" width="30" height="62" rx="12"/><rect x="180" y="116" width="30" height="62" rx="12"/><rect x="214" y="116" width="30" height="62" rx="12"/><rect x="248" y="116" width="30" height="62" rx="12"/><rect x="282" y="116" width="30" height="62" rx="12"/><rect x="316" y="116" width="30" height="62" rx="12"/><rect x="350" y="116" width="30" height="62" rx="12"/><rect x="384" y="116" width="30" height="62" rx="12"/><rect x="418" y="116" width="38" height="62" rx="12"/>
+            </g>
+            <g class="fill-accent">
+              <circle cx="52" cy="130" r="3.2"/><circle cx="64" cy="150" r="3.2"/><circle cx="54" cy="168" r="3.2"/><circle cx="88" cy="126" r="3.2"/><circle cx="98" cy="160" r="3.2"/><circle cx="122" cy="140" r="3.2"/><circle cx="132" cy="166" r="3.2"/><circle cx="158" cy="128" r="3.2"/><circle cx="166" cy="156" r="3.2"/><circle cx="190" cy="140" r="3.2"/><circle cx="200" cy="168" r="3.2"/><circle cx="226" cy="128" r="3.2"/><circle cx="234" cy="158" r="3.2"/><circle cx="258" cy="142" r="3.2"/><circle cx="268" cy="166" r="3.2"/><circle cx="292" cy="130" r="3.2"/><circle cx="302" cy="154" r="3.2"/><circle cx="326" cy="142" r="3.2"/><circle cx="336" cy="168" r="3.2"/><circle cx="360" cy="128" r="3.2"/><circle cx="370" cy="156" r="3.2"/><circle cx="394" cy="140" r="3.2"/><circle cx="404" cy="166" r="3.2"/><circle cx="428" cy="130" r="3.2"/><circle cx="444" cy="158" r="3.2"/>
+            </g>
+            <text x="470" y="150" class="t-small">palisade mesophyll</text>
+            <text x="470" y="164" class="t-small t-muted">(chloroplasts)</text>
+            <g class="fill-accent-soft" stroke="currentColor" stroke-width="0.8">
+              <ellipse cx="62" cy="200" rx="18" ry="13"/><ellipse cx="112" cy="206" rx="20" ry="12"/><ellipse cx="160" cy="196" rx="16" ry="12"/><ellipse cx="214" cy="208" rx="22" ry="13"/><ellipse cx="270" cy="198" rx="18" ry="12"/><ellipse cx="322" cy="208" rx="20" ry="13"/><ellipse cx="376" cy="198" rx="18" ry="12"/><ellipse cx="428" cy="206" rx="22" ry="13"/>
+              <ellipse cx="86" cy="236" rx="20" ry="12"/><ellipse cx="140" cy="240" rx="16" ry="12"/><ellipse cx="190" cy="232" rx="18" ry="12"/><ellipse cx="244" cy="240" rx="20" ry="12"/><ellipse cx="298" cy="234" rx="18" ry="12"/><ellipse cx="350" cy="240" rx="20" ry="12"/><ellipse cx="404" cy="234" rx="18" ry="12"/><ellipse cx="446" cy="240" rx="12" ry="11"/>
+            </g>
+            <text x="470" y="214" class="t-small">spongy mesophyll</text>
+            <text x="470" y="228" class="t-small t-muted">cells + air spaces:</text>
+            <text x="470" y="242" class="t-small t-muted">NIR scattered at every</text>
+            <text x="470" y="256" class="t-small t-muted">wall–air interface</text>
+            <rect x="40" y="256" width="420" height="12" class="fill-water-soft" stroke="currentColor" stroke-width="1"/>
+            <path d="M240 268 q10 -10 20 0" class="stroke" stroke-width="1.2"/>
+            <text x="470" y="272" class="t-small">lower epidermis + stoma</text>
+            <!-- blue absorbed -->
+            <path d="M62 20 L62 126" stroke="#3a6fd8" stroke-width="2.4" fill="none" marker-end="url(#rs-b2)"/>
+            <text x="30" y="16" class="t-small" style="fill:#3a6fd8">blue: absorbed</text>
+            <!-- red absorbed -->
+            <path d="M150 20 L150 124" stroke="#d23c3c" stroke-width="2.4" fill="none" marker-end="url(#rs-b1)"/>
+            <text x="120" y="16" class="t-small" style="fill:#d23c3c">red: absorbed</text>
+            <!-- green partly reflected -->
+            <path d="M230 20 L238 98" stroke="#2f9e44" stroke-width="2.4" fill="none" marker-end="url(#rs-b3)"/>
+            <path d="M242 98 L262 30" stroke="#2f9e44" stroke-width="1.6" stroke-dasharray="4 3" fill="none" marker-end="url(#rs-b3)"/>
+            <text x="212" y="16" class="t-small" style="fill:#2f9e44">green: ≈10–15 % reflected</text>
+            <!-- NIR scattering -->
+            <path d="M330 20 L330 190 L352 222 L318 246 L340 206 L372 200 L380 118 L396 40" stroke="#8f3b8f" stroke-width="2" fill="none" marker-end="url(#rs-b4)"/>
+            <path d="M318 246 L312 300" stroke="#8f3b8f" stroke-width="2" fill="none" stroke-dasharray="5 3" marker-end="url(#rs-b4)"/>
+            <text x="404" y="44" class="t-small" style="fill:#8f3b8f">NIR: ≈50 % reflected</text>
+            <text x="250" y="318" class="t-small" style="fill:#8f3b8f">≈45 % transmitted → reaches the leaves below</text>
+            <text x="40" y="344" class="t-small t-muted">SWIR (1400–2500 nm) photons are absorbed by the leaf water they meet along the same zig-zag paths.</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> Why a leaf is dark in the red and bright in the near-infrared. Chloroplasts in the palisade and spongy mesophyll absorb blue and red photons; green photons are absorbed less and partly reflected. Near-infrared photons are not absorbed by any pigment; they are scattered many times at interfaces between hydrated cell walls and air spaces, so about half leave through the upper surface and most of the rest through the lower surface. Longer internal paths also give water many chances to absorb shortwave-infrared photons (Knipling, 1970).</figcaption>
+      </figure>
+
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"Plants are green because they reflect most of the green light." A healthy leaf reflects only about a tenth of the green light that falls on it; it absorbs most of the rest (which is why green photons still drive photosynthesis, as you saw in <a href="/lessons/radiation-physics/">Lesson 4.1</a>). What a leaf reflects most is near-infrared light, about half of it. If our eyes could see the NIR, a healthy wheat field would look brilliant white, and a drought-stressed one grey.</p></div>
+
+      <p>Stress changes the spectrum in characteristic ways. <strong>Nitrogen deficiency</strong> lowers chlorophyll content: red and green reflectance rise, and the red edge shifts to shorter wavelengths. <strong>Drought</strong> first closes stomata (visible in thermal images before any change in reflectance), then lowers leaf water content (SWIR reflectance rises) and finally reduces leaf area (NIR falls). <strong>Senescence and disease</strong> destroy chlorophyll and cell structure: the red trough fills in and the NIR plateau collapses. Explore these patterns in Figure 3, which uses a simplified physical model of leaf and canopy reflectance in the spirit of the PROSPECT leaf model (Jacquemoud &amp; Baret, 1990).</p>
+
+      <figure class="figure wide" id="spectral-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the spectral signature explorer</div>
+          <div class="seg rs-seg" id="sx-surf" role="group" aria-label="Surface type">
+            <button type="button" data-v="healthy" aria-pressed="true">Healthy wheat</button>
+            <button type="button" data-v="ndef" aria-pressed="false">N-deficient wheat</button>
+            <button type="button" data-v="senescent" aria-pressed="false">Senescent crop</button>
+            <button type="button" data-v="drysoil" aria-pressed="false">Dry soil</button>
+            <button type="button" data-v="wetsoil" aria-pressed="false">Wet soil</button>
+            <button type="button" data-v="water" aria-pressed="false">Water</button>
+          </div>
+          <div class="rs-grid">
+            <div id="sx-plot" style="min-height:340px"></div>
+            <div class="rs-ctl">
+              <div class="mc-var"><div class="mc-lab"><span>Chlorophyll C<sub>ab</sub></span><output id="sx-cab-o"></output></div><input id="sx-cab" type="range" min="4" max="80" step="1" value="50" aria-label="Chlorophyll content"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Leaf area index</span><output id="sx-lai-o"></output></div><input id="sx-lai" type="range" min="0" max="8" step="0.1" value="4" aria-label="Leaf area index"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Leaf water (EWT)</span><output id="sx-ewt-o"></output></div><input id="sx-ewt" type="range" min="0.003" max="0.03" step="0.001" value="0.018" aria-label="Equivalent water thickness"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Soil moisture</span><output id="sx-wet-o"></output></div><input id="sx-wet" type="range" min="0" max="1" step="0.05" value="0" aria-label="Soil moisture"></div>
+              <div class="seg" id="sx-zoom" role="group" aria-label="Wavelength range"><button type="button" data-v="full" aria-pressed="true">400–2400 nm</button><button type="button" data-v="zoom" aria-pressed="false">Zoom 400–1000 nm</button></div>
+              <p class="rs-note">Moving a slider turns the selected crop into a custom canopy. Dots show what Sentinel-2 records: the spectrum averaged over each band. Zoom in to see the red edge and the individual bands.</p>
+            </div>
+          </div>
+          <div class="readouts" id="sx-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> Reflectance spectra from 400 to 2400 nm with the Sentinel-2 bands marked. The model is a teaching simplification: leaf reflectance is computed from chlorophyll and water absorption spectra, a canopy is treated as a pile of leaves over a soil background that disappears as \(e^{-K\cdot\text{LAI}}\). Shapes are realistic; absolute values are approximate. Try: lower C<sub>ab</sub> from 50 to 20 and watch the red trough fill in and the red-edge position (REP) move to shorter wavelengths; lower leaf water and watch SWIR (B11, B12) rise; set LAI to 0.5 and see the soil show through.</figcaption>
+      </figure>
+      <a class="lab-link" data-lab="spectral-signatures" data-why="Explore reflectance spectra of healthy and stressed vegetation, soil and water in depth, and see how each satellite band and vegetation index responds."></a>
+
+      <h2 id="signatures">Spectral signatures and mixed pixels</h2>
+      <p>The shape of a reflectance spectrum is a <strong>spectral signature</strong>: a fingerprint that lets us separate vegetation from soil, water, snow or asphalt. Table 1 lists typical band reflectances for the surfaces a farmer sees from space. Three rules of thumb follow directly from the physics of the previous section:</p>
+      <ul>
+        <li><strong>Vegetation:</strong> dark in blue and red, a small green peak, a steep red edge, bright NIR, moderate SWIR that depends on water content.</li>
+        <li><strong>Bare soil:</strong> a smooth spectrum rising slowly with wavelength; moisture, organic matter and iron oxides darken it but hardly change its shape. On a plot of NIR against red reflectance, bare soils of one field fall on a straight line — the <em>soil line</em>.</li>
+        <li><strong>Water:</strong> some reflectance in blue and green, almost none beyond 750 nm, because water absorbs NIR and SWIR within millimetres to centimetres. Open water therefore appears black in NIR images.</li>
+      </ul>
+      <table>
+        <caption>Table 1. Typical surface reflectance in selected Sentinel-2 bands (stylised values from the model in Figure 3, consistent with published spectra; real values vary with variety, soil and viewing geometry).</caption>
+        <thead><tr><th>Surface</th><th class="num">B2 blue 490 nm</th><th class="num">B3 green 560 nm</th><th class="num">B4 red 665 nm</th><th class="num">B5 red edge 705 nm</th><th class="num">B8 NIR 842 nm</th><th class="num">B11 SWIR 1610 nm</th><th class="num">NDVI</th></tr></thead>
+        <tbody>
+          <tr><td>Dense healthy wheat (LAI ≈ 4)</td><td class="num">0.045</td><td class="num">0.075</td><td class="num">0.031</td><td class="num">0.10</td><td class="num">0.45</td><td class="num">0.25</td><td class="num">0.87</td></tr>
+          <tr><td>N-deficient wheat (LAI ≈ 2)</td><td class="num">0.09</td><td class="num">0.13</td><td class="num">0.073</td><td class="num">0.16</td><td class="num">0.38</td><td class="num">0.26</td><td class="num">0.68</td></tr>
+          <tr><td>Senescent (yellow) crop</td><td class="num">0.17</td><td class="num">0.19</td><td class="num">0.16</td><td class="num">0.21</td><td class="num">0.32</td><td class="num">0.28</td><td class="num">0.34</td></tr>
+          <tr><td>Dry bare loam</td><td class="num">0.11</td><td class="num">0.14</td><td class="num">0.17</td><td class="num">0.18</td><td class="num">0.20</td><td class="num">0.28</td><td class="num">0.10</td></tr>
+          <tr><td>Wet bare loam</td><td class="num">0.06</td><td class="num">0.08</td><td class="num">0.09</td><td class="num">0.10</td><td class="num">0.11</td><td class="num">0.16</td><td class="num">0.10</td></tr>
+          <tr><td>Clear water</td><td class="num">0.06</td><td class="num">0.055</td><td class="num">0.012</td><td class="num">0.006</td><td class="num">0.002</td><td class="num">0.002</td><td class="num">−0.7</td></tr>
+        </tbody>
+      </table>
+
+      <p>A satellite pixel, however, rarely contains a single surface. A 10 m Sentinel-2 pixel on a field edge may contain wheat, a tramline, a ditch and part of the road; early in the season, every pixel of a cereal field is a mixture of plants and soil. To a good approximation, the reflectance of a mixed pixel is the area-weighted average of the reflectances of its components:</p>
+
+      <div class="eq-box" id="eq-rs-mixing">
+        <div class="eq-head"><span class="eq-label">Linear spectral mixing</span><span class="eq-num">(11.2.2)</span></div>
+        <div class="eq-main">\[ \rho_{\text{pixel},\lambda} = \sum_{j=1}^{m} f_j\,\rho_{j,\lambda},\qquad \sum_{j=1}^{m} f_j = 1,\qquad f_j\ge 0 \]</div>
+        <p class="eq-read">the reflectance of a pixel in each band is the sum, over all surface types in the pixel, of the fraction of the pixel covered by that surface times its reflectance; the fractions add up to one.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\rho_{\text{pixel},\lambda}\)</td><td>reflectance of the whole pixel in band λ</td><td>–</td></tr>
+          <tr><td>\(f_j\)</td><td>fraction of the pixel area covered by surface type ("endmember") \(j\)</td><td>–</td></tr>
+          <tr><td>\(\rho_{j,\lambda}\)</td><td>reflectance of pure endmember \(j\) in band λ</td><td>–</td></tr>
+          <tr><td>\(m\)</td><td>number of endmembers (e.g. 2: crop and soil)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>The radiant power leaving the pixel towards the sensor is the sum of the power leaving each part of it: \(M_{\text{pixel}}A = \sum_j M_j A_j\), where \(A\) is area and \(M\) exitance.</li>
+            <li>Each part receives the same irradiance \(E\), so \(M_j = \rho_j E\).</li>
+            <li>Divide by \(EA\): \(\rho_{\text{pixel}} = \sum_j (A_j/A)\rho_j = \sum_j f_j\rho_j\). ✓</li>
+            <li><strong>Unmixing</strong> reverses the process: with \(m\) known endmember spectra and at least \(m-1\) bands, the fractions \(f_j\) can be estimated by least squares. This is how fractional vegetation cover can be mapped from a mixed pixel.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The linear model assumes that each photon interacts with only one surface type before reaching the sensor. In real canopies light is scattered between leaves and soil (non-linear mixing), which matters most in the NIR, where leaves transmit a lot. The model also needs good endmember spectra — and the "soil" endmember changes with moisture. Still, linear mixing is the right first model for field edges, tramlines and early-season crops.</p></details>
+        <div class="eq-units">Σ (– × –) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="((fv*nv+(1-fv)*ns)-(fv*rv+(1-fv)*rs))/((fv*nv+(1-fv)*ns)+(fv*rv+(1-fv)*rs))" data-output="NDVI of the mixed pixel" data-digits="3" data-plot="fv" data-ymin="0" data-ymax="1" data-title="Try it — NDVI of a crop–soil mixture is not linear in crop cover">
+          <div data-var="fv" data-label="Crop fraction f<sub>v</sub>" data-min="0" data-max="1" data-step="0.01" data-value="0.4"></div>
+          <div data-var="rv" data-label="Crop red ρ" data-min="0.02" data-max="0.1" data-step="0.001" data-value="0.031"></div>
+          <div data-var="nv" data-label="Crop NIR ρ" data-min="0.25" data-max="0.6" data-step="0.005" data-value="0.446"></div>
+          <div data-var="rs" data-label="Soil red ρ" data-min="0.05" data-max="0.3" data-step="0.005" data-value="0.167"></div>
+          <div data-var="ns" data-label="Soil NIR ρ" data-min="0.06" data-max="0.35" data-step="0.005" data-value="0.204"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">NDVI of a pixel on a field edge</span></div>
+        <div class="we-problem"><p>A 10 m Sentinel-2 pixel on the edge of a winter wheat field is 40 % dense wheat (red 0.031, NIR 0.446) and 60 % dry bare soil of the headland (red 0.167, NIR 0.204). Calculate the pixel's red and NIR reflectance and its NDVI \(= (\rho_{\text{NIR}}-\rho_{\text{red}})/(\rho_{\text{NIR}}+\rho_{\text{red}})\) (defined formally in Eq. 11.2.3). Compare with the area-weighted average of the NDVIs of wheat and soil, and with the crop cover you would infer by interpolating linearly between the soil and wheat NDVI.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Mix the reflectances</strong> (Eq. 11.2.2): red \(= 0.4\times0.031+0.6\times0.167 = 0.0124+0.1002 = 0.1126\); NIR \(= 0.4\times0.446+0.6\times0.204 = 0.1784+0.1224 = 0.3008\).</li>
+              <li><strong>Pixel NDVI:</strong> \((0.3008-0.1126)/(0.3008+0.1126) = 0.1882/0.4134 = 0.455\).</li>
+              <li><strong>NDVI of the pure components:</strong> wheat \((0.446-0.031)/(0.477) = 0.870\); soil \((0.204-0.167)/(0.371) = 0.100\).</li>
+              <li><strong>Area-weighted mean of the NDVIs:</strong> \(0.4\times0.870+0.6\times0.100 = 0.408\) — lower than the true pixel value.</li>
+              <li><strong>Naive cover estimate:</strong> \((0.455-0.100)/(0.870-0.100) = 0.46\), i.e. 46 % crop instead of the true 40 %.</li>
+              <li><strong>Why?</strong> NDVI is a ratio. The bright NIR of the wheat weighs more in the sums than the dark soil, so the index of a mixture is pulled towards the vegetation value. Averaging NDVI values is not the same as averaging reflectances — always aggregate reflectances first, then compute the index.</li>
+            </ol>
+            <span class="answer">Pixel NDVI ≈ 0.455 (not 0.408); linear interpretation over-estimates cover by ≈ 6 percentage points</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="indices">Vegetation indices: formulas and behaviour</h2>
+      <p>A single band says little on its own: a field looks darker in the red both when the crop is denser and when a cloud shadow passes. A <strong>vegetation index</strong> combines two or more bands so that the vegetation signal is enhanced and unwanted effects — illumination, soil background, atmosphere — are suppressed. More than a hundred indices have been published (Xue &amp; Su, 2017); a handful do most of the work in agriculture.</p>
+      <h3>NDVI — the workhorse</h3>
+      <p>The Normalised Difference Vegetation Index was introduced by Rouse et al. (1974) for the first Landsat satellite and popularised by Tucker (1979). It uses the contrast between red absorption by chlorophyll and NIR scattering by leaf structure:</p>
+      <div class="eq-box" id="eq-rs-ndvi">
+        <div class="eq-head"><span class="eq-label">Normalised Difference Vegetation Index</span><span class="eq-num">(11.2.3)</span></div>
+        <div class="eq-main">\[ \text{NDVI} = \frac{\rho_{\text{NIR}}-\rho_{\text{red}}}{\rho_{\text{NIR}}+\rho_{\text{red}}} = \frac{\text{SR}-1}{\text{SR}+1},\qquad \text{SR}=\frac{\rho_{\text{NIR}}}{\rho_{\text{red}}} \]</div>
+        <p class="eq-read">NDVI is the near-infrared reflectance minus the red reflectance, divided by their sum. It can also be written in terms of the simple ratio of NIR to red reflectance: the simple ratio minus one, over the simple ratio plus one.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Sentinel-2 band</th></tr>
+          <tr><td>\(\rho_{\text{NIR}}\)</td><td>near-infrared reflectance</td><td>–</td><td>B8 (842 nm, 10 m) or B8A (865 nm, 20 m)</td></tr>
+          <tr><td>\(\rho_{\text{red}}\)</td><td>red reflectance</td><td>–</td><td>B4 (665 nm, 10 m)</td></tr>
+          <tr><td>SR</td><td>simple ratio (ratio vegetation index)</td><td>–</td><td>B8/B4</td></tr>
+          <tr><td>NDVI</td><td>index value, −1 to +1</td><td>–</td><td>water &lt; 0; soil 0.05–0.2; dense crop 0.8–0.9</td></tr>
+        </table>
+        <details><summary>Follow the derivation: why normalise?</summary>
+          <ol class="steps">
+            <li><strong>Start with the difference</strong> \(\rho_{\text{NIR}}-\rho_{\text{red}}\): large for vegetation, small for soil, negative for water. But it is also proportional to illumination: under a thin cloud that dims both bands by a factor \(k\), the difference becomes \(k(\rho_{\text{NIR}}-\rho_{\text{red}})\).</li>
+            <li><strong>Divide by the sum.</strong> \(\dfrac{k\rho_{\text{NIR}}-k\rho_{\text{red}}}{k\rho_{\text{NIR}}+k\rho_{\text{red}}} = \dfrac{\rho_{\text{NIR}}-\rho_{\text{red}}}{\rho_{\text{NIR}}+\rho_{\text{red}}}\): any multiplicative factor common to both bands cancels. Topographic shading, sun angle and uniform haze are reduced (though not removed, because they are not perfectly multiplicative).</li>
+            <li><strong>Bounds.</strong> With non-negative reflectances the ratio lies between −1 (\(\rho_{\text{NIR}}=0\)) and +1 (\(\rho_{\text{red}}=0\)).</li>
+            <li><strong>Relation to SR.</strong> Divide numerator and denominator by \(\rho_{\text{red}}\): \(\text{NDVI}=(\text{SR}-1)/(\text{SR}+1)\). NDVI is a compressed version of the simple ratio: SR = 9 gives NDVI = 0.80, SR = 19 gives 0.90 — doubling the ratio moves NDVI only 0.1. This compression is the mathematical root of saturation (Section 11.2.5).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>NDVI assumes that red and NIR reflectance differences are caused by green vegetation. Bright soils, wet soils, crop residues, senescent leaves and additive atmospheric effects (path radiance, which is not multiplicative) all change NDVI without a change in the green canopy. NDVI values from different sensors are not identical because band positions and widths differ; always compare like with like and use surface reflectance.</p></details>
+        <div class="eq-units">(– − –)/(– + –) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="(nir-red)/(nir+red)" data-output="NDVI" data-digits="3" data-plot="nir" data-ymin="-0.2" data-ymax="1">
+          <div data-var="nir" data-label="NIR reflectance ρ<sub>NIR</sub>" data-min="0" data-max="0.6" data-step="0.005" data-value="0.40"></div>
+          <div data-var="red" data-label="Red reflectance ρ<sub>red</sub>" data-min="0.01" data-max="0.3" data-step="0.001" data-value="0.05"></div>
+        </div>
+      </div>
+
+      <h3>SAVI and MSAVI — correcting for soil</h3>
+      <p>Early in the season, when crop cover is sparse, NDVI depends strongly on the soil under the plants: the same crop gives a higher NDVI over dark wet soil than over bright dry soil. Huete (1988) showed that lines of equal vegetation amount in the red–NIR plane (vegetation "isolines") do not pass through the origin, as NDVI implicitly assumes, but converge at a point in the negative quadrant. Shifting the origin gives the Soil-Adjusted Vegetation Index:</p>
+      <div class="eq-box" id="eq-rs-savi">
+        <div class="eq-head"><span class="eq-label">Soil-Adjusted Vegetation Index</span><span class="eq-num">(11.2.4)</span></div>
+        <div class="eq-main">\[ \text{SAVI} = (1+L)\,\frac{\rho_{\text{NIR}}-\rho_{\text{red}}}{\rho_{\text{NIR}}+\rho_{\text{red}}+L} \]</div>
+        <p class="eq-read">SAVI is one plus L, times the NIR-minus-red difference, divided by the NIR-plus-red sum plus the soil-adjustment factor L.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(L\)</td><td>soil-adjustment factor</td><td>–</td><td>0.5 (general); 1 (very sparse); 0.25 (dense)</td></tr>
+          <tr><td>\(1+L\)</td><td>scaling that keeps the index between −1 and +1</td><td>–</td><td>1.5</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>NDVI measures the angle of the line from the origin to the point \((\rho_{\text{red}},\rho_{\text{NIR}})\): all points on a straight line through the origin have the same NDVI.</li>
+            <li>Huete observed that isolines of a given canopy over different soils meet not at \((0,0)\) but near \((-a,-a)\).</li>
+            <li>Measure the angle from that point instead: replace \(\rho\) by \(\rho+a\) in both bands. \(\dfrac{(\rho_{\text{NIR}}+a)-(\rho_{\text{red}}+a)}{(\rho_{\text{NIR}}+a)+(\rho_{\text{red}}+a)} = \dfrac{\rho_{\text{NIR}}-\rho_{\text{red}}}{\rho_{\text{NIR}}+\rho_{\text{red}}+2a}\). Call \(L=2a\).</li>
+            <li>For an ideal target with \(\rho_{\text{NIR}}=1\), \(\rho_{\text{red}}=0\) this gives \(1/(1+L)\); multiplying by \((1+L)\) restores the maximum of 1. ✓</li>
+            <li><strong>MSAVI2</strong> (Qi et al., 1994) replaces the constant \(L\) by one that adjusts itself to the vegetation amount: \(\text{MSAVI2} = \tfrac12\left[2\rho_{\text{NIR}}+1-\sqrt{(2\rho_{\text{NIR}}+1)^2-8(\rho_{\text{NIR}}-\rho_{\text{red}})}\right]\). The Swedish CropSAT service maps MSAVI2 from Sentinel-2 images (Söderström et al., 2017).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>\(L=0.5\) was found to minimise soil effects over a wide range of cover. With \(L=0\) SAVI equals NDVI. SAVI reduces, but does not eliminate, soil effects, and it is slightly less sensitive than NDVI to changes in dense canopies.</p></details>
+        <div class="eq-units">dimensionless × (–)/(– + – + –) = dimensionless ✓ (L has the "unit" of reflectance)</div>
+        <div class="mini-calc" data-formula="(1+L)*(nir-red)/(nir+red+L)" data-output="SAVI" data-digits="3" data-plot="L" data-ymin="0" data-ymax="1">
+          <div data-var="nir" data-label="NIR reflectance ρ<sub>NIR</sub>" data-min="0.05" data-max="0.6" data-step="0.005" data-value="0.30"></div>
+          <div data-var="red" data-label="Red reflectance ρ<sub>red</sub>" data-min="0.01" data-max="0.3" data-step="0.001" data-value="0.08"></div>
+          <div data-var="L" data-label="Soil factor L" data-min="0" data-max="1" data-step="0.05" data-value="0.5"></div>
+        </div>
+      </div>
+
+      <h3>EVI — less atmosphere, less saturation</h3>
+      <p>The Enhanced Vegetation Index was developed for NASA's MODIS sensors to stay sensitive in dense forests and crops and to be less affected by aerosols (Huete et al., 2002). It uses the blue band, which is scattered much more strongly by aerosols than red, to correct the red band, and a background term like SAVI's:</p>
+      <div class="eq-box" id="eq-rs-evi">
+        <div class="eq-head"><span class="eq-label">Enhanced Vegetation Index</span><span class="eq-num">(11.2.5)</span></div>
+        <div class="eq-main">\[ \text{EVI} = G\,\frac{\rho_{\text{NIR}}-\rho_{\text{red}}}{\rho_{\text{NIR}}+C_1\,\rho_{\text{red}}-C_2\,\rho_{\text{blue}}+L},\qquad G=2.5,\;C_1=6,\;C_2=7.5,\;L=1 \]</div>
+        <p class="eq-read">EVI is a gain factor times the NIR-minus-red difference, divided by the NIR reflectance plus six times the red, minus seven and a half times the blue, plus one.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(G\)</td><td>gain factor</td><td>–</td><td>2.5</td></tr>
+          <tr><td>\(C_1, C_2\)</td><td>aerosol-resistance coefficients for red and blue</td><td>–</td><td>6 and 7.5</td></tr>
+          <tr><td>\(L\)</td><td>canopy-background adjustment</td><td>–</td><td>1</td></tr>
+          <tr><td>\(\rho_{\text{blue}}\)</td><td>blue reflectance (Sentinel-2 B2, 490 nm)</td><td>–</td><td>0.02–0.1</td></tr>
+        </table>
+        <details><summary>Where the terms come from</summary>
+          <ol class="steps">
+            <li><strong>Aerosol resistance.</strong> Aerosol scattering adds more light in the blue than in the red. The combination \(C_1\rho_{\text{red}}-C_2\rho_{\text{blue}}\) cancels much of that additive contribution in the denominator, following the "atmospherically resistant" idea of combining blue and red.</li>
+            <li><strong>Background adjustment.</strong> The constant \(L=1\) in the denominator plays the role of SAVI's soil factor, reducing soil-brightness effects.</li>
+            <li><strong>Gain.</strong> \(G=2.5\) scales the index to a similar range as NDVI for typical vegetation.</li>
+            <li><strong>Result.</strong> Because the red term is multiplied by 6 in the denominator and NIR is not divided by a sum that approaches 2·NIR, EVI keeps rising in dense canopies where NDVI has flattened.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The coefficients were tuned for MODIS bands; they are widely used with Sentinel-2 and Landsat surface reflectance but are not exact for them. EVI needs an accurate, atmospherically corrected blue band; over bright targets (clouds, snow) the denominator can approach zero and values explode. For sensors without a blue band (many drone cameras) the two-band <strong>EVI2</strong> \(=2.5(\rho_{\text{NIR}}-\rho_{\text{red}})/(\rho_{\text{NIR}}+2.4\rho_{\text{red}}+1)\) behaves similarly (Jiang et al., 2008).</p></details>
+        <div class="eq-units">dimensionless throughout ✓</div>
+        <div class="mini-calc" data-formula="2.5*(nir-red)/(nir+6*red-7.5*blue+1)" data-output="EVI" data-digits="3" data-plot="nir" data-ymin="0" data-ymax="1">
+          <div data-var="nir" data-label="NIR reflectance ρ<sub>NIR</sub>" data-min="0.1" data-max="0.6" data-step="0.005" data-value="0.37"></div>
+          <div data-var="red" data-label="Red reflectance ρ<sub>red</sub>" data-min="0.01" data-max="0.2" data-step="0.001" data-value="0.05"></div>
+          <div data-var="blue" data-label="Blue reflectance ρ<sub>blue</sub>" data-min="0.01" data-max="0.15" data-step="0.001" data-value="0.055"></div>
+        </div>
+      </div>
+
+      <h3>Red-edge, green and water indices</h3>
+      <p>Most other indices used in agriculture have the same normalised-difference form, with different pairs of bands chosen for different targets. Sentinel-2 made the red-edge bands (B5–B7) available free of charge at 20 m, which is why red-edge indices are now common in nitrogen advice.</p>
+      <div class="eq-box" id="eq-rs-ndfamily">
+        <div class="eq-head"><span class="eq-label">The normalised-difference family: NDRE, GNDVI and NDWI</span><span class="eq-num">(11.2.6)</span></div>
+        <div class="eq-main">\[ \text{ND}(i,j)=\frac{\rho_i-\rho_j}{\rho_i+\rho_j}:\quad \text{NDRE}=\text{ND}(\text{NIR},\text{RE}),\;\; \text{GNDVI}=\text{ND}(\text{NIR},\text{green}),\;\; \text{NDWI}=\text{ND}(\text{NIR},\text{SWIR}) \]</div>
+        <p class="eq-read">a normalised difference of two bands i and j is their difference divided by their sum. NDRE uses the near-infrared and a red-edge band, GNDVI the near-infrared and green, and Gao's NDWI the near-infrared and shortwave infrared.</p>
+        <table class="symbols">
+          <tr><th>Index</th><th>Bands (Sentinel-2)</th><th>Main sensitivity</th><th>Source</th></tr>
+          <tr><td>NDRE</td><td>B8A (865) and B5 (705)</td><td>chlorophyll/N status, stays sensitive at high LAI</td><td>Barnes et al. (2000)</td></tr>
+          <tr><td>GNDVI</td><td>B8 (842) and B3 (560)</td><td>chlorophyll concentration</td><td>Gitelson et al. (1996)</td></tr>
+          <tr><td>NDWI (Gao)</td><td>B8A (865) and B11 (1610)</td><td>canopy liquid water</td><td>Gao (1996) — his original used 860 and 1240 nm; with the 1610 nm band the index is also called NDMI</td></tr>
+          <tr><td>NDWI (McFeeters)</td><td>B3 (560) and B8 (842): ND(green, NIR)</td><td>open water bodies (positive over water)</td><td>McFeeters (1996)</td></tr>
+        </table>
+        <details><summary>Why these band pairs work</summary>
+          <ol class="steps">
+            <li><strong>NDRE.</strong> At 705 nm chlorophyll absorption is weaker than in the red, so light penetrates deeper and the band does not saturate at the top of a dense canopy. Reflectance at 705 nm keeps falling as chlorophyll rises, while NIR carries the structural information: the pair tracks canopy chlorophyll (≈ nitrogen) content even at high LAI.</li>
+            <li><strong>GNDVI.</strong> Green reflectance is controlled by chlorophyll concentration over a wide range, again without the strong saturation of the red band (Gitelson et al., 1996).</li>
+            <li><strong>NDWI (Gao).</strong> Both 865 and 1610 nm are scattered by the same leaf structure, but only 1610 nm is absorbed by water. Their normalised difference isolates water content from structure.</li>
+            <li><strong>Two NDWIs!</strong> McFeeters' NDWI uses green and NIR and is designed to map lakes and flooded fields; Gao's uses NIR and SWIR and measures vegetation water. Always check which one a paper or software means.</li>
+            <li><strong>Red-edge position.</strong> Frampton et al. (2013) estimated the inflection point of the red edge from four Sentinel-2 bands by linear interpolation: \(\text{S2REP} = 705 + 35\,\dfrac{(\rho_{B4}+\rho_{B7})/2-\rho_{B5}}{\rho_{B6}-\rho_{B5}}\) nm. It moves from ≈ 715 nm in pale crops to ≈ 725 nm in dark green ones (see the readouts of Figure 3).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>All normalised differences inherit NDVI's cancellation of multiplicative effects and its sensitivity to additive ones. Red-edge bands on Sentinel-2 are 20 m, so NDRE maps are coarser than NDVI maps from the 10 m bands. Relationships between any index and nitrogen are crop-, variety- and stage-specific and need local calibration.</p></details>
+        <div class="eq-units">(– − –)/(– + –) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="(ri-rj)/(ri+rj)" data-output="ND(i, j)" data-digits="3" data-plot="rj" data-ymin="-1" data-ymax="1" data-title="Try it — any normalised difference (e.g. NDRE: i = NIR 0.37, j = red edge 0.115)">
+          <div data-var="ri" data-label="Band i reflectance ρ<sub>i</sub>" data-min="0.01" data-max="0.6" data-step="0.005" data-value="0.37"></div>
+          <div data-var="rj" data-label="Band j reflectance ρ<sub>j</sub>" data-min="0" data-max="0.6" data-step="0.005" data-value="0.115"></div>
+        </div>
+      </div>
+
+      <table>
+        <caption>Table 2. Vegetation indices used in precision agriculture and when to use them.</caption>
+        <thead><tr><th>Index</th><th>Best for</th><th>Weakness</th></tr></thead>
+        <tbody>
+          <tr><td>NDVI</td><td>biomass and cover from emergence to mid-season; long time series; any sensor with red and NIR</td><td>saturates above LAI ≈ 3; sensitive to soil background and haze</td></tr>
+          <tr><td>SAVI, MSAVI2</td><td>sparse canopies (early spring cereals, row crops)</td><td>slightly less sensitive in dense canopies</td></tr>
+          <tr><td>EVI, EVI2</td><td>dense canopies, hazy scenes</td><td>needs accurate blue band (EVI); unstable over bright targets</td></tr>
+          <tr><td>NDRE, S2REP</td><td>chlorophyll and nitrogen status, including dense crops</td><td>20 m on Sentinel-2; needs red-edge band on drones</td></tr>
+          <tr><td>GNDVI</td><td>chlorophyll concentration</td><td>also sensitive to soil and structure</td></tr>
+          <tr><td>NDWI (Gao)</td><td>canopy water content, drought stress (late indicator)</td><td>SWIR only at 20 m; mixes water and structure effects</td></tr>
+        </tbody>
+      </table>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Six indices from one Sentinel-2 pixel</span></div>
+        <div class="we-problem"><p>An atmospherically corrected (Level-2A) Sentinel-2 pixel of winter wheat near Västerås in early May (stem elongation) has these surface reflectances: B2 = 0.055, B3 = 0.085, B4 = 0.050, B5 = 0.115, B8 = 0.369, B8A = 0.371, B11 = 0.261. Calculate NDVI, SAVI (L = 0.5), EVI, NDRE (B8A, B5), GNDVI and NDWI (Gao; B8A, B11).</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>NDVI</strong> (Eq. 11.2.3): \((0.369-0.050)/(0.369+0.050) = 0.319/0.419 = 0.761\).</li>
+              <li><strong>SAVI</strong> (Eq. 11.2.4): \(1.5\times0.319/(0.419+0.5) = 0.4785/0.919 = 0.521\).</li>
+              <li><strong>EVI</strong> (Eq. 11.2.5): denominator \(0.369+6\times0.050-7.5\times0.055+1 = 0.369+0.300-0.4125+1 = 1.2565\); EVI \(= 2.5\times0.319/1.2565 = 0.635\).</li>
+              <li><strong>NDRE</strong> (Eq. 11.2.6): \((0.371-0.115)/(0.371+0.115) = 0.256/0.486 = 0.527\).</li>
+              <li><strong>GNDVI</strong>: \((0.369-0.085)/(0.369+0.085) = 0.284/0.454 = 0.626\).</li>
+              <li><strong>NDWI (Gao)</strong>: \((0.371-0.261)/(0.371+0.261) = 0.110/0.632 = 0.174\).</li>
+              <li><strong>Interpretation.</strong> An NDVI of 0.76 means a crop that covers most of the ground (LAI ≈ 2) but is not yet dense: NDVI is still in its sensitive range, so this is a good date for a variable-rate nitrogen map. The different indices are not interchangeable — each has its own scale — so a prescription must be calibrated for the index actually used.</li>
+            </ol>
+            <span class="answer">NDVI 0.761 · SAVI 0.521 · EVI 0.635 · NDRE 0.527 · GNDVI 0.626 · NDWI 0.174</span>
+          </div>
+        </details>
+      </div>
+
+      <div class="callout key"><div class="callout-title">Key idea</div><p>A vegetation index is a <strong>model</strong>, not a measurement of anything biological. It is a number that correlates with LAI, biomass, chlorophyll or water content under certain conditions. The link to the agronomic quantity you care about — kilograms of nitrogen in the crop, tonnes of yield — must always be established by calibration against field measurements (Section 11.2.9).</p></div>
+
+      <h2 id="saturation">Why NDVI saturates — and what to do about it</h2>
+      <p>Imagine a wheat crop growing from emergence to flowering. At first each new leaf covers bare soil, and NDVI shoots up. By LAI ≈ 2–3 almost no soil is visible from above, and red reflectance has nearly reached its floor of about 0.03: the top leaves absorb almost all red light, and additional leaves below them cannot absorb what never reaches them. NIR reflectance, in contrast, keeps rising to LAI ≈ 5–6, because each additional leaf layer reflects some of the NIR transmitted by the layers above (Gitelson, 2004). NDVI, however, barely notices the NIR increase. When \(\rho_{\text{red}}\ll\rho_{\text{NIR}}\), NDVI \(\approx 1-2\rho_{\text{red}}/\rho_{\text{NIR}}\), and its sensitivity to NIR,</p>
+      <div class="eq-main">\[ \frac{\partial\,\text{NDVI}}{\partial\rho_{\text{NIR}}}=\frac{2\rho_{\text{red}}}{(\rho_{\text{NIR}}+\rho_{\text{red}})^2}, \]</div>
+      <p>becomes tiny: with \(\rho_{\text{red}}=0.03\), increasing NIR from 0.40 to 0.50 (a 25 % change) moves NDVI only from 0.860 to 0.887. This is <strong>NDVI saturation</strong>. It matters practically, because the most valuable decisions — late nitrogen doses, yield forecasts, lodging risk — are made in dense canopies, exactly where NDVI has stopped changing (Carlson &amp; Ripley, 1997; Baret &amp; Guyot, 1991).</p>
+      <p>Saturation also turns small measurement errors into large errors in the estimated LAI. If an index changes by \(dV\) per unit LAI, an error \(\sigma_V\) in the index gives an LAI error of about \(\sigma_V/|dV/d\text{LAI}|\). Figure 4 makes this concrete.</p>
+
+      <figure class="figure wide" id="saturation-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — watch the indices saturate</div>
+          <div class="rs-grid">
+            <div id="sat-plot" style="min-height:340px"></div>
+            <div class="rs-ctl">
+              <div class="mc-var"><div class="mc-lab"><span>Leaf area index</span><output id="sat-lai-o"></output></div><input id="sat-lai" type="range" min="0.2" max="7.5" step="0.1" value="4" aria-label="Leaf area index"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Chlorophyll C<sub>ab</sub></span><output id="sat-cab-o"></output></div><input id="sat-cab" type="range" min="15" max="75" step="1" value="50" aria-label="Chlorophyll content"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Index noise σ</span><output id="sat-sig-o"></output></div><input id="sat-sig" type="range" min="0.005" max="0.05" step="0.005" value="0.02" aria-label="Index measurement noise"></div>
+              <div class="seg" id="sat-soil" role="group" aria-label="Soil background"><button type="button" data-v="0" aria-pressed="true">Dry soil</button><button type="button" data-v="1" aria-pressed="false">Wet soil</button></div>
+              <p class="rs-note">The LAI error is estimated as σ divided by the local slope of each index curve.</p>
+            </div>
+          </div>
+          <div class="readouts" id="sat-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 4.</b> NDVI, SAVI, EVI, NDRE and WDRVI (α = 0.1) as functions of LAI, computed from the canopy model of Figure 3 using Sentinel-2 bands. Above LAI ≈ 3 NDVI flattens while EVI and NDRE keep rising, so an index error of ±0.02 means an LAI uncertainty of about ±1 for NDVI at LAI 4, and more in denser crops. Lower chlorophyll moves all curves down — a warning that an index cannot separate "less leaf" from "paler leaf" without additional information.</figcaption>
+      </figure>
+
+      <p>What can be done? (1) Use NDVI when it is sensitive — early in the season, which is conveniently when the first nitrogen top-dressing is decided. (2) Use indices that saturate later: red-edge indices (NDRE, S2REP), EVI, or the <em>Wide Dynamic Range Vegetation Index</em> WDRVI \(=(\alpha\rho_{\text{NIR}}-\rho_{\text{red}})/(\alpha\rho_{\text{NIR}}+\rho_{\text{red}})\) with α = 0.1–0.2, whose sensitivity at LAI 2–6 is at least three times that of NDVI (Gitelson, 2004). (3) Combine optical data with radar, whose signal responds to canopy structure and biomass (Section 11.2.7). (4) Invert a physical canopy model rather than a single index, using all bands at once.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"An NDVI of 0.90 is better than 0.85, so the crop in that zone is 6 % better." Near saturation, a difference of 0.05 in NDVI can correspond to a large difference in biomass — or to no difference at all but a slightly darker soil, a different view angle or residual haze. Always ask whether the index is still in its sensitive range and whether the difference is larger than the noise.</p></div>
+
+      <h2 id="platforms">Platforms and the four resolutions</h2>
+      <p>Choosing a data source is choosing a compromise between four kinds of resolution:</p>
+      <ul>
+        <li><strong>Spatial resolution</strong> — the size of the ground area represented by one pixel, the <em>ground sampling distance</em> (GSD). Fine enough to resolve the variation you want to manage.</li>
+        <li><strong>Spectral resolution</strong> — the number, position and width of the bands. Red-edge and SWIR bands add information about chlorophyll and water that red and NIR alone cannot give.</li>
+        <li><strong>Temporal resolution</strong> — how often the same place is observed (revisit time), and in practice how often a <em>cloud-free</em> observation is obtained.</li>
+        <li><strong>Radiometric resolution</strong> — how finely the signal is quantised (bits) and how large the signal is compared with the sensor noise. Sentinel-2 records 12-bit data (4096 levels); Landsat 9 records 14 bits (Masek et al., 2020).</li>
+      </ul>
+      <p>No platform is best on all four. Satellites cover whole regions consistently but coarsely; drones are fine but cover small areas at high cost per hectare; proximal sensors on the tractor measure exactly where the fertiliser is applied, at the moment it is applied, but only along the tramlines.</p>
+      <table>
+        <caption>Table 3. Platforms for agricultural remote sensing (status as of 2026).</caption>
+        <thead><tr><th>Platform</th><th>Spatial</th><th>Spectral</th><th>Temporal</th><th>Cost / access</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Sentinel-2A/B/C</strong> (ESA Copernicus; launched 2015, 2017, 2024)</td><td>10 m (B2–B4, B8), 20 m (red edge, B8A, SWIR), 60 m (atmospheric bands); 290 km swath</td><td>13 bands, 443–2190 nm</td><td>5 days with two satellites at the equator, more often at Nordic latitudes where neighbouring orbits overlap (Drusch et al., 2012; European Space Agency, 2026)</td><td>free and open</td></tr>
+          <tr><td><strong>Landsat 8/9</strong> (NASA/USGS; 2013, 2021)</td><td>30 m (15 m panchromatic; 100 m thermal); 185 km swath</td><td>9 reflective bands + 2 thermal bands</td><td>16 days each, 8 days combined</td><td>free; archive back to 1972</td></tr>
+          <tr><td><strong>Sentinel-1</strong> (C-band radar; 1A 2014, 1C 2024, 1D 2025)</td><td>≈ 5 m × 20 m (interferometric wide mode)</td><td>one microwave frequency, two polarisations</td><td>12 days per satellite; independent of clouds and daylight</td><td>free and open</td></tr>
+          <tr><td><strong>PlanetScope</strong> (commercial constellation)</td><td>≈ 3–4 m</td><td>4–8 bands, visible to NIR incl. red edge</td><td>near-daily</td><td>commercial licence</td></tr>
+          <tr><td><strong>Drone</strong> with multispectral camera</td><td>1–10 cm (depends on flight height)</td><td>typically 5–10 bands incl. red edge; thermal on request</td><td>on demand, when weather allows flying</td><td>own equipment and time; ≈ 20 ha per battery at 100 m (Worked example 3)</td></tr>
+          <tr><td><strong>Proximal</strong> tractor or hand-held sensors (e.g. Yara N-Sensor, GreenSeeker)</td><td>sub-metre, along the driving track</td><td>a few selected bands (red edge + NIR, or red + NIR)</td><td>at every pass, in real time</td><td>purchase; works under clouds, and with active light even at night</td></tr>
+        </tbody>
+      </table>
+      <p><strong>Proximal crop sensors</strong> deserve special mention because they are the most widely used "remote" sensors on Swedish cereal farms. A tractor-roof sensor such as the Yara N-Sensor looks at the canopy on both sides of the tractor, measures reflectance in the red-edge and NIR region — which Heege et al. (2008) found to carry the best signal of nitrogen supply — and converts it, via a crop-specific calibration, into an estimate of nitrogen uptake and a spreader rate within a fraction of a second. Hand-held and tractor-mounted <strong>active</strong> sensors such as the GreenSeeker emit their own red and NIR light and measure the reflected fraction, so their NDVI does not depend on sunlight. In the classic Oklahoma experiments, sensor-based variable nitrogen at 1 m² resolution improved nitrogen use efficiency by more than 15 % compared with uniform rates (Raun et al., 2002).</p>
+
+      <h3>Ground sampling distance</h3>
+      <p>For a drone or aircraft camera, simple geometry links flight height, lens and detector to the pixel size on the ground:</p>
+      <div class="eq-box" id="eq-rs-gsd">
+        <div class="eq-head"><span class="eq-label">Ground sampling distance of a frame camera</span><span class="eq-num">(11.2.7)</span></div>
+        <div class="eq-main">\[ \text{GSD} = \frac{H\,p}{f},\qquad W_{\text{ground}} = N_{\text{px}}\cdot\text{GSD} \]</div>
+        <p class="eq-read">the ground sampling distance equals the flying height above ground times the detector pixel pitch, divided by the focal length of the lens; the width of the image on the ground is the number of pixels across times the ground sampling distance.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>GSD</td><td>ground distance between pixel centres</td><td>m (often cm)</td><td>0.02–0.10 m</td></tr>
+          <tr><td>\(H\)</td><td>flying height above ground level</td><td>m</td><td>≤ 120 (EU open category)</td></tr>
+          <tr><td>\(p\)</td><td>pixel pitch of the detector</td><td>m (µm)</td><td>2–5 µm</td></tr>
+          <tr><td>\(f\)</td><td>focal length of the lens</td><td>m (mm)</td><td>4–20 mm</td></tr>
+          <tr><td>\(N_{\text{px}}\), \(W_{\text{ground}}\)</td><td>pixels across the image; image width on the ground</td><td>–; m</td><td>1280 px; ≈ 90 m</td></tr>
+        </table>
+        <details><summary>Follow the derivation (similar triangles)</summary>
+          <ol class="steps">
+            <li>Model the camera as a pinhole at height \(H\) with the detector a distance \(f\) behind it.</li>
+            <li>A ray from the edge of one ground pixel passes through the pinhole and lands on the edge of one detector pixel. The two triangles (ground side and detector side) share the angle at the pinhole, so they are similar.</li>
+            <li>Ratios of corresponding sides are equal: \(\text{GSD}/H = p/f\), hence \(\text{GSD}=Hp/f\). ✓</li>
+            <li>The footprint follows by multiplying by the number of pixels; the field of view is \(2\arctan(N_{\text{px}}p/2f)\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Nadir view over flat ground; lens distortion ignored. The real resolving power is also limited by optics, motion blur (keep the ground movement during the exposure below about half a pixel) and image-compression artefacts. In the EU, drones in the "open" category must stay within 120 m of the ground and must not drop material or carry dangerous goods (Commission Implementing Regulation (EU) 2019/947) — which sets the coarsest GSD most farm surveys can reach.</p></details>
+        <div class="eq-units">m × m / m = m ✓ — in practical units: GSD [cm] = H [m] × p [µm] / f [mm] × 0.1</div>
+        <div class="mini-calc" data-formula="0.1*H*p/f" data-output="GSD" data-unit="cm" data-digits="2" data-plot="H">
+          <div data-var="H" data-label="Flying height H" data-min="10" data-max="120" data-step="1" data-value="100" data-unit="m"></div>
+          <div data-var="p" data-label="Pixel pitch p" data-min="1.5" data-max="6" data-step="0.05" data-value="3.75" data-unit="µm"></div>
+          <div data-var="f" data-label="Focal length f" data-min="3" data-max="25" data-step="0.1" data-value="5.4" data-unit="mm"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">Planning a drone survey of a 20 ha field</span></div>
+        <div class="we-problem"><p>A multispectral drone camera has a 5.4 mm lens and a 1280 × 960 pixel detector with 3.75 µm pixels. You will fly at 100 m over a rectangular 400 m × 500 m field, with flight lines parallel to the long side, 75 % side overlap and 75 % forward overlap, at 8 m s⁻¹. Calculate the GSD, the image footprint, the flight-line spacing, the photo interval, the number of lines and the flight time. Compare the number of pixels per band with a Sentinel-2 10 m image of the same field.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>GSD</strong> (Eq. 11.2.7): \(100\times3.75\times10^{-6}/5.4\times10^{-3} = 0.0694\) m ≈ 6.9 cm.</li>
+              <li><strong>Footprint:</strong> across track \(1280\times0.0694 = 88.9\) m; along track \(960\times0.0694 = 66.7\) m.</li>
+              <li><strong>Line spacing</strong> with 75 % side overlap: \((1-0.75)\times88.9 = 22.2\) m. <strong>Photo spacing</strong> with 75 % forward overlap: \(0.25\times66.7 = 16.7\) m, i.e. one image every \(16.7/8 = 2.1\) s.</li>
+              <li><strong>Number of lines</strong> to cover 400 m: \(400/22.22 = 18\) spacings, so \(18 + 1 = 19\) lines.</li>
+              <li><strong>Flight distance:</strong> \(19\times500 + 18\times22.2 \approx 9\,900\) m; time \(9\,900/8 \approx 1\,240\) s ≈ 21 min, plus turns, take-off and landing — about one battery.</li>
+              <li><strong>Pixels:</strong> \(200\,000\ \text{m}^2/(0.0694\ \text{m})^2 \approx 4.1\times10^{7}\) pixels per band in the mosaic, against \(200\,000/100 = 2\,000\) Sentinel-2 pixels — twenty thousand times more detail, but for one date, at the cost of an hour's work and gigabytes of processing.</li>
+            </ol>
+            <span class="answer">GSD ≈ 6.9 cm; 19 lines 22 m apart; ≈ 21 min flying; 4 × 10⁷ vs 2 × 10³ pixels</span>
+          </div>
+        </details>
+      </div>
+
+      <p>Finer is not automatically better. The right GSD depends on the scale of the decision: a fertiliser spreader with a 24 m working width and 6 m sections cannot use 7 cm information, whereas a spot sprayer or a weeding robot (<a href="/lessons/agricultural-robotics/">Lesson 11.4</a>) needs individual plants resolved. Figure 5 shows what different platforms "see" of the same field.</p>
+
+      <figure class="figure wide" id="resolution-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — one field, five resolutions</div>
+          <div class="seg rs-seg" id="res-gsd" role="group" aria-label="Ground sampling distance">
+            <button type="button" data-v="1" aria-pressed="false">Drone 0.5 m</button>
+            <button type="button" data-v="6" aria-pressed="false">PlanetScope 3 m</button>
+            <button type="button" data-v="20" aria-pressed="true">Sentinel-2 10 m</button>
+            <button type="button" data-v="40" aria-pressed="false">Sentinel-2 20 m</button>
+            <button type="button" data-v="60" aria-pressed="false">Landsat 30 m</button>
+          </div>
+          <div class="rs-grid">
+            <div><div id="res-plot" style="height:410px"></div><div id="res-cbar" style="max-width:420px;margin:6px auto 0"></div></div>
+            <div class="rs-ctl">
+              <div class="mc-var"><div class="mc-lab"><span>Crop development (mean LAI)</span><output id="res-lai-o"></output></div><input id="res-lai" type="range" min="0.5" max="5" step="0.1" value="2" aria-label="Mean leaf area index"></div>
+              <label class="ctl-toggle" style="display:flex;gap:8px;align-items:center;font-size:.85rem;margin:6px 0"><input type="checkbox" id="res-grid"> Show pixel grid</label>
+              <p class="rs-note">A 2.4 ha winter-wheat field (outlined) with tramlines every 24 m, a wet hollow, a compacted headland and a weed patch, surrounded by grass margins, a gravel road, a pond and freshly sown (bare) neighbouring fields. Red and NIR reflectances are averaged within each pixel before NDVI is computed.</p>
+            </div>
+          </div>
+          <div class="readouts" id="res-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 5.</b> Spatial resolution and mixed pixels. At 0.5 m the tramlines and the weed patch are visible; at 10 m the wet hollow is still clear but individual tramlines can no longer be resolved (they leave at most a faint striping where they fall inside pixels — aliasing); at 30 m a large share of the field's pixels straddle the edge and mix wheat with road, grass, bare soil or water. "Pure" pixels are those lying entirely inside the field boundary — only these should be used for within-field statistics.</figcaption>
+      </figure>
+      <a class="lab-link" data-lab="drone-ndvi" data-why="Fly a multispectral drone over a variable 3D wheat field, choose height and overlap, build the NDVI mosaic and turn it into management zones and a variable-rate prescription."></a>
+
+      <h2 id="atmosphere-clouds">From radiance to reliable maps: atmosphere, clouds and radar</h2>
+      <h3>Atmospheric correction</h3>
+      <p>The atmosphere affects an image twice (Figure 1). Gases absorb in known bands — water vapour near 945 and 1375 nm, oxygen at 760 nm — and molecules and aerosols scatter light, mostly at short wavelengths. Scattering adds <em>path radiance</em>, which brightens dark targets. For vegetation the red band is dark, so haze raises red reflectance proportionally much more than NIR, and NDVI drops. A simple numerical check shows how large the effect can be: a crop with surface reflectance 0.03 (red) and 0.45 (NIR) has NDVI 0.875; add a haze contribution of 0.02 in the red and 0.01 in the NIR and the apparent NDVI becomes \((0.46-0.05)/(0.46+0.05)=0.80\) — a "loss" of 0.07 that is entirely atmospheric.</p>
+      <p><strong>Atmospheric correction</strong> converts top-of-atmosphere reflectance (Eq. 11.2.1; Sentinel-2 Level-1C) into surface reflectance (Level-2A). ESA's Sen2Cor processor estimates aerosol load from dark, dense vegetation and water vapour from the 945 nm band, detects thin cirrus with the 1375 nm band, runs a radiative-transfer model, and also produces a scene classification that flags clouds, cloud shadows, snow, water and vegetation (Main-Knorn et al., 2017). The oldest and simplest method, <em>dark-object subtraction</em>, assumes that the darkest pixels in a scene (deep clear water, dense shadow) should have near-zero reflectance, and subtracts their apparent value — an estimate of path radiance — from every pixel (Chavez, 1988). For precision agriculture the lesson is simple: <strong>use Level-2A surface reflectance</strong>, and treat index changes of a few hundredths between dates with suspicion unless they are consistent across the field.</p>
+
+      <h3>Clouds in a Nordic growing season</h3>
+      <p>Optical sensors cannot see through clouds, and clouds are common exactly when agricultural decisions are made. Using ten years of twice-daily MODIS cloud flags, Whitcraft et al. (2015) showed that the early and middle parts of the growing season are cloudy over many important agricultural regions, to the point that in some areas and periods less than half of all 8-day periods yield even a 70 % clear view; they concluded that radar should be considered wherever optical monitoring is unreliable. In Sweden the window for the second nitrogen dose to winter wheat is only two or three weeks long, so the question "will I get at least one usable image in time?" is a probability question:</p>
+      <div class="eq-box" id="eq-rs-cloud">
+        <div class="eq-head"><span class="eq-label">Chance of at least one clear acquisition in a decision window</span><span class="eq-num">(11.2.8)</span></div>
+        <div class="eq-main">\[ P_{\ge 1} = 1-(1-p_c)^{\,n},\qquad n=\left\lfloor \frac{T}{\Delta t}\right\rfloor \]</div>
+        <p class="eq-read">the probability of obtaining at least one cloud-free image equals one minus the probability that every one of the n acquisitions is cloudy; n is the length of the window divided by the revisit interval, rounded down.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(p_c\)</td><td>probability that a given acquisition over the field is usable (clear)</td><td>–</td><td>0.2–0.5 in a cloudy spring</td></tr>
+          <tr><td>\(n\)</td><td>number of acquisitions in the window</td><td>–</td><td>3–8</td></tr>
+          <tr><td>\(T\)</td><td>length of the decision window</td><td>d</td><td>14–21</td></tr>
+          <tr><td>\(\Delta t\)</td><td>revisit interval</td><td>d</td><td>2–5 (Sentinel-2), 8 (Landsat 8+9)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>If acquisitions are independent and each is cloudy with probability \(1-p_c\), the probability that <em>all</em> \(n\) are cloudy is \((1-p_c)^n\) (multiplication rule for independent events).</li>
+            <li>"At least one clear" is the complement of "all cloudy": \(P_{\ge1}=1-(1-p_c)^n\). ✓</li>
+            <li>Solving for \(n\) gives the number of acquisitions needed for a target reliability \(P^*\): \(n \ge \ln(1-P^*)/\ln(1-p_c)\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Cloudiness on successive overpasses is <em>not</em> independent: weather systems last several days, so a cloudy acquisition is often followed by another. The formula therefore over-estimates the real chance of success, sometimes considerably. It is still a useful first estimate for comparing revisit frequencies — and it shows why combining Sentinel-2 with Landsat, PlanetScope, radar or a tractor sensor is attractive in the Nordic countries.</p></details>
+        <div class="eq-units">1 − (–)^(–) = dimensionless probability ✓</div>
+        <div class="mini-calc" data-formula="100*(1-pow(1-pc/100,n))" data-output="P(at least one clear image)" data-unit="%" data-digits="1" data-plot="n" data-ymin="0" data-ymax="100">
+          <div data-var="pc" data-label="Clear-sky probability per acquisition p<sub>c</sub>" data-min="5" data-max="80" data-step="1" data-value="30" data-unit="%"></div>
+          <div data-var="n" data-label="Acquisitions in the window n" data-min="1" data-max="15" data-step="1" data-value="6"></div>
+        </div>
+      </div>
+      <p>With \(p_c = 0.3\), three acquisitions (a 15-day window at a 5-day revisit) give a 66 % chance of at least one clear image; six acquisitions (overlapping orbits at high latitude) raise it to 88 %. Correlated weather lowers both numbers.</p>
+
+      <h3>Radar: Sentinel-1 sees through clouds</h3>
+      <p>A synthetic aperture radar (SAR) sends microwave pulses obliquely to the ground and records the echo. Sentinel-1 operates in the C band at 5.405 GHz, i.e. a wavelength \(\lambda=c/f\approx 5.5\) cm, which passes through clouds and needs no sunlight (Torres et al., 2012). The echo strength is expressed as the backscatter coefficient \(\sigma^0\), usually in decibels, \(\sigma^0_{\text{dB}}=10\log_{10}\sigma^0\) (so −18 dB means \(\sigma^0 = 0.016\)). It depends on surface roughness, soil moisture (through the dielectric constant of water) and canopy structure. Sentinel-1 transmits vertically polarised waves and receives both vertical (VV) and horizontal (VH) echoes. Multiple scattering inside a canopy depolarises the wave, so VH rises as biomass accumulates; the ratio VH/VV tracks crop growth in a way that complements optical indices (Veloso et al., 2017). Radar images are noisy ("speckle") and harder to interpret, but their reliability under Scandinavian skies makes them a valuable partner of optical data. After Sentinel-1B failed at the end of 2021, Sentinel-1C (launched December 2024) and Sentinel-1D (November 2025) restored the two-satellite constellation.</p>
+
+      <h3>Open data: where to get it</h3>
+      <p>All Copernicus Sentinel data are free and open. The <strong>Copernicus Data Space Ecosystem</strong> offers the full Sentinel archive together with a browser for viewing and downloading images, programming interfaces (openEO, Sentinel Hub), and cloud-hosted notebooks so that data can be processed without downloading them. Landsat data are free through the US Geological Survey. For Swedish farmers, the free CropSAT service turns Sentinel-2 images into vegetation-index maps and variable-rate nitrogen files (Söderström et al., 2017; see <a href="/lessons/precision-farming/">Lesson 11.1</a>). Ten years of Sentinel-2 imagery (since 2015) now make it possible to study how each part of a field behaves across seasons — the temporal stability that management zones require.</p>
+
+      <h2 id="thermal">Thermal remote sensing and crop water stress</h2>
+      <p>Transpiration cools leaves: evaporating one kilogram of water absorbs about 2.45 MJ of latent heat. When soil water runs short, stomata close, transpiration falls and the canopy warms up — often before any change in colour or leaf area is visible. Thermal cameras (8–14 µm) measure the long-wave radiation emitted by the canopy; with an emissivity of about 0.98 for leaves, this can be converted into canopy temperature using the Stefan–Boltzmann law (see <a href="/lessons/water-relations/">Lesson 2.2</a> for the leaf energy balance). Drones with thermal cameras resolve individual plants and rows (Maes &amp; Steppe, 2019); Landsat's thermal bands (100 m) resolve fields.</p>
+      <p>Canopy temperature alone is ambiguous: a crop is warmer on a hot, dry, calm afternoon whether or not it is stressed. Idso et al. (1981) and Jackson et al. (1981) normalised it by comparing the canopy–air temperature difference with two limits: the <em>lower baseline</em> of a well-watered crop transpiring at the potential rate (which becomes colder relative to the air as the vapour pressure deficit increases), and the <em>upper limit</em> of a crop that does not transpire at all.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 640 300" role="img" aria-label="Graph of canopy minus air temperature against vapour pressure deficit, showing a horizontal upper limit for a non-transpiring canopy, a downward sloping lower baseline for a well-watered canopy, and a measured point whose distances to the two lines define the crop water stress index">
+            <defs><marker id="rs-c1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <line x1="80" y1="250" x2="600" y2="250" class="stroke" stroke-width="1.4" marker-end="url(#rs-c1)"/>
+            <line x1="80" y1="270" x2="80" y2="20" class="stroke" stroke-width="1.4" marker-end="url(#rs-c1)"/>
+            <text x="590" y="274" text-anchor="end" class="t-small">vapour pressure deficit (kPa)</text>
+            <text x="30" y="140" class="t-small" transform="rotate(-90 30 140)" text-anchor="middle">T<tspan baseline-shift="sub" font-size="9">canopy</tspan> − T<tspan baseline-shift="sub" font-size="9">air</tspan> (°C)</text>
+            <line x1="76" y1="150" x2="600" y2="150" class="stroke-muted" stroke-width="1" stroke-dasharray="3 4"/>
+            <text x="70" y="154" text-anchor="end" class="t-small t-muted">0</text>
+            <line x1="80" y1="70" x2="580" y2="70" class="stroke-danger" stroke-width="2.2"/>
+            <text x="588" y="66" text-anchor="end" class="t-small" style="fill:var(--danger)">upper limit: no transpiration (dry reference)</text>
+            <line x1="80" y1="125" x2="580" y2="238" class="stroke-water" stroke-width="2.2"/>
+            <text x="96" y="114" class="t-small" style="fill:var(--water)">lower baseline: well watered (wet reference)</text>
+            <circle cx="380" cy="130" r="6" class="fill-magenta"/>
+            <text x="392" y="126" class="t-small" style="fill:var(--magenta)">measured canopy</text>
+            <line x1="380" y1="136" x2="380" y2="191" class="stroke-magenta" stroke-width="1.6" marker-end="url(#rs-c1)"/>
+            <line x1="380" y1="124" x2="380" y2="76" class="stroke-magenta" stroke-width="1.6" marker-end="url(#rs-c1)"/>
+            <text x="388" y="170" class="t-small">A = T<tspan baseline-shift="sub" font-size="9">c</tspan> − T<tspan baseline-shift="sub" font-size="9">wet</tspan></text>
+            <text x="388" y="102" class="t-small">B = T<tspan baseline-shift="sub" font-size="9">dry</tspan> − T<tspan baseline-shift="sub" font-size="9">c</tspan></text>
+            <text x="110" y="290" class="t-small t-muted">CWSI = A / (A + B): 0 = no stress, 1 = no transpiration</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 6.</b> The crop water stress index. At a given vapour pressure deficit, a well-watered crop is cooler than the air (lower baseline) and a non-transpiring crop is several degrees warmer (upper limit). A measured canopy temperature is placed between the two; its relative position is the CWSI (Idso et al., 1981; Jackson et al., 1981). In practice the two limits can be measured directly on wet and dry reference surfaces in the same image (Jones, 1999).</figcaption>
+      </figure>
+
+      <div class="eq-box" id="eq-rs-cwsi">
+        <div class="eq-head"><span class="eq-label">Crop water stress index (reference-surface form)</span><span class="eq-num">(11.2.9)</span></div>
+        <div class="eq-main">\[ \text{CWSI} = \frac{T_c - T_{\text{wet}}}{T_{\text{dry}} - T_{\text{wet}}}\;\approx\; 1-\frac{E}{E_p} \]</div>
+        <p class="eq-read">the crop water stress index is the canopy temperature minus the temperature of a fully transpiring reference, divided by the temperature range between a non-transpiring and a fully transpiring reference. It approximately equals one minus the ratio of actual to potential evapotranspiration.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(T_c\)</td><td>temperature of the (sunlit) crop canopy</td><td>°C</td></tr>
+          <tr><td>\(T_{\text{wet}}\)</td><td>temperature of a canopy transpiring at the maximum rate (lower baseline, or leaves sprayed with water)</td><td>°C</td></tr>
+          <tr><td>\(T_{\text{dry}}\)</td><td>temperature of a canopy with no transpiration (upper limit, or leaves coated with petroleum jelly)</td><td>°C</td></tr>
+          <tr><td>\(E, E_p\)</td><td>actual and potential evapotranspiration</td><td>mm d⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>The leaf energy balance (Lesson 2.2) gives canopy temperature as a function of net radiation, wind, vapour pressure deficit and stomatal conductance. With all weather variables fixed, canopy temperature rises monotonically as conductance — and thus transpiration — falls.</li>
+            <li>The two extreme conductances define two extreme temperatures: \(T_{\text{wet}}\) (maximum conductance) and \(T_{\text{dry}}\) (zero conductance).</li>
+            <li>Scaling the measured temperature linearly between them gives an index from 0 to 1. Jackson et al. (1981) showed from the Penman–Monteith equation that this index equals \(1-E/E_p\).</li>
+            <li>Idso's empirical version replaces \(T_{\text{wet}}\) by a "non-water-stressed baseline" \(T_c-T_a = a + b\cdot\text{VPD}\) fitted for each crop (Idso, 1982).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Works best at midday under clear skies with steady wind, and only for canopy pixels: soil in a mixed pixel is much hotter than leaves and falsely signals stress. Cloud passages, dew and shaded leaves disturb the index. At high latitudes, lower radiation and VPD make the temperature signal smaller than in the arid climates where the method was developed, so the reference-surface approach is preferred. CWSI detects stress; it does not say how much water to apply — that requires the water balance of <a href="/lessons/precision-irrigation/">Lesson 11.3</a>.</p></details>
+        <div class="eq-units">°C / °C = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="(Tc-Tw)/(Td-Tw)" data-output="CWSI" data-digits="2" data-plot="Tc" data-ymin="0" data-ymax="1.2">
+          <div data-var="Tc" data-label="Canopy temperature T<sub>c</sub>" data-min="15" data-max="40" data-step="0.1" data-value="27.4" data-unit="°C"></div>
+          <div data-var="Tw" data-label="Wet reference T<sub>wet</sub>" data-min="12" data-max="32" data-step="0.1" data-value="24.1" data-unit="°C"></div>
+          <div data-var="Td" data-label="Dry reference T<sub>dry</sub>" data-min="20" data-max="45" data-step="0.1" data-value="31.2" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">Is the potato field stressed?</span></div>
+        <div class="we-problem"><p>A drone thermal image of an irrigated potato field in Skåne, taken at 13:00 on a clear July day, shows a mean sunlit-canopy temperature of 27.4 °C in the eastern half of the field. In the same image, a patch of leaves sprayed with water measures 24.1 °C and leaves coated with petroleum jelly (no transpiration) 31.2 °C. Calculate the CWSI and the approximate ratio of actual to potential transpiration.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Temperature range between the references:</strong> \(31.2-24.1 = 7.1\) °C.</li>
+              <li><strong>Distance of the canopy above the wet reference:</strong> \(27.4-24.1 = 3.3\) °C.</li>
+              <li><strong>CWSI</strong> (Eq. 11.2.9): \(3.3/7.1 = 0.46\).</li>
+              <li><strong>Transpiration ratio:</strong> \(E/E_p\approx 1-0.46 = 0.54\): the crop is transpiring at roughly half its potential rate — clearly stressed.</li>
+              <li><strong>Sanity check and action.</strong> If the western half, irrigated two days earlier, shows CWSI ≈ 0.1 in the same image, the spatial pattern points to a blocked or mis-set sprinkler line in the east — exactly the kind of fault a thermal survey finds quickly. The irrigation depth itself must come from the soil-water balance (Lesson 11.3).</li>
+            </ol>
+            <span class="answer">CWSI ≈ 0.46; transpiration ≈ 54 % of potential</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="lai-yield">From indices to LAI, biomass and yield</h2>
+      <p>Farmers and advisers need agronomic quantities — leaf area, nitrogen uptake, biomass, expected yield — not index values. There are three routes from reflectance to these quantities (Weiss et al., 2020): <strong>empirical regressions</strong> fitted to field samples (simple, but local); <strong>physical models</strong> of leaf and canopy reflectance that are inverted to find the LAI and chlorophyll that best reproduce the observed spectrum (general, but demanding); and <strong>machine learning</strong> trained on large datasets or on simulated spectra (powerful, but only as good as the training data). A transparent semi-physical chain, useful for understanding and for quick estimates, links NDVI to cover, cover to LAI, LAI to absorbed radiation and absorbed radiation to growth:</p>
+
+      <div class="eq-box" id="eq-rs-lai">
+        <div class="eq-head"><span class="eq-label">From NDVI to LAI, absorbed radiation and biomass</span><span class="eq-num">(11.2.10)</span></div>
+        <div class="eq-main">\[ f_c=\left(\frac{\text{NDVI}-\text{NDVI}_0}{\text{NDVI}_s-\text{NDVI}_0}\right)^{2},\quad \text{LAI}=-\frac{\ln(1-f_c)}{k},\quad f_{\text{APAR}}=1-e^{-k_{\text{PAR}}\,\text{LAI}},\quad \frac{dW}{dt}=\varepsilon\, f_{\text{APAR}}\,\text{PAR} \]</div>
+        <p class="eq-read">fractional vegetation cover is the square of NDVI scaled between its bare-soil and full-cover values; leaf area index follows from inverting the Beer–Lambert gap fraction; the fraction of photosynthetically active radiation absorbed follows from LAI; and the daily biomass growth is the radiation-use efficiency times the absorbed fraction times the incident PAR.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(\text{NDVI}_0\), \(\text{NDVI}_s\)</td><td>NDVI of bare soil and of full cover (from the image or the literature)</td><td>–</td><td>0.10–0.15; 0.88–0.92</td></tr>
+          <tr><td>\(f_c\)</td><td>fractional vegetation cover seen from nadir</td><td>–</td><td>0–1</td></tr>
+          <tr><td>\(k\)</td><td>extinction coefficient for the nadir gap fraction</td><td>–</td><td>≈ 0.5 (random leaf angles)</td></tr>
+          <tr><td>\(k_{\text{PAR}}\)</td><td>extinction coefficient for daily PAR absorption</td><td>–</td><td>0.5–0.7 for cereals</td></tr>
+          <tr><td>\(f_{\text{APAR}}\)</td><td>fraction of incident PAR absorbed by the canopy</td><td>–</td><td>0–0.95</td></tr>
+          <tr><td>\(\varepsilon\)</td><td>radiation-use efficiency</td><td>g MJ⁻¹ (PAR)</td><td>≈ 2.5–3 for C3 crops</td></tr>
+          <tr><td>PAR</td><td>incident photosynthetically active radiation</td><td>MJ m⁻² d⁻¹</td><td>8–12 in a Swedish June</td></tr>
+          <tr><td>\(dW/dt\)</td><td>above-ground biomass growth rate</td><td>g m⁻² d⁻¹</td><td>10–30</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Cover from NDVI.</strong> Carlson and Ripley (1997) showed with a canopy model that cover is approximately the square of the scaled NDVI, \(N^* = (\text{NDVI}-\text{NDVI}_0)/(\text{NDVI}_s-\text{NDVI}_0)\) — not linear, for the mixing reasons of Worked example 1.</li>
+            <li><strong>LAI from cover.</strong> For leaves randomly placed in space, the probability that a vertical line of sight passes through the canopy without hitting a leaf (the gap fraction) is \(e^{-k\,\text{LAI}}\) — the Beer–Lambert law of <a href="/lessons/growth-analysis/">Lesson 2.4</a>. The cover is one minus the gap fraction, \(f_c = 1-e^{-k\text{LAI}}\); solve for LAI.</li>
+            <li><strong>Absorbed PAR.</strong> The same law applied to the daily course of the sun gives \(f_{\text{APAR}}\). Empirically, \(f_{\text{APAR}}\) is close to linear in NDVI (Asrar et al., 1984; Myneni &amp; Williams, 1994) — which is why NDVI is so useful for growth monitoring even though it is non-linear in LAI.</li>
+            <li><strong>Growth.</strong> Monteith (1977) showed that the dry matter of well-watered, well-fertilised crops increases in proportion to the radiation they absorb, with a nearly constant efficiency ε. Summing daily growth over the season and multiplying by the harvest index gives yield.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Every step adds uncertainty. The squared-NDVI relation is approximate; clumped canopies (row crops) need a clumping factor in the gap fraction; ε falls under drought, nitrogen shortage, disease and cold; the harvest index varies between years. Near saturation, LAI estimates explode (try NDVI = 0.89 in the calculator). In practice the chain is calibrated with field samples and used together with crop models and weather data, not on its own.</p></details>
+        <div class="eq-units">LAI: ln(–)/– = m² m⁻² ✓; growth: g MJ⁻¹ × – × MJ m⁻² d⁻¹ = g m⁻² d⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="rsLai" data-output="Leaf area index" data-unit="m² m⁻²" data-digits="2" data-plot="nd" data-ymin="0" data-ymax="8" data-title="Try it — LAI from NDVI (note the explosion near saturation)">
+          <div data-var="nd" data-label="Measured NDVI" data-min="0" data-max="0.92" data-step="0.005" data-value="0.80"></div>
+          <div data-var="n0" data-label="Bare-soil NDVI<sub>0</sub>" data-min="0.05" data-max="0.25" data-step="0.005" data-value="0.10"></div>
+          <div data-var="nv" data-label="Full-cover NDVI<sub>s</sub>" data-min="0.85" data-max="0.95" data-step="0.005" data-value="0.90"></div>
+          <div data-var="k" data-label="Extinction coefficient k" data-min="0.3" data-max="0.9" data-step="0.01" data-value="0.5"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">From a June Sentinel-2 image to a growth estimate</span></div>
+        <div class="we-problem"><p>On 5 June a spring barley field near Uppsala has a mean NDVI of 0.80. Bare soil in the same image has NDVI 0.10, and a nearby dense crop 0.90. Estimate cover, LAI (\(k = 0.5\)), \(f_{\text{APAR}}\) (\(k_{\text{PAR}} = 0.6\)) and the above-ground biomass the crop will add in the next 30 days if daily PAR averages 10 MJ m⁻² d⁻¹ and \(\varepsilon = 2.8\) g MJ⁻¹, assuming the canopy stays as it is.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Scaled NDVI:</strong> \(N^* = (0.80-0.10)/(0.90-0.10) = 0.875\); <strong>cover</strong> \(f_c = 0.875^2 = 0.766\).</li>
+              <li><strong>LAI:</strong> \(-\ln(1-0.766)/0.5 = -\ln(0.234)/0.5 = 1.451/0.5 = 2.9\).</li>
+              <li><strong>Absorbed fraction:</strong> \(f_{\text{APAR}} = 1-e^{-0.6\times2.9} = 1-0.175 = 0.825\).</li>
+              <li><strong>Daily growth:</strong> \(2.8\times0.825\times10 = 23.1\) g m⁻² d⁻¹ = 231 kg ha⁻¹ d⁻¹.</li>
+              <li><strong>30 days:</strong> \(30\times23.1 = 693\) g m⁻² ≈ 6.9 t ha⁻¹ of dry matter.</li>
+              <li><strong>Sanity check.</strong> Six to seven tonnes of biomass in a month of peak growth is realistic for a good cereal crop. But note the sensitivity: with NDVI 0.85 instead of 0.80 the LAI estimate jumps from 2.9 to 4.2 — the saturation problem again — while \(f_{\text{APAR}}\) changes only from 0.83 to 0.92. Growth estimates, which depend on \(f_{\text{APAR}}\), are therefore more robust than LAI estimates.</li>
+            </ol>
+            <span class="answer">f<sub>c</sub> ≈ 0.77, LAI ≈ 2.9, f<sub>APAR</sub> ≈ 0.83, ≈ 23 g m⁻² d⁻¹ → ≈ 6.9 t ha⁻¹ in 30 days</span>
+          </div>
+        </details>
+      </div>
+
+      <p><strong>Nitrogen.</strong> For fertiliser advice, the target quantity is the nitrogen already taken up by the crop. In Sweden, Söderström et al. (2017) calibrated CropSAT's MSAVI2 maps against more than 200 hand-held N-sensor measurements in winter wheat across the main agricultural regions; a national model predicted nitrogen uptake at stem elongation with a mean absolute error of 11–15 kg N ha⁻¹, and indices from Sentinel-2's narrow red-edge bands were promising alternatives. That accuracy is good enough to redistribute nitrogen within a field (as in the prescription of Lesson 11.1), even if the total dose still rests on agronomic recommendations and the expected yield. How much nitrogen the crop needs, and what happens to the rest, is the subject of <a href="/lessons/precision-irrigation/">Lesson 11.3</a>.</p>
+      <div class="callout frontier"><div class="callout-title">Frontier (2024–2026)</div><p>Three trends are changing agricultural remote sensing: (1) <strong>fusion</strong> of Sentinel-1 radar and Sentinel-2 optical time series with machine learning, so that cloudy periods no longer interrupt monitoring; (2) <strong>data assimilation</strong>, in which satellite estimates of LAI continuously correct the state of a crop-growth model driven by weather data, turning snapshots into forecasts (compare the digital twin of <a href="/lessons/digital-twins/">Lesson 10.5</a>); and (3) <strong>very frequent, very fine</strong> imagery from commercial constellations and drones that approaches the scale of individual plants. The bottleneck is increasingly not data but calibrated agronomic interpretation (Weiss et al., 2020).</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="remote-sensing-main">
+        <script type="application/json">
+        {"title":"Remote sensing and vegetation indices","questions":[
+          {"type":"numeric","q":"A Sentinel-2 pixel has red reflectance 0.06 and NIR reflectance 0.42. What is its NDVI?","answer":0.75,"abstol":0.005,"unit":"","hint":"\\(\\text{NDVI} = (\\rho_{NIR}-\\rho_{red})/(\\rho_{NIR}+\\rho_{red})\\).","explain":"<p>\\((0.42-0.06)/(0.42+0.06) = 0.36/0.48 = 0.75\\).</p>"},
+          {"type":"mcq","q":"Why does NDVI saturate in dense canopies (LAI above about 3)?","options":["Because NIR reflectance stops increasing before red reflectance does.","Because red reflectance has almost reached its minimum, and when red is small NDVI hardly responds to further increases in NIR.","Because the atmosphere absorbs all NIR radiation over dense crops.","Because dense canopies contain less chlorophyll per leaf."],"answer":1,"feedback":["It is the other way round: NIR keeps rising to LAI ≈ 5–6, red flattens at LAI ≈ 2–3.","","Atmospheric effects are not related to canopy density.","Chlorophyll per leaf is not the cause; saturation occurs even with constant chlorophyll."],"explain":"<p>With \\(\\rho_{red}\\ll\\rho_{NIR}\\), NDVI ≈ 1 − 2ρ<sub>red</sub>/ρ<sub>NIR</sub>, and \\(\\partial\\text{NDVI}/\\partial\\rho_{NIR} = 2\\rho_{red}/(\\rho_{NIR}+\\rho_{red})^2\\) becomes very small.</p>"},
+          {"type":"numeric","q":"Calculate SAVI (L = 0.5) for red reflectance 0.08 and NIR reflectance 0.30.","answer":0.375,"abstol":0.004,"unit":"","hint":"SAVI = (1 + L)(NIR − red)/(NIR + red + L).","explain":"<p>\\(1.5\\times0.22/(0.30+0.08+0.5) = 0.33/0.88 = 0.375\\).</p>"},
+          {"type":"multi","q":"Which statements about the red edge are correct? (Select all that apply.)","options":["It is the steep rise in reflectance between about 690 and 750 nm.","Its position moves to longer wavelengths when leaf chlorophyll content increases.","It is caused by absorption of NIR radiation by leaf water.","Sentinel-2 has three narrow bands (B5–B7) in the red-edge region."],"answer":[0,1,3],"explain":"<p>The red edge marks the end of chlorophyll absorption; water absorption matters in the SWIR, not here. Sentinel-2 bands B5 (705 nm), B6 (740 nm) and B7 (783 nm) sample the red edge at 20 m.</p>"},
+          {"type":"numeric","q":"A drone camera with a 8.0 mm lens and 3.45 µm pixels flies at 80 m. What is the ground sampling distance in centimetres?","answer":3.45,"tol":0.02,"unit":"cm","hint":"GSD = H p / f. Keep the units consistent.","explain":"<p>\\(80\\times3.45\\times10^{-6}/8.0\\times10^{-3} = 0.0345\\) m = 3.45 cm.</p>"},
+          {"type":"tf","q":"Gao's NDWI and McFeeters' NDWI measure the same property and can be used interchangeably.","answer":false,"explain":"<p>Gao's NDWI = ND(NIR, SWIR) measures liquid water in vegetation; McFeeters' NDWI = ND(green, NIR) maps open water. Same acronym, different indices.</p>"},
+          {"type":"numeric","q":"In a 20-day nitrogen window there are 4 Sentinel-2 acquisitions over a field. Each is usable with probability 0.35, independently. What is the probability (in %) of obtaining at least one usable image?","answer":82.1,"tol":0.01,"unit":"%","hint":"P = 1 − (1 − p)ⁿ.","explain":"<p>\\(1-0.65^4 = 1-0.1785 = 0.821\\) → 82 %. Real weather is autocorrelated, so the true probability is lower.</p>"},
+          {"type":"mcq","q":"A farmer wants to vary the nitrogen rate in real time during top-dressing, even on overcast days. Which data source is most suitable?","options":["Landsat 8/9 surface reflectance","A tractor-mounted proximal crop sensor","Sentinel-1 radar backscatter","MODIS daily NDVI at 250 m"],"answer":1,"feedback":["30 m resolution and a 16-day (8-day combined) revisit make Landsat unsuitable for real-time control, and clouds block it.","","Radar sees through clouds but its relation to nitrogen status is weak and indirect.","250 m pixels are far too coarse for within-field decisions."],"explain":"<p>Proximal sensors measure canopy reflectance at the moment and place of application; active versions carry their own light source.</p>"},
+          {"type":"numeric","q":"In a thermal image, the canopy is at 26.0 °C, a wet reference at 23.5 °C and a dry reference at 30.5 °C. What is the CWSI?","answer":0.357,"abstol":0.005,"unit":"","hint":"CWSI = (Tc − Twet)/(Tdry − Twet).","explain":"<p>\\((26.0-23.5)/(30.5-23.5) = 2.5/7.0 = 0.357\\): moderate stress, transpiration ≈ 64 % of potential.</p>"},
+          {"type":"mcq","q":"A pixel is half dense crop (red 0.03, NIR 0.45) and half bare soil (red 0.15, NIR 0.20). How does its NDVI compare with the average of the crop NDVI and the soil NDVI?","options":["It is higher than the average of the two NDVIs.","It is exactly equal to the average of the two NDVIs.","It is lower than the average of the two NDVIs.","It cannot be computed without knowing the LAI."],"answer":0,"feedback":["","NDVI is a ratio, so it does not mix linearly.","Compute it: mixture red 0.09, NIR 0.325.","The linear mixing model only needs the fractions and component reflectances."],"explain":"<p>Mixture: red 0.09, NIR 0.325 → NDVI 0.566. Components: crop 0.875, soil 0.143 → mean 0.509. The bright NIR of the crop weighs more, so the pixel NDVI is higher.</p>"},
+          {"type":"numeric","q":"Using Eq. 11.2.10 with NDVI = 0.70, NDVI₀ = 0.12, NDVIₛ = 0.90 and k = 0.5, estimate the LAI.","answer":1.61,"tol":0.03,"unit":"m² m⁻²","hint":"First N* = (NDVI − NDVI₀)/(NDVIₛ − NDVI₀), then f_c = N*², then LAI = −ln(1 − f_c)/k.","explain":"<p>\\(N^*=0.58/0.78=0.744\\); \\(f_c=0.553\\); LAI \\(=-\\ln(0.447)/0.5 = 1.61\\).</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Remote sensing</dt><dd>Measuring properties of an object without contact, by recording the electromagnetic radiation it reflects or emits; passive sensors use sunlight or thermal emission, active sensors their own source.</dd>
+        <dt>Reflectance</dt><dd>The fraction of incident radiation reflected by a surface at a given wavelength (0–1); computed from radiance, solar irradiance and sun angle, and corrected for the atmosphere to give surface reflectance.</dd>
+        <dt>Spectral signature</dt><dd>The characteristic shape of a surface's reflectance spectrum, used to distinguish vegetation, soil, water and other materials.</dd>
+        <dt>Red edge</dt><dd>The steep rise in vegetation reflectance between about 690 and 750 nm, at the end of chlorophyll absorption; its position shifts with chlorophyll content.</dd>
+        <dt>Mixed pixel</dt><dd>A pixel whose area contains more than one surface type; its reflectance is approximately the area-weighted mean of the components.</dd>
+        <dt>NDVI</dt><dd>Normalised Difference Vegetation Index, (NIR − red)/(NIR + red); increases with green biomass but saturates in dense canopies.</dd>
+        <dt>SAVI</dt><dd>Soil-Adjusted Vegetation Index, (1 + L)(NIR − red)/(NIR + red + L), which reduces the influence of soil brightness in sparse canopies.</dd>
+        <dt>EVI</dt><dd>Enhanced Vegetation Index, which uses the blue band to resist aerosol effects and remains sensitive in dense canopies.</dd>
+        <dt>NDRE</dt><dd>Normalised Difference Red-Edge index, (NIR − red edge)/(NIR + red edge); sensitive to canopy chlorophyll and nitrogen status.</dd>
+        <dt>NDWI</dt><dd>Normalised Difference Water Index; in Gao's form (NIR − SWIR)/(NIR + SWIR) it indicates vegetation water content, in McFeeters' form (green − NIR)/(green + NIR) it maps open water.</dd>
+        <dt>Ground sampling distance</dt><dd>The distance on the ground between the centres of adjacent pixels, GSD = Hp/f for a frame camera.</dd>
+        <dt>Revisit time</dt><dd>The interval between successive observations of the same place by a satellite or constellation; the useful interval is longer because of clouds.</dd>
+        <dt>Atmospheric correction</dt><dd>Removing the effects of atmospheric absorption and scattering to convert top-of-atmosphere reflectance into surface reflectance.</dd>
+        <dt>Synthetic aperture radar (SAR)</dt><dd>An active microwave imaging system, such as Sentinel-1, that works through clouds and at night and responds to surface roughness, moisture and canopy structure.</dd>
+        <dt>Crop water stress index (CWSI)</dt><dd>A thermal index that scales canopy temperature between a fully transpiring and a non-transpiring reference; approximately 1 − E/Eₚ.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can explain, with the physics of pigments, cell structure and water, why a healthy crop is dark in the red, bright in the NIR and darker again in the SWIR.</li>
+        <li>I can calculate NDVI, SAVI, EVI, NDRE, GNDVI and NDWI from band reflectances and say which index I would choose for a sparse, a dense and a water-stressed crop.</li>
+        <li>I can show with numbers why NDVI saturates and what that means for the uncertainty of an LAI estimate.</li>
+        <li>I can plan a drone survey (GSD, footprint, line spacing, flight time) and compare it with free satellite data.</li>
+        <li>I can estimate the chance of getting a cloud-free image in a decision window and explain when radar or proximal sensors are the better choice.</li>
+        <li>I can take a vegetation index through LAI and absorbed radiation to a biomass estimate and state the main assumptions.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Segarra, J., Buchaillot, M. L., Araus, J. L., &amp; Kefauver, S. C. (2020). Remote sensing for precision agriculture: Sentinel-2 improved features and applications. <em>Agronomy</em>, <em>10</em>(5), 641. <a href="https://doi.org/10.3390/agronomy10050641" target="_blank" rel="noopener">doi:10.3390/agronomy10050641</a><span class="r-why">A readable overview of Sentinel-2's bands and of how they are used to detect crop stress and guide management — the satellite behind most European precision-agriculture services.</span></li>
+        <li><span class="r-type">Required</span>Weiss, M., Jacob, F., &amp; Duveiller, G. (2020). Remote sensing for agricultural applications: A meta-review. <em>Remote Sensing of Environment</em>, <em>236</em>, 111402. <a href="https://doi.org/10.1016/j.rse.2019.111402" target="_blank" rel="noopener">doi:10.1016/j.rse.2019.111402</a><span class="r-why">Read the sections on biophysical variables and on the three routes (empirical, physical, machine learning) from reflectance to crop properties.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Xue, J., &amp; Su, B. (2017). Significant remote sensing vegetation indices: A review of developments and applications. <em>Journal of Sensors</em>, <em>2017</em>, 1353691. <a href="https://doi.org/10.1155/2017/1353691" target="_blank" rel="noopener">doi:10.1155/2017/1353691</a><span class="r-why">A catalogue of more than 100 indices with their formulas and purposes — use it as a reference, not as a novel.</span></li>
+        <li><span class="r-type">Recommended</span>Mulla, D. J. (2013). Twenty five years of remote sensing in precision agriculture: Key advances and remaining knowledge gaps. <em>Biosystems Engineering</em>, <em>114</em>(4), 358–371. <a href="https://doi.org/10.1016/j.biosystemseng.2012.08.009" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2012.08.009</a><span class="r-why">The history and the open problems of remote sensing for precision farming, from soil maps to hyperspectral and thermal sensing.</span></li>
+        <li><span class="r-type">Recommended · Swedish case</span>Söderström, M., Piikki, K., Stenberg, M., Stadig, H., &amp; Martinsson, J. (2017). Producing nitrogen (N) uptake maps in winter wheat by combining proximal crop measurements with Sentinel-2 and DMC satellite images in a decision support system for farmers. <em>Acta Agriculturae Scandinavica, Section B — Soil &amp; Plant Science</em>, <em>67</em>(7), 637–650. <a href="https://doi.org/10.1080/09064710.2017.1324044" target="_blank" rel="noopener">doi:10.1080/09064710.2017.1324044</a><span class="r-why">How index maps become nitrogen-uptake maps for Swedish farmers, and how accurate they are.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Asrar, G., Fuchs, M., Kanemasu, E. T., &amp; Hatfield, J. L. (1984). Estimating absorbed photosynthetic radiation and leaf area index from spectral reflectance in wheat. <em>Agronomy Journal</em>, <em>76</em>(2), 300–306. <a href="https://doi.org/10.2134/agronj1984.00021962007600020029x" target="_blank" rel="noopener">doi:10.2134/agronj1984.00021962007600020029x</a></li>
+        <li>Baret, F., &amp; Guyot, G. (1991). Potentials and limits of vegetation indices for LAI and APAR assessment. <em>Remote Sensing of Environment</em>, <em>35</em>(2–3), 161–173. <a href="https://doi.org/10.1016/0034-4257(91)90009-U" target="_blank" rel="noopener">doi:10.1016/0034-4257(91)90009-U</a></li>
+        <li>Barnes, E. M., Clarke, T. R., Richards, S. E., Colaizzi, P. D., Haberland, J., Kostrzewski, M., Waller, P., Choi, C., Riley, E., Thompson, T., Lascano, R. J., Li, H., &amp; Moran, M. S. (2000). Coincident detection of crop water stress, nitrogen status and canopy density using ground-based multispectral data. In P. C. Robert, R. H. Rust, &amp; W. E. Larson (Eds.), <em>Proceedings of the Fifth International Conference on Precision Agriculture</em>. ASA–CSSA–SSSA.</li>
+        <li>Carlson, T. N., &amp; Ripley, D. A. (1997). On the relation between NDVI, fractional vegetation cover, and leaf area index. <em>Remote Sensing of Environment</em>, <em>62</em>(3), 241–252. <a href="https://doi.org/10.1016/S0034-4257(97)00104-1" target="_blank" rel="noopener">doi:10.1016/S0034-4257(97)00104-1</a></li>
+        <li>Chavez, P. S. (1988). An improved dark-object subtraction technique for atmospheric scattering correction of multispectral data. <em>Remote Sensing of Environment</em>, <em>24</em>(3), 459–479. <a href="https://doi.org/10.1016/0034-4257(88)90019-3" target="_blank" rel="noopener">doi:10.1016/0034-4257(88)90019-3</a></li>
+        <li>Copernicus Data Space Ecosystem. (2026). <em>About the Copernicus Data Space Ecosystem</em>. European Commission / ESA. <a href="https://dataspace.copernicus.eu/about" target="_blank" rel="noopener">https://dataspace.copernicus.eu/about</a></li>
+        <li>Drusch, M., Del Bello, U., Carlier, S., Colin, O., Fernandez, V., Gascon, F., Hoersch, B., Isola, C., Laberinti, P., Martimort, P., Meygret, A., Spoto, F., Sy, O., Marchese, F., &amp; Bargellini, P. (2012). Sentinel-2: ESA's optical high-resolution mission for GMES operational services. <em>Remote Sensing of Environment</em>, <em>120</em>, 25–36. <a href="https://doi.org/10.1016/j.rse.2011.11.026" target="_blank" rel="noopener">doi:10.1016/j.rse.2011.11.026</a></li>
+        <li>European Commission. (2019). Commission Implementing Regulation (EU) 2019/947 of 24 May 2019 on the rules and procedures for the operation of unmanned aircraft. <em>Official Journal of the European Union</em>, L 152, 11.6.2019, p. 45 (as amended). <a href="https://eur-lex.europa.eu/eli/reg_impl/2019/947/oj" target="_blank" rel="noopener">https://eur-lex.europa.eu/eli/reg_impl/2019/947/oj</a></li>
+        <li>European Space Agency. (2026). <em>Sentinel-1</em> and <em>Sentinel-2</em> mission pages. <a href="https://www.esa.int/Applications/Observing_the_Earth/Copernicus/Sentinel-2" target="_blank" rel="noopener">https://www.esa.int/Applications/Observing_the_Earth/Copernicus/Sentinel-2</a></li>
+        <li>Frampton, W. J., Dash, J., Watmough, G., &amp; Milton, E. J. (2013). Evaluating the capabilities of Sentinel-2 for quantitative estimation of biophysical variables in vegetation. <em>ISPRS Journal of Photogrammetry and Remote Sensing</em>, <em>82</em>, 83–92. <a href="https://doi.org/10.1016/j.isprsjprs.2013.04.007" target="_blank" rel="noopener">doi:10.1016/j.isprsjprs.2013.04.007</a></li>
+        <li>Gao, B.-C. (1996). NDWI — A normalized difference water index for remote sensing of vegetation liquid water from space. <em>Remote Sensing of Environment</em>, <em>58</em>(3), 257–266. <a href="https://doi.org/10.1016/S0034-4257(96)00067-3" target="_blank" rel="noopener">doi:10.1016/S0034-4257(96)00067-3</a></li>
+        <li>Gates, D. M., Keegan, H. J., Schleter, J. C., &amp; Weidner, V. R. (1965). Spectral properties of plants. <em>Applied Optics</em>, <em>4</em>(1), 11–20. <a href="https://doi.org/10.1364/AO.4.000011" target="_blank" rel="noopener">doi:10.1364/AO.4.000011</a></li>
+        <li>Gitelson, A. A. (2004). Wide dynamic range vegetation index for remote quantification of biophysical characteristics of vegetation. <em>Journal of Plant Physiology</em>, <em>161</em>(2), 165–173. <a href="https://doi.org/10.1078/0176-1617-01176" target="_blank" rel="noopener">doi:10.1078/0176-1617-01176</a></li>
+        <li>Gitelson, A. A., Kaufman, Y. J., &amp; Merzlyak, M. N. (1996). Use of a green channel in remote sensing of global vegetation from EOS-MODIS. <em>Remote Sensing of Environment</em>, <em>58</em>(3), 289–298. <a href="https://doi.org/10.1016/S0034-4257(96)00072-7" target="_blank" rel="noopener">doi:10.1016/S0034-4257(96)00072-7</a></li>
+        <li>Heege, H. J., Reusch, S., &amp; Thiessen, E. (2008). Prospects and results for optical systems for site-specific on-the-go control of nitrogen-top-dressing in Germany. <em>Precision Agriculture</em>, <em>9</em>(3), 115–131. <a href="https://doi.org/10.1007/s11119-008-9055-3" target="_blank" rel="noopener">doi:10.1007/s11119-008-9055-3</a></li>
+        <li>Horler, D. N. H., Dockray, M., &amp; Barber, J. (1983). The red edge of plant leaf reflectance. <em>International Journal of Remote Sensing</em>, <em>4</em>(2), 273–288. <a href="https://doi.org/10.1080/01431168308948546" target="_blank" rel="noopener">doi:10.1080/01431168308948546</a></li>
+        <li>Huete, A. R. (1988). A soil-adjusted vegetation index (SAVI). <em>Remote Sensing of Environment</em>, <em>25</em>(3), 295–309. <a href="https://doi.org/10.1016/0034-4257(88)90106-X" target="_blank" rel="noopener">doi:10.1016/0034-4257(88)90106-X</a></li>
+        <li>Huete, A., Didan, K., Miura, T., Rodriguez, E. P., Gao, X., &amp; Ferreira, L. G. (2002). Overview of the radiometric and biophysical performance of the MODIS vegetation indices. <em>Remote Sensing of Environment</em>, <em>83</em>(1–2), 195–213. <a href="https://doi.org/10.1016/S0034-4257(02)00096-2" target="_blank" rel="noopener">doi:10.1016/S0034-4257(02)00096-2</a></li>
+        <li>Idso, S. B. (1982). Non-water-stressed baselines: A key to measuring and interpreting plant water stress. <em>Agricultural Meteorology</em>, <em>27</em>(1–2), 59–70. <a href="https://doi.org/10.1016/0002-1571(82)90020-6" target="_blank" rel="noopener">doi:10.1016/0002-1571(82)90020-6</a></li>
+        <li>Idso, S. B., Jackson, R. D., Pinter, P. J., Reginato, R. J., &amp; Hatfield, J. L. (1981). Normalizing the stress-degree-day parameter for environmental variability. <em>Agricultural Meteorology</em>, <em>24</em>, 45–55. <a href="https://doi.org/10.1016/0002-1571(81)90032-7" target="_blank" rel="noopener">doi:10.1016/0002-1571(81)90032-7</a></li>
+        <li>Jackson, R. D., Idso, S. B., Reginato, R. J., &amp; Pinter, P. J. (1981). Canopy temperature as a crop water stress indicator. <em>Water Resources Research</em>, <em>17</em>(4), 1133–1138. <a href="https://doi.org/10.1029/WR017i004p01133" target="_blank" rel="noopener">doi:10.1029/WR017i004p01133</a></li>
+        <li>Jacquemoud, S., &amp; Baret, F. (1990). PROSPECT: A model of leaf optical properties spectra. <em>Remote Sensing of Environment</em>, <em>34</em>(2), 75–91. <a href="https://doi.org/10.1016/0034-4257(90)90100-Z" target="_blank" rel="noopener">doi:10.1016/0034-4257(90)90100-Z</a></li>
+        <li>Jiang, Z., Huete, A. R., Didan, K., &amp; Miura, T. (2008). Development of a two-band enhanced vegetation index without a blue band. <em>Remote Sensing of Environment</em>, <em>112</em>(10), 3833–3845. <a href="https://doi.org/10.1016/j.rse.2008.06.006" target="_blank" rel="noopener">doi:10.1016/j.rse.2008.06.006</a></li>
+        <li>Jones, H. G. (1999). Use of infrared thermometry for estimation of stomatal conductance as a possible aid to irrigation scheduling. <em>Agricultural and Forest Meteorology</em>, <em>95</em>(3), 139–149. <a href="https://doi.org/10.1016/S0168-1923(99)00030-1" target="_blank" rel="noopener">doi:10.1016/S0168-1923(99)00030-1</a></li>
+        <li>Knipling, E. B. (1970). Physical and physiological basis for the reflectance of visible and near-infrared radiation from vegetation. <em>Remote Sensing of Environment</em>, <em>1</em>(3), 155–159. <a href="https://doi.org/10.1016/S0034-4257(70)80021-9" target="_blank" rel="noopener">doi:10.1016/S0034-4257(70)80021-9</a></li>
+        <li>Maes, W. H., &amp; Steppe, K. (2019). Perspectives for remote sensing with unmanned aerial vehicles in precision agriculture. <em>Trends in Plant Science</em>, <em>24</em>(2), 152–164. <a href="https://doi.org/10.1016/j.tplants.2018.11.007" target="_blank" rel="noopener">doi:10.1016/j.tplants.2018.11.007</a></li>
+        <li>Main-Knorn, M., Pflug, B., Louis, J., Debaecker, V., Müller-Wilm, U., &amp; Gascon, F. (2017). Sen2Cor for Sentinel-2. In <em>Image and Signal Processing for Remote Sensing XXIII</em> (Proceedings of SPIE, Vol. 10427, 1042704). SPIE. <a href="https://doi.org/10.1117/12.2278218" target="_blank" rel="noopener">doi:10.1117/12.2278218</a></li>
+        <li>Masek, J. G., Wulder, M. A., Markham, B., McCorkel, J., Crawford, C. J., Storey, J., &amp; Jenstrom, D. T. (2020). Landsat 9: Empowering open science and applications through continuity. <em>Remote Sensing of Environment</em>, <em>248</em>, 111968. <a href="https://doi.org/10.1016/j.rse.2020.111968" target="_blank" rel="noopener">doi:10.1016/j.rse.2020.111968</a></li>
+        <li>McFeeters, S. K. (1996). The use of the Normalized Difference Water Index (NDWI) in the delineation of open water features. <em>International Journal of Remote Sensing</em>, <em>17</em>(7), 1425–1432. <a href="https://doi.org/10.1080/01431169608948714" target="_blank" rel="noopener">doi:10.1080/01431169608948714</a></li>
+        <li>Monteith, J. L. (1977). Climate and the efficiency of crop production in Britain. <em>Philosophical Transactions of the Royal Society of London. B, Biological Sciences</em>, <em>281</em>(980), 277–294. <a href="https://doi.org/10.1098/rstb.1977.0140" target="_blank" rel="noopener">doi:10.1098/rstb.1977.0140</a></li>
+        <li>Mulla, D. J. (2013). Twenty five years of remote sensing in precision agriculture: Key advances and remaining knowledge gaps. <em>Biosystems Engineering</em>, <em>114</em>(4), 358–371. <a href="https://doi.org/10.1016/j.biosystemseng.2012.08.009" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2012.08.009</a></li>
+        <li>Myneni, R. B., &amp; Williams, D. L. (1994). On the relationship between FAPAR and NDVI. <em>Remote Sensing of Environment</em>, <em>49</em>(3), 200–211. <a href="https://doi.org/10.1016/0034-4257(94)90016-7" target="_blank" rel="noopener">doi:10.1016/0034-4257(94)90016-7</a></li>
+        <li>Qi, J., Chehbouni, A., Huete, A. R., Kerr, Y. H., &amp; Sorooshian, S. (1994). A modified soil adjusted vegetation index. <em>Remote Sensing of Environment</em>, <em>48</em>(2), 119–126. <a href="https://doi.org/10.1016/0034-4257(94)90134-1" target="_blank" rel="noopener">doi:10.1016/0034-4257(94)90134-1</a></li>
+        <li>Raun, W. R., Solie, J. B., Johnson, G. V., Stone, M. L., Mullen, R. W., Freeman, K. W., Thomason, W. E., &amp; Lukina, E. V. (2002). Improving nitrogen use efficiency in cereal grain production with optical sensing and variable rate application. <em>Agronomy Journal</em>, <em>94</em>(4), 815–820. <a href="https://doi.org/10.2134/agronj2002.8150" target="_blank" rel="noopener">doi:10.2134/agronj2002.8150</a></li>
+        <li>Rouse, J. W., Haas, R. H., Schell, J. A., &amp; Deering, D. W. (1974). Monitoring vegetation systems in the Great Plains with ERTS. In <em>Third Earth Resources Technology Satellite-1 Symposium</em> (NASA SP-351, Vol. 1, pp. 309–317). NASA.</li>
+        <li>Segarra, J., Buchaillot, M. L., Araus, J. L., &amp; Kefauver, S. C. (2020). Remote sensing for precision agriculture: Sentinel-2 improved features and applications. <em>Agronomy</em>, <em>10</em>(5), 641. <a href="https://doi.org/10.3390/agronomy10050641" target="_blank" rel="noopener">doi:10.3390/agronomy10050641</a></li>
+        <li>Söderström, M., Piikki, K., Stenberg, M., Stadig, H., &amp; Martinsson, J. (2017). Producing nitrogen (N) uptake maps in winter wheat by combining proximal crop measurements with Sentinel-2 and DMC satellite images in a decision support system for farmers. <em>Acta Agriculturae Scandinavica, Section B — Soil &amp; Plant Science</em>, <em>67</em>(7), 637–650. <a href="https://doi.org/10.1080/09064710.2017.1324044" target="_blank" rel="noopener">doi:10.1080/09064710.2017.1324044</a></li>
+        <li>Torres, R., Snoeij, P., Geudtner, D., Bibby, D., Davidson, M., Attema, E., Potin, P., Rommen, B., Floury, N., Brown, M., Traver, I. N., Deghaye, P., Duesmann, B., Rosich, B., Miranda, N., Bruno, C., L'Abbate, M., Croci, R., Pietropaolo, A., … Rostan, F. (2012). GMES Sentinel-1 mission. <em>Remote Sensing of Environment</em>, <em>120</em>, 9–24. <a href="https://doi.org/10.1016/j.rse.2011.05.028" target="_blank" rel="noopener">doi:10.1016/j.rse.2011.05.028</a></li>
+        <li>Tucker, C. J. (1979). Red and photographic infrared linear combinations for monitoring vegetation. <em>Remote Sensing of Environment</em>, <em>8</em>(2), 127–150. <a href="https://doi.org/10.1016/0034-4257(79)90013-0" target="_blank" rel="noopener">doi:10.1016/0034-4257(79)90013-0</a></li>
+        <li>Veloso, A., Mermoz, S., Bouvet, A., Le Toan, T., Planells, M., Dejoux, J.-F., &amp; Ceschia, E. (2017). Understanding the temporal behavior of crops using Sentinel-1 and Sentinel-2-like data for agricultural applications. <em>Remote Sensing of Environment</em>, <em>199</em>, 415–426. <a href="https://doi.org/10.1016/j.rse.2017.07.015" target="_blank" rel="noopener">doi:10.1016/j.rse.2017.07.015</a></li>
+        <li>Weiss, M., Jacob, F., &amp; Duveiller, G. (2020). Remote sensing for agricultural applications: A meta-review. <em>Remote Sensing of Environment</em>, <em>236</em>, 111402. <a href="https://doi.org/10.1016/j.rse.2019.111402" target="_blank" rel="noopener">doi:10.1016/j.rse.2019.111402</a></li>
+        <li>Whitcraft, A. K., Vermote, E. F., Becker-Reshef, I., &amp; Justice, C. O. (2015). Cloud cover throughout the agricultural growing season: Impacts on passive optical earth observations. <em>Remote Sensing of Environment</em>, <em>156</em>, 438–447. <a href="https://doi.org/10.1016/j.rse.2014.10.009" target="_blank" rel="noopener">doi:10.1016/j.rse.2014.10.009</a></li>
+        <li>Xue, J., &amp; Su, B. (2017). Significant remote sensing vegetation indices: A review of developments and applications. <em>Journal of Sensors</em>, <em>2017</em>, 1353691. <a href="https://doi.org/10.1155/2017/1353691" target="_blank" rel="noopener">doi:10.1155/2017/1353691</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, colorbar } from '/assets/js/plot.js';
+import { Readouts } from '/assets/js/ui.js';
+import { wavelengthCSS } from '/assets/js/colors.js';
+
+const $ = id => document.getElementById(id);
+const fillRange = el => el.style.setProperty('--fill', ((+el.value - +el.min) / (+el.max - +el.min) * 100) + '%');
+
+/* =====================================================================
+   Stylised leaf and canopy reflectance model (teaching model, see Fig. 3)
+   - leaf: chlorophyll absorption (specific absorption spectrum, cm2/ug) and
+     liquid-water absorption (approx. Hale & Querry 1973 coefficients, cm-1)
+     with a two-path-length mixture for multiple scattering inside the leaf
+   - canopy: infinite pile of leaves (Stokes / Allen-Richardson) x 0.72
+     geometry factor, blended with the soil as exp(-K LAI)
+   ===================================================================== */
+const Gs = (x, m, s) => Math.exp(-(((x - m) / s) ** 2));
+function kChl(l) {
+  if (l > 760) return 0;
+  return 0.060 * Gs(l, 440, 38) + 0.028 * Gs(l, 490, 28) + 0.070 * Gs(l, 675, 21) + 0.020 * Gs(l, 590, 70) + 0.006 * Gs(l, 630, 40) + (l < 700 ? 0.009 : 0.009 * Math.max(0, (740 - l) / 40));
+}
+const KW = [[400, 0.0003], [700, 0.006], [800, 0.02], [900, 0.07], [970, 0.45], [1050, 0.16], [1150, 1.1], [1200, 1.05], [1300, 1.2], [1400, 12], [1450, 29], [1500, 20], [1600, 6.5], [1650, 5.2], [1700, 5.6], [1800, 8.5], [1880, 30], [1940, 110], [2000, 70], [2100, 26], [2200, 17], [2300, 23], [2400, 48], [2500, 62]];
+function kW(l) {
+  if (l <= KW[0][0]) return KW[0][1];
+  for (let i = 1; i < KW.length; i++) if (l <= KW[i][0]) { const [x0, y0] = KW[i - 1], [x1, y1] = KW[i]; const t = (l - x0) / (x1 - x0); return Math.exp(Math.log(y0) + t * (Math.log(y1) - Math.log(y0))); }
+  return KW[KW.length - 1][1];
+}
+const kDM = l => l < 1100 ? 0 : 6 * Gs(l, 1730, 60) + 10 * Gs(l, 2100, 90) + 12 * Gs(l, 2300, 90) + 4;
+function leafR(l, p) {
+  const n = p.n ?? 1.5, rN = 0.24 + 0.17 * n;
+  const rmax = l < 690 ? 0.30 : l > 760 ? rN : 0.30 + (rN - 0.30) * (0.5 - 0.5 * Math.cos(Math.PI * (l - 690) / 70));
+  const w = kW(l) * p.ewt;
+  const T = Math.exp(-p.cab * kChl(l)) * (0.5 * Math.exp(-2 * w) + 0.5 * Math.exp(-6 * w)) * Math.exp(-0.01 * kDM(l));
+  return 0.025 + (rmax - 0.025) * T;
+}
+function soilR(l, wet = 0) {
+  let r = 0.07 + 0.23 * (1 - Math.exp(-(l - 380) / 520)) + 0.02 * (l > 1300 ? (l - 1300) / 1200 : 0);
+  r *= (1 - 0.06 * Gs(l, 1420, 40) - 0.09 * Gs(l, 1930, 50) - 0.05 * Gs(l, 2210, 40));
+  return r * (1 - 0.45 * wet);
+}
+const waterR = l => Math.max(0.002, 0.055 * Gs(l, 480, 90) + 0.03 * Gs(l, 560, 60) + 0.01 * Gs(l, 650, 50) + 0.003 * Gs(l, 710, 30));
+function canopyR(l, p) {
+  const rl = leafR(l, p), tl = 0.9 * rl, a = 1 + rl * rl - tl * tl;
+  const rinf = 0.72 * (a - Math.sqrt(Math.max(0, a * a - 4 * rl * rl))) / (2 * rl);
+  const K = 0.35 + 0.6 * Math.max(0, 1 - rl - tl);
+  return rinf + (soilR(l, p.wet || 0) - rinf) * Math.exp(-K * p.lai);
+}
+const S2 = { B1: [443, 21], B2: [490, 66], B3: [560, 36], B4: [665, 31], B5: [705, 15], B6: [740, 15], B7: [783, 20], B8: [842, 106], B8A: [865, 21], B9: [945, 20], B11: [1610, 91], B12: [2190, 175] };
+function band(f, b) { const [c, w] = S2[b]; let s = 0, n = 0; for (let l = c - w / 2; l <= c + w / 2 + 1e-9; l += 1) { s += f(l); n++; } return s / n; }
+const nd = (a, b) => (a - b) / (a + b);
+function indices(B) {
+  return {
+    ndvi: nd(B.B8, B.B4), savi: 1.5 * (B.B8 - B.B4) / (B.B8 + B.B4 + 0.5),
+    evi: 2.5 * (B.B8 - B.B4) / (B.B8 + 6 * B.B4 - 7.5 * B.B2 + 1),
+    ndre: nd(B.B8A, B.B5), gndvi: nd(B.B8, B.B3), ndwi: nd(B.B8A, B.B11),
+    rep: 705 + 35 * ((B.B4 + B.B7) / 2 - B.B5) / (B.B6 - B.B5),
+    wdrvi: (0.1 * B.B8 - B.B4) / (0.1 * B.B8 + B.B4)
+  };
+}
+
+/* =====================================================================
+   Figure 3: spectral signature explorer
+   ===================================================================== */
+const PRE = {
+  healthy: { mode: 'veg', cab: 50, lai: 4, ewt: 0.018, n: 1.5, wet: 0, label: 'Healthy wheat' },
+  ndef: { mode: 'veg', cab: 25, lai: 2.2, ewt: 0.017, n: 1.5, wet: 0, label: 'N-deficient wheat' },
+  senescent: { mode: 'veg', cab: 6, lai: 3, ewt: 0.006, n: 1.0, wet: 0, label: 'Senescent crop' },
+  drysoil: { mode: 'soil', wet: 0, label: 'Dry bare loam' },
+  wetsoil: { mode: 'soil', wet: 1, label: 'Wet bare loam' },
+  water: { mode: 'water', label: 'Clear water' }
+};
+const sx = { ...PRE.healthy, key: 'healthy' };
+const WL = []; for (let l = 400; l <= 2500; l += 2) WL.push(l);
+const sp = new Plot('#sx-plot', { x: { label: 'Wavelength', unit: 'nm', min: 400, max: 2400 }, y: { label: 'Reflectance', unit: '', min: 0, max: 0.7 }, legend: true });
+const sro = new Readouts('#sx-ro');
+sro.add({ id: 'ndvi', label: 'NDVI (B8, B4)', digits: 3 }).add({ id: 'ndre', label: 'NDRE (B8A, B5)', digits: 3 }).add({ id: 'gndvi', label: 'GNDVI (B8, B3)', digits: 3 })
+   .add({ id: 'evi', label: 'EVI (B8, B4, B2)', digits: 3 }).add({ id: 'ndwi', label: 'NDWI Gao (B8A, B11)', digits: 3 }).add({ id: 'rep', label: 'Red-edge position S2REP', unit: 'nm', digits: 1 });
+const refHealthy = WL.map(l => canopyR(l, PRE.healthy));
+const refSoil = WL.map(l => soilR(l, 0));
+function sxFunc() {
+  if (sx.mode === 'soil') return l => soilR(l, sx.wet);
+  if (sx.mode === 'water') return waterR;
+  return l => canopyR(l, sx);
+}
+const MAIN = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12'];
+function sxDraw() {
+  ['sx-cab', 'sx-lai', 'sx-ewt', 'sx-wet'].forEach(i => fillRange($(i)));
+  $('sx-cab-o').textContent = `${sx.cab ?? 0} µg cm⁻²`; $('sx-lai-o').textContent = (sx.lai ?? 0).toFixed(1);
+  $('sx-ewt-o').textContent = `${(sx.ewt ?? 0).toFixed(3)} cm`; $('sx-wet-o').textContent = sx.wet >= 0.99 ? 'wet' : sx.wet <= 0.01 ? 'dry' : (sx.wet * 100).toFixed(0) + ' %';
+  const f = sxFunc();
+  const ys = WL.map(f);
+  sp.custom('bands', (ctx, p, P) => {
+    const r = p.plotRect, zoom = sx.zoom;
+    ctx.font = '600 10px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.save(); ctx.beginPath(); ctx.rect(r.left, r.top, r.width, r.height); ctx.clip();
+    Object.entries(S2).forEach(([k, [c, w]]) => {
+      const x0 = p.px(c - w / 2), x1 = p.px(c + w / 2);
+      ctx.fillStyle = c < 700 ? wavelengthCSS(c, 0.12) : 'rgba(128,128,128,0.09)';
+      ctx.fillRect(x0, r.top, Math.max(1, x1 - x0), r.height);
+      ctx.fillStyle = P.muted || '#777';
+      if (zoom && c < 1000) ctx.fillText(k, (x0 + x1) / 2, r.top + 3 + ((k === 'B6' || k === 'B8A' || k === 'B3') ? 12 : 0));
+      if (!zoom && (k === 'B11' || k === 'B12')) ctx.fillText(k, (x0 + x1) / 2, r.top + 3);
+    });
+    if (!zoom) { const a = p.px(460), b = p.px(920); ctx.fillText('B1–B9 (see zoom)', (a + b) / 2 + 20, r.top + 3); }
+    ctx.restore();
+    // visible colour strip along the bottom
+    for (let l = 400; l < 700; l += 2) { ctx.fillStyle = wavelengthCSS(l, 0.9); ctx.fillRect(p.px(l), r.top + r.height - 6, p.px(l + 2) - p.px(l) + 0.5, 6); }
+  });
+  if (sx.key !== 'healthy') sp.line('ref', WL, refHealthy, { color: 'muted', width: 1.3, dash: [5, 4], label: 'Healthy wheat (reference)' }); else sp.remove('ref');
+  if (sx.mode === 'veg' && sx.key !== 'drysoil') sp.line('soil', WL, refSoil, { color: 'amber', width: 1.2, dash: [2, 3], label: 'Dry soil (reference)' }); else sp.remove('soil');
+  sp.line('cur', WL, ys, { color: 'accent', width: 2.6, label: sx.key === 'custom' ? 'Custom canopy' : PRE[sx.key].label });
+  const B = {}; Object.keys(S2).forEach(k => B[k] = band(f, k));
+  const keys = Object.keys(S2).filter(k => k !== 'B1' && k !== 'B9');
+  sp.scatter('pts', keys.map(k => S2[k][0]), keys.map(k => B[k]), { color: 'magenta', r: 4.5, label: 'Sentinel-2 band values' });
+  const I = indices(B);
+  sro.set('ndvi', I.ndvi, I.ndvi > 0.7 ? 'ok' : I.ndvi > 0.4 ? 'warn' : null);
+  sro.set('ndre', I.ndre); sro.set('gndvi', I.gndvi); sro.set('evi', I.evi); sro.set('ndwi', I.ndwi);
+  if (sx.mode === 'veg') sro.set('rep', I.rep, I.rep > 721 ? 'ok' : I.rep > 717 ? 'warn' : 'bad'); else sro.set('rep', NaN, null);
+}
+function sxPreset(k) {
+  Object.assign(sx, PRE[k], { key: k });
+  if (sx.mode === 'veg') { $('sx-cab').value = sx.cab; $('sx-lai').value = sx.lai; $('sx-ewt').value = sx.ewt; }
+  $('sx-wet').value = sx.wet ?? 0;
+  $('sx-surf').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === k));
+  sxDraw();
+}
+$('sx-surf').addEventListener('click', e => { const b = e.target.closest('button'); if (b) sxPreset(b.dataset.v); });
+['sx-cab', 'sx-lai', 'sx-ewt'].forEach(id => $(id).addEventListener('input', () => {
+  if (sx.mode !== 'veg') { Object.assign(sx, { mode: 'veg', n: 1.5 }); }
+  sx.cab = +$('sx-cab').value; sx.lai = +$('sx-lai').value; sx.ewt = +$('sx-ewt').value; sx.wet = +$('sx-wet').value; sx.key = 'custom';
+  $('sx-surf').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', 'false'));
+  sxDraw();
+}));
+$('sx-zoom').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; sx.zoom = b.dataset.v === 'zoom'; $('sx-zoom').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); sp.setAxis('x', { min: 400, max: sx.zoom ? 1000 : 2400 }); sxDraw(); });
+$('sx-wet').addEventListener('input', () => { sx.wet = +$('sx-wet').value; if (sx.mode === 'soil') { sx.key = sx.wet > 0.5 ? 'wetsoil' : 'drysoil'; $('sx-surf').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === sx.key)); } sxDraw(); });
+sxPreset('healthy');
+
+/* =====================================================================
+   Figure 4: saturation explorer
+   ===================================================================== */
+const LAIS = []; for (let v = 0; v <= 8.0001; v += 0.1) LAIS.push(+v.toFixed(2));
+const sat = { soil: 0 };
+const spl = new Plot('#sat-plot', { x: { label: 'Leaf area index', unit: 'm² m⁻²', min: 0, max: 8 }, y: { label: 'Index value', unit: '', min: -0.8, max: 1.0 }, legend: true });
+const sro2 = new Readouts('#sat-ro');
+sro2.add({ id: 'ndvi', label: 'NDVI at this LAI', digits: 3 }).add({ id: 'slope', label: 'NDVI slope dV/dLAI', digits: 3 })
+    .add({ id: 'eNDVI', label: 'LAI error from NDVI (±)', unit: 'm² m⁻²', digits: 2 }).add({ id: 'eNDRE', label: 'LAI error from NDRE (±)', unit: 'm² m⁻²', digits: 2 })
+    .add({ id: 'eEVI', label: 'LAI error from EVI (±)', unit: 'm² m⁻²', digits: 2 });
+function idxAt(lai, cab, wet) {
+  const p = { cab, lai, ewt: 0.018, n: 1.5, wet };
+  const f = l => canopyR(l, p);
+  const B = {}; ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B8A', 'B11'].forEach(k => B[k] = band(f, k));
+  return indices(B);
+}
+function satDraw() {
+  ['sat-lai', 'sat-cab', 'sat-sig'].forEach(i => fillRange($(i)));
+  const L = +$('sat-lai').value, cab = +$('sat-cab').value, sig = +$('sat-sig').value;
+  $('sat-lai-o').textContent = L.toFixed(1); $('sat-cab-o').textContent = cab + ' µg cm⁻²'; $('sat-sig-o').textContent = '± ' + sig.toFixed(3);
+  const rows = LAIS.map(v => idxAt(v, cab, sat.soil));
+  const S = [['ndvi', 'NDVI', 'accent', null], ['savi', 'SAVI (L = 0.5)', 'amber', null], ['evi', 'EVI', 'water', null], ['ndre', 'NDRE', 'magenta', null], ['wdrvi', 'WDRVI (α = 0.1)', 'c4', [6, 4]]];
+  S.forEach(([k, lab, col, dash]) => spl.line(k, LAIS, rows.map(r => r[k]), { color: col, width: 2.2, label: lab, dash }));
+  spl.vline('cur', L, { color: 'ink', dash: [3, 3] });
+  spl.text('curT', L, 1.0, 'LAI ' + L.toFixed(1), { color: 'ink', baseline: 'top', dy: 4, align: L > 6.5 ? 'right' : 'left', dx: L > 6.5 ? -4 : 4 });
+  const a = idxAt(Math.max(0, L - 0.1), cab, sat.soil), b = idxAt(L + 0.1, cab, sat.soil), c = idxAt(L, cab, sat.soil);
+  const slope = k => (b[k] - a[k]) / (L + 0.1 - Math.max(0, L - 0.1));
+  S.forEach(([k, , col]) => spl.point('p' + k, L, c[k], { color: col, r: 4.5 }));
+  sro2.set('ndvi', c.ndvi);
+  sro2.set('slope', slope('ndvi'), slope('ndvi') > 0.08 ? 'ok' : slope('ndvi') > 0.03 ? 'warn' : 'bad');
+  const err = k => sig / Math.max(1e-6, Math.abs(slope(k)));
+  const st = e => e < 0.3 ? 'ok' : e < 1 ? 'warn' : 'bad';
+  const eN = err('ndvi'), eR = err('ndre'), eE = err('evi');
+  sro2.set('eNDVI', Math.min(eN, 99), st(eN)); sro2.set('eNDRE', Math.min(eR, 99), st(eR)); sro2.set('eEVI', Math.min(eE, 99), st(eE));
+}
+['sat-lai', 'sat-cab', 'sat-sig'].forEach(i => $(i).addEventListener('input', satDraw));
+$('sat-soil').addEventListener('click', e => { const bt = e.target.closest('button'); if (!bt) return; sat.soil = +bt.dataset.v; $('sat-soil').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === bt)); satDraw(); });
+satDraw();
+
+/* =====================================================================
+   Figure 5: resolution explorer (0.5 m base grid, 240 m x 180 m)
+   ===================================================================== */
+const DX = 0.5, NX = 480, NY = 360, FIELD = { x0: 31.5, x1: 231.5, y0: 27.5, y1: 147.5 };   /* deliberately not aligned with any pixel grid */
+const LUT = []; for (let i = 0; i <= 160; i++) { const lai = i * 0.05, p = { cab: 50, lai, ewt: 0.018, n: 1.5, wet: 0 }; const f = l => canopyR(l, p); LUT.push([band(f, 'B4'), band(f, 'B8')]); }
+const lut = lai => { const t = Math.max(0, Math.min(160, lai / 0.05)), i = Math.min(159, Math.floor(t)), u = t - i; return [LUT[i][0] + (LUT[i + 1][0] - LUT[i][0]) * u, LUT[i][1] + (LUT[i + 1][1] - LUT[i][1]) * u]; };
+const grass = (() => { const p = { cab: 38, lai: 2.4, ewt: 0.016, n: 1.4, wet: 0 }; const f = l => canopyR(l, p); return [band(f, 'B4'), band(f, 'B8')]; })();
+const SOIL = [band(l => soilR(l, 0), 'B4'), band(l => soilR(l, 0), 'B8')];
+const WATER = [band(waterR, 'B4'), band(waterR, 'B8')];
+const GRAVEL = [0.20, 0.24];
+const hash = (i, j) => { const s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return s - Math.floor(s); };
+function vnoise(x, y, sc) { const X = x / sc, Y = y / sc, i = Math.floor(X), j = Math.floor(Y), u = X - i, v = Y - j; const sm = t => t * t * (3 - 2 * t); const a = hash(i, j), b = hash(i + 1, j), c = hash(i, j + 1), d = hash(i + 1, j + 1); return a + (b - a) * sm(u) + (c - a) * sm(v) + (a - b - c + d) * sm(u) * sm(v); }
+const RED = new Float32Array(NX * NY), NIR = new Float32Array(NX * NY), INF = new Uint8Array(NX * NY);
+function buildScene(meanLai) {
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    const x = (i + 0.5) * DX, y = (j + 0.5) * DX, k = j * NX + i;
+    let r, n;
+    const inField = x >= FIELD.x0 && x < FIELD.x1 && y >= FIELD.y0 && y < FIELD.y1;
+    INF[k] = inField ? 1 : 0;
+    if (inField) {
+      let lai = meanLai * (0.9 + 0.2 * vnoise(x, y, 60)) * (0.92 + 0.16 * vnoise(x, y, 3.5));
+      lai *= 1 - 0.6 * Math.exp(-(((x - 88) ** 2 + (y - 100) ** 2) / (2 * 18 ** 2)));          // wet hollow
+      const dEdge = Math.min(x - FIELD.x0, FIELD.x1 - x, y - FIELD.y0, FIELD.y1 - y);
+      if (dEdge < 10) lai *= 0.72 + 0.028 * dEdge;                                             // compacted headland
+      if ((x - 180) ** 2 + (y - 60) ** 2 < 8 ** 2) lai += 0.9 + 0.4 * vnoise(x, y, 1.5);     // weed patch
+      const xt = ((x - FIELD.x0 - 12) % 24 + 24) % 24;                                          // tramlines every 24 m
+      const tram = (Math.abs(xt - 0.9) < 0.26 || Math.abs(xt - 23.1) < 0.26) && dEdge > 9;
+      if (tram) lai *= 0.08;
+      [r, n] = lut(lai);
+      if (tram) { r = 0.8 * SOIL[0] + 0.2 * r; n = 0.8 * SOIL[1] + 0.2 * n; }
+    } else if (y >= 6 && y < 14.5) { [r, n] = GRAVEL; }                                          // gravel road
+    else if ((x - 15) ** 2 + (y - 164) ** 2 < 11 ** 2) { [r, n] = WATER; }                       // pond
+    else if (x >= FIELD.x1 || y >= FIELD.y1) { const s = 0.92 + 0.16 * vnoise(x, y, 5); r = SOIL[0] * s; n = SOIL[1] * s; }  // freshly sown neighbour fields (bare soil)
+    else { const g = 0.9 + 0.2 * vnoise(x, y, 8); r = grass[0] * (1.1 - 0.1 * g); n = grass[1] * g; }  // grass margins and verge
+    RED[k] = r; NIR[k] = n;
+  }
+}
+const rp = new Plot('#res-plot', { x: { label: 'Easting', unit: 'm', min: 0, max: 240 }, y: { label: 'Northing', unit: 'm', min: 0, max: 180 }, legend: false, crosshair: false });
+const rro = new Readouts('#res-ro');
+rro.add({ id: 'gsd', label: 'Pixel size', unit: 'm', digits: 1 }).add({ id: 'pure', label: 'Pure field pixels', digits: 0 }).add({ id: 'mixed', label: 'Mixed edge pixels', digits: 0 })
+   .add({ id: 'share', label: 'Share of field pixels that are mixed', unit: '%', digits: 0 }).add({ id: 'mean', label: 'Field NDVI from pure pixels', digits: 3 }).add({ id: 'truth', label: 'True field NDVI (0.5 m reflectances)', digits: 3 });
+const res = { b: 20 };
+function resDraw(rebuild) {
+  fillRange($('res-lai'));
+  const L = +$('res-lai').value; $('res-lai-o').textContent = L.toFixed(1);
+  if (rebuild) buildScene(L);
+  const b = res.b, nx = NX / b, ny = NY / b, Z = [];
+  let pure = 0, mixed = 0, sumPure = 0;
+  for (let J = 0; J < ny; J++) {
+    const row = [];
+    for (let I = 0; I < nx; I++) {
+      let sr = 0, sn = 0, cin = 0;
+      for (let j = J * b; j < (J + 1) * b; j++) for (let i = I * b; i < (I + 1) * b; i++) { const k = j * NX + i; sr += RED[k]; sn += NIR[k]; cin += INF[k]; }
+      const v = nd(sn, sr); row.push(v);
+      if (cin === b * b) { pure++; sumPure += v; } else if (cin > 0) mixed++;
+    }
+    Z.push(row);
+  }
+  let tr = 0, tn = 0; for (let k = 0; k < NX * NY; k++) if (INF[k]) { tr += RED[k]; tn += NIR[k]; }
+  const truth = nd(tn, tr);
+  rp.clear();
+  rp.heatmap('map', { z: Z, x0: 0, x1: 240, y0: 0, y1: 180, colormap: 'ndvi', min: -0.6, max: 1.0, smooth: false });
+  rp.custom('outline', (ctx, p) => {
+    ctx.strokeStyle = '#111'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.strokeRect(p.px(FIELD.x0), p.py(FIELD.y1), p.px(FIELD.x1) - p.px(FIELD.x0), p.py(FIELD.y0) - p.py(FIELD.y1)); ctx.setLineDash([]);
+    if ($('res-grid').checked && b >= 6) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 0.6; ctx.beginPath();
+      for (let x = 0; x <= 240 + 1e-6; x += b * DX) { ctx.moveTo(p.px(x), p.py(0)); ctx.lineTo(p.px(x), p.py(180)); }
+      for (let y = 0; y <= 180 + 1e-6; y += b * DX) { ctx.moveTo(p.px(0), p.py(y)); ctx.lineTo(p.px(240), p.py(y)); }
+      ctx.stroke();
+    }
+  });
+  colorbar($('res-cbar'), { colormap: 'ndvi', min: -0.6, max: 1.0, label: 'NDVI', unit: '' });
+  rro.set('gsd', b * DX);
+  rro.set('pure', pure, pure > 50 ? 'ok' : pure > 10 ? 'warn' : 'bad');
+  rro.set('mixed', mixed);
+  const share = 100 * mixed / Math.max(1, pure + mixed);
+  rro.set('share', share, share < 15 ? 'ok' : share < 40 ? 'warn' : 'bad');
+  rro.set('mean', pure ? sumPure / pure : NaN, pure ? (Math.abs(sumPure / pure - truth) < 0.02 ? 'ok' : 'warn') : 'bad');
+  rro.set('truth', truth);
+}
+$('res-gsd').addEventListener('click', e => { const bt = e.target.closest('button'); if (!bt) return; res.b = +bt.dataset.v; $('res-gsd').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === bt)); resDraw(false); });
+$('res-lai').addEventListener('input', () => resDraw(true));
+$('res-grid').addEventListener('change', () => resDraw(false));
+resDraw(true);
+</script>
+</body>
+</html>

@@ -1,0 +1,1029 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Water quality, fish welfare and system health · Future Food Production</title>
+<meta name="description" content="The ammonium–ammonia equilibrium and its temperature dependence, un-ionised ammonia and nitrite toxicity, chloride protection, dissolved-oxygen dynamics and aeration failures, CO₂ and the carbonate system, temperature, fish welfare and the Five Domains model, EU law, biosecurity, disease prevention and food safety in aquaponics.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Dissolved-oxygen saturation in fresh water (Benson & Krause 1984; same formula as physics.js doSaturation). T in °C, P in kPa. */
+FFP_CALC.doSat = v => {
+  const T = v.T, Tk = T + 273.15, P = v.P == null ? 101.325 : v.P;
+  const lnC = -139.34411 + 1.575701e5 / Tk - 6.642308e7 / Tk ** 2 + 1.243800e10 / Tk ** 3 - 8.621949e11 / Tk ** 4;
+  const Patm = P / 101.325, u = Math.exp(11.8571 - 3840.70 / Tk - 216961 / Tk ** 2), th = 0.000975 - 1.426e-5 * T + 6.436e-8 * T * T;
+  return Math.exp(lnC) * Patm * ((1 - u / Patm) * (1 - th * Patm)) / ((1 - u) * (1 - th));
+};
+/* First dissociation constant of carbonic acid, pK1(T) (Plummer & Busenberg 1982) */
+FFP_CALC.pK1 = T => { const Tk = T + 273.15; return -(-356.3094 - 0.06091964 * Tk + 21834.37 / Tk + 126.8339 * Math.log10(Tk) - 1684915 / Tk ** 2); };
+/* Free CO2 (mg/L) from alkalinity (mg/L as CaCO3), pH and temperature, valid below pH 8.3 */
+FFP_CALC.co2Alk = v => (44.01 / 50.04) * v.alk * Math.pow(10, FFP_CALC.pK1(v.T) - v.pH);
+/* CO2 in equilibrium with air (mg/L): Weiss (1974) solubility K0 (mol kg-1 atm-1) × pCO2 */
+FFP_CALC.co2Eq = v => { const Tk = v.T + 273.15; const K0 = Math.exp(-58.0931 + 90.5069 * (100 / Tk) + 22.2940 * Math.log(Tk / 100)); return K0 * v.p * 1e-6 * 44.01 * 1000; };
+</script>
+</head>
+<body data-page="lesson" data-slug="fish-water-quality">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Water quality, fish welfare and system health</h1>
+      <p class="lead">For a fish, water is air, dining room, toilet and medicine cabinet at once. Its gills — a barrier only one or two cells thick between blood and water, spread over a surface that is huge for the size of the animal — exchange oxygen, carbon dioxide, ammonia and ions with the water every second. Whatever the plants, bacteria and engineers do to that water, the fish feels immediately. This lesson looks at an aquaponic system from the fish's side of the gill: the chemistry that decides whether ammonia and nitrite are harmless or lethal, the oxygen budget that can collapse in minutes, the carbonate system that links pH, alkalinity and CO₂, the Five Domains of animal welfare and the European rules that apply to farmed fish, and the biosecurity and food-safety practices that keep fish, plants and consumers healthy.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Derive the fraction of un-ionised ammonia from the NH₄⁺/NH₃ equilibrium and the temperature dependence of its pK<sub>a</sub>, and calculate NH₃-N and the maximum allowable TAN for species-specific limits (LO2, LO3).</li>
+        <li>Explain how nitrite causes methaemoglobinaemia and how chloride protects fish, and calculate salt doses for a target chloride-to-nitrite ratio while respecting the sodium tolerance of plants (LO2, LO3).</li>
+        <li>Predict dissolved-oxygen dynamics from saturation, oxygen demand and aeration, and estimate how long fish survive an aeration failure (LO3).</li>
+        <li>Use the carbonate system to relate pH, alkalinity and CO₂, and explain CO₂ accumulation, stripping and the effects of temperature (LO2, LO3).</li>
+        <li>Assess fish welfare with the Five Domains model and operational welfare indicators, and explain biosecurity, disease prevention, food safety and the EU legal framework for aquaponic fish (LO6, LO7).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+
+      <h2 id="fish-view">Water quality from the fish's point of view</h2>
+      <p class="lede-drop">Fish blood comes within one or two cells of the water as it passes through the gills and skin (Wurts &amp; Durborow, 1992). That thin barrier makes gas exchange efficient — and makes fish exquisitely sensitive to what is dissolved around them. Water supplies the oxygen fish breathe, dilutes and removes their toxic metabolites and supports them against gravity; inappropriate water quality impairs physiology, growth and feed efficiency, triggers the release of stress hormones and, if severe or prolonged, suppresses immune function or kills (Yavuzcan Yildiz et al., 2017). Fish pathogens are present in almost any water, and fish normally resist them — unless water quality, handling and crowding overload their capacity to cope (Yavuzcan Yildiz et al., 2019). Good water quality is therefore the foundation of fish welfare, fish health <em>and</em> production in aquaponics.</p>
+      <p>The difficulty is that the water-quality variables are not independent. Feeding drives respiration and excretion; respiration consumes oxygen and releases CO₂; CO₂ and nitrification lower the pH; the pH decides how much of the ammonia is in its toxic form; temperature changes almost everything at once. Figure 1 maps the main links, which the rest of this lesson quantifies one by one.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 420" role="img" aria-label="Causal map of water-quality variables in an aquaponic fish tank: feed drives fish respiration and excretion and nitrification, which change dissolved oxygen, carbon dioxide, alkalinity, pH, the toxic ammonia share and nitrite">
+            <defs>
+              <marker id="w1k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+            </defs>
+            <g stroke="currentColor" stroke-width="1.3">
+              <rect x="20" y="40" width="140" height="42" rx="8" class="fill-amber-soft"/>
+              <rect x="195" y="40" width="160" height="42" rx="8" class="fill-water-soft"/>
+              <rect x="440" y="40" width="160" height="42" rx="8" class="fill-accent-soft"/>
+              <rect x="70" y="168" width="150" height="42" rx="8" class="fill-bg"/>
+              <rect x="265" y="168" width="130" height="42" rx="8" class="fill-bg"/>
+              <rect x="480" y="168" width="150" height="42" rx="8" class="fill-bg"/>
+              <rect x="380" y="282" width="130" height="42" rx="8" class="fill-bg"/>
+              <rect x="170" y="282" width="170" height="42" rx="8" class="fill-magenta-soft"/>
+              <rect x="630" y="282" width="120" height="42" rx="8" class="fill-magenta-soft"/>
+              <rect x="630" y="362" width="120" height="40" rx="8" class="fill-sunk"/>
+              <rect x="20" y="350" width="330" height="56" rx="8" class="fill-amber-soft"/>
+            </g>
+            <text x="90" y="66" text-anchor="middle" font-weight="600">Feed</text>
+            <text x="275" y="59" text-anchor="middle" font-weight="600">Fish</text><text x="275" y="75" text-anchor="middle" class="t-small">respiration, excretion</text>
+            <text x="520" y="59" text-anchor="middle" font-weight="600">Nitrifiers</text><text x="520" y="75" text-anchor="middle" class="t-small">NH₄⁺ → NO₂⁻ → NO₃⁻</text>
+            <text x="145" y="194" text-anchor="middle" font-weight="600">Dissolved O₂</text>
+            <text x="330" y="194" text-anchor="middle" font-weight="600">CO₂</text>
+            <text x="555" y="194" text-anchor="middle" font-weight="600">Alkalinity</text>
+            <text x="445" y="308" text-anchor="middle" font-weight="600">pH</text>
+            <text x="255" y="301" text-anchor="middle" font-weight="600">toxic NH₃ share</text><text x="255" y="317" text-anchor="middle" class="t-small">of TAN</text>
+            <text x="690" y="301" text-anchor="middle" font-weight="600">Nitrite</text><text x="690" y="317" text-anchor="middle" class="t-small">NO₂⁻</text>
+            <text x="690" y="387" text-anchor="middle" font-weight="600">Chloride</text>
+            <text x="32" y="372" font-weight="600">Temperature ↑</text>
+            <text x="32" y="392" class="t-small">metabolism and O₂ demand ↑ · O₂ solubility ↓ · NH₃ share ↑</text>
+            <g class="stroke-muted" stroke-width="1.8" fill="none">
+              <path d="M160 61 H 191" marker-end="url(#w1k)"/>
+              <path d="M355 61 H 436" marker-end="url(#w1k)"/>
+              <path d="M240 82 L 170 164" marker-end="url(#w1k)"/>
+              <path d="M300 82 L 320 164" marker-end="url(#w1k)"/>
+              <path d="M470 82 L 222 178" marker-end="url(#w1k)"/>
+              <path d="M540 82 L 552 164" marker-end="url(#w1k)"/>
+              <path d="M598 82 L 678 278" marker-end="url(#w1k)"/>
+              <path d="M360 210 L 420 278" marker-end="url(#w1k)"/>
+              <path d="M525 210 L 470 278" marker-end="url(#w1k)"/>
+              <path d="M380 303 H 344" marker-end="url(#w1k)"/>
+              <path d="M690 362 V 328" marker-end="url(#w1k)"/>
+            </g>
+            <g class="t-small t-mono">
+              <text x="396" y="54" text-anchor="middle">TAN +</text>
+              <text x="186" y="126" style="fill:var(--danger)">−</text>
+              <text x="318" y="126">+</text>
+              <text x="336" y="154" style="fill:var(--danger)">− O₂ use</text>
+              <text x="556" y="130" style="fill:var(--danger)">− acid</text>
+              <text x="648" y="170">+ if NOB lag</text>
+              <text x="398" y="246" style="fill:var(--danger)">−</text>
+              <text x="506" y="246">+ buffers</text>
+              <text x="360" y="296">+</text>
+              <text x="698" y="350">protects</text>
+            </g>
+            <text x="390" y="410" class="t-small t-muted">+ raises, − lowers the variable the arrow points to</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The web of water-quality variables in an aquaponic fish tank. Feed drives fish respiration and excretion; ammonia (TAN) feeds the nitrifiers, which consume oxygen and alkalinity and may release nitrite when nitrite oxidisers lag behind; CO₂ and lost alkalinity lower the pH; a higher pH and a higher temperature increase the share of TAN present as toxic NH₃; chloride protects against nitrite. Arrow signs show the direction of each effect.</figcaption>
+      </figure>
+      <p>Table 1 collects the water-quality guidelines used in this lesson. Two lessons emerge from it. First, species differ: a rainbow trout needs colder, better-oxygenated and cleaner water than a tilapia. Second, sources differ, because they were written for different purposes — survival, growth or welfare — and sometimes express the same limit in different chemical units. Always check which form a number refers to (NH₃ or NH₃-N, NO₂⁻ or NO₂⁻-N).</p>
+      <table>
+        <caption>Table 1. Water-quality guidelines for fish in recirculating aquaculture and aquaponics.</caption>
+        <thead><tr><th>Variable</th><th>Warm-water fish (e.g. tilapia)</th><th>Cold-water fish (e.g. rainbow trout)</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>Optimal temperature</td><td>27–30 °C</td><td>14–16 °C (vital range 10–18 °C)</td><td>Somerville et al. (2014)</td></tr>
+          <tr><td>Dissolved oxygen</td><td>&gt; 4 mg L⁻¹; ≥ 5 mg L⁻¹ or ≥ 60 % saturation for good growth</td><td>&gt; 6 mg L⁻¹</td><td>Yavuzcan Yildiz et al. (2017); Masser et al. (1999)</td></tr>
+          <tr><td>pH</td><td colspan="2">6–8.5 (FAO); 6.5–9 for aquaculture, 7–8 desirable</td><td>Somerville et al. (2014); Wurts &amp; Durborow (1992)</td></tr>
+          <tr><td>Total ammonia nitrogen (TAN)</td><td>&lt; 2 mg L⁻¹</td><td>&lt; 0.5 mg L⁻¹</td><td>Somerville et al. (2014)</td></tr>
+          <tr><td>Un-ionised ammonia (NH₃-N)</td><td>&lt; 0.05 mg L⁻¹; effects from 0.02–0.07</td><td>&lt; 0.02 mg L⁻¹</td><td>Masser et al. (1999); Yavuzcan Yildiz et al. (2017)</td></tr>
+          <tr><td>Nitrite-N</td><td>&lt; 1 mg L⁻¹ (tilapia little stressed below 5)</td><td>&lt; 0.1–0.3 mg L⁻¹</td><td>Somerville et al. (2014, Tables 3.1 and 7.1); Masser et al. (1999)</td></tr>
+          <tr><td>Nitrate-N</td><td>&lt; 250 mg L⁻¹ (Nile tilapia)</td><td>&lt; 100 mg L⁻¹; chronic effects at 80–100</td><td>Goddek et al. (2015); Davidson et al. (2014)</td></tr>
+          <tr><td>Free CO₂</td><td colspan="2">&lt; 20 mg L⁻¹</td><td>Losordo et al. (1998); Masser et al. (1999)</td></tr>
+          <tr><td>Alkalinity</td><td colspan="2">50–100 mg L⁻¹ as CaCO₃ or more; 75–200 desirable</td><td>Masser et al. (1999); Wurts &amp; Durborow (1992)</td></tr>
+        </tbody>
+      </table>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 330" role="img" aria-label="A secondary gill lamella in cross-section, with water and blood flowing in opposite directions, oxygen diffusing into the blood, carbon dioxide and ammonia diffusing out, chloride and nitrite taken up by an ionocyte, and nitrite converting haemoglobin to methaemoglobin in a red blood cell">
+            <defs>
+              <marker id="w2w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--water)"/></marker>
+              <marker id="w2m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--magenta)"/></marker>
+              <marker id="w2k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:currentColor"/></marker>
+              <marker id="w2d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--danger)"/></marker>
+            </defs>
+            <rect x="40" y="30" width="680" height="100" class="fill-water-soft"/>
+            <text x="56" y="52" font-weight="600" style="fill:var(--water)">Water</text>
+            <line x1="140" y1="48" x2="300" y2="48" class="stroke-water" stroke-width="3" marker-end="url(#w2w)"/>
+            <rect x="40" y="130" width="680" height="16" class="fill-sunk" stroke="currentColor" stroke-width="1"/>
+            <text x="662" y="143" text-anchor="middle" class="t-small">epithelium, 1–2 cells</text>
+            <rect x="40" y="146" width="680" height="120" class="fill-magenta-soft"/>
+            <text x="56" y="256" font-weight="600" style="fill:var(--magenta)">Blood</text>
+            <line x1="300" y1="252" x2="140" y2="252" class="stroke-magenta" stroke-width="3" marker-end="url(#w2m)"/>
+            <text x="310" y="256" class="t-small">countercurrent flow</text>
+            <!-- O2 in -->
+            <line x1="200" y1="78" x2="200" y2="176" class="stroke-water" stroke-width="2.4" marker-end="url(#w2w)"/>
+            <text x="208" y="96" class="t-small" font-weight="600">O₂ in</text>
+            <!-- CO2 out -->
+            <line x1="290" y1="186" x2="290" y2="84" stroke="currentColor" stroke-width="2.2" marker-end="url(#w2k)"/>
+            <text x="298" y="96" class="t-small" font-weight="600">CO₂ out</text>
+            <!-- NH3 out -->
+            <line x1="380" y1="186" x2="380" y2="84" stroke="currentColor" stroke-width="2.2" marker-end="url(#w2k)"/>
+            <text x="388" y="96" class="t-small" font-weight="600">NH₃ out</text>
+            <text x="388" y="112" class="t-small t-muted">NH₄⁺ barely crosses</text>
+            <!-- ionocyte -->
+            <ellipse cx="530" cy="138" rx="48" ry="26" class="fill-accent-soft" stroke="currentColor" stroke-width="1.2"/>
+            <text x="530" y="142" text-anchor="middle" class="t-small">ionocyte</text>
+            <line x1="505" y1="70" x2="515" y2="110" class="stroke-water" stroke-width="2" marker-end="url(#w2w)"/>
+            <text x="470" y="66" class="t-small" font-weight="600">Cl⁻</text>
+            <line x1="560" y1="70" x2="548" y2="110" class="stroke-danger" stroke-width="2" marker-end="url(#w2d)"/>
+            <text x="560" y="66" class="t-small" font-weight="600" style="fill:var(--danger)">NO₂⁻ competes</text>
+            <line x1="540" y1="164" x2="574" y2="194" class="stroke-danger" stroke-width="2" marker-end="url(#w2d)"/>
+            <!-- red blood cell -->
+            <ellipse cx="640" cy="214" rx="76" ry="26" class="fill-bg" style="stroke:var(--danger)" stroke-width="1.6"/>
+            <text x="640" y="210" text-anchor="middle" class="t-small">Hb-Fe²⁺ → metHb-Fe³⁺</text>
+            <text x="640" y="225" text-anchor="middle" class="t-small t-muted">cannot carry O₂</text>
+            <text x="40" y="292" class="t-small">Oxygen diffuses from water to blood; CO₂ and un-ionised NH₃ diffuse the other way. Water and blood flow in opposite directions,</text>
+            <text x="40" y="310" class="t-small">so a concentration gradient exists along the whole lamella. Nitrite enters through the chloride-uptake pathway and oxidises haemoglobin.</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> A gill lamella in cross-section (schematic). The barrier between water and blood is one or two cells thick (Wurts &amp; Durborow, 1992). Biological membranes are permeable to un-ionised NH₃ but relatively impermeable to NH₄⁺, and ammonia leaves the fish by diffusion down its gradient; nitrite is actively taken up through the chloride cells (ionocytes) in competition with chloride and oxidises the iron of haemoglobin to form methaemoglobin (Yavuzcan Yildiz et al., 2017; Kroupova, Machova &amp; Svobodova, 2005).</figcaption>
+      </figure>
+
+      <h2 id="ammonia">Ammonia: the equilibrium that decides toxicity</h2>
+      <p>Test kits and laboratory methods measure total ammonia nitrogen (TAN): the sum of ammonium ions (NH₄⁺) and un-ionised ammonia (NH₃), expressed as nitrogen. Only a fraction of TAN is present as NH₃, but that fraction is what matters, because biological membranes are permeable to NH₃ and relatively impermeable to NH₄⁺ (Yavuzcan Yildiz et al., 2017). Ammonia normally leaves the fish across the gills by diffusion down its concentration gradient; high external NH₃ reverses the gradient, so ammonia is retained or even taken up. Acute ammonia toxicity acts on the central nervous system; chronic exposure damages gills and kidneys, slows growth, reduces the oxygen-carrying capacity of the blood and raises stress hormones (Randall &amp; Tsui, 2002; Durborow, Crosby &amp; Brunson, 1997a; Yavuzcan Yildiz et al., 2017). The balance between the two forms is an acid–base equilibrium.</p>
+      <div class="eq-box" id="eq-nh3-fraction">
+        <div class="eq-head"><span class="eq-label">Ammonium–ammonia equilibrium and the un-ionised fraction</span><span class="eq-num">(6.3.1)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{NH}_4^+ \rightleftharpoons \text{NH}_3 + \text{H}^+, \qquad K_a = \frac{[\text{NH}_3][\text{H}^+]}{[\text{NH}_4^+]} \\[6pt] f_{\text{NH}_3} = \frac{[\text{NH}_3]}{[\text{NH}_3]+[\text{NH}_4^+]} = \frac{1}{1+10^{\,\text{p}K_a-\text{pH}}} \end{gathered} \]</div>
+        <p class="eq-read">ammonium gives up a hydrogen ion to become ammonia; the acid dissociation constant relates the three concentrations; the fraction of total ammonia present as un-ionised ammonia is one divided by one plus ten raised to the power pKa minus pH.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(K_a,\ \text{p}K_a\)</td><td>acid dissociation constant of NH₄⁺; \(\text{p}K_a = -\log_{10}K_a\)</td><td>mol L⁻¹; –</td><td>p\(K_a\) 9.40 at 20 °C</td></tr>
+          <tr><td>[ ]</td><td>molar concentration (activity) of a species</td><td>mol L⁻¹</td><td></td></tr>
+          <tr><td>\(f_{\text{NH}_3}\)</td><td>fraction of TAN present as NH₃</td><td>–</td><td>0.004 at pH 7, 20 °C</td></tr>
+          <tr><td>pH</td><td>\(-\log_{10}[\text{H}^+]\)</td><td>–</td><td>6–8.5</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Mass action at equilibrium: \(K_a = [\text{NH}_3][\text{H}^+]/[\text{NH}_4^+]\), so \([\text{NH}_4^+]/[\text{NH}_3] = [\text{H}^+]/K_a = 10^{-\text{pH}}/10^{-\text{p}K_a} = 10^{\,\text{p}K_a-\text{pH}}\).</li>
+            <li>Divide numerator and denominator of \(f = [\text{NH}_3]/([\text{NH}_3]+[\text{NH}_4^+])\) by \([\text{NH}_3]\): \(f = 1/(1 + [\text{NH}_4^+]/[\text{NH}_3]) = 1/(1+10^{\,\text{p}K_a-\text{pH}})\).</li>
+            <li>At pH = p\(K_a\), \(f = 0.5\). Far below p\(K_a\), \(f \approx 10^{\,\text{pH}-\text{p}K_a}\): every unit increase in pH multiplies the toxic fraction by about ten (Durborow et al., 1997a) — at pH 7 and 8 and 20 °C it rises from 0.39 % to 3.8 %.</li>
+            <li>Un-ionised ammonia as nitrogen: \(\text{NH}_3\text{-N} = f\cdot\text{TAN}\). To express it as the NH₃ molecule, multiply by 17.03/14.01 = 1.216.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Concentrations stand in for activities, which is adequate in fresh water; in saline water the p\(K_a\) rises slightly. The pH that matters to the fish is the pH in the thin water layer next to the gill, which differs from the bulk pH measured in the tank; the equation gives the bulk value.</p></details>
+        <div class="eq-units">\(\dfrac{(\text{mol L}^{-1})(\text{mol L}^{-1})}{\text{mol L}^{-1}} = \text{mol L}^{-1}\) for \(K_a\); \(f\) is dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100/(1+pow(10,0.09018+2729.92/(T+273.15)-pH))" data-output="Share of TAN present as NH₃" data-unit="%" data-digits="3" data-plot="pH" data-ymin="0">
+          <div data-var="pH" data-label="pH" data-min="6" data-max="9.5" data-step="0.05" data-value="7.5"></div>
+          <div data-var="T" data-label="Water temperature" data-min="2" data-max="34" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+      <p>The p\(K_a\) itself depends on temperature, and more strongly than most students expect. Emerson et al. (1975) fitted the published measurements with a simple function that is still the standard in aquaculture; the tables in extension sheets such as SRAC 463 are calculated from it (Durborow et al., 1997a), and so are the calculators in this course.</p>
+      <div class="eq-box" id="eq-pka">
+        <div class="eq-head"><span class="eq-label">Temperature dependence of the ammonium pK<sub>a</sub> (Emerson et al., 1975)</span><span class="eq-num">(6.3.2)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{p}K_a = 0.09018 + \frac{2729.92}{T} \\[6pt] \text{van 't Hoff form:}\quad \text{p}K_a = -\frac{\Delta S^{\circ}}{R\ln 10} + \frac{\Delta H^{\circ}}{R\ln 10}\cdot\frac{1}{T} \end{gathered} \]</div>
+        <p class="eq-read">the pKa of ammonium equals 0.09018 plus 2729.92 divided by the absolute temperature; this is the van 't Hoff form of the equilibrium, in which the slope is the reaction enthalpy and the intercept the reaction entropy, each divided by R times the natural logarithm of ten.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(T\)</td><td>absolute temperature (°C + 273.15)</td><td>K</td><td>273–310</td></tr>
+          <tr><td>\(\Delta H^{\circ}\)</td><td>standard enthalpy of dissociation of NH₄⁺</td><td>J mol⁻¹</td><td>2729.92 × 8.314 × 2.303 ≈ 52.3 kJ mol⁻¹</td></tr>
+          <tr><td>\(\Delta S^{\circ}\)</td><td>standard entropy of dissociation</td><td>J mol⁻¹ K⁻¹</td><td>−0.09018 × 8.314 × 2.303 ≈ −1.7</td></tr>
+          <tr><td>\(R\)</td><td>gas constant</td><td>J mol⁻¹ K⁻¹</td><td>8.314</td></tr>
+        </table>
+        <details><summary>Follow the derivation (van 't Hoff)</summary>
+          <ol class="steps">
+            <li>The standard free energy of a reaction is linked to its equilibrium constant: \(\Delta G^{\circ} = -RT\ln K_a\), and \(\Delta G^{\circ} = \Delta H^{\circ} - T\Delta S^{\circ}\).</li>
+            <li>Combine: \(\ln K_a = -\Delta H^{\circ}/(RT) + \Delta S^{\circ}/R\). If \(\Delta H^{\circ}\) and \(\Delta S^{\circ}\) are constant over the temperature range, \(\ln K_a\) is linear in \(1/T\) (van 't Hoff).</li>
+            <li>Convert to base 10 and change sign: \(\text{p}K_a = -\ln K_a/\ln10 = \Delta H^{\circ}/(RT\ln10) - \Delta S^{\circ}/(R\ln10)\).</li>
+            <li>Matching Emerson's coefficients: slope \(2729.92\) K \(= \Delta H^{\circ}/(R\ln10)\) ⇒ \(\Delta H^{\circ} = 2729.92\times8.314\times2.303 = 52.3\) kJ mol⁻¹ — an endothermic dissociation, which is why warming shifts the equilibrium towards NH₃. The intercept gives \(\Delta S^{\circ} \approx -1.7\) J mol⁻¹ K⁻¹.</li>
+            <li>Check: at 25 °C, \(\text{p}K_a = 0.09018 + 2729.92/298.15 = 9.246\) — the familiar textbook value of 9.25 ✓; at 20 °C 9.40, at 10 °C 9.73, at 30 °C 9.10.</li>
+            <li>Consequence: between 20 and 30 °C the p\(K_a\) falls by 0.31, so at constant pH the toxic fraction roughly doubles (\(10^{0.31} = 2.0\)).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Derived for fresh water; the SRAC 463 table calculated from it spans 6–30 °C and pH 7–10.2 (Durborow et al., 1997a), the range relevant to fish culture. It is the equation used in <code>physics.js</code> (<code>nh3Fraction</code>) and in the <a href="/laboratories/ammonia-toxicity/">ammonia laboratory</a>.</p></details>
+        <div class="eq-units">\(\dfrac{\text{J mol}^{-1}}{\text{J mol}^{-1}\text{K}^{-1}\cdot\text{K}}\) is dimensionless, as a p-value must be ✓</div>
+        <div class="mini-calc" data-formula="0.09018+2729.92/(T+273.15)" data-output="pK<sub>a</sub> of NH₄⁺" data-digits="3" data-plot="T">
+          <div data-var="T" data-label="Water temperature" data-min="0" data-max="35" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="nh3-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — how much of the ammonia is toxic?</div>
+          <div class="seg" id="nx-lim" role="group" aria-label="Threshold" style="margin-bottom:10px">
+            <button type="button" data-v="0.05" aria-pressed="true">0.05 mg NH₃-N L⁻¹ (tank design limit)</button>
+            <button type="button" data-v="0.02" aria-pressed="false">0.02 (rainbow trout)</button>
+            <button type="button" data-v="0.6" aria-pressed="false">0.6 (acute danger)</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 18px" id="nx-ctl"></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:8px">
+            <div id="nx-plot1" style="height:290px"></div>
+            <div id="nx-plot2" style="height:290px"></div>
+          </div>
+          <div class="readouts" id="nx-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> Left: share of TAN present as NH₃ (logarithmic axis) against pH at six temperatures (Eqs. 6.3.1–6.3.2); the bold curve and dot are the chosen temperature and pH. Right: the highest TAN that keeps NH₃-N below the chosen limit at this temperature (Eq. 6.3.3); where it falls below the horizontal line of your current TAN, the water is too toxic. The green band marks the pH 6–7 compromise zone for aquaponics (Somerville et al., 2014). Limits: 0.05 mg L⁻¹ NH₃-N as the design limit for tanks (Losordo et al., 1998; Masser et al., 1999), 0.02 mg L⁻¹ recommended for rainbow trout (Yavuzcan Yildiz et al., 2017) and ≈ 0.6 mg L⁻¹, the level from which short-term exposure can kill fish within days (Durborow et al., 1997a).</figcaption>
+      </figure>
+
+      <p>How much un-ionised ammonia is too much? The answer depends on the species, the exposure time and the effect one wants to avoid (Table 2). Environmental regulators, who must protect the most sensitive wild species, are stricter still: the US EPA's 2013 criteria for fresh waters, driven by the sensitivity of freshwater mussels and snails, are 17 mg TAN L⁻¹ for one-hour exposures and 1.9 mg TAN L⁻¹ as a 30-day average, both at pH 7 and 20 °C (US EPA, 2013).</p>
+      <table>
+        <caption>Table 2. Un-ionised ammonia levels and their reported effects on fish.</caption>
+        <thead><tr><th>NH₃ level</th><th>Effect or use</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td class="num">≈ 0.6 mg L⁻¹</td><td>dangerous short-term level, capable of killing fish over a few days</td><td>Durborow et al. (1997a)</td></tr>
+          <tr><td class="num">0.06 mg L⁻¹</td><td>chronic exposure: gill and kidney damage, reduced growth, possible brain malfunction</td><td>Durborow et al. (1997a)</td></tr>
+          <tr><td class="num">0.02–0.07 mg N L⁻¹</td><td>slower growth and tissue damage in several warm-water species; tilapia tolerate more</td><td>Masser et al. (1999)</td></tr>
+          <tr><td class="num">&lt; 0.05 mg N L⁻¹</td><td>general design limit for tanks</td><td>Losordo et al. (1998); Masser et al. (1999)</td></tr>
+          <tr><td class="num">&lt; 0.02 mg L⁻¹</td><td>recommended for rainbow trout</td><td>Yavuzcan Yildiz et al. (2017)</td></tr>
+        </tbody>
+      </table>
+      <div class="eq-box" id="eq-tanmax">
+        <div class="eq-head"><span class="eq-label">Maximum allowable TAN for an NH₃ limit</span><span class="eq-num">(6.3.3)</span></div>
+        <div class="eq-main">\[ \text{TAN}_{\max} = \frac{\text{NH}_3\text{-N}_{\lim}}{f_{\text{NH}_3}(\text{pH},T)}, \qquad \text{pH}_{\max} = \text{p}K_a + \log_{10}\frac{\text{NH}_3\text{-N}_{\lim}}{\text{TAN}-\text{NH}_3\text{-N}_{\lim}} \]</div>
+        <p class="eq-read">the highest total ammonia that keeps un-ionised ammonia below its limit equals the limit divided by the un-ionised fraction; turned round, for a given TAN the pH must not exceed pKa plus the logarithm of the limit divided by the remaining ammonium.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\text{NH}_3\text{-N}_{\lim}\)</td><td>chosen limit for un-ionised ammonia (Table 2)</td><td>mg N L⁻¹</td></tr>
+          <tr><td>\(\text{TAN}_{\max}\)</td><td>highest acceptable TAN at this pH and temperature</td><td>mg N L⁻¹</td></tr>
+          <tr><td>\(\text{pH}_{\max}\)</td><td>highest acceptable pH at this TAN and temperature</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>\(\text{NH}_3\text{-N} = f\cdot\text{TAN} \le \text{NH}_3\text{-N}_{\lim}\) ⇒ \(\text{TAN} \le \text{NH}_3\text{-N}_{\lim}/f\).</li>
+            <li>For the pH: at the limit \(f = L/\text{TAN}\) (with \(L\) the limit); from Eq. 6.3.1, \(10^{\,\text{p}K_a-\text{pH}} = 1/f - 1 = (\text{TAN}-L)/L\) ⇒ \(\text{pH} = \text{p}K_a + \log_{10}[L/(\text{TAN}-L)]\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Limits are reported sometimes as NH₃ and sometimes as NH₃-N, and the two differ by a factor of 1.22; many sources do not say which they mean. Treat published limits as approximate, and design with a margin.</p></details>
+        <div class="eq-units">(mg N L⁻¹) ÷ (–) = mg N L⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="lim/(1/(1+pow(10,0.09018+2729.92/(T+273.15)-pH)))" data-output="TAN<sub>max</sub>" data-unit="mg N L⁻¹" data-digits="2" data-plot="pH" data-ymin="0" data-ymax="20">
+          <div data-var="lim" data-label="NH₃-N limit" data-min="0.01" data-max="0.1" data-step="0.005" data-value="0.05" data-unit="mg L⁻¹"></div>
+          <div data-var="pH" data-label="pH" data-min="6" data-max="9" data-step="0.05" data-value="7.5"></div>
+          <div data-var="T" data-label="Temperature" data-min="4" data-max="32" data-step="0.5" data-value="28" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">Is this tilapia water toxic?</span></div>
+        <div class="we-problem"><p>A tilapia tank at 28 °C has TAN = 2.0 mg L⁻¹ and pH 7.8, just after a KOH dose. (a) What is the concentration of un-ionised ammonia, as N and as NH₃? (b) How does it compare with the 0.05 mg L⁻¹ NH₃-N design limit? (c) What would it be at pH 7.0?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>p\(K_a\) (Eq. 6.3.2).</strong> \(T = 301.15\) K: \(\text{p}K_a = 0.09018 + 2729.92/301.15 = 9.155\).</li>
+              <li><strong>Fraction (Eq. 6.3.1).</strong> \(f = 1/(1+10^{9.155-7.8}) = 1/(1+22.7) = 0.0423\) (4.2 %). The SRAC 463 table, calculated from Emerson et al. (1975), gives 0.0423 for 28 °C and pH 7.8 ✓.</li>
+              <li><strong>NH₃.</strong> \(\text{NH}_3\text{-N} = 0.0423\times2.0 = 0.085\) mg L⁻¹, or \(0.085\times1.216 = 0.10\) mg NH₃ L⁻¹.</li>
+              <li><strong>Comparison.</strong> 0.085 mg L⁻¹ is 1.7 times the design limit and inside the 0.02–0.07 range at which growth and tissue effects have been reported for warm-water fish. Tilapia are tolerant, but this is not good practice.</li>
+              <li><strong>At pH 7.0.</strong> \(f = 1/(1+10^{2.155}) = 0.0069\); NH₃-N = 0.014 mg L⁻¹ — six times lower. The same TAN is acceptable at pH 7.0 and not at 7.8: dose base in small portions (Lesson 6.2) and never directly into the fish tank.</li>
+            </ol>
+            <span class="answer">(a) ≈ 0.085 mg NH₃-N L⁻¹ (≈ 0.10 mg NH₃ L⁻¹) (b) ≈ 1.7 × the design limit (c) ≈ 0.014 mg L⁻¹</span>
+          </div>
+        </details>
+      </div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Trout in a Nordic winter</span></div>
+        <div class="we-problem"><p>A decoupled aquaponic farm in northern Sweden raises rainbow trout at 12 °C, pH 7.2, and wants un-ionised ammonia below 0.02 mg L⁻¹ (treated here as NH₃-N). (a) What is the highest TAN the fish loop may carry? (b) In summer the water warms to 16 °C and the pH is allowed to rise to 7.8 to boost nitrification. What is the TAN limit then? (c) The FAO guideline for trout is TAN &lt; 0.5 mg L⁻¹. Which condition makes the FAO guideline the binding one?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Winter.</strong> \(\text{p}K_a(12\ ^{\circ}\text{C}) = 0.09018 + 2729.92/285.15 = 9.664\); \(f = 1/(1+10^{2.464}) = 0.00343\); \(\text{TAN}_{\max} = 0.02/0.00343 = 5.8\) mg L⁻¹.</li>
+              <li><strong>Summer.</strong> \(\text{p}K_a(16\ ^{\circ}\text{C}) = 9.531\); \(f = 1/(1+10^{1.731}) = 0.0182\); \(\text{TAN}_{\max} = 0.02/0.0182 = 1.1\) mg L⁻¹ — five times lower, from a 4 °C warming and 0.6 pH units.</li>
+              <li><strong>Which rule binds?</strong> In winter the NH₃ criterion would allow 5.8 mg L⁻¹, far above FAO's 0.5 mg L⁻¹; the TAN guideline then protects against other effects of ammonia and against the nitrite that a heavily loaded biofilter releases. In summer at pH 7.8 the two approach each other. Guidelines expressed as TAN are only valid near the pH and temperature for which they were set.</li>
+            </ol>
+            <span class="answer">(a) ≈ 5.8 mg TAN L⁻¹ (b) ≈ 1.1 mg TAN L⁻¹ (c) the FAO TAN guideline binds in cold, near-neutral water</span>
+          </div>
+        </details>
+      </div>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"The test kit says 1 mg L⁻¹ ammonia, so the fish are being poisoned." Test kits measure TAN, not the toxic NH₃. Whether 1 mg L⁻¹ TAN is harmless or dangerous depends on the pH and temperature: at pH 7.0 and 20 °C only 0.4 % of it is NH₃; at pH 8.6 and 30 °C, 24 % is. Always read TAN together with pH and temperature (Durborow et al., 1997a).</p></div>
+      <a class="lab-link" data-lab="ammonia-toxicity" data-why="Compute the un-ionised ammonia fraction for any pH and temperature and map the safe operating window for fish and nitrifiers."></a>
+
+      <h2 id="nitrite">Nitrite and the chloride shield</h2>
+      <p>Nitrite is the intermediate of nitrification (Lesson 6.1). In a mature biofilter it is oxidised as fast as it forms, but it accumulates when nitrite oxidisers lag behind — in a new system, after a temperature drop, after vigorous cleaning or a chemical treatment, or when the feed input suddenly rises (Durborow, Crosby &amp; Brunson, 1997b; Masser et al., 1999; Yavuzcan Yildiz et al., 2017). For freshwater fish, "nitrite is actively taken up across the gills in competition with chloride" and disrupts ion regulation, respiration, circulation, hormones and excretion (Kroupova et al., 2005). Its best-known effect is in the blood: nitrite oxidises the iron of haemoglobin from Fe²⁺ to Fe³⁺, producing methaemoglobin, which cannot carry oxygen. Blood plasma can concentrate nitrite to about ten times the level in the water, and methaemoglobin levels above 50 % are considered threatening (Yavuzcan Yildiz et al., 2017). Affected blood turns chocolate-brown — "brown blood disease" — and the fish gasp at the surface as if short of oxygen, even when the water is well oxygenated (Durborow et al., 1997b).</p>
+      <p>Sensitivity differs widely between species. Largemouth bass and sunfish resist high nitrite; catfish are sensitive; trout and other cool-water fish are sensitive to "extremely small amounts" (Durborow et al., 1997b). Masser et al. (1999) report that 0.5 mg L⁻¹ nitrite-N stresses catfish, while tilapia show little stress below 5 mg L⁻¹; in Nile tilapia, 48-hour exposure to 0.5–1.4 mg L⁻¹ nitrite-N already raised methaemoglobin (Yavuzcan Yildiz et al., 2017). Toxicity also depends on pH, temperature, oxygen, exposure time, fish size and — above all — on the chloride concentration of the water (Kroupova et al., 2005). Low oxygen makes nitrite more dangerous, because both attack the same oxygen supply (Yavuzcan Yildiz et al., 2017).</p>
+      <div class="callout warn"><div class="callout-title">Units trap</div><p>Nitrite is reported either as the nitrite ion (NO₂⁻) or as nitrite-nitrogen (NO₂⁻-N); the first number is 3.28 times the second (46.01/14.01). The SRAC rule of thumb that "every 1 ppm TAN can convert to 3 ppm nitrite" (Durborow et al., 1997b) counts nitrite as the ion. The chloride ratios below use nitrite-N unless stated otherwise.</p></div>
+      <p>Chloride is the cheap and effective antidote. Because chloride and nitrite compete for the same uptake route in the gill (Figure 2), raising the chloride concentration keeps nitrite out. Six to ten parts of chloride protect fish from one part of nitrite-N (Masser et al., 1999); a chloride to nitrite-nitrogen ratio of 10:1 "generally will protect against methemoglobin build-up" (Losordo et al., 1998); catfish farmers keep at least 100 mg L⁻¹ chloride as permanent insurance (Durborow et al., 1997b). In aquaponics, however, the salt comes with a price for the plants.</p>
+      <div class="eq-box" id="eq-chloride">
+        <div class="eq-head"><span class="eq-label">Chloride target, salt dose and its side effect</span><span class="eq-num">(6.3.4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \Delta C_{\text{Cl}} = R\,C_{\text{NO}_2\text{-N}} - C_{\text{Cl}} \\[6pt] m_{\text{NaCl}} = \Delta C_{\text{Cl}}\,V\,\frac{M_{\text{NaCl}}}{M_{\text{Cl}}}, \qquad \Delta C_{\text{Na}} = \Delta C_{\text{Cl}}\,\frac{M_{\text{Na}}}{M_{\text{Cl}}} \end{gathered} \]</div>
+        <p class="eq-read">the chloride to add equals the target ratio times the nitrite-nitrogen concentration minus the chloride already present; the mass of salt equals that increase times the water volume, scaled by the ratio of the molar masses of salt and chloride; and the salt adds sodium in proportion to the molar masses of sodium and chloride.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(R\)</td><td>target ratio of chloride to nitrite-N</td><td>–</td><td>6–10 (up to 20 for extra protection)</td></tr>
+          <tr><td>\(C_{\text{NO}_2\text{-N}},\ C_{\text{Cl}}\)</td><td>measured nitrite-N and chloride</td><td>mg L⁻¹ = g m⁻³</td><td></td></tr>
+          <tr><td>\(V\)</td><td>system water volume</td><td>m³</td><td></td></tr>
+          <tr><td>\(M_{\text{NaCl}}/M_{\text{Cl}}\)</td><td>salt needed per unit of chloride</td><td>–</td><td>58.44/35.45 = 1.649 (NaCl); 110.98/70.90 = 1.565 (CaCl₂)</td></tr>
+          <tr><td>\(M_{\text{Na}}/M_{\text{Cl}}\)</td><td>sodium added per unit of chloride</td><td>–</td><td>22.99/35.45 = 0.649 (with CaCl₂: 40.08/70.90 = 0.565 of Ca)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Target chloride: \(R\,C_{\text{NO}_2\text{-N}}\). If the water already contains more, \(\Delta C\) is negative and no salt is needed (Durborow et al., 1997b).</li>
+            <li>Chloride mass to add: \(\Delta C_{\text{Cl}}\) g m⁻³ × \(V\) m³ = g of Cl⁻.</li>
+            <li>NaCl is 35.45/58.44 = 60.7 % chloride by mass, so each gram of chloride requires 1.649 g of NaCl, and brings 0.649 g of sodium with it. Anhydrous CaCl₂ contains two chlorides per formula unit: 1.565 g salt and 0.565 g calcium per gram of chloride (for the dihydrate multiply the salt mass by 147.01/110.98 = 1.325).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Assumes complete mixing and no other chloride sinks. The plant limit matters: sodium should not exceed about 50 mg L⁻¹ in hydroponic solutions because it interferes with K and Ca uptake, and "the common practice of adding salt to treat fish diseases or reduce nitrite toxicity is detrimental to plant crops" (Rakocy et al., 2006). Calcium chloride protects the fish without sodium and adds a nutrient that is often short in aquaponics, at a higher price (Durborow et al., 1997b).</p></details>
+        <div class="eq-units">g m⁻³ × m³ = g Cl⁻; × (g NaCl / g Cl) = g NaCl ✓</div>
+        <div class="mini-calc" data-formula="max(0,R*N-Cl)*V*58.443/35.453" data-output="NaCl to add" data-unit="g" data-digits="0" data-plot="N" data-ymin="0">
+          <div data-var="N" data-label="Nitrite-N" data-min="0" data-max="10" data-step="0.1" data-value="1.5" data-unit="mg L⁻¹"></div>
+          <div data-var="Cl" data-label="Chloride present" data-min="0" data-max="100" data-step="1" data-value="10" data-unit="mg L⁻¹"></div>
+          <div data-var="R" data-label="Target ratio R" data-min="6" data-max="20" data-step="1" data-value="10"></div>
+          <div data-var="V" data-label="System volume V" data-min="1" data-max="150" data-step="1" data-value="30" data-unit="m³"></div>
+        </div>
+      </div>
+      <figure class="figure" id="chloride-calc">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — protecting the fish without salting the lettuce</div>
+          <div class="seg" id="cl-salt" role="group" aria-label="Salt" style="margin-bottom:10px">
+            <button type="button" data-v="NaCl" aria-pressed="true">Sodium chloride (NaCl)</button>
+            <button type="button" data-v="CaCl2" aria-pressed="false">Calcium chloride (CaCl₂)</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 18px" id="cl-ctl"></div>
+          <div class="readouts" id="cl-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 4.</b> Chloride dosing with Eq. 6.3.4. The sodium readout adds the salt's sodium to what is already in the water and compares the total with the ≈ 50 mg L⁻¹ limit for hydroponic crops given by Rakocy et al. (2006). Try the catfish farmers' "insurance" level of 100 mg L⁻¹ chloride with NaCl, then switch to CaCl₂.</figcaption>
+      </figure>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">A nitrite spike in a trout system</span></div>
+        <div class="we-problem"><p>After a cold spell, a 30 m³ trout aquaponic system shows 1.5 mg L⁻¹ nitrite-N; chloride is 10 mg L⁻¹ and sodium 15 mg L⁻¹. (a) How much NaCl gives a 10:1 chloride to nitrite-N ratio, and how much sodium does it add? (b) The manager considers keeping 100 mg L⁻¹ chloride permanently, as catfish farmers do. What would that do to sodium, and what are the alternatives?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Chloride needed.</strong> \(10\times1.5 - 10 = 5\) mg L⁻¹ = 5 g m⁻³; for 30 m³: 150 g Cl⁻.</li>
+              <li><strong>Salt.</strong> \(150\times1.649 = 247\) g NaCl — a modest dose. Sodium added: \(5\times0.649 = 3.2\) mg L⁻¹, total 18 mg L⁻¹: fine for lettuce.</li>
+              <li><strong>Permanent 100 mg L⁻¹ chloride with NaCl.</strong> \(\Delta C = 90\) mg L⁻¹ → \(90\times30\times1.649 = 4.45\) kg NaCl, adding \(90\times0.649 = 58\) mg Na L⁻¹: total 73 mg L⁻¹, well above the ≈ 50 mg L⁻¹ tolerated by hydroponic crops.</li>
+              <li><strong>Alternatives.</strong> With anhydrous CaCl₂: \(90\times30\times1.565 = 4.23\) kg, adding \(90\times0.565 = 51\) mg Ca L⁻¹ — a plant nutrient. Better still, remove the cause: reduce feeding until the nitrite oxidisers recover, check oxygen and pH in the biofilter, and treat salt as a short-term shield rather than a permanent condition.</li>
+            </ol>
+            <span class="answer">(a) ≈ 250 g NaCl, +3.2 mg Na L⁻¹ (b) +58 mg Na L⁻¹ with NaCl — too much for the plants; ≈ 4.2 kg CaCl₂ instead adds ≈ 51 mg Ca L⁻¹</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="oxygen">Dissolved oxygen: supply, demand and the failure clock</h2>
+      <p>Oxygen is the water-quality variable with "the most immediate and drastic effect on aquaponics": fish may die within hours at low dissolved oxygen (Somerville et al., 2014), and in an intensively loaded recirculating system a failure of aeration or oxygenation "can lead to a total loss of the fish crop in 1/2 hour or less" (Losordo et al., 1998). In most systems the capacity to add oxygen is the first factor that limits how many fish can be carried (Losordo et al., 1998). Guidelines differ with species and purpose: below about 3 mg L⁻¹ is too low for most fish, 3–5 mg L⁻¹ is tolerable for 12–24 hours but stressful, and about 7 mg L⁻¹ supports growth and activity (Somerville et al., 2014, Figure 3.3); warm-water systems should stay above 5 mg L⁻¹ or 60 % of saturation, and nitrifiers become inefficient below 2 mg L⁻¹ (Masser et al., 1999). Plant roots need oxygen as well: the UVI system keeps its raft tanks near 80 % saturation (6–7 mg L⁻¹) with a diffuser every 4 feet (Rakocy et al., 2006; see also the <a href="/lessons/root-zone/">root-zone lesson</a>).</p>
+      <p>The upper limit is set by physics. Water in contact with air holds a saturation concentration of oxygen that falls with temperature and altitude and, much less, with salinity. Benson and Krause (1984) measured it precisely; their equation is the standard in limnology and in this course.</p>
+      <div class="eq-box" id="eq-do-sat">
+        <div class="eq-head"><span class="eq-label">Oxygen saturation of fresh water (Benson &amp; Krause, 1984)</span><span class="eq-num">(6.3.5)</span></div>
+        <div class="eq-main">\[ \begin{aligned} \ln C^{*}_0 = {}& -139.34411 + \frac{1.575701\times10^{5}}{T} - \frac{6.642308\times10^{7}}{T^{2}} \\ & + \frac{1.243800\times10^{10}}{T^{3}} - \frac{8.621949\times10^{11}}{T^{4}} \\[6pt] C^{*} \approx {}& C^{*}_0\,\frac{P}{P_0} \end{aligned} \]</div>
+        <p class="eq-read">the natural logarithm of the oxygen saturation concentration at standard pressure is a polynomial in the inverse absolute temperature; at another barometric pressure the saturation scales approximately in proportion to pressure.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(C^{*}_0\)</td><td>saturation concentration at 101.325 kPa, air saturated with water vapour</td><td>mg L⁻¹</td><td>11.29 at 10 °C; 9.09 at 20 °C; 7.56 at 30 °C</td></tr>
+          <tr><td>\(T\)</td><td>absolute temperature</td><td>K</td><td></td></tr>
+          <tr><td>\(P,\ P_0\)</td><td>barometric pressure; standard pressure</td><td>kPa</td><td>\(P_0\) = 101.325</td></tr>
+        </table>
+        <details><summary>Where the equation comes from</summary>
+          <ol class="steps">
+            <li>Henry's law: at equilibrium, dissolved O₂ is proportional to the partial pressure of O₂ in the air above, \(C^* = K_H\,p_{\text{O}_2}\).</li>
+            <li>The Henry coefficient falls with temperature — dissolving a gas releases heat, so by the same van 't Hoff argument as Eq. 6.3.2, warm water holds less. Benson and Krause fitted very precise measurements with a polynomial in \(1/T\).</li>
+            <li>The partial pressure of O₂ is 20.95 % of the dry-air pressure, so \(C^*\) scales with barometric pressure minus water-vapour pressure; the calculator applies the full correction used in <code>physics.js</code>. At 1000 m altitude (≈ 90 kPa) saturation is about 11 % lower.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Fresh water in equilibrium with air; salt reduces solubility slightly (not relevant for fresh aquaponic water). Pure-oxygen systems raise \(p_{\text{O}_2}\) nearly fivefold and can supersaturate the water — with a risk of gas-bubble disease if poorly mixed (Masser et al., 1999).</p></details>
+        <div class="eq-units">each term of the polynomial is dimensionless (constants carry units of Kⁿ); the logarithm is taken of \(C^*_0\) in mg L⁻¹ — the form of the Benson–Krause fit used in standard water-analysis methods and in <code>physics.js</code>; \(P/P_0\) is dimensionless, so \(C^*\) is in mg L⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="doSat" data-output="Oxygen saturation C*" data-unit="mg L⁻¹" data-digits="2" data-plot="T" data-title="Try it — oxygen saturation of fresh water">
+          <div data-var="T" data-label="Water temperature" data-min="0" data-max="35" data-step="0.5" data-value="20" data-unit="°C"></div>
+          <div data-var="P" data-label="Barometric pressure" data-min="70" data-max="105" data-step="0.1" data-value="101.3" data-unit="kPa"></div>
+        </div>
+      </div>
+      <p>On the demand side, oxygen is consumed by fish respiration, by heterotrophic bacteria degrading faeces and uneaten feed (biochemical oxygen demand) and by nitrifiers (4.57 g O₂ per g N, Lesson 6.1). Together these use about 0.3 kg of oxygen per kg of feed in systems that remove solids quickly, and up to about 0.75 kg per kg where solids stay in submerged filters between backwashes (Losordo et al., 1998). Fish demand rises with temperature, after feeding (the energy cost of digestion, called specific dynamic action), with stress, and per kilogram is higher in small fish (Yavuzcan Yildiz et al., 2017). Masser et al. (1999) therefore recommend spreading the daily ration over 15–20 hours instead of two or three meals. A simple oxygen balance ties supply and demand together.</p>
+      <div class="eq-box" id="eq-o2-balance">
+        <div class="eq-head"><span class="eq-label">Oxygen balance of a fish tank and the time to a critical level</span><span class="eq-num">(6.3.6)</span></div>
+        <div class="eq-main">\[ \frac{dC}{dt} = k_La\,(C^{*}-C) + \frac{Q}{V}\,(C_{\text{in}}-C) - \frac{R}{V}, \qquad t_{\text{crit}} = \frac{C_0 - C_{\text{crit}}}{D\,r_{\text{O}_2}} \]</div>
+        <p class="eq-read">the oxygen concentration changes at a rate equal to what the aerator transfers, plus what inflowing water brings, minus what fish and bacteria consume; if aeration and flow stop, the concentration falls at the consumption rate, and the time to a critical level is the oxygen reserve divided by the fish density times their specific oxygen consumption.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(C,\ C^{*}\)</td><td>dissolved O₂; saturation (Eq. 6.3.5)</td><td>mg L⁻¹ = g m⁻³</td><td></td></tr>
+          <tr><td>\(k_La\)</td><td>volumetric oxygen-transfer coefficient of the aeration</td><td>h⁻¹</td><td>depends on aerator and airflow</td></tr>
+          <tr><td>\(Q,\ V\)</td><td>water flow through the tank; tank volume</td><td>m³ h⁻¹; m³</td><td></td></tr>
+          <tr><td>\(R\)</td><td>oxygen consumption of fish and bacteria in the tank</td><td>g h⁻¹</td><td>0.3–0.75 kg per kg feed per day</td></tr>
+          <tr><td>\(C_0,\ C_{\text{crit}}\)</td><td>O₂ when the failure starts; critical level</td><td>mg L⁻¹</td><td>\(C_{\text{crit}}\) ≈ 3</td></tr>
+          <tr><td>\(D,\ r_{\text{O}_2}\)</td><td>fish density; specific O₂ consumption</td><td>kg m⁻³; g O₂ kg⁻¹ h⁻¹</td><td>\(r\) ≈ 0.4–0.6 (implied by SRAC 452)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Mass balance</strong> of O₂ in a well-mixed tank: \(V\,dC/dt\) = aeration transfer + inflow − outflow − consumption.</li>
+            <li><strong>Aeration</strong> follows the two-film model: transfer is proportional to the deficit, \(k_La\,V(C^*-C)\), so aeration is most effective when the water is far below saturation — and inefficient near saturation, one reason to aerate the return water rather than the fish tank (Losordo et al., 1998).</li>
+            <li><strong>Steady state</strong> without flow: \(C = C^* - R/(k_LaV)\). Doubling the stocking density doubles \(R\) and the oxygen deficit.</li>
+            <li><strong>Failure</strong>: with \(k_La = 0\) and \(Q = 0\), \(dC/dt = -R/V = -D\,r_{\text{O}_2}\) (per m³ of tank: fish kg m⁻³ × g kg⁻¹ h⁻¹). Integrating from \(C_0\) to \(C_{\text{crit}}\) gives \(t_{\text{crit}}\).</li>
+            <li><strong>Check against SRAC 452.</strong> Masser et al. (1999) state that at 84 °F (28.9 °C), starting from saturation (7.71 mg L⁻¹), ½-lb fish at ¼ lb gal⁻¹ (30 kg m⁻³) reach 3 mg L⁻¹ in 16 minutes, and 1-lb fish at 1 lb gal⁻¹ (120 kg m⁻³) in less than 6 minutes. Solving for the implied consumption: \(r = (7.71-3)/(0.267\ \text{h}\times30) = 0.59\) and \(4.71/(0.1\times120) = 0.39\) g O₂ kg⁻¹ h⁻¹ — larger fish consume less per kilogram, as expected.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The tank is assumed well mixed and the consumption constant during the failure; in reality stressed fish may first consume more, and bacteria in the filters keep consuming. \(k_La\) depends on the aerator, airflow, depth and water chemistry and is measured in clean-water tests. Algae or submerged plants add a photosynthetic source during daylight and a sink at night (Figure 5).</p></details>
+        <div class="eq-units">h⁻¹ × g m⁻³ = g m⁻³ h⁻¹; (m³ h⁻¹/m³)(g m⁻³) = g m⁻³ h⁻¹; g h⁻¹/m³ = g m⁻³ h⁻¹ ✓; t: (g m⁻³)/(kg m⁻³ × g kg⁻¹ h⁻¹) = h ✓</div>
+        <div class="mini-calc" data-formula="60*(C0-Cc)/(D*r)" data-output="Time to reach the critical level" data-unit="min" data-digits="1" data-plot="D" data-ymin="0" data-ymax="120" data-title="Try it — the aeration-failure clock">
+          <div data-var="C0" data-label="O₂ when aeration stops C<sub>0</sub>" data-min="4" data-max="11" data-step="0.1" data-value="6.5" data-unit="mg L⁻¹"></div>
+          <div data-var="Cc" data-label="Critical level C<sub>crit</sub>" data-min="1" data-max="5" data-step="0.1" data-value="3" data-unit="mg L⁻¹"></div>
+          <div data-var="D" data-label="Fish density D" data-min="5" data-max="120" data-step="1" data-value="60" data-unit="kg m⁻³"></div>
+          <div data-var="r" data-label="Specific consumption r<sub>O₂</sub>" data-min="0.1" data-max="1" data-step="0.05" data-value="0.4" data-unit="g kg⁻¹ h⁻¹"></div>
+        </div>
+      </div>
+      <figure class="figure wide" id="do-sim">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — 24 hours of dissolved oxygen in a fish tank</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px">
+            <div class="seg" id="do-feed" role="group" aria-label="Feeding regime" style="flex:2;min-width:300px">
+              <button type="button" data-v="2" aria-pressed="false">2 meals</button>
+              <button type="button" data-v="4" aria-pressed="true">4 meals</button>
+              <button type="button" data-v="c" aria-pressed="false">Spread over 18 h</button>
+            </div>
+            <div class="seg" id="do-alg" role="group" aria-label="Algae" style="flex:1;min-width:240px">
+              <button type="button" data-v="0" aria-pressed="true">Covered tank</button>
+              <button type="button" data-v="1" aria-pressed="false">Open tank with algae</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 18px" id="do-ctl"></div>
+          <div id="do-plot" style="height:300px;margin-top:8px"></div>
+          <div class="readouts" id="do-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 5.</b> A well-mixed tank solved with Eq. 6.3.6 (1-minute steps, run for three days to reach a daily cycle). Total oxygen demand is set by the feed: fish density × feeding rate × kg O₂ per kg feed (0.3–0.75; Losordo et al., 1998). Half of the demand is modelled as constant and half as a post-meal peak about 2 h after each meal (an illustrative shape for specific dynamic action). The saturation line follows Eq. 6.3.5. In the open-tank option, algal photosynthesis adds oxygen by day and algal respiration removes it at night, producing the dawn minimum typical of ponds (Wurts &amp; Durborow, 1992). Set an aeration failure to see how fast the reserve disappears.</figcaption>
+      </figure>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">How long do we have when the power fails?</span></div>
+        <div class="we-problem"><p>The Västerås tilapia tanks of Lesson 6.2 run at 26 °C and 80 % oxygen saturation. Just before harvest a tank holds 60 kg m⁻³; the fish consume about 0.4 g O₂ kg⁻¹ h⁻¹ (the consumption implied by the SRAC 452 example for large fish). (a) How many minutes until the oxygen reaches 3 mg L⁻¹ after a power cut? (b) How long at the FAO beginner's density of 20 kg m⁻³? (c) How much oxygen per hour must an emergency system supply for the four tanks in the worst case, with every tank at harvest density (1320 kg in total)?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Starting point.</strong> \(C^*(26\ ^{\circ}\text{C}) = 8.11\) mg L⁻¹ (Eq. 6.3.5); at 80 %: \(C_0 = 6.5\) mg L⁻¹.</li>
+              <li><strong>Consumption rate.</strong> \(D\,r = 60\times0.4 = 24\) g m⁻³ h⁻¹ = 24 mg L⁻¹ h⁻¹.</li>
+              <li><strong>Time (Eq. 6.3.6).</strong> \(t = (6.5-3)/24 = 0.146\) h = 8.8 min.</li>
+              <li><strong>At 20 kg m⁻³.</strong> \(t = 3.5/(20\times0.4) = 0.44\) h = 26 min — FAO's warning that a brief interruption "can kill all of the fish within an hour at high stocking densities" (Somerville et al., 2014) is no exaggeration.</li>
+              <li><strong>Emergency oxygen.</strong> \(1320\times0.4 = 528\) g O₂ h⁻¹, about 0.5 kg per hour, delivered within minutes. Hence the recommendations of Masser et al. (1999): automatic transfer switches for a backup generator, alarms that call staff, and a tank of pure oxygen on a solenoid valve that opens automatically when the power fails.</li>
+            </ol>
+            <span class="answer">(a) ≈ 9 min (b) ≈ 26 min (c) ≈ 0.53 kg O₂ h⁻¹</span>
+          </div>
+        </details>
+      </div>
+      <a class="lab-link" data-lab="aquaponics-system" data-why="Watch fish activity follow dissolved oxygen in a running 3D system, and test what happens when you raise the stocking density or the temperature."></a>
+
+      <h2 id="co2-carbonate">Carbon dioxide, pH and alkalinity</h2>
+      <p>Every gram of oxygen a fish consumes returns as CO₂. Carbon dioxide rarely kills fish directly, but it acidifies the blood as it accumulates (hypercarbia), which lowers the blood's oxygen-carrying capacity (the Bohr effect) — so at a given dissolved oxygen fish may suffocate when CO₂ is high and appear unaffected when it is low (Wurts &amp; Durborow, 1992; Yavuzcan Yildiz et al., 2017). Fish begin to be stressed above about 20 mg L⁻¹ CO₂ (Masser et al., 1999); catfish tolerate 20–30 mg L⁻¹ if it accumulates slowly and oxygen is above 5 mg L⁻¹ (Wurts &amp; Durborow, 1992); and in rainbow trout, CO₂ in combination with water hardness has been linked to nephrocalcinosis, calcium deposits in the kidney (Yavuzcan Yildiz et al., 2017). The CO₂ concentration cannot be understood without the carbonate system, which also sets the pH.</p>
+      <div class="eq-box" id="eq-carbonate">
+        <div class="eq-head"><span class="eq-label">Free CO₂ from pH and alkalinity (Henderson–Hasselbalch)</span><span class="eq-num">(6.3.7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{pH} = \text{p}K_1 + \log_{10}\frac{[\text{HCO}_3^-]}{[\text{CO}_2^*]} \\[6pt] \Rightarrow\quad C_{\text{CO}_2} = \frac{44.01}{50.04}\;\text{Alk}\;10^{\,\text{p}K_1(T)-\text{pH}} \approx 0.88\;\text{Alk}\;10^{\,\text{p}K_1-\text{pH}} \end{gathered} \]</div>
+        <p class="eq-read">the pH equals the first dissociation constant of carbonic acid plus the logarithm of the ratio of bicarbonate to dissolved carbon dioxide; turned round, the free CO₂ in milligrams per litre is 0.88 times the alkalinity, in milligrams per litre as calcium carbonate, times ten to the power pK1 minus pH.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\([\text{CO}_2^*]\)</td><td>dissolved CO₂ plus H₂CO₃ ("free CO₂")</td><td>mol L⁻¹</td><td></td></tr>
+          <tr><td>\(\text{p}K_1\)</td><td>first dissociation constant of carbonic acid</td><td>–</td><td>6.52 at 5 °C; 6.38 at 20 °C; 6.35 at 25 °C</td></tr>
+          <tr><td>Alk</td><td>total alkalinity</td><td>mg L⁻¹ as CaCO₃</td><td>50–200</td></tr>
+          <tr><td>44.01/50.04</td><td>mg CO₂ per mmol ÷ mg CaCO₃ per meq</td><td>–</td><td>0.8795</td></tr>
+          <tr><td>\(C_{\text{CO}_2}\)</td><td>free CO₂</td><td>mg L⁻¹</td><td>&lt; 20 for fish</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>CO₂ reacts with water: \(\text{CO}_2 + \text{H}_2\text{O} \rightleftharpoons \text{H}^+ + \text{HCO}_3^-\), with \(K_1 = [\text{H}^+][\text{HCO}_3^-]/[\text{CO}_2^*]\). Taking \(-\log_{10}\): \(\text{pH} = \text{p}K_1 + \log_{10}([\text{HCO}_3^-]/[\text{CO}_2^*])\).</li>
+            <li>Below pH ≈ 8.3, carbonate (CO₃²⁻) is negligible and alkalinity is essentially bicarbonate: \([\text{HCO}_3^-]\) (mmol L⁻¹) = Alk (mg L⁻¹ as CaCO₃)/50.04, because one mmol of bicarbonate neutralises one meq of acid and 1 meq = 50.04 mg CaCO₃.</li>
+            <li>Solve for CO₂ and convert to mass: \(C_{\text{CO}_2} = 44.01\times(\text{Alk}/50.04)\times10^{\,\text{p}K_1-\text{pH}}\) mg L⁻¹.</li>
+            <li>\(\text{p}K_1\) falls with temperature; the function of Plummer and Busenberg (1982), \(\log_{10}K_1 = -356.3094 - 0.06091964\,T + 21834.37/T + 126.8339\log_{10}T - 1684915/T^2\) (T in K), reproduces the classical factor table of Tucker (1984) reprinted by Wurts and Durborow (1992) to within about 0.01 pH units.</li>
+            <li><strong>Check.</strong> Wurts and Durborow's example: pH 7.2, 25 °C, alkalinity 103 mg L⁻¹ → factor 0.124, CO₂ = 12.8 mg L⁻¹. Here: \(0.8795\times103\times10^{6.352-7.2} = 12.9\) mg L⁻¹ ✓.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Valid below pH 8.3 (above it, use alkalinity = bicarbonate + 2 × carbonate, as Figure 6 does) and for fresh water. A prompt pH measurement is essential, because CO₂ escapes from a sample within minutes (Wurts &amp; Durborow, 1992); direct CO₂ measurement is preferable. Other bases (phosphate, borate, organic acids) contribute a little to alkalinity in aquaponic water.</p></details>
+        <div class="eq-units">(mg mmol⁻¹ ÷ mg meq⁻¹) × mg L⁻¹ = mg L⁻¹ (1 mmol HCO₃⁻ = 1 meq) ✓</div>
+        <div class="mini-calc" data-fn="co2Alk" data-output="Free CO₂" data-unit="mg L⁻¹" data-digits="1" data-plot="pH" data-ymin="0" data-ymax="60">
+          <div data-var="pH" data-label="pH" data-min="6" data-max="8.3" data-step="0.05" data-value="7"></div>
+          <div data-var="alk" data-label="Alkalinity" data-min="10" data-max="250" data-step="5" data-value="60" data-unit="mg L⁻¹ CaCO₃"></div>
+          <div data-var="T" data-label="Temperature" data-min="5" data-max="35" data-step="0.5" data-value="26" data-unit="°C"></div>
+        </div>
+      </div>
+      <p>Two different processes lower the pH, and they must be treated differently. Respiration adds CO₂ without changing alkalinity: the pH drops, but it recovers when the CO₂ is stripped. Nitrification destroys alkalinity (7.07 g CaCO₃ per g N, Lesson 6.1): the pH drops and stays down until base is added. How low can stripping bring CO₂? Not below the concentration in equilibrium with the air.</p>
+      <div class="eq-box" id="eq-co2-eq">
+        <div class="eq-head"><span class="eq-label">CO₂ production and the equilibrium floor</span><span class="eq-num">(6.3.8)</span></div>
+        <div class="eq-main">\[ \dot m_{\text{CO}_2} = \text{RQ}\,\frac{44.01}{32.00}\,\dot m_{\text{O}_2}, \qquad C_{\text{CO}_2}^{\text{eq}} = K_0(T)\;p_{\text{CO}_2}\;M_{\text{CO}_2} \]</div>
+        <p class="eq-read">the mass of CO₂ produced equals the respiratory quotient times the ratio of molar masses of CO₂ and O₂ times the mass of oxygen consumed; the lowest CO₂ concentration that aeration can reach is the Henry solubility of CO₂ times its partial pressure in the air times its molar mass.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>RQ</td><td>respiratory quotient: mol CO₂ released per mol O₂ consumed</td><td>–</td><td>≈ 0.7–1 (assumed 0.9)</td></tr>
+          <tr><td>\(K_0(T)\)</td><td>solubility of CO₂ (Weiss, 1974)</td><td>mol kg⁻¹ atm⁻¹</td><td>0.039 at 20 °C</td></tr>
+          <tr><td>\(p_{\text{CO}_2}\)</td><td>partial pressure of CO₂ in the air</td><td>atm (µatm × 10⁻⁶)</td><td>≈ 420 × 10⁻⁶ outdoors; ≈ 1000 × 10⁻⁶ in an enriched greenhouse</td></tr>
+          <tr><td>\(M_{\text{CO}_2}\)</td><td>molar mass</td><td>g mol⁻¹</td><td>44.01</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Respiration oxidises feed carbon; per mole of O₂ it releases RQ moles of CO₂. The RQ is 1 for carbohydrate and below 1 for protein and fat, which dominate fish diets. With RQ = 0.9: 0.9 × 44.01/32.00 = 1.24 g CO₂ per g O₂.</li>
+            <li>Henry's law for CO₂: \([\text{CO}_2^*] = K_0\,p_{\text{CO}_2}\). Weiss (1974): \(\ln K_0 = -58.0931 + 90.5069\,(100/T) + 22.2940\ln(T/100)\) for fresh water (T in K); \(K_0\) = 0.0339 at 25 °C.</li>
+            <li>At 20 °C and 420 µatm: \(0.0391\times420\times10^{-6}\times44.01\times1000 = 0.72\) mg L⁻¹. In a greenhouse enriched to 1000 µatm (<a href="/lessons/co2-enrichment/">Lesson 8.3</a>) the floor rises to 1.7 mg L⁻¹ — still far below fish limits.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The equilibrium is only approached with vigorous gas exchange: packed-column aerators and airlifts in the return flow, where CO₂ is highest, are more effective than aeration in the fish tank (Losordo et al., 1998). Lime (Ca(OH)₂) also removes CO₂ chemically — about 1 mg L⁻¹ of CO₂ per mg L⁻¹ of hydrated lime — but should not be used in poorly buffered water or water high in ammonia, because the pH can overshoot (Wurts &amp; Durborow, 1992).</p></details>
+        <div class="eq-units">mol kg⁻¹ atm⁻¹ × atm × g mol⁻¹ = g kg⁻¹ ≈ g L⁻¹; × 1000 = mg L⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="co2Eq" data-output="CO₂ in equilibrium with the air" data-unit="mg L⁻¹" data-digits="2" data-plot="T" data-ymin="0">
+          <div data-var="T" data-label="Water temperature" data-min="0" data-max="35" data-step="0.5" data-value="20" data-unit="°C"></div>
+          <div data-var="p" data-label="CO₂ in the air" data-min="300" data-max="1500" data-step="10" data-value="420" data-unit="µatm"></div>
+        </div>
+      </div>
+      <figure class="figure wide" id="co2-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the carbonate system of an aquaponic tank</div>
+          <div class="seg" id="cx-air" role="group" aria-label="Air above the water" style="margin-bottom:10px">
+            <button type="button" data-v="420" aria-pressed="true">Outdoor air, 420 µatm CO₂</button>
+            <button type="button" data-v="1000" aria-pressed="false">CO₂-enriched greenhouse, 1000 µatm</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 18px" id="cx-ctl"></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:8px">
+            <div id="cx-plot1" style="height:280px"></div>
+            <div id="cx-plot2" style="height:280px"></div>
+          </div>
+          <div class="readouts" id="cx-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 6.</b> Left: fractions of dissolved inorganic carbon present as CO₂*, HCO₃⁻ and CO₃²⁻ against pH (a Bjerrum plot) with temperature-dependent p\(K_1\) and p\(K_2\) (Plummer &amp; Busenberg, 1982). Right: free CO₂ against pH for four alkalinities (thin) and your alkalinity (bold), computed as Alk·α₀/(α₁ + 2α₂); the dashed line is the 20 mg L⁻¹ stress level (Masser et al., 1999) and the dotted line the equilibrium with the air above (Eq. 6.3.8). The readout "pH after stripping" is the pH the water would reach if aeration brought CO₂ down to equilibrium at the same alkalinity.</figcaption>
+      </figure>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">Two ways to lose a pH unit</span></div>
+        <div class="we-problem"><p>A tilapia tank at 26 °C has pH 7.0 and an alkalinity of 60 mg L⁻¹ as CaCO₃. (a) How much free CO₂ does it contain? (b) Over a week without base, nitrification lowers the alkalinity to 20 mg L⁻¹ while CO₂ stays the same. What is the new pH? (c) Starting again from (a), aeration strips CO₂ down to 5 mg L⁻¹. What is the pH now?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>p\(K_1\) at 26 °C</strong> (Plummer &amp; Busenberg): 6.347.</li>
+              <li><strong>(a) CO₂ (Eq. 6.3.7).</strong> \(0.8795\times60\times10^{6.347-7.0} = 52.8\times0.222 = 11.7\) mg L⁻¹ — below the 20 mg L⁻¹ stress level.</li>
+              <li><strong>(b) Alkalinity lost.</strong> \(\text{pH} = 6.347 + \log_{10}(0.8795\times20/11.7) = 6.347 + 0.177 = 6.52\). The pH fell by half a unit and nitrifiers, plants and fish all feel it; the cure is base (KOH or Ca(OH)₂), not aeration.</li>
+              <li><strong>(c) CO₂ stripped.</strong> \(\text{pH} = 6.347 + \log_{10}(52.8/5) = 7.37\). Aeration raised the pH by 0.37 units without adding any chemical — worth remembering before dosing base into a CO₂-rich tank.</li>
+            </ol>
+            <span class="answer">(a) ≈ 11.7 mg CO₂ L⁻¹ (b) pH ≈ 6.5 (c) pH ≈ 7.4</span>
+          </div>
+        </details>
+      </div>
+      <a class="lab-link" data-lab="ph-availability" data-why="Explore carbonate and phosphate speciation, iron-chelate stability and acid dosing across the pH scale."></a>
+
+      <h2 id="temperature">Temperature: the master variable</h2>
+      <p>Fish are ectotherms: their body temperature, and therefore their metabolism, follows the water. Temperature acts on almost every arrow of Figure 1 at once. It raises the metabolic rate and oxygen demand of fish, speeds up decomposition, increases the growth and infectiousness of many fish pathogens and the toxicity of many dissolved substances (Yavuzcan Yildiz et al., 2017); it lowers oxygen solubility (Eq. 6.3.5); and it raises the un-ionised share of ammonia (Eq. 6.3.2). Rates of biological processes are often summarised with a Q₁₀ coefficient.</p>
+      <div class="eq-box" id="eq-q10">
+        <div class="eq-head"><span class="eq-label">Q₁₀ scaling of metabolic oxygen demand</span><span class="eq-num">(6.3.9)</span></div>
+        <div class="eq-main">\[ r(T) = r(T_{\text{ref}})\;Q_{10}^{\,(T-T_{\text{ref}})/10} \]</div>
+        <p class="eq-read">the rate at temperature T equals the rate at a reference temperature times Q-ten raised to the power of the temperature difference divided by ten degrees.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(r\)</td><td>a rate, here specific O₂ consumption</td><td>g O₂ kg⁻¹ h⁻¹</td><td></td></tr>
+          <tr><td>\(Q_{10}\)</td><td>factor by which the rate changes per 10 °C</td><td>–</td><td>≈ 2–3 for biological rates</td></tr>
+          <tr><td>\(T,\ T_{\text{ref}}\)</td><td>temperature; reference temperature</td><td>°C</td><td>\(T_{\text{ref}}\) = 20</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Many rates increase roughly exponentially with temperature over a physiological range: \(r = r_{\text{ref}}\,e^{k(T-T_{\text{ref}})}\).</li>
+            <li>Define \(Q_{10} = r(T+10)/r(T) = e^{10k}\). Then \(e^{k(T-T_{\text{ref}})} = Q_{10}^{(T-T_{\text{ref}})/10}\).</li>
+            <li>The nitrifier factor \(\theta^{T-20}\) with \(\theta\) = 1.07 used in Lesson 6.1 is the same law: \(Q_{10} = 1.07^{10} = 1.97\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Valid only within the tolerated range of a species; above the optimum, rates level off and then collapse. Fish also acclimate: sudden changes are stressful, and temperature changes of more than about 3 °C (5 °F) should be made slowly, at about 0.5 °C every 20–30 minutes (Masser et al., 1999).</p></details>
+        <div class="eq-units">(g kg⁻¹ h⁻¹) × (–) = g kg⁻¹ h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="pow(Q,(T-20)/10)" data-output="Demand relative to 20 °C" data-digits="2" data-plot="T" data-ymin="0">
+          <div data-var="T" data-label="Water temperature" data-min="4" data-max="34" data-step="0.5" data-value="28" data-unit="°C"></div>
+          <div data-var="Q" data-label="Q<sub>10</sub>" data-min="1.5" data-max="3.5" data-step="0.1" data-value="2"></div>
+        </div>
+      </div>
+      <table>
+        <caption>Table 3. The oxygen squeeze: saturation (Eq. 6.3.5) falls while demand (Eq. 6.3.9, Q₁₀ = 2) rises.</caption>
+        <thead><tr><th>Temperature</th><th>O₂ saturation (mg L⁻¹)</th><th>Relative O₂ demand</th><th>Saturation per unit demand</th></tr></thead>
+        <tbody>
+          <tr><td>10 °C</td><td class="num">11.29</td><td class="num">0.50</td><td class="num">22.6</td></tr>
+          <tr><td>20 °C</td><td class="num">9.09</td><td class="num">1.00</td><td class="num">9.1</td></tr>
+          <tr><td>30 °C</td><td class="num">7.56</td><td class="num">2.00</td><td class="num">3.8</td></tr>
+        </tbody>
+      </table>
+      <p>Between 10 and 30 °C the oxygen reserve per unit of demand shrinks sixfold. That is why warm-water tilapia systems need more aeration per kilogram of fish, why oxygen problems cluster in warm weather and after feeding, and why the choice of species is also a choice of risk. In the Nordic countries the trade-off runs the other way: a trout or perch system needs less heating and holds more oxygen, but grows more slowly and requires cleaner water (Table 1).</p>
+
+      <h2 id="welfare">Fish welfare: from Five Freedoms to Five Domains</h2>
+      <p>Are fish the kind of animal whose welfare matters? A review of fish cognition by Brown (2015) found that "fish perception and cognitive abilities often match or exceed other vertebrates" and that the evidence "strongly suggests that fish experience pain in a manner similar to the rest of the vertebrates"; its conclusion is that "best practice would be to lend fish the same level of protection as any other vertebrate". European law treats animals as sentient beings whose welfare must be taken into account in EU policies (Article 13 of the Treaty on the Functioning of the European Union), and the welfare of farmed fish is increasingly a criterion for consumers and retailers (Yavuzcan Yildiz et al., 2017).</p>
+      <p>Welfare science has moved from lists of freedoms — freedom from hunger, discomfort, pain, fear and the freedom to express normal behaviour — to models that ask what an animal experiences. The widely used <strong>Five Domains model</strong> assesses four domains that give rise to experiences — nutrition, physical environment, health and behavioural interactions — and a fifth, the animal's mental state, where those experiences are integrated; the 2020 update explicitly includes interactions with humans (Mellor et al., 2020). Figure 7 applies it to aquaponic fish.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 800 380" role="img" aria-label="The Five Domains model applied to fish in aquaponics: nutrition, physical environment, health and behavioural interactions feed into mental state">
+            <defs><marker id="w7k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+            <g stroke="currentColor" stroke-width="1.3">
+              <rect x="10" y="10" width="185" height="170" rx="10" class="fill-amber-soft"/>
+              <rect x="208" y="10" width="185" height="170" rx="10" class="fill-water-soft"/>
+              <rect x="406" y="10" width="185" height="170" rx="10" class="fill-accent-soft"/>
+              <rect x="604" y="10" width="186" height="170" rx="10" class="fill-magenta-soft"/>
+              <rect x="120" y="232" width="560" height="100" rx="12" class="fill-bg" stroke-width="2"/>
+            </g>
+            <text x="102" y="34" text-anchor="middle" font-weight="700" font-size="12">1 · Nutrition</text>
+            <g class="t-small"><text x="20" y="58">• feed amount and quality</text><text x="20" y="76">• pellet size, feeding times</text><text x="20" y="94">• no competition for feed</text><text x="20" y="116">• signs: feeding response,</text><text x="32" y="134">food anticipation,</text><text x="32" y="152">growth, condition</text></g>
+            <text x="300" y="34" text-anchor="middle" font-weight="700" font-size="12">2 · Physical environment</text>
+            <g class="t-small"><text x="218" y="58">• O₂, CO₂, NH₃, NO₂⁻, NO₃⁻</text><text x="218" y="76">• temperature, pH</text><text x="218" y="94">• solids, light, noise</text><text x="218" y="112">• tank design, density</text><text x="218" y="134">• signs: gasping at the</text><text x="230" y="152">surface, crowding</text><text x="230" y="170">at the inflow</text></g>
+            <text x="498" y="34" text-anchor="middle" font-weight="700" font-size="12">3 · Health</text>
+            <g class="t-small"><text x="416" y="58">• infections, parasites</text><text x="416" y="76">• gill damage (solids,</text><text x="428" y="94">nitrite)</text><text x="416" y="112">• fin erosion, lesions</text><text x="416" y="134">• signs: flashing,</text><text x="428" y="152">lethargy, abnormal</text><text x="428" y="170">colour, deaths</text></g>
+            <text x="697" y="34" text-anchor="middle" font-weight="700" font-size="12">4 · Behavioural interactions</text>
+            <g class="t-small"><text x="614" y="58">• aggression among fish</text><text x="614" y="76">• handling, grading</text><text x="614" y="94">• transport, crowding</text><text x="614" y="112">• human–animal contact</text><text x="614" y="134">• signs: fin nipping,</text><text x="626" y="152">avoidance, hiding</text></g>
+            <g class="stroke-muted" stroke-width="2" fill="none">
+              <path d="M102 180 C 102 206, 200 212, 240 228" marker-end="url(#w7k)"/>
+              <path d="M300 180 L 340 228" marker-end="url(#w7k)"/>
+              <path d="M498 180 L 460 228" marker-end="url(#w7k)"/>
+              <path d="M697 180 C 697 206, 600 212, 560 228" marker-end="url(#w7k)"/>
+            </g>
+            <text x="400" y="258" text-anchor="middle" font-weight="700">5 · Mental state</text>
+            <text x="400" y="282" text-anchor="middle" class="t-small">negative: breathlessness (low O₂, high CO₂), pain, fear, hunger, frustration</text>
+            <text x="400" y="302" text-anchor="middle" class="t-small">positive: satiety, comfort, exploration, calm social behaviour</text>
+            <text x="400" y="322" text-anchor="middle" class="t-small t-muted">welfare status = the balance of these experiences over time</text>
+            <text x="400" y="368" text-anchor="middle" class="t-small t-muted">Domains after Mellor et al. (2020); aquaponic examples after Yavuzcan Yildiz et al. (2017, 2019) and Ellis et al. (2002)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 7.</b> The Five Domains model applied to fish in aquaponics. The four physical and functional domains (1–4) generate experiences that are integrated in the mental state (5). The "signs" are animal-based indicators that can be observed daily; the conditions listed above them are resource- and environment-based indicators that can be measured.</figcaption>
+      </figure>
+      <p>Welfare must be judged from indicators. <em>Environment-based</em> indicators — oxygen, CO₂, ammonia, nitrite, temperature and solids — can be measured continuously and are the backbone of aquaponic monitoring (Lesson 9.2 explains the sensors). <em>Animal-based</em> indicators show how the fish actually cope. The first sign of trouble is usually a weaker feeding response; food-anticipatory activity is itself a promising welfare indicator (Yavuzcan Yildiz et al., 2017). Healthy fish swim energetically in species-typical patterns and have intact skin; diseased or stressed fish swim near the surface or along the sides, crowd at the inflow, gasp, flash and scratch against the tank, lose balance, hang listlessly or lie on the bottom, and show fin damage, lesions, discoloration or abnormal gills (Yavuzcan Yildiz et al., 2019). When most fish in a tank behave abnormally, check the water first; when only a few do, remove and examine them (Yavuzcan Yildiz et al., 2019).</p>
+      <p><strong>Stocking density</strong> is the most debated welfare parameter. Reviewing 43 studies on rainbow trout, Ellis et al. (2002) found that higher density does not appear to cause prolonged crowding stress, but commonly reduces feed conversion efficiency, nutritional condition and growth and increases fin erosion. There is direct experimental evidence that deteriorating water quality causes these effects and only inferential evidence for aggression; very low densities can also harm welfare through aggression and poor feeding. Their conclusion is directly relevant to aquaponic design: legislation that simply caps density "is likely to be unworkable", and "a more practical option might be to prescribe acceptable levels of water quality, health, nutritional condition and behavioural indicators" (Ellis et al., 2002). Many factors that are important for welfare are also important for production, but some routine procedures — crowding before transport, handling out of water — harm welfare and should be minimised even when they conflict with production priorities (Yavuzcan Yildiz et al., 2017).</p>
+      <h3>What EU law requires (as of 2026)</h3>
+      <p>EU animal-welfare law protects farmed fish only in general terms. Council Directive 98/58/EC on animals kept for farming purposes defines "animal" to include fish and requires owners to "take all reasonable steps to ensure the welfare of animals under their care and to ensure that those animals are not caused any unnecessary pain, suffering or injury" (Article 3) — but its detailed Annex applies to animals "other than fish, reptiles or amphibians" (Article 4). Regulation (EC) No 1099/2009 on the protection of animals at the time of killing likewise applies to fish only through its key principle that animals "shall be spared any avoidable pain, distress or suffering" (Articles 1 and 3(1)); it has no explicit obligation to stun fish, but it allows member states to keep or adopt stricter national rules (Reinhardt, Hoevenaars &amp; Joyce, 2019). Several do: Germany requires stunning of all fish except flatfish and eels and a certificate of competence for those who kill them (Reinhardt et al., 2019), and Sweden's Animal Welfare Act (2018:1192), which covers all animals kept by humans, requires any animal slaughtered or killed by bleeding to be stunned (chapter 5, section 1). Voluntary guidance exists at EU level: in 2021 the EU Platform on Animal Welfare endorsed <em>Guidelines on water quality and handling for the welfare of farmed vertebrate fish</em>. The Commission's ongoing revision of EU animal-welfare legislation has so far produced a transport proposal (2023), a regulation on dogs and cats adopted in 2026 and planned revisions for laying hens, broilers and pigs — none specific to farmed fish (European Commission, 2026).</p>
+      <div class="callout note"><div class="callout-title">Welfare in practice</div><p>In a coupled aquaponic system, fish welfare and plant yield are tied together through the water. A farmer tempted to raise the pH for the nitrifiers, add salt for the fish or push the feed for the plants is making a welfare decision as well as an agronomic one. Decoupled systems (Lesson 6.2) reduce these conflicts by giving the fish their own water.</p></div>
+
+      <h2 id="health-safety">Biosecurity, disease prevention and food safety</h2>
+      <p>Treating a sick fish in a coupled aquaponic system is extraordinarily difficult. Pesticides that are safe for plants are toxic to fish and to the nitrifying biofilm; antibiotics and fungicides harm the biofilm and other beneficial microorganisms, and antibiotics are not allowed for plant application (Goddek et al., 2015). Therapeutants for fish should not be used because "vegetables may absorb and concentrate them", and the common practice of adding salt to treat fish diseases harms the plants (Rakocy et al., 2006). Formalin, used against parasites in fish-only systems, damages plants (Yavuzcan Yildiz et al., 2017). If medication is unavoidable, diseased fish must be moved to a separate hospital or quarantine tank, and the medicated water must not return to the system; decoupled systems allow treatments of the fish loop that are impossible in coupled ones (Yavuzcan Yildiz et al., 2019). EU rules point in the same direction: the Veterinary Medicinal Products Regulation (EU) 2019/6 restricts the preventive (prophylactic) use of antimicrobials to exceptional cases.</p>
+      <p>Prevention is therefore everything. Aquaponic health management follows the principles of aquaculture biosecurity: avoid introducing pathogens, stop them spreading, and avoid conditions that make fish susceptible (Yavuzcan Yildiz et al., 2019). The three main measures are a pathogen-free water supply, certified pathogen-free stock and strict sanitation. In practice: quarantine all new fish — for example for 45 days in an isolation tank before they join the system (Somerville et al., 2014); disinfect nets and tools and use footbaths and hand washing; remove dead or dying fish promptly; separate age groups and species; avoid high densities that cause skin lesions; and use vaccines, probiotics and immunostimulant feeds where available (Yavuzcan Yildiz et al., 2019). More than half (54.9 %) of infectious disease outbreaks in aquaculture are caused by bacteria, followed by viruses, parasites and fungi (McLoughlin &amp; Graham, 2007, as cited by Yavuzcan Yildiz et al., 2019). Biological control is promising: cleaner fish against sea lice in Norwegian salmon farming, leopard plecos grazing the cysts of the white-spot parasite <i>Ichthyophthirius</i> in tilapia tanks, and probiotic bacteria against several fish pathogens (Yavuzcan Yildiz et al., 2019). On the plant side, integrated pest management replaces chemistry: Rakocy et al. (2006) recommend parasitic wasps and ladybirds against whiteflies and aphids; at UVI, caterpillars were controlled by twice-weekly sprays of <i>Bacillus thuringiensis</i>, and the root pathogen <i>Pythium</i>, a problem in summer, dissipated when the water cooled in winter.</p>
+      <h3>Food safety: what the evidence shows</h3>
+      <p>Because aquaponic vegetables grow in water that has passed through fish tanks, consumers and regulators ask whether they carry human pathogens. The European Food Safety Authority has identified aquaponics as a new food-production practice that deserves attention for emerging risks (Afonso et al., 2017, as cited by Yavuzcan Yildiz et al., 2019). The direct evidence is still limited. In a greenhouse study with Nile tilapia, lettuce, basil and tomato, Wang, Deering and Kim (2020) found Shiga-toxin-producing <i>E. coli</i> (STEC) in fish faeces, in the recirculating water of both aquaponic and hydroponic systems and on the surface of the roots — but not inside roots, leaves or fruit; <i>Listeria monocytogenes</i> and <i>Salmonella</i> were not found in any sample. The fish were probably contaminated before they arrived, which underlines the value of pathogen-free stock; the authors concluded that the main production risk is water splashing onto edible parts at harvest. (A comment on the study was published in 2021 — a reminder that single studies are not the last word.) Figure 8 summarises the pathways and the barriers.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 320" role="img" aria-label="Food-safety pathways in aquaponics: pathogens from fish, source water, people and seeds can reach the recirculating water and the root surface; barriers protect the edible parts">
+            <defs><marker id="w8k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+            <marker id="w8d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--danger)"/></marker></defs>
+            <g stroke="currentColor" stroke-width="1.2">
+              <rect x="10" y="20" width="170" height="40" rx="8" class="fill-magenta-soft"/>
+              <rect x="10" y="72" width="170" height="40" rx="8" class="fill-water-soft"/>
+              <rect x="10" y="124" width="170" height="40" rx="8" class="fill-sunk"/>
+              <rect x="10" y="176" width="170" height="40" rx="8" class="fill-accent-soft"/>
+              <rect x="250" y="84" width="150" height="66" rx="10" class="fill-water-soft"/>
+              <rect x="450" y="84" width="130" height="66" rx="10" class="fill-sunk"/>
+              <rect x="630" y="20" width="120" height="66" rx="10" class="fill-accent-soft"/>
+              <rect x="630" y="150" width="120" height="50" rx="10" class="fill-bg"/>
+            </g>
+            <text x="95" y="45" text-anchor="middle" class="t-small" font-weight="600">Fish intestines, faeces</text>
+            <text x="95" y="97" text-anchor="middle" class="t-small" font-weight="600">Source water</text>
+            <text x="95" y="149" text-anchor="middle" class="t-small" font-weight="600">Workers, visitors, pests</text>
+            <text x="95" y="201" text-anchor="middle" class="t-small" font-weight="600">Seeds, seedlings</text>
+            <text x="325" y="112" text-anchor="middle" font-weight="600">Recirculating</text><text x="325" y="130" text-anchor="middle" font-weight="600">water</text>
+            <text x="515" y="112" text-anchor="middle" font-weight="600">Root</text><text x="515" y="130" text-anchor="middle" font-weight="600">surface</text>
+            <text x="690" y="48" text-anchor="middle" font-weight="600">Edible leaves</text><text x="690" y="66" text-anchor="middle" font-weight="600">or fruit</text>
+            <text x="690" y="180" text-anchor="middle" font-weight="600">Consumer</text>
+            <g class="stroke-muted" stroke-width="1.8" fill="none">
+              <path d="M180 40 C 215 40, 225 90, 246 100" marker-end="url(#w8k)"/>
+              <path d="M180 92 H 246" marker-end="url(#w8k)"/>
+              <path d="M180 144 C 215 144, 225 130, 246 128" marker-end="url(#w8k)"/>
+              <path d="M400 117 H 446" marker-end="url(#w8k)"/>
+              <path d="M690 86 V 146" marker-end="url(#w8k)"/>
+              <path d="M180 196 C 420 230, 620 220, 670 90" marker-end="url(#w8k)" stroke-dasharray="4 3"/>
+            </g>
+            <path d="M580 100 C 605 90, 612 70, 626 60" fill="none" class="stroke-danger" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#w8d)"/>
+            <line x1="600" y1="72" x2="614" y2="92" class="stroke-danger" stroke-width="3"/><line x1="614" y1="72" x2="600" y2="92" class="stroke-danger" stroke-width="3"/>
+            <text x="462" y="72" class="t-small" style="fill:var(--danger)">not internalised in the study</text>
+            <text x="410" y="170" class="t-small">STEC found in faeces, water and on roots</text>
+            <text x="410" y="186" class="t-small">(Wang et al., 2020)</text>
+            <text x="12" y="252" class="t-small" font-weight="600">Barriers and controls</text>
+            <text x="12" y="272" class="t-small">pathogen-free, quarantined fish · clean or disinfected source water · hand washing, footbaths, clean tools</text>
+            <text x="12" y="290" class="t-small">rafts keep water away from leaves · no splashing at harvest, careful handling of roots · HACCP-based hygiene</text>
+            <text x="12" y="308" class="t-small t-muted">(Wang et al., 2020; Yavuzcan Yildiz et al., 2019; Regulation (EC) No 852/2004)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 8.</b> Food-safety pathways in aquaponics (schematic). Pathogens can enter with fish, water, people or seeds and reach the recirculating water and root surfaces; the edible parts are protected mainly by keeping water away from them. The dashed arrow marks direct contamination of produce by people or contaminated seed.</figcaption>
+      </figure>
+      <p>Aquaponic farms that sell food are food businesses. They must follow the general hygiene rules of Regulation (EC) No 852/2004, keep records of feed, pesticide and veterinary-medicine use, and operate procedures based on HACCP principles; fish as food of animal origin also fall under Regulation (EC) No 853/2004, whose registration requirements depend on volumes and markets (Reinhardt et al., 2019). Fish farms must notify the veterinary authorities of suspected notifiable diseases under EU animal-health law, now unified in Regulation (EU) 2016/429 (Reinhardt et al., 2019). And as discussed in Lesson 6.2, the products cannot be sold as organic in the EU, because Regulation (EU) 2018/848 prohibits both hydroponic crop production and closed recirculation aquaculture facilities (except hatcheries and nurseries) (Kledal, König &amp; Matulić, 2019).</p>
+      <table>
+        <caption>Table 4. EU rules that apply to an aquaponic farm (overview, as of 2026; after Reinhardt et al., 2019, and the legal texts).</caption>
+        <thead><tr><th>Area</th><th>Main EU act</th><th>What it means for aquaponics</th></tr></thead>
+        <tbody>
+          <tr><td>Animal welfare on farm</td><td>Council Directive 98/58/EC</td><td>general duty of care for fish; detailed Annex does not apply to fish</td></tr>
+          <tr><td>Killing and slaughter</td><td>Regulation (EC) No 1099/2009</td><td>only the key principle (avoid avoidable suffering) applies to fish; national rules may require stunning (e.g. Germany, Sweden)</td></tr>
+          <tr><td>Animal health</td><td>Regulation (EU) 2016/429</td><td>registration of aquaculture establishments; notification of disease</td></tr>
+          <tr><td>Veterinary medicines</td><td>Regulation (EU) 2019/6</td><td>prophylactic antimicrobial use only in exceptional cases</td></tr>
+          <tr><td>Food hygiene</td><td>Regulations (EC) No 852/2004 and 853/2004</td><td>hygiene, record-keeping, HACCP-based procedures</td></tr>
+          <tr><td>Plant protection</td><td>Regulation (EC) No 1107/2009</td><td>only approved pesticides — in practice unusable in coupled systems</td></tr>
+          <tr><td>Alien species</td><td>Regulation (EC) No 708/2007</td><td>closed recirculation facilities are largely exempt; some member states ban exotic species outright</td></tr>
+          <tr><td>Organic production</td><td>Regulation (EU) 2018/848</td><td>hydroponic crops and closed recirculation aquaculture (except hatcheries and nurseries) cannot be certified organic</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="fish-water-quality-main">
+        <script type="application/json">
+        {"title":"Water quality, fish welfare and system health","questions":[
+          {"type":"numeric","q":"Calculate the pK<sub>a</sub> of ammonium at 25 °C using Emerson et al. (1975): \\(\\text{p}K_a = 0.09018 + 2729.92/T\\).","answer":9.246,"abstol":0.01,"unit":"","hint":"T must be in kelvin: 25 + 273.15.","explain":"<p>\\(0.09018 + 2729.92/298.15 = 9.246\\) — the familiar value of 9.25.</p>"},
+          {"type":"numeric","q":"A tank has TAN = 3.0 mg L⁻¹ at pH 8.0 and 24 °C. What is the un-ionised ammonia concentration as NH₃-N?","answer":0.1505,"tol":0.03,"unit":"mg L⁻¹","hint":"First the pKa at 24 °C, then \\(f = 1/(1+10^{\\text{p}K_a-\\text{pH}})\\).","explain":"<p>\\(\\text{p}K_a = 9.277\\); \\(f = 1/(1+10^{1.277}) = 0.0502\\); \\(\\text{NH}_3\\text{-N} = 3.0\\times0.0502 = 0.15\\) mg L⁻¹ — three times the 0.05 mg L⁻¹ design limit.</p>"},
+          {"type":"mcq","q":"At constant temperature and TAN, the pH rises from 7.0 to 8.0. What happens to the un-ionised ammonia?","options":["It increases about tenfold.","It doubles.","It stays the same, because TAN is unchanged.","It decreases, because ammonium is converted to nitrate."],"answer":0,"feedback":["","Doubling corresponds to about 0.3 pH units.","TAN is the sum of both forms; the share of NH₃ changes with pH.","Nitrification is a biological process; the NH₄⁺/NH₃ equilibrium is instantaneous chemistry."],"explain":"<p>Far below the pKa, \\(f \\approx 10^{\\text{pH}-\\text{p}K_a}\\): one pH unit multiplies it by ten (at 20 °C from 0.39 % to 3.8 %).</p>"},
+          {"type":"numeric","q":"Tilapia water is at 28 °C and pH 7.5. What is the highest TAN that keeps NH₃-N below 0.05 mg L⁻¹?","answer":2.31,"tol":0.03,"unit":"mg L⁻¹","hint":"\\(\\text{TAN}_{\\max} = 0.05/f\\).","explain":"<p>\\(\\text{p}K_a(28\\ ^{\\circ}\\text{C}) = 9.155\\); \\(f = 1/(1+10^{1.655}) = 0.0216\\); \\(\\text{TAN}_{\\max} = 0.05/0.0216 = 2.3\\) mg L⁻¹.</p>"},
+          {"type":"mcq","q":"Why do fish with nitrite poisoning gasp at the surface even when the water is well oxygenated?","options":["Nitrite oxidises haemoglobin to methaemoglobin, which cannot carry oxygen.","Nitrite consumes dissolved oxygen in the water.","Nitrite blocks the gill filaments mechanically.","Nitrite is converted to ammonia in the blood."],"answer":0,"feedback":["","Nitrite oxidation by bacteria uses oxygen, but that is not why the fish gasp.","Solids can damage gills mechanically; nitrite acts chemically in the blood.","Nitrite is not reduced to ammonia in fish blood."],"explain":"<p>“Brown blood disease”: the blood cannot transport oxygen, so the fish behave as if the water were hypoxic (Durborow et al., 1997b).</p>"},
+          {"type":"numeric","q":"A 20 m³ system contains 2.0 mg L⁻¹ nitrite-N and 8 mg L⁻¹ chloride. How much NaCl gives a chloride to nitrite-N ratio of 10:1?","answer":395.6,"tol":0.03,"unit":"g NaCl","hint":"Chloride to add = 10 × 2.0 − 8; NaCl = Cl × 58.44/35.45.","explain":"<p>\\(\\Delta C = 12\\) mg L⁻¹ = 12 g m⁻³ → 240 g Cl⁻ → \\(240\\times1.649 = 396\\) g NaCl, adding \\(12\\times0.649 = 7.8\\) mg Na L⁻¹.</p>"},
+          {"type":"tf","q":"Chloride protects fish against nitrite mainly because chloride and nitrite compete for the same uptake route in the gills.","answer":true,"explain":"<p>Nitrite is actively taken up across the gills in competition with chloride (Kroupova et al., 2005), so more chloride means less nitrite uptake.</p>"},
+          {"type":"numeric","q":"After a power cut, a tank at 7.5 mg L⁻¹ O₂ holds 40 kg m⁻³ of fish consuming 0.5 g O₂ kg⁻¹ h⁻¹. How many minutes until the oxygen reaches 3.0 mg L⁻¹?","answer":13.5,"tol":0.03,"unit":"min","hint":"\\(t = (C_0-C_{\\text{crit}})/(D\\,r)\\) in hours.","explain":"<p>\\(D\\,r = 20\\) mg L⁻¹ h⁻¹; \\(t = 4.5/20 = 0.225\\) h = 13.5 min.</p>"},
+          {"type":"numeric","q":"A tank at 20 °C has pH 7.0 and an alkalinity of 50 mg L⁻¹ as CaCO₃ (pK₁ = 6.38). Estimate the free CO₂.","answer":10.6,"tol":0.04,"unit":"mg L⁻¹","hint":"\\(C = 0.88\\times\\text{Alk}\\times10^{\\text{p}K_1-\\text{pH}}\\).","explain":"<p>\\(0.8795\\times50\\times10^{-0.618} = 44.0\\times0.241 = 10.6\\) mg L⁻¹.</p>"},
+          {"type":"mcq","q":"At constant alkalinity, which action raises the pH of a fish tank?","options":["Stripping CO₂ by vigorous aeration of the return water.","Increasing the feeding rate.","Letting the biofilter nitrify more ammonia.","Enriching the greenhouse air with CO₂."],"answer":0,"feedback":["","More feed means more respiration, more CO₂ and more acid.","Nitrification consumes alkalinity and releases acid.","Enrichment raises the equilibrium CO₂ in the water slightly, lowering the pH."],"explain":"<p>From Eq. 6.3.7, pH = pK₁ + log(HCO₃⁻/CO₂): lowering CO₂ at constant bicarbonate raises the pH.</p>"},
+          {"type":"multi","q":"Which are the five domains of the 2020 Five Domains model? (Select all that apply.)","options":["Nutrition","Physical environment","Health","Behavioural interactions","Mental state","Productivity","Freedom from hunger"],"answer":[0,1,2,3,4],"shuffle":false,"explain":"<p>Mellor et al. (2020). Productivity is not a welfare domain, and \"freedom from hunger\" belongs to the older Five Freedoms.</p>"},
+          {"type":"tf","q":"Under Regulation (EC) No 1099/2009, the detailed stunning requirements for slaughter apply fully to farmed fish in all EU member states.","answer":false,"explain":"<p>For fish only the key principle of Article 3(1) applies; member states may adopt stricter national rules, as Germany and Sweden have done.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Un-ionised ammonia (NH₃)</dt><dd>The uncharged, membrane-permeable and toxic form of total ammonia; its share rises with pH and temperature.</dd>
+        <dt>pK<sub>a</sub></dt><dd>The pH at which an acid and its conjugate base are present in equal amounts; for NH₄⁺/NH₃ about 9.25 at 25 °C.</dd>
+        <dt>Van 't Hoff equation</dt><dd>The relation between the temperature dependence of an equilibrium constant and the reaction enthalpy, \(d\ln K/dT = \Delta H^{\circ}/(RT^2)\).</dd>
+        <dt>Methaemoglobin</dt><dd>Haemoglobin whose iron has been oxidised to Fe³⁺, for example by nitrite; it cannot bind oxygen ("brown blood").</dd>
+        <dt>Chloride-to-nitrite ratio</dt><dd>The ratio of chloride to nitrite-N (typically 6–10:1) that protects freshwater fish from nitrite uptake.</dd>
+        <dt>Oxygen saturation</dt><dd>The dissolved-oxygen concentration in equilibrium with air at a given temperature and pressure.</dd>
+        <dt>Volumetric transfer coefficient (k<sub>L</sub>a)</dt><dd>The rate constant of gas transfer by an aerator; transfer equals k<sub>L</sub>a times the saturation deficit.</dd>
+        <dt>Specific dynamic action</dt><dd>The rise in oxygen consumption after a meal, caused by digestion and assimilation.</dd>
+        <dt>Hypercarbia</dt><dd>Elevated CO₂ in water and blood; it acidifies the blood and reduces its oxygen-carrying capacity.</dd>
+        <dt>Alkalinity</dt><dd>The acid-neutralising capacity of water, mostly bicarbonate at pH 6–8.3, expressed as mg L⁻¹ CaCO₃.</dd>
+        <dt>Q₁₀</dt><dd>The factor by which a biological rate changes for a 10 °C change in temperature.</dd>
+        <dt>Five Domains model</dt><dd>A welfare-assessment framework: nutrition, physical environment, health and behavioural interactions shape the animal's mental state.</dd>
+        <dt>Operational welfare indicator</dt><dd>A measurable environment-based or animal-based sign of welfare that can be used routinely on a farm.</dd>
+        <dt>Biosecurity</dt><dd>Measures that reduce the introduction and spread of pathogens and the conditions that make animals susceptible to infection.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can calculate the un-ionised ammonia from TAN, pH and temperature and explain where Emerson's pK<sub>a</sub> equation comes from.</li>
+        <li>I can explain nitrite toxicity and calculate a salt dose, including its sodium side effect for the plants.</li>
+        <li>I can predict how quickly oxygen falls after an aeration failure and justify backup systems for a given stocking density.</li>
+        <li>I can relate pH, alkalinity and CO₂ with the carbonate equilibrium and tell whether a pH problem needs aeration or base.</li>
+        <li>I can assess fish welfare with the Five Domains model and name environment-based and animal-based indicators.</li>
+        <li>I can explain why antibiotics and pesticides are not an option in coupled aquaponics, and what EU law requires for fish welfare and food safety.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Yavuzcan Yildiz, H., Robaina, L., Pirhonen, J., Mente, E., Domínguez, D., &amp; Parisi, G. (2017). Fish welfare in aquaponic systems: Its relation to water quality with an emphasis on feed and faeces — a review. <em>Water</em>, 9(1), 13. <a href="https://doi.org/10.3390/w9010013" target="_blank" rel="noopener">doi:10.3390/w9010013</a><span class="r-why">The central review for this lesson: oxygen, ammonia, nitrite, nitrate, CO₂, pH, solids and their welfare consequences in aquaponics.</span></li>
+        <li><span class="r-type">Required · open access</span>Somerville, C., Cohen, M., Pantanella, E., Stankus, A., &amp; Lovatelli, A. (2014). <em>Small-scale aquaponic food production</em> (FAO Fisheries and Aquaculture Technical Paper No. 589). FAO. <a href="https://www.fao.org/3/i4021e/i4021e.pdf" target="_blank" rel="noopener">fao.org/3/i4021e</a><span class="r-why">Read chapter 3 on water quality and the fish-health section of chapter 7: practical tolerance tables and management advice.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Kroupova, H., Machova, J., &amp; Svobodova, Z. (2005). Nitrite influence on fish: A review. <em>Veterinární medicína</em>, 50(11), 461–471. <a href="https://doi.org/10.17221/5650-VETMED" target="_blank" rel="noopener">doi:10.17221/5650-VETMED</a><span class="r-why">How nitrite enters fish, what it does, and which factors — above all chloride — modify its toxicity.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Mellor, D. J., Beausoleil, N. J., Littlewood, K. E., McLean, A. N., McGreevy, P. D., Jones, B., &amp; Wilkins, C. (2020). The 2020 Five Domains Model: Including human–animal interactions in assessments of animal welfare. <em>Animals</em>, 10(10), 1870. <a href="https://doi.org/10.3390/ani10101870" target="_blank" rel="noopener">doi:10.3390/ani10101870</a><span class="r-why">The welfare framework used in Figure 7, explained by its authors.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Yavuzcan Yildiz, H., Radosavljevic, V., Parisi, G., &amp; Cvetkovikj, A. (2019). Insight into risks in aquatic animal health in aquaponics. In S. Goddek et al. (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 435–452). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_17" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_17</a><span class="r-why">Biosecurity, diagnosis and treatment options specific to aquaponics.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Wang, Y.-J., Deering, A. J., &amp; Kim, H.-J. (2020). The occurrence of Shiga toxin-producing <i>E. coli</i> in aquaponic and hydroponic systems. <em>Horticulturae</em>, 6(1), 1. <a href="https://doi.org/10.3390/horticulturae6010001" target="_blank" rel="noopener">doi:10.3390/horticulturae6010001</a><span class="r-why">A short experimental study of pathogens from fish to plants — read it critically together with the published comment.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Benson, B. B., &amp; Krause, D., Jr. (1984). The concentration and isotopic fractionation of oxygen dissolved in freshwater and seawater in equilibrium with the atmosphere. <em>Limnology and Oceanography</em>, 29(3), 620–632. <a href="https://doi.org/10.4319/lo.1984.29.3.0620" target="_blank" rel="noopener">doi:10.4319/lo.1984.29.3.0620</a></li>
+        <li>Brown, C. (2015). Fish intelligence, sentience and ethics. <em>Animal Cognition</em>, 18(1), 1–17. <a href="https://doi.org/10.1007/s10071-014-0761-0" target="_blank" rel="noopener">doi:10.1007/s10071-014-0761-0</a></li>
+        <li>Council Directive 98/58/EC of 20 July 1998 concerning the protection of animals kept for farming purposes. <em>Official Journal of the European Communities</em>, L 221, 23–27.</li>
+        <li>Council Regulation (EC) No 1099/2009 of 24 September 2009 on the protection of animals at the time of killing. <em>Official Journal of the European Union</em>, L 303, 1–30.</li>
+        <li>Davidson, J., Good, C., Welsh, C., &amp; Summerfelt, S. T. (2014). Comparing the effects of high vs. low nitrate on the health, performance, and welfare of juvenile rainbow trout <i>Oncorhynchus mykiss</i> within water recirculating aquaculture systems. <em>Aquacultural Engineering</em>, 59, 30–40. <a href="https://doi.org/10.1016/j.aquaeng.2014.01.003" target="_blank" rel="noopener">doi:10.1016/j.aquaeng.2014.01.003</a></li>
+        <li>Durborow, R. M., Crosby, D. M., &amp; Brunson, M. W. (1997a). <em>Ammonia in fish ponds</em> (SRAC Publication No. 463). Southern Regional Aquaculture Center.</li>
+        <li>Durborow, R. M., Crosby, D. M., &amp; Brunson, M. W. (1997b). <em>Nitrite in fish ponds</em> (SRAC Publication No. 462). Southern Regional Aquaculture Center.</li>
+        <li>Ellis, T., North, B., Scott, A. P., Bromage, N. R., Porter, M., &amp; Gadd, D. (2002). The relationships between stocking density and welfare in farmed rainbow trout. <em>Journal of Fish Biology</em>, 61(3), 493–531. <a href="https://doi.org/10.1111/j.1095-8649.2002.tb00893.x" target="_blank" rel="noopener">doi:10.1111/j.1095-8649.2002.tb00893.x</a></li>
+        <li>Emerson, K., Russo, R. C., Lund, R. E., &amp; Thurston, R. V. (1975). Aqueous ammonia equilibrium calculations: Effect of pH and temperature. <em>Journal of the Fisheries Research Board of Canada</em>, 32(12), 2379–2383. <a href="https://doi.org/10.1139/f75-274" target="_blank" rel="noopener">doi:10.1139/f75-274</a></li>
+        <li>EU Platform on Animal Welfare. (2021). <em>Guidelines on water quality and handling for the welfare of farmed vertebrate fish</em>. European Commission. <a href="https://food.ec.europa.eu/animals/animal-welfare/eu-platform-animal-welfare/platform-conclusions_en" target="_blank" rel="noopener">food.ec.europa.eu</a></li>
+        <li>European Commission. (2026). <em>Revision of the animal welfare legislation</em>. Directorate-General for Health and Food Safety. <a href="https://food.ec.europa.eu/animals/animal-welfare/evaluations-and-impact-assessment/revision-animal-welfare-legislation_en" target="_blank" rel="noopener">food.ec.europa.eu</a> (accessed September 2026).</li>
+        <li>Goddek, S., Delaide, B., Mankasingh, U., Ragnarsdottir, K. V., Jijakli, H., &amp; Thorarinsdottir, R. (2015). Challenges of sustainable and commercial aquaponics. <em>Sustainability</em>, 7(4), 4199–4224. <a href="https://doi.org/10.3390/su7044199" target="_blank" rel="noopener">doi:10.3390/su7044199</a></li>
+        <li>Kledal, P. R., König, B., &amp; Matulić, D. (2019). Aquaponics: The ugly duckling in organic regulation. In S. Goddek, A. Joyce, B. Kotzen, &amp; G. M. Burnell (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 487–500). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_19" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_19</a></li>
+        <li>Kroupova, H., Machova, J., &amp; Svobodova, Z. (2005). Nitrite influence on fish: A review. <em>Veterinární medicína</em>, 50(11), 461–471. <a href="https://doi.org/10.17221/5650-VETMED" target="_blank" rel="noopener">doi:10.17221/5650-VETMED</a></li>
+        <li>Losordo, T. M., Masser, M. P., &amp; Rakocy, J. (1998). <em>Recirculating aquaculture tank production systems: An overview of critical considerations</em> (SRAC Publication No. 451). Southern Regional Aquaculture Center.</li>
+        <li>Masser, M. P., Rakocy, J., &amp; Losordo, T. M. (1999). <em>Recirculating aquaculture tank production systems: Management of recirculating systems</em> (SRAC Publication No. 452, revision). Southern Regional Aquaculture Center.</li>
+        <li>Mellor, D. J., Beausoleil, N. J., Littlewood, K. E., McLean, A. N., McGreevy, P. D., Jones, B., &amp; Wilkins, C. (2020). The 2020 Five Domains Model: Including human–animal interactions in assessments of animal welfare. <em>Animals</em>, 10(10), 1870. <a href="https://doi.org/10.3390/ani10101870" target="_blank" rel="noopener">doi:10.3390/ani10101870</a></li>
+        <li>Plummer, L. N., &amp; Busenberg, E. (1982). The solubilities of calcite, aragonite and vaterite in CO₂–H₂O solutions between 0 and 90 °C, and an evaluation of the aqueous model for the system CaCO₃–CO₂–H₂O. <em>Geochimica et Cosmochimica Acta</em>, 46(6), 1011–1040. <a href="https://doi.org/10.1016/0016-7037(82)90056-4" target="_blank" rel="noopener">doi:10.1016/0016-7037(82)90056-4</a></li>
+        <li>Rakocy, J. E., Masser, M. P., &amp; Losordo, T. M. (2006). <em>Recirculating aquaculture tank production systems: Aquaponics — integrating fish and plant culture</em> (SRAC Publication No. 454, revision). Southern Regional Aquaculture Center.</li>
+        <li>Randall, D. J., &amp; Tsui, T. K. N. (2002). Ammonia toxicity in fish. <em>Marine Pollution Bulletin</em>, 45(1–12), 17–23. <a href="https://doi.org/10.1016/S0025-326X(02)00227-8" target="_blank" rel="noopener">doi:10.1016/S0025-326X(02)00227-8</a></li>
+        <li>Regulation (EU) 2019/6 of the European Parliament and of the Council of 11 December 2018 on veterinary medicinal products and repealing Directive 2001/82/EC. <em>Official Journal of the European Union</em>, L 4, 43–167.</li>
+        <li>Reinhardt, T., Hoevenaars, K., &amp; Joyce, A. (2019). Regulatory frameworks for aquaponics in the European Union. In S. Goddek, A. Joyce, B. Kotzen, &amp; G. M. Burnell (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 501–522). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_20" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_20</a></li>
+        <li>Somerville, C., Cohen, M., Pantanella, E., Stankus, A., &amp; Lovatelli, A. (2014). <em>Small-scale aquaponic food production: Integrated fish and plant farming</em> (FAO Fisheries and Aquaculture Technical Paper No. 589). FAO. <a href="https://www.fao.org/3/i4021e/i4021e.pdf" target="_blank" rel="noopener">https://www.fao.org/3/i4021e/i4021e.pdf</a></li>
+        <li>Sveriges riksdag. (2018). <em>Djurskyddslag (2018:1192)</em> [Swedish Animal Welfare Act]. <a href="https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/djurskyddslag-20181192_sfs-2018-1192/" target="_blank" rel="noopener">riksdagen.se</a></li>
+        <li>Treaty on the Functioning of the European Union (consolidated version), Article 13. <em>Official Journal of the European Union</em>, C 202, 7 June 2016.</li>
+        <li>US EPA. (2013). <em>Aquatic life ambient water quality criteria for ammonia — freshwater 2013</em> (EPA 822-R-18-002; corrected 2018). U.S. Environmental Protection Agency, Office of Water. <a href="https://www.epa.gov/wqc/aquatic-life-criteria-ammonia" target="_blank" rel="noopener">epa.gov/wqc/aquatic-life-criteria-ammonia</a></li>
+        <li>Wang, Y.-J., Deering, A. J., &amp; Kim, H.-J. (2020). The occurrence of Shiga toxin-producing <i>E. coli</i> in aquaponic and hydroponic systems. <em>Horticulturae</em>, 6(1), 1. <a href="https://doi.org/10.3390/horticulturae6010001" target="_blank" rel="noopener">doi:10.3390/horticulturae6010001</a></li>
+        <li>Weiss, R. F. (1974). Carbon dioxide in water and seawater: The solubility of a non-ideal gas. <em>Marine Chemistry</em>, 2(3), 203–215. <a href="https://doi.org/10.1016/0304-4203(74)90015-2" target="_blank" rel="noopener">doi:10.1016/0304-4203(74)90015-2</a></li>
+        <li>Wurts, W. A., &amp; Durborow, R. M. (1992). <em>Interactions of pH, carbon dioxide, alkalinity and hardness in fish ponds</em> (SRAC Publication No. 464). Southern Regional Aquaculture Center.</li>
+        <li>Yavuzcan Yildiz, H., Radosavljevic, V., Parisi, G., &amp; Cvetkovikj, A. (2019). Insight into risks in aquatic animal health in aquaponics. In S. Goddek, A. Joyce, B. Kotzen, &amp; G. M. Burnell (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 435–452). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_17" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_17</a></li>
+        <li>Yavuzcan Yildiz, H., Robaina, L., Pirhonen, J., Mente, E., Domínguez, D., &amp; Parisi, G. (2017). Fish welfare in aquaponic systems: Its relation to water quality with an emphasis on feed and faeces — a review. <em>Water</em>, 9(1), 13. <a href="https://doi.org/10.3390/w9010013" target="_blank" rel="noopener">doi:10.3390/w9010013</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, linspace } from '/assets/js/plot.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+import { nh3Fraction, doSaturation } from '/assets/js/physics.js';
+import { categorical } from '/assets/js/colors.js';
+
+const K0 = 273.15;
+const pKa = T => 0.09018 + 2729.92 / (T + K0);                                          // Emerson et al. (1975)
+const pK1 = T => { const Tk = T + K0; return -(-356.3094 - 0.06091964 * Tk + 21834.37 / Tk + 126.8339 * Math.log10(Tk) - 1684915 / Tk ** 2); };   // Plummer & Busenberg (1982)
+const pK2 = T => { const Tk = T + K0; return -(-107.8871 - 0.03252849 * Tk + 5151.79 / Tk + 38.92561 * Math.log10(Tk) - 563713.9 / Tk ** 2); };
+const K0co2 = T => { const Tk = T + K0; return Math.exp(-58.0931 + 90.5069 * (100 / Tk) + 22.2940 * Math.log(Tk / 100)); };  // Weiss (1974)
+
+function slider(host, { label, min, max, step, value, unit = '', digits = 1 }, onInput) {
+  const w = document.createElement('div'); w.className = 'mc-var';
+  w.innerHTML = `<div class="mc-lab"><span>${label}</span><output></output></div><input type="range" aria-label="${label.replace(/<[^>]+>/g, '')}">`;
+  const r = w.querySelector('input'), o = w.querySelector('output');
+  r.min = min; r.max = max; r.step = step;
+  const show = () => { o.textContent = fmt(+r.value, digits) + (unit ? ' ' + unit : ''); r.style.setProperty('--fill', ((+r.value - min) / (max - min) * 100) + '%'); };
+  r.addEventListener('input', () => { show(); onInput(); });
+  host.appendChild(w); r.value = value; show();
+  return { get: () => +r.value, set: v => { r.value = v; show(); }, el: w };
+}
+function segmented(el, onChange) {
+  el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); onChange(b.dataset.v); });
+  return () => el.querySelector('button[aria-pressed="true"]').dataset.v;
+}
+
+/* ================= Figure 3: ammonia explorer ================= */
+(function () {
+  const host = document.getElementById('nx-ctl');
+  const run = () => draw();
+  const TAN = slider(host, { label: 'TAN', min: 0.1, max: 10, step: 0.05, value: 2, unit: 'mg L⁻¹', digits: 2 }, run);
+  const pH = slider(host, { label: 'pH', min: 6, max: 9.5, step: 0.05, value: 7.5, digits: 2 }, run);
+  const T = slider(host, { label: 'Water temperature', min: 2, max: 34, step: 0.5, value: 26, unit: '°C', digits: 1 }, run);
+  const getLim = segmented(document.getElementById('nx-lim'), run);
+  const xs = linspace(6, 9.5, 141);
+  const logFmt = v => v >= 1 ? String(Math.round(v)) : String(+v.toPrecision(1));
+  const p1 = new Plot('#nx-plot1', { x: { label: 'pH', min: 6, max: 9.5 }, y: { label: 'NH₃ share of TAN', unit: '%', log: true, min: 0.01, max: 100, format: logFmt } });
+  const p2 = new Plot('#nx-plot2', { x: { label: 'pH', min: 6, max: 9.5 }, y: { label: 'Highest acceptable TAN', unit: 'mg L⁻¹', log: true, min: 0.01, max: 1000, format: logFmt } });
+  [5, 10, 15, 20, 25, 30].forEach((t, i) => p1.line('t' + t, xs, xs.map(x => 100 * nh3Fraction(x, t)), { color: categorical(i), width: 1.2, label: i === 0 ? '5–30 °C (5 °C steps)' : undefined }));
+  p2.region('comp', 6, 7, { color: 'accent', alpha: 0.10, label: 'pH 6–7' });
+  const ro = new Readouts('#nx-ro');
+  ro.add({ id: 'pka', label: 'pKₐ at this temperature', unit: '', digits: 3 })
+    .add({ id: 'f', label: 'NH₃ share of TAN', unit: '%', digits: 2 })
+    .add({ id: 'n', label: 'Un-ionised ammonia NH₃-N', unit: 'mg L⁻¹', digits: 3, note: '–' })
+    .add({ id: 'nh3', label: 'Same, as NH₃ molecule', unit: 'mg L⁻¹', digits: 3 })
+    .add({ id: 'max', label: 'Highest acceptable TAN at this pH', unit: 'mg L⁻¹', digits: 2 })
+    .add({ id: 'phmax', label: 'Highest acceptable pH at this TAN', unit: '', digits: 2 });
+  function draw() {
+    const t = T.get(), x = pH.get(), tan = TAN.get(), lim = +getLim();
+    const f = nh3Fraction(x, t), n = tan * f;
+    p1.line('cur', xs, xs.map(v => 100 * nh3Fraction(v, t)), { color: 'ink', width: 3, label: 'your temperature' });
+    p1.point('pt', x, 100 * f, { color: 'magenta', r: 6 });
+    p2.line('tmax', xs, xs.map(v => lim / nh3Fraction(v, t)), { color: 'accent', width: 3, label: 'TAN limit for ' + lim + ' mg NH₃-N L⁻¹' });
+    p2.hline('tan', tan, { color: 'magenta', label: 'your TAN ' + fmt(tan, 2) });
+    p2.point('pt', x, lim / f, { color: 'ink', r: 5 });
+    ro.set('pka', pKa(t));
+    ro.set('f', 100 * f);
+    ro.set('n', n, n > lim ? 'bad' : n > 0.5 * lim ? 'warn' : 'ok', n > lim ? 'above the chosen limit' : 'below the chosen limit');
+    ro.set('nh3', n * 17.031 / 14.007);
+    ro.set('max', lim / f);
+    ro.set('phmax', tan > lim ? pKa(t) + Math.log10(lim / (tan - lim)) : NaN);
+  }
+  draw();
+})();
+
+/* ================= Figure 4: chloride calculator ================= */
+(function () {
+  const host = document.getElementById('cl-ctl');
+  const run = () => draw();
+  const V = slider(host, { label: 'System volume', min: 1, max: 150, step: 1, value: 30, unit: 'm³', digits: 0 }, run);
+  const N = slider(host, { label: 'Nitrite-N', min: 0, max: 10, step: 0.1, value: 1.5, unit: 'mg L⁻¹', digits: 1 }, run);
+  const Cl = slider(host, { label: 'Chloride present', min: 0, max: 150, step: 1, value: 10, unit: 'mg L⁻¹', digits: 0 }, run);
+  const R = slider(host, { label: 'Target ratio Cl : NO₂-N', min: 6, max: 70, step: 1, value: 10, digits: 0 }, run);
+  const Na0 = slider(host, { label: 'Sodium already present', min: 0, max: 60, step: 1, value: 15, unit: 'mg L⁻¹', digits: 0 }, run);
+  const getSalt = segmented(document.getElementById('cl-salt'), run);
+  const ro = new Readouts('#cl-ro');
+  ro.add({ id: 'no2', label: 'Nitrite as the NO₂⁻ ion', unit: 'mg L⁻¹', digits: 2 })
+    .add({ id: 'dcl', label: 'Chloride to add', unit: 'mg L⁻¹', digits: 1 })
+    .add({ id: 'salt', label: 'Salt to dose', unit: 'kg', digits: 3 })
+    .add({ id: 'na', label: 'Sodium after dosing', unit: 'mg L⁻¹', digits: 1, note: '–' })
+    .add({ id: 'ca', label: 'Calcium added', unit: 'mg L⁻¹', digits: 1 });
+  function draw() {
+    const d = Math.max(0, R.get() * N.get() - Cl.get()), nacl = getSalt() === 'NaCl';
+    const salt = d * V.get() * (nacl ? 58.443 / 35.453 : 110.98 / 70.906) / 1000;
+    const na = Na0.get() + (nacl ? d * 22.990 / 35.453 : 0);
+    ro.set('no2', N.get() * 46.005 / 14.007);
+    ro.set('dcl', d, null);
+    ro.set('salt', salt);
+    ro.set('na', na, na > 50 ? 'bad' : na > 40 ? 'warn' : 'ok', na > 50 ? 'above ≈ 50 mg L⁻¹: harmful to plants' : 'within the plant limit');
+    ro.set('ca', nacl ? 0 : d * 40.078 / 70.906, nacl ? null : 'ok');
+  }
+  draw();
+})();
+
+/* ================= Figure 5: 24-hour dissolved-oxygen simulator ================= */
+(function () {
+  const host = document.getElementById('do-ctl');
+  const run = () => draw();
+  const T = slider(host, { label: 'Water temperature', min: 8, max: 32, step: 0.5, value: 26, unit: '°C', digits: 1 }, run);
+  const D = slider(host, { label: 'Fish density', min: 5, max: 100, step: 1, value: 40, unit: 'kg m⁻³', digits: 0 }, run);
+  const fr = slider(host, { label: 'Feeding rate', min: 0.5, max: 3, step: 0.1, value: 1.5, unit: '% d⁻¹', digits: 1 }, run);
+  const kO = slider(host, { label: 'O₂ demand per kg feed', min: 0.3, max: 0.75, step: 0.01, value: 0.5, unit: 'kg kg⁻¹', digits: 2 }, run);
+  const kla = slider(host, { label: 'Aeration k<sub>L</sub>a', min: 1, max: 20, step: 0.5, value: 6, unit: 'h⁻¹', digits: 1 }, run);
+  const fs = slider(host, { label: 'Aeration failure starts at', min: 0, max: 23.5, step: 0.5, value: 2, unit: 'h', digits: 1 }, run);
+  const fd = slider(host, { label: 'Failure duration', min: 0, max: 120, step: 5, value: 30, unit: 'min', digits: 0 }, run);
+  const getFeed = segmented(document.getElementById('do-feed'), run);
+  const getAlg = segmented(document.getElementById('do-alg'), run);
+  const plot = new Plot('#do-plot', { x: { label: 'Time of day', unit: 'h', min: 0, max: 24 }, y: { label: 'Dissolved oxygen', unit: 'mg L⁻¹', min: 0 } });
+  plot.hregion('crit', 0, 3, { color: 'danger', alpha: 0.08, label: '< 3 mg L⁻¹: too low for most fish' });
+  plot.hline('five', 5, { color: 'amber', label: '5 mg L⁻¹ (warm-water growth)' });
+  plot.hline('two', 2, { color: 'danger', dash: [2, 3], label: '2 mg L⁻¹: nitrifiers inefficient' });
+  const ro = new Readouts('#do-ro');
+  ro.add({ id: 'cs', label: 'Saturation C*', unit: 'mg L⁻¹', digits: 2 })
+    .add({ id: 'dem', label: 'Mean O₂ demand', unit: 'mg L⁻¹ h⁻¹', digits: 1 })
+    .add({ id: 'min', label: 'Lowest DO', unit: 'mg L⁻¹', digits: 2, note: '–' })
+    .add({ id: 'below', label: 'Time below 5 mg L⁻¹', unit: 'h d⁻¹', digits: 1 })
+    .add({ id: 'crit', label: 'Failure to 3 mg L⁻¹', unit: 'min', digits: 0, note: '–' });
+  const TAU = 2; // h, time to peak of the post-meal oxygen demand (illustrative)
+  const kernel = tau => tau <= 0 ? 0 : tau / (TAU * TAU) * Math.exp(-tau / TAU);
+  function draw() {
+    const Cs = doSaturation(T.get());
+    const meanR = kO.get() * D.get() * fr.get() / 100 * 1000 / 24;     // g O2 m^-3 h^-1 = mg L^-1 h^-1
+    const regime = getFeed(), alg = getAlg() === '1';
+    const meals = regime === '2' ? [8, 16] : regime === '4' ? [7, 11, 15, 19] : null;
+    // post-meal demand shape g(t), periodic, mean 1 over 24 h
+    const shape = h => {
+      let s = 0;
+      for (let day = -3; day <= 0; day++) {
+        if (meals) meals.forEach(m => { s += kernel(h - (m + 24 * day)) / meals.length; });
+        else for (let m = 6; m < 24; m += 0.25) s += kernel(h - (m + 24 * day)) * 0.25 / 18;
+      }
+      return s * 24;   // integral of each kernel is 1 -> mean over the day is 1
+    };
+    const dt = 1 / 60; const t0 = -72; const out = []; let C = 0.9 * Cs;
+    const Pmax = 1.5 * meanR, Ralg = Pmax * (14 / 24) * (2 / Math.PI);
+    const fStart = fs.get(), fEnd = fs.get() + fd.get() / 60;
+    let minC = Infinity, tMin = 0, below = 0, tCrit = NaN;
+    for (let t = t0; t <= 24 + 1e-9; t += dt) {
+      const h = ((t % 24) + 24) % 24;
+      const R = meanR * (0.5 + 0.5 * shape(h));
+      const on = !(t >= fStart && t < fEnd);
+      let P = 0; if (alg && h >= 6 && h <= 20) P = Pmax * Math.sin(Math.PI * (h - 6) / 14);
+      const dC = (on ? kla.get() * (Cs - C) : 0) - R + (alg ? P - Ralg : 0);
+      C = Math.max(0, C + dC * dt);
+      if (t >= 0) {
+        if (Math.round(t * 60) % 5 === 0) out.push([t, C]);
+        if (C < minC) { minC = C; tMin = t; }
+        if (C < 5) below += dt;
+        if (!on && isNaN(tCrit) && C <= 3) tCrit = (t - fStart) * 60;
+      }
+    }
+    plot.line('cs', [[0, Cs], [24, Cs]], { color: 'water', width: 1.5, dash: [6, 4], label: 'saturation C*' });
+    plot.line('do', out, { color: 'accent', width: 2.8, label: 'dissolved oxygen' });
+    if (fd.get() > 0) plot.region('fail', fStart, Math.min(24, fEnd), { color: 'danger', alpha: 0.12, label: 'no aeration' }); else plot.remove('fail');
+    plot.setAxis('y', { min: 0, max: Math.ceil(Cs + 1) });
+    ro.set('cs', Cs);
+    ro.set('dem', meanR);
+    ro.set('min', minC, minC < 3 ? 'bad' : minC < 5 ? 'warn' : 'ok', 'at ' + String(Math.floor(tMin)).padStart(2, '0') + ':' + String(Math.round((tMin % 1) * 60) % 60).padStart(2, '0'));
+    ro.set('below', below, below > 2 ? 'bad' : below > 0.1 ? 'warn' : 'ok');
+    ro.set('crit', tCrit, isNaN(tCrit) ? 'ok' : tCrit < 30 ? 'bad' : 'warn', fd.get() === 0 ? 'no failure set' : isNaN(tCrit) ? 'not reached during the failure' : 'minutes after the aerator stopped');
+  }
+  draw();
+})();
+
+/* ================= Figure 6: carbonate explorer ================= */
+(function () {
+  const host = document.getElementById('cx-ctl');
+  const run = () => draw();
+  const pH = slider(host, { label: 'pH', min: 5.5, max: 9.5, step: 0.05, value: 7.0, digits: 2 }, run);
+  const Alk = slider(host, { label: 'Alkalinity', min: 10, max: 300, step: 5, value: 60, unit: 'mg L⁻¹ CaCO₃', digits: 0 }, run);
+  const T = slider(host, { label: 'Water temperature', min: 5, max: 35, step: 0.5, value: 26, unit: '°C', digits: 1 }, run);
+  const getAir = segmented(document.getElementById('cx-air'), run);
+  const p1 = new Plot('#cx-plot1', { x: { label: 'pH', min: 4, max: 12 }, y: { label: 'Fraction of inorganic carbon', min: 0, max: 1 } });
+  const p2 = new Plot('#cx-plot2', { x: { label: 'pH', min: 5.5, max: 9.5 }, y: { label: 'Free CO₂', unit: 'mg L⁻¹', log: true, min: 0.1, max: 1000, format: v => v >= 1 ? String(Math.round(v)) : String(+v.toPrecision(1)) } });
+  p2.hline('lim', 20, { color: 'danger', label: '20 mg L⁻¹ stress level' });
+  const ro = new Readouts('#cx-ro');
+  ro.add({ id: 'pk1', label: 'pK₁ / pK₂ at this temperature', unit: '', format: v => v })
+    .add({ id: 'co2', label: 'Free CO₂', unit: 'mg L⁻¹', digits: 1 })
+    .add({ id: 'hco3', label: 'Bicarbonate HCO₃⁻', unit: 'mg L⁻¹', digits: 0 })
+    .add({ id: 'eq', label: 'CO₂ in equilibrium with the air', unit: 'mg L⁻¹', digits: 2 })
+    .add({ id: 'pheq', label: 'pH after stripping to equilibrium', unit: '', digits: 2 });
+  const fr = (x, k1, k2) => { const h = Math.pow(10, -x), K1 = Math.pow(10, -k1), K2 = Math.pow(10, -k2); const d = h * h + h * K1 + K1 * K2; return [h * h / d, h * K1 / d, K1 * K2 / d]; };
+  const co2At = (x, alk, k1, k2) => { const a = fr(x, k1, k2); return (alk / 50.04) * a[0] / (a[1] + 2 * a[2]) * 44.01; };   // mg/L
+  const xs1 = linspace(4, 12, 161), xs2 = linspace(5.5, 9.5, 161);
+  function draw() {
+    const t = T.get(), k1 = pK1(t), k2 = pK2(t), x = pH.get(), alk = Alk.get();
+    const A = xs1.map(v => fr(v, k1, k2));
+    p1.line('a0', xs1, A.map(a => a[0]), { color: 'magenta', width: 2.4, label: 'CO₂*' });
+    p1.line('a1', xs1, A.map(a => a[1]), { color: 'water', width: 2.4, label: 'HCO₃⁻' });
+    p1.line('a2', xs1, A.map(a => a[2]), { color: 'amber', width: 2.4, label: 'CO₃²⁻' });
+    p1.vline('k1', k1, { color: 'muted', dash: [3, 3], label: 'pK₁' });
+    p1.vline('k2', k2, { color: 'muted', dash: [3, 3], label: 'pK₂' });
+    p1.vline('cur', x, { color: 'ink', dash: [], width: 2, label: 'pH ' + fmt(x, 2) });
+    [25, 50, 100, 200].forEach((a, i) => p2.line('alk' + a, xs2, xs2.map(v => co2At(v, a, k1, k2)), { color: 'muted', width: 1, label: i === 0 ? '25, 50, 100, 200 mg L⁻¹' : undefined, noTip: true }));
+    p2.line('you', xs2, xs2.map(v => co2At(v, alk, k1, k2)), { color: 'accent', width: 3, label: 'your alkalinity' });
+    const eq = K0co2(t) * (+getAir()) * 1e-6 * 44.01 * 1000;
+    p2.hline('eq', eq, { color: 'water', dash: [2, 3], label: 'equilibrium with air' });
+    const c = co2At(x, alk, k1, k2);
+    p2.point('pt', x, c, { color: 'magenta', r: 6 });
+    ro.set('pk1', fmt(k1, 2) + ' / ' + fmt(k2, 2));
+    ro.set('co2', c, c > 20 ? 'bad' : c > 15 ? 'warn' : 'ok');
+    ro.set('hco3', (alk / 50.04) * fr(x, k1, k2)[1] / (fr(x, k1, k2)[1] + 2 * fr(x, k1, k2)[2]) * 61.02);
+    ro.set('eq', eq);
+    ro.set('pheq', k1 + Math.log10((44.01 / 50.04) * alk / eq));
+  }
+  draw();
+})();
+</script>
+</body>
+</html>

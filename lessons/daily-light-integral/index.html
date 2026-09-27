@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily light integral, photoperiod and the solar resource · Future Food Production</title>
+<meta name="description" content="The daily light integral as the time integral of PPFD, crop light requirements, solar geometry and the FAO-56 radiation equations, seasonal light at high latitudes, supplementary lighting and photoperiodism.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator functions for this lesson (FAO-56 solar geometry). Angles in degrees at the interface, radians inside. */
+window.FFP_CALC = window.FFP_CALC || {};
+(function (C) {
+  var R = Math.PI / 180;
+  function decl(J) { return 0.409 * Math.sin(2 * Math.PI * J / 365 - 1.39); }
+  function ws(lat, J) { var x = -Math.tan(lat * R) * Math.tan(decl(J)); return Math.acos(Math.max(-1, Math.min(1, x))); }
+  C.dliDecl = function (v) { return decl(v.J) / R; };
+  C.dliElev = function (v) {
+    var d = decl(v.J), w = 15 * (v.t - 12) * R, p = v.lat * R;
+    return Math.asin(Math.max(-1, Math.min(1, Math.sin(p) * Math.sin(d) + Math.cos(p) * Math.cos(d) * Math.cos(w)))) / R;
+  };
+  C.dliDayLength = function (v) { return 24 / Math.PI * ws(v.lat, v.J); };
+  C.dliRa = function (v) {
+    var p = v.lat * R, d = decl(v.J), s = ws(v.lat, v.J), dr = 1 + 0.033 * Math.cos(2 * Math.PI * v.J / 365);
+    return 24 * 60 / Math.PI * 0.0820 * dr * (s * Math.sin(p) * Math.sin(d) + Math.cos(p) * Math.cos(d) * Math.sin(s));
+  };
+  C.dliSuppHours = function (v) { var def = Math.max(0, v.target - v.tau * v.out); return def / (v.ppfd * 0.0036); };
+})(window.FFP_CALC);
+</script>
+</head>
+<body data-page="lesson" data-slug="daily-light-integral">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Daily light integral, photoperiod and the solar resource</h1>
+      <p class="lead">On a clear day in June a lettuce crop in Västerås can receive more than 40 moles of photons per square metre — for free. On a December day the same square metre receives little more than one mole, because the sun barely clears the horizon for five and a half hours. A crop does not grow on the brightest moment of the day; it grows on the total. This lesson shows you how to calculate that daily total from first principles — from the tilt of the Earth's axis to the glass of the greenhouse roof — and how to decide how much electric light is needed to close the gap.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Define the daily light integral (DLI) as the time integral of PPFD and calculate it for constant, sinusoidal and measured light, including numerical integration with the trapezoidal rule (LO3).</li>
+        <li>Relate crop DLI requirements to growth, quality and physiological disorders, and use the "1 % rule" to value extra light (LO2, LO3).</li>
+        <li>Derive the solar declination, hour angle, solar elevation, day length and extraterrestrial radiation, and estimate clear-sky and cloudy-sky DLI with the FAO-56 and Ångström–Prescott equations (LO3).</li>
+        <li>Quantify the seasonal DLI deficit of a greenhouse at high latitude and size supplementary lighting in hours, PPFD and kWh m⁻² per year (LO3).</li>
+        <li>Explain photoperiodism and critical night length, and justify why longer photoperiods at lower PPFD usually use a given DLI more efficiently (LO2).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="why-dli">Why the daily dose of photons matters</h2>
+      <p class="lede-drop">In <a href="/lessons/radiation-physics/">Lesson 4.1</a> you learned to measure light as a photon flux density, PPFD, in µmol m⁻² s⁻¹. PPFD is an instantaneous rate, like the speed shown on a car's speedometer. But a crop's growth over a day depends on how far it has travelled, not on its speed at one moment: the total number of photons absorbed between sunrise and sunset (plus any electric light). That total — the <strong>daily light integral</strong>, DLI, in mol m⁻² d⁻¹ — is the single most useful number for describing the light environment of a crop, for comparing locations and seasons, and for sizing supplementary lighting (Faust &amp; Logan, 2018).</p>
+      <p>Two reasons make the DLI more useful than a spot reading of PPFD. First, <em>sunlight fluctuates</em>: a quantum sensor in a greenhouse may read 1200 µmol m⁻² s⁻¹ at noon and 50 an hour later when a cloud passes. A single reading says almost nothing about the day. Second, <em>plants integrate</em>: over hours to days, the carbohydrates a crop produces are, to a good first approximation, proportional to the photons it intercepts. The same DLI delivered as a bright short day or a dim long day produces broadly similar growth — with important exceptions that we will quantify in the last section.</p>
+      <p>For growers at high latitudes the DLI is also an economic variable. In a Swedish greenhouse the natural DLI varies roughly thirty-fold between midsummer and midwinter. Every mole missing in winter must either be bought as electricity or accepted as lost yield. How much yield? Dutch experiments summarised by Marcelis et al. (2006) give a remarkably robust rule of thumb: <strong>1 % more light gives about 0.5–1 % more harvestable product</strong> for most greenhouse crops. You will use that rule, together with the physics of the sun and the physiology of photoperiodism, to reason about light as a resource that is free but unevenly delivered.</p>
+      <div class="callout key"><div class="callout-title">Big idea</div><p>PPFD tells you <em>how bright</em>; DLI tells you <em>how much</em>. Crop growth, crop requirements and the electricity bill for supplementary lighting all scale with the DLI. Design questions therefore start with the DLI and only then turn to the PPFD and photoperiod that deliver it.</p></div>
+
+      <h2 id="integral">The DLI as a time integral of PPFD</h2>
+      <p>If PPFD were constant, the DLI would simply be PPFD × time (Eq. 4.1.6). Under sunlight, PPFD changes continuously, so we must add up many small contributions: during a short interval \(\Delta t\) the canopy receives \(\text{PPFD}\,\Delta t\) micromoles per square metre. Adding all intervals and letting them shrink gives an integral.</p>
+      <div class="eq-box" id="eq-dli-integral">
+        <div class="eq-head"><span class="eq-label">Daily light integral</span><span class="eq-num">(4.2.1)</span></div>
+        <div class="eq-main">\[ \text{DLI} = 10^{-6}\int_{0}^{86\,400\ \text{s}} \text{PPFD}(t)\,\mathrm{d}t \;\;\approx\;\; \frac{2}{\pi}\,\text{PPFD}_{\max}\,N\cdot 3600\cdot10^{-6} \quad\text{(clear day, half-sine)} \]</div>
+        <p class="eq-read">the daily light integral in moles per square metre per day is the area under the PPFD-versus-time curve over one day (86 400 seconds), converted from micromoles to moles. On a clear day, when PPFD rises and falls roughly like half a sine wave, the area is about two-thirds (2/π) of the rectangle "noon PPFD × day length".</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(\text{DLI}\)</td><td>daily light integral</td><td>mol m⁻² d⁻¹</td><td>1–65 outdoors</td></tr>
+          <tr><td>\(\text{PPFD}(t)\)</td><td>photosynthetic photon flux density at time \(t\)</td><td>µmol m⁻² s⁻¹</td><td>0–2200</td></tr>
+          <tr><td>\(t\)</td><td>time of day</td><td>s</td><td>0–86 400</td></tr>
+          <tr><td>\(\text{PPFD}_{\max}\)</td><td>PPFD at solar noon</td><td>µmol m⁻² s⁻¹</td><td>200–2000</td></tr>
+          <tr><td>\(N\)</td><td>day length (sunrise to sunset)</td><td>h</td><td>0–24</td></tr>
+          <tr><td>\(10^{-6}\)</td><td>conversion µmol → mol</td><td>mol µmol⁻¹</td><td>—</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Divide the day into \(n\) short intervals of length \(\Delta t\). In interval \(i\) the PPFD is almost constant, \(\text{PPFD}_i\), so the photons received are \(\text{PPFD}_i\,\Delta t\) (µmol m⁻²).</li>
+            <li>The daily total is the sum \(\sum_i \text{PPFD}_i\,\Delta t\). As \(\Delta t\to0\) this Riemann sum becomes the definite integral \(\int \text{PPFD}(t)\,\mathrm{d}t\).</li>
+            <li>Multiply by \(10^{-6}\) to convert micromoles to moles.</li>
+            <li><strong>Special case 1 — constant light.</strong> If PPFD is constant for \(t_{\text{photo}}\) hours and zero otherwise, the integral is \(\text{PPFD}\cdot t_{\text{photo}}\cdot3600\), recovering Eq. 4.1.6.</li>
+            <li><strong>Special case 2 — a clear day.</strong> Approximate the PPFD between sunrise (\(t=0\)) and sunset (\(t=N\)) by \(\text{PPFD}_{\max}\sin(\pi t/N)\). Then \(\int_0^{N}\text{PPFD}_{\max}\sin(\pi t/N)\,\mathrm{d}t = \text{PPFD}_{\max}\,\frac{N}{\pi}\big[-\cos(\pi t/N)\big]_0^{N} = \frac{2N}{\pi}\,\text{PPFD}_{\max}\).</li>
+            <li>With \(N\) in hours, multiply by 3600 s h⁻¹; then by \(10^{-6}\). The factor \(2/\pi = 0.637\) says that a sinusoidal day is "worth" 64 % of a day at constant noon brightness.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The integral itself is exact. The half-sine approximation is only a shape assumption. With the clear-sky model of Figure 1 at 59.6° N it is within about ±4 % in winter and at the equinoxes, but overestimates by about 9 % at midsummer, when the very long day has long "tails" of low sun that a sine curve does not capture; near the equator it is almost exact. Air-mass effects (the dashed curve in Figure 1) make real clear days more peaked than the model, and on cloudy days the shape can be wrong by a factor of two. Use it for quick estimates only; for measured data use Eq. 4.2.2.</p>
+        </details>
+        <div class="eq-units">\(\text{mol }\mu\text{mol}^{-1}\times\mu\text{mol m}^{-2}\text{s}^{-1}\times\text{s} = \text{mol m}^{-2}\) per day ✓</div>
+        <div class="mini-calc" data-formula="2/PI*pmax*N*3600/1e6" data-output="DLI (half-sine estimate)" data-unit="mol m⁻² d⁻¹" data-digits="1" data-plot="N">
+          <div data-var="pmax" data-label="Noon PPFD" data-min="100" data-max="2200" data-step="10" data-value="1200" data-unit="µmol m⁻² s⁻¹"></div>
+          <div data-var="N" data-label="Day length N" data-min="4" data-max="20" data-step="0.25" data-value="14" data-unit="h"></div>
+        </div>
+      </div>
+      <p>Real data do not come as a formula but as a series of readings from a logger: one value every minute, every five minutes or every hour. The integral must then be evaluated numerically. The simplest accurate method is the <strong>trapezoidal rule</strong>: connect successive readings with straight lines and add up the areas of the trapezoids underneath.</p>
+      <div class="eq-box" id="eq-trapezoid">
+        <div class="eq-head"><span class="eq-label">DLI from logged data (trapezoidal rule)</span><span class="eq-num">(4.2.2)</span></div>
+        <div class="eq-main">\[ \text{DLI} \approx 10^{-6}\sum_{k=1}^{n}\frac{\text{PPFD}_{k-1}+\text{PPFD}_{k}}{2}\,\Delta t = 10^{-6}\,\Delta t\left[\frac{\text{PPFD}_0+\text{PPFD}_n}{2}+\sum_{k=1}^{n-1}\text{PPFD}_k\right] \]</div>
+        <p class="eq-read">for readings taken every \(\Delta t\) seconds, the DLI is the sum of the areas of the trapezoids between successive readings: the average of the two readings at the ends of each interval, times the interval length. Equivalently, add all readings, count the first and last only half, and multiply by \(\Delta t\).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\text{PPFD}_k\)</td><td>\(k\)-th reading, at time \(t_k = k\,\Delta t\)</td><td>µmol m⁻² s⁻¹</td></tr>
+          <tr><td>\(\Delta t\)</td><td>logging interval</td><td>s</td></tr>
+          <tr><td>\(n\)</td><td>number of intervals in the day (\(n\,\Delta t = 86\,400\) s)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation — and the error</summary>
+          <ol class="steps">
+            <li>Between \(t_{k-1}\) and \(t_k\) replace the unknown curve by a straight line. The area under a straight line segment is its mean height, \((\text{PPFD}_{k-1}+\text{PPFD}_k)/2\), times its width \(\Delta t\).</li>
+            <li>Adding the segments, every interior reading appears twice with weight ½, i.e., once with weight 1; the first and last readings appear once with weight ½. This gives the second form of the equation.</li>
+            <li>The trapezoidal rule is exact for straight lines. For a curve with second derivative \(f''\), the error of one interval is \(-\Delta t^3 f''/12\). For a concave curve (the top of a sunny day) the chords lie <em>below</em> the curve, so the rule <em>underestimates</em>.</li>
+            <li>For a half-sine day sampled with \(n\) intervals between sunrise and sunset, a neat closed form exists: the ratio of the trapezoidal estimate to the exact integral is \((h/2)\cot(h/2)\) with \(h=\pi/n\). With 4 intervals the error is −5.2 %, with 12 intervals −0.6 %, with hourly readings over a 14-hour day −0.4 % (try the calculator below).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Logged values must be <em>instantaneous samples</em> at the stated times. Many loggers instead store the <em>average</em> over each interval; then the correct estimate is simply \(\Delta t\sum \overline{\text{PPFD}}_k\) (the rectangle rule), which is exact. On days with broken cloud, PPFD can jump from 200 to 1500 µmol m⁻² s⁻¹ within a minute; hourly spot samples then give random errors of 10–30 % for a single day. Sample every minute and average, or use a logger that integrates internally.</p>
+        </details>
+        <div class="eq-units">\(\text{mol }\mu\text{mol}^{-1}\times\text{s}\times\mu\text{mol m}^{-2}\,\text{s}^{-1} = \text{mol m}^{-2}\) ✓</div>
+        <div class="mini-calc" data-formula="(PI/n/2)/tan(PI/n/2)*100" data-output="Trapezoid ÷ exact" data-unit="%" data-digits="2" data-plot="n" data-ymin="75" data-ymax="100" data-title="Try it — how many readings do you need?">
+          <div data-var="n" data-label="Intervals between sunrise and sunset n" data-min="2" data-max="48" data-step="1" data-value="6" data-unit=""></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="fig-diurnal">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — a day of sunlight and its integral</div>
+          <div id="di-ctl" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:2px 22px"></div>
+          <div id="di-plot" style="margin-top:10px"></div>
+          <div class="readouts" id="di-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 1.</b> PPFD on a horizontal surface during one day (solar time) at the chosen latitude and date. The green curve is the clear-sky model consistent with FAO-56: extraterrestrial irradiance \(G_{sc}d_r\sin\beta\) times a sky transmissivity (0.75 = clear sky, Eq. 4.2.8), converted with 2.02 µmol J⁻¹ (Eq. 4.1.5). The shaded trapezoids are the numerical integral with \(n\) intervals between sunrise and sunset (Eq. 4.2.2). The dashed magenta curve is an alternative air-mass clear-sky model (physics.js <code>clearSkyIrradiance</code>), which attenuates low-sun light more strongly: at high latitude in midwinter two plausible clear-sky models can differ by a factor of three or more — a reminder that models need local calibration.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">DLI from a logger file</span></div>
+        <div class="we-problem"><p>A quantum sensor in an unheated tunnel near Västerås logged the following instantaneous PPFD values (µmol m⁻² s⁻¹) on a partly cloudy day in April, every hour of solar time: 05:00 → 0; 06:00 → 90; 07:00 → 260; 08:00 → 410; 09:00 → 380; 10:00 → 720; 11:00 → 850; 12:00 → 610; 13:00 → 900; 14:00 → 640; 15:00 → 520; 16:00 → 330; 17:00 → 190; 18:00 → 70; 19:00 → 0. Estimate the DLI. Would this day satisfy a lettuce target of 14 mol m⁻² d⁻¹?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Choose the method.</strong> The readings are instantaneous samples at equal intervals \(\Delta t = 3600\) s, so use Eq. 4.2.2.</li>
+              <li><strong>End points.</strong> The first and last readings are both 0, so \((\text{PPFD}_0+\text{PPFD}_n)/2 = 0\).</li>
+              <li><strong>Sum of interior readings.</strong> \(90+260+410+380+720+850+610+900+640+520+330+190+70 = 5970\) µmol m⁻² s⁻¹.</li>
+              <li><strong>Multiply by the interval.</strong> \(5970\times3600 = 21\,492\,000\) µmol m⁻² = 21.49 mol m⁻².</li>
+              <li><strong>Sanity check.</strong> The mean PPFD over the 14 h between the first and last zero is \(21.49\times10^6/(14\times3600) = 426\) µmol m⁻² s⁻¹, about half the highest reading — plausible for a day with passing clouds. The clear-sky value for mid-April at 59.6° N (Figure 1) is about 42 mol m⁻² d⁻¹, so the clouds and the tunnel cover together removed roughly half of the light.</li>
+            </ol>
+            <span class="answer">DLI ≈ 21.5 mol m⁻² d⁻¹ — above the lettuce target of 14</span>
+            <p style="margin-top:10px">Caution: with hourly spot samples on a cloudy day, the uncertainty of this estimate is easily ±15 %. The 12:00 reading (610) was probably taken while a cloud covered the sun; a one-minute logging interval would have captured the real variation.</p>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="crop-needs">How much light do crops need?</h2>
+      <p>Crop light requirements are best expressed as DLI ranges: the lower bound is the DLI below which growth, yield or quality become commercially unacceptable, and the upper bound is where the response saturates or disorders appear. Table 1 collects values from peer-reviewed studies and extension syntheses. Treat them as <em>starting points</em>: the optimum depends on temperature, CO₂ concentration, cultivar, plant density and the price of electricity.</p>
+      <table>
+        <caption>Table 1. Indicative DLI requirements of common controlled-environment crops.</caption>
+        <thead><tr><th>Crop</th><th class="num">DLI (mol m⁻² d⁻¹)</th><th>Notes and sources</th></tr></thead>
+        <tbody>
+          <tr><td>Seedlings, cuttings</td><td class="num">5–10</td><td>Propagation under low light is common (Stallknecht, 2025).</td></tr>
+          <tr><td>Microgreens (<em>Brassica</em>)</td><td class="num">6–18 tested; 9–12 typical</td><td>Higher DLI shortens hypocotyls and increases biomass (Gerovac et al., 2016; Stallknecht, 2025).</td></tr>
+          <tr><td>Lettuce</td><td class="num">12–17</td><td>17 mol m⁻² d⁻¹ produced 150 g heads 24 days after transplanting in the Cornell hydroponic system; tipburn was prevented with vertical air flow (Both et al., 1997).</td></tr>
+          <tr><td>Red-leaf lettuce colour</td><td class="num">&gt; 10</td><td>Below about 10 mol m⁻² d⁻¹ red cultivars stay greenish; end-of-production lighting can restore colour (Owen &amp; Lopez, 2015; see Lesson 4.4).</td></tr>
+          <tr><td>Spinach</td><td class="num">14–20</td><td>Stallknecht (2025).</td></tr>
+          <tr><td>Basil</td><td class="num">15–25</td><td>Biomass and nutritional quality increase with DLI over the tested range (Dou et al., 2018; Stallknecht, 2025).</td></tr>
+          <tr><td>Tomato (fruiting)</td><td class="num">20–30</td><td>High-light crop; yield keeps rising with light (Stallknecht, 2025; Marcelis et al., 2006).</td></tr>
+          <tr><td>Cucumber</td><td class="num">20–30</td><td>Stallknecht (2025).</td></tr>
+          <tr><td>Strawberry (fruiting)</td><td class="num">≈ 15–20</td><td>Indicative value used in this course's lighting laboratory; controlled dose–response studies are few, so treat it as a working assumption.</td></tr>
+        </tbody>
+      </table>
+      <p>Why does lettuce have an <em>upper</em> limit when photosynthesis itself keeps increasing with light? The Cornell work on hydroponic lettuce illustrates the answer. Fast growth at high DLI means fast leaf expansion, and the young inner leaves transpire little because they are enclosed in the head. Calcium moves only with the transpiration stream, so the expanding leaf tips run short of calcium and die: <strong>tipburn</strong>. Blowing air vertically onto the plants increases transpiration of the inner leaves and allowed 17 mol m⁻² d⁻¹ to be used without tipburn (Both et al., 1997). Tomato illustrates a second kind of limit: grown under continuous light (24 h), most cultivars develop mottled, chlorotic leaves — continuous-light injury — so the photoperiod, not only the DLI, must be controlled (Velez-Ramirez et al., 2011).</p>
+      <div class="callout note"><div class="callout-title">A consistent integral</div><p>Albright et al. (2000) showed that lettuce growth becomes highly predictable if every day receives the <em>same</em> DLI: supplementary lamps fill the gap on dark days and shade screens remove the excess on bright ones. Predictable growth means a predictable harvest date — worth a great deal to a grower who has promised a supermarket 10 000 heads every Tuesday.</p></div>
+      <p>How much is extra light worth when the crop is below saturation? Marcelis et al. (2006) reviewed Dutch greenhouse experiments and found that the relative yield response to a small relative change in light is surprisingly constant. Economists would call this an <em>elasticity</em>.</p>
+      <div class="eq-box" id="eq-one-percent">
+        <div class="eq-head"><span class="eq-label">The "1 % rule": light–yield elasticity</span><span class="eq-num">(4.2.3)</span></div>
+        <div class="eq-main">\[ \frac{\Delta Y}{Y} \approx \varepsilon\,\frac{\Delta I}{I}, \qquad \varepsilon \approx 0.7\text{--}1 \ \text{(fruit vegetables)},\ 0.8\text{--}1\ \text{(soil-grown vegetables)} \]</div>
+        <p class="eq-read">the fractional change in harvestable yield is approximately the fractional change in light (DLI summed over the season) multiplied by an elasticity \(\varepsilon\) that is somewhat smaller than one.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(Y,\ \Delta Y\)</td><td>yield and its change</td><td>kg m⁻² (any)</td></tr>
+          <tr><td>\(I,\ \Delta I\)</td><td>light sum (DLI integrated over the growing period) and its change</td><td>mol m⁻²</td></tr>
+          <tr><td>\(\varepsilon\)</td><td>light-use elasticity of yield</td><td>–</td></tr>
+        </table>
+        <details><summary>Where does it come from?</summary>
+          <ol class="steps">
+            <li>If yield were exactly proportional to light, \(Y = kI\), then \(\Delta Y/Y = \Delta I/I\) and \(\varepsilon = 1\).</li>
+            <li>Leaf photosynthesis saturates at high PPFD, so each additional photon adds a little less than the average photon: \(Y(I)\) is concave and its elasticity \(\varepsilon = (\mathrm{d}Y/\mathrm{d}I)(I/Y)\) is below 1.</li>
+            <li>Marcelis et al. (2006) found, for most crops, "a 1 % light increment results in 0.5 to 1 % increase in harvestable product": 0.7–1 % for fruit vegetables, 0.8–1 % for soil-grown vegetables, 0.6–1 % for cut flowers and 0.5–1 % for flowering pot plants.</li>
+            <li>\(\varepsilon\) is higher in dark periods (winter, low light) than in bright ones, and depends on CO₂ and temperature, which is why ranges are given.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Valid for <em>small</em> changes (up to roughly ±20 %) around current practice, and for crops whose harvest is vegetative biomass or fruit load. It does not apply above saturation, to quality traits, or where light causes disorders (tipburn, continuous-light injury).</p></details>
+        <div class="eq-units">dimensionless = dimensionless × dimensionless ✓</div>
+        <div class="mini-calc" data-formula="Y*eps*dI/100" data-output="Extra yield" data-unit="kg m⁻² yr⁻¹" data-digits="2" data-plot="dI">
+          <div data-var="Y" data-label="Current yield Y" data-min="5" data-max="80" data-step="1" data-value="40" data-unit="kg m⁻² yr⁻¹"></div>
+          <div data-var="dI" data-label="Extra light ΔI/I" data-min="0" data-max="20" data-step="0.5" data-value="5" data-unit="%"></div>
+          <div data-var="eps" data-label="Elasticity ε" data-min="0.5" data-max="1" data-step="0.05" data-value="0.7"></div>
+        </div>
+      </div>
+      <p>The rule turns small engineering decisions into money. Cleaning a dirty greenhouse roof, choosing a glass with 3 % higher transmission, or replacing bulky lamp reflectors that shade the crop by 2 % are all worth doing if the yield gain exceeds the cost. At Västerås, where the crop is light-limited for half of the year, ε will be close to the upper end of the range.</p>
+
+      <h2 id="solar-geometry">Solar geometry, step by step</h2>
+      <p>How much sunlight reaches the top of the atmosphere above a given place on a given day depends on only three things: how high the sun climbs, how long it stays above the horizon, and how far the Earth is from the Sun. All three follow from geometry. We now derive, one step at a time, the equations used in FAO Irrigation and Drainage Paper 56 (Allen et al., 1998) — the same equations implemented in the course library <code>physics.js</code> and in the <a href="/laboratories/sun-and-dli/">sun-path laboratory</a>.</p>
+      <h3>Step 1 — Declination: where the sun is overhead</h3>
+      <p>The Earth's rotation axis is tilted by 23.44° relative to the perpendicular of its orbital plane, and it keeps pointing in the same direction in space (towards Polaris) as the Earth orbits the Sun. Seen from the Earth, the Sun therefore migrates north and south during the year. The <strong>solar declination</strong> \(\delta\) is the latitude at which the Sun is exactly overhead at noon: +23.44° at the June solstice (Tropic of Cancer), 0° at the equinoxes, −23.44° at the December solstice (Tropic of Capricorn).</p>
+      <div class="eq-box" id="eq-declination">
+        <div class="eq-head"><span class="eq-label">Solar declination (FAO-56 Eq. 24)</span><span class="eq-num">(4.2.4)</span></div>
+        <div class="eq-main">\[ \delta = 0.409\,\sin\!\left(\frac{2\pi}{365}J - 1.39\right)\ \ \text{rad} \]</div>
+        <p class="eq-read">the declination, in radians, oscillates sinusoidally through the year with an amplitude of 0.409 rad (23.4°), crossing zero around day 81 (the March equinox) and peaking around day 172 (the June solstice).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Range</th></tr>
+          <tr><td>\(\delta\)</td><td>solar declination</td><td>rad</td><td>−0.409 to +0.409 (±23.44°)</td></tr>
+          <tr><td>\(J\)</td><td>day of the year (1 January = 1)</td><td>–</td><td>1–365</td></tr>
+          <tr><td>0.409</td><td>obliquity of the ecliptic, 23.44° in radians</td><td>rad</td><td>—</td></tr>
+          <tr><td>1.39</td><td>phase so that \(\delta = 0\) at \(J\approx 81\)</td><td>rad</td><td>—</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Let the Earth move around the Sun with orbital angle \(\Gamma = 2\pi (J-J_0)/365\), measured from the March equinox (\(J_0\approx 81\)).</li>
+            <li>In a frame where the orbital plane is horizontal, the unit vector from Earth to Sun is \(\hat s = (\cos\Gamma, \sin\Gamma, 0)\) and the Earth's axis is tilted by \(\varepsilon_o = 23.44^{\circ}\): \(\hat a = (0, -\sin\varepsilon_o, \cos\varepsilon_o)\).</li>
+            <li>The declination is the angle between the Sun direction and the equatorial plane: \(\sin\delta = \hat s\cdot\hat a\). The exact result is \(\sin\delta = \sin\varepsilon_o\,\sin\Gamma\) (the sign depends on how the axes are oriented).</li>
+            <li>Because \(\sin\varepsilon_o\) is small, \(\delta \approx \varepsilon_o\sin\Gamma\) to within 0.3°. With \(\varepsilon_o = 0.409\) rad and \(\Gamma = 2\pi J/365 - 2\pi\cdot81/365 = 2\pi J/365 - 1.394\), we obtain Eq. 4.2.4.</li>
+            <li>The residual error (up to about 1°) comes from the elliptical orbit: the Earth moves faster near perihelion in early January. More accurate Fourier series exist (Spencer, 1971), but for daily light calculations Eq. 4.2.4 is ample.</li>
+          </ol>
+        </details>
+        <div class="eq-units">argument of the sine: dimensionless (radians); result: radians ✓</div>
+        <div class="mini-calc" data-fn="dliDecl" data-output="Declination δ" data-unit="°" data-digits="2" data-plot="J" data-ymin="-25" data-ymax="25">
+          <div data-var="J" data-label="Day of year J" data-min="1" data-max="365" data-step="1" data-value="355"></div>
+        </div>
+      </div>
+
+      <h3>Step 2 — Hour angle and solar elevation</h3>
+      <p>During the day the Earth rotates 360° in 24 hours, i.e., 15° per hour. The <strong>hour angle</strong> \(\omega\) measures that rotation from solar noon: \(\omega = 15^{\circ}\,(t_{\text{sol}}-12)\), negative in the morning and positive in the afternoon. <em>Solar time</em> \(t_{\text{sol}}\) is defined so that the sun is due south (in the northern hemisphere) at 12:00; it differs from clock time by the longitude offset within the time zone, daylight saving and a small "equation of time" (up to ±16 min). In Västerås (16.5° E, clock time zone centred on 15° E) solar noon occurs around 12:00 in winter and around 13:00 in summer (daylight saving).</p>
+      <p>Combine the observer's latitude \(\varphi\), the declination and the hour angle, and spherical geometry gives the angle of the sun above the horizon, the <strong>solar elevation</strong> \(\beta\).</p>
+      <div class="eq-box" id="eq-solar-elevation">
+        <div class="eq-head"><span class="eq-label">Solar elevation angle</span><span class="eq-num">(4.2.5)</span></div>
+        <div class="eq-main">\[ \sin\beta = \sin\varphi\,\sin\delta + \cos\varphi\,\cos\delta\,\cos\omega, \qquad \omega = \frac{\pi}{12}\,(t_{\text{sol}}-12) \]</div>
+        <p class="eq-read">the sine of the sun's elevation above the horizon equals the sine of the latitude times the sine of the declination, plus the product of their cosines times the cosine of the hour angle. At solar noon (\(\omega=0\)) this reduces to \(\beta_{\text{noon}} = 90^{\circ} - \varphi + \delta\).</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\beta\)</td><td>solar elevation (altitude) above the horizon; the zenith angle is \(90^{\circ}-\beta\)</td><td>rad or °</td></tr>
+          <tr><td>\(\varphi\)</td><td>latitude (north positive); Västerås 59.6°, Almería 36.8°, Singapore 1.35°</td><td>rad or °</td></tr>
+          <tr><td>\(\omega\)</td><td>hour angle, 0 at solar noon, 15° per hour</td><td>rad or °</td></tr>
+          <tr><td>\(t_{\text{sol}}\)</td><td>local solar time</td><td>h</td></tr>
+        </table>
+        <details><summary>Follow the derivation (vector dot product)</summary>
+          <ol class="steps">
+            <li>Place the Earth's centre at the origin, with the \(z\)-axis along the rotation axis and the \(x\)-axis in the plane containing the axis and the Sun (so the Sun's meridian is at \(\omega=0\)).</li>
+            <li>The unit vector pointing to the Sun is \(\hat s = (\cos\delta,\ 0,\ \sin\delta)\) — by definition of the declination.</li>
+            <li>An observer at latitude \(\varphi\) whose meridian is rotated by the hour angle \(\omega\) away from the Sun's meridian has a local vertical (zenith) direction \(\hat z = (\cos\varphi\cos\omega,\ \cos\varphi\sin\omega,\ \sin\varphi)\).</li>
+            <li>The Sun is so far away that the direction to it is the same from the observer as from the centre. The zenith angle \(\theta_z\) between \(\hat z\) and \(\hat s\) follows from the dot product: \(\cos\theta_z = \hat z\cdot\hat s = \cos\varphi\cos\omega\cos\delta + \sin\varphi\sin\delta\).</li>
+            <li>The elevation is the complement of the zenith angle, \(\beta = 90^{\circ} - \theta_z\), so \(\sin\beta = \cos\theta_z\). This is Eq. 4.2.5.</li>
+            <li>At noon \(\cos\omega = 1\) and \(\sin\beta = \cos(\varphi-\delta)\), so \(\beta_{\text{noon}} = 90^{\circ} - (\varphi - \delta)\). At the equinox in Västerås, \(\beta_{\text{noon}} = 90^{\circ} - 59.6^{\circ} = 30.4^{\circ}\); at midsummer 53.8°; at midwinter only 7.0°.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Geometric elevation of the centre of the solar disc, without atmospheric refraction. Refraction lifts the apparent sun by about 0.5° at the horizon, which (together with the 0.25° radius of the disc) makes the observed day several minutes longer than the geometric one — up to about 20 minutes at 60° N.</p></details>
+        <div class="eq-units">all terms are dimensionless products of sines and cosines ✓</div>
+        <div class="mini-calc" data-fn="dliElev" data-output="Solar elevation β" data-unit="°" data-digits="1" data-plot="t" data-ymin="-60" data-ymax="90">
+          <div data-var="lat" data-label="Latitude φ" data-min="0" data-max="70" data-step="0.1" data-value="59.6" data-unit="°"></div>
+          <div data-var="J" data-label="Day of year J" data-min="1" data-max="365" data-step="1" data-value="172"></div>
+          <div data-var="t" data-label="Solar time" data-min="0" data-max="24" data-step="0.25" data-value="12" data-unit="h"></div>
+        </div>
+      </div>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 680 300" role="img" aria-label="Noon sun elevations at Västerås through the year, on a meridian cross-section of the sky">
+            <defs><marker id="dg-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+            <path d="M160 250 A180 180 0 0 1 520 250" class="stroke-muted" stroke-width="1.2" stroke-dasharray="4 4"/>
+            <line x1="60" y1="250" x2="620" y2="250" class="stroke" stroke-width="2"/>
+            <text x="64" y="272" class="t-small">N horizon</text><text x="560" y="272" class="t-small">S horizon</text>
+            <line x1="340" y1="250" x2="340" y2="62" class="stroke-muted" stroke-dasharray="3 4"/>
+            <text x="340" y="54" text-anchor="middle" class="t-small">zenith</text>
+            <line x1="340" y1="250" x2="248.9" y2="94.7" class="stroke-water" stroke-width="1.8" marker-end="url(#dg-arr)" style="color:var(--water)"/>
+            <text x="150" y="92" class="t-small" style="fill:var(--water)">celestial pole</text>
+            <path d="M300 250 A40 40 0 0 1 319.8 215.5" class="stroke-water" stroke-width="1.5"/>
+            <text x="296" y="232" class="t-small" text-anchor="end" style="fill:var(--water)">φ = 59.6°</text>
+            <line x1="340" y1="250" x2="495.3" y2="159" class="stroke-accent" stroke-width="1.6"/>
+            <text x="500" y="152" class="t-small" style="fill:var(--accent)">celestial equator</text>
+            <circle cx="446.3" cy="104.8" r="11" class="fill-amber"/>
+            <line x1="340" y1="250" x2="440" y2="113" class="stroke-amber" stroke-width="1.4" stroke-dasharray="5 3"/>
+            <text x="462" y="100" class="t-small">21 June: β = 53.8° (δ = +23.4°)</text>
+            <circle cx="495.3" cy="159" r="9" class="fill-amber" opacity=".8"/>
+            <text x="508" y="178" class="t-small">equinox: β = 30.4°</text>
+            <circle cx="518.7" cy="228" r="8" class="fill-amber" opacity=".6"/>
+            <line x1="340" y1="250" x2="512" y2="229" class="stroke-amber" stroke-width="1.4" stroke-dasharray="5 3"/>
+            <text x="532" y="222" class="t-small">21 Dec: β = 7.0°</text>
+            <path d="M420 250 A80 80 0 0 0 409.1 209.7" class="stroke-accent" stroke-width="1.5"/>
+            <text x="438" y="226" class="t-small" style="fill:var(--accent)">90° − φ</text>
+            <circle cx="340" cy="250" r="5" class="fill-accent"/>
+            <text x="346" y="290" class="t-small t-muted" text-anchor="middle">observer at Västerås</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> The sky at solar noon seen in a north–south cross-section from Västerås (59.6° N). The celestial equator stands \(90^{\circ}-\varphi = 30.4^{\circ}\) above the southern horizon; the noon sun lies \(\delta\) above or below it, so \(\beta_{\text{noon}} = 90^{\circ}-\varphi+\delta\). The same geometry explains why the winter sun at high latitude delivers so little energy per square metre of ground: a beam arriving at 7° spreads over \(1/\sin 7^{\circ} \approx 8\) times more area than a beam from overhead (the cosine law of Lesson 4.3).</figcaption>
+      </figure>
+
+      <h3>Step 3 — Sunrise, sunset and day length</h3>
+      <p>The sun rises and sets when \(\beta = 0\). Setting \(\sin\beta = 0\) in Eq. 4.2.5 and solving for the hour angle gives the <strong>sunset hour angle</strong> \(\omega_s\); the day is twice that angle, converted from degrees to hours at 15° per hour.</p>
+      <div class="eq-box" id="eq-day-length">
+        <div class="eq-head"><span class="eq-label">Sunset hour angle and day length (FAO-56 Eqs. 25 and 34)</span><span class="eq-num">(4.2.6)</span></div>
+        <div class="eq-main">\[ \omega_s = \arccos\!\left(-\tan\varphi\,\tan\delta\right), \qquad N = \frac{24}{\pi}\,\omega_s \]</div>
+        <p class="eq-read">the hour angle at sunset is the angle whose cosine is minus the tangent of the latitude times the tangent of the declination; the number of daylight hours is 24/π times that angle in radians.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\omega_s\)</td><td>sunset hour angle (sunrise is at \(-\omega_s\))</td><td>rad</td></tr>
+          <tr><td>\(N\)</td><td>maximum possible duration of sunshine (day length)</td><td>h</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Put \(\beta=0\) in Eq. 4.2.5: \(0 = \sin\varphi\sin\delta + \cos\varphi\cos\delta\cos\omega_s\).</li>
+            <li>Divide by \(\cos\varphi\cos\delta\): \(\cos\omega_s = -\tan\varphi\tan\delta\).</li>
+            <li>The sun is above the horizon from \(-\omega_s\) to \(+\omega_s\), a total angle of \(2\omega_s\). The Earth turns \(2\pi\) rad in 24 h, so \(N = 2\omega_s\cdot 24/(2\pi) = 24\omega_s/\pi\).</li>
+            <li><strong>Polar day and night.</strong> If \(-\tan\varphi\tan\delta < -1\) there is no sunset (midnight sun, \(N = 24\) h); if it exceeds +1 there is no sunrise (polar night, \(N=0\)). This happens only poleward of the Arctic and Antarctic circles (66.56°). Code must clip the argument to [−1, 1] before calling <code>acos</code>, as <code>physics.js</code> does.</li>
+            <li>At the equinoxes \(\delta=0\), so \(\omega_s = 90^{\circ}\) and \(N = 12\) h everywhere on Earth. At the equator \(\varphi=0\) and \(N=12\) h every day — which is why Singapore has no seasons of day length.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Geometric day length. Observed day length is longer by refraction and the size of the disc: at Västerås on 21 June, Eq. 4.2.6 gives 18.4 h, whereas almanac sunrise-to-sunset is about 18.7 h. Civil twilight adds more usable light for photoperiodic signalling (plants can perceive very low irradiances — see Section 4.2.8).</p></details>
+        <div class="eq-units">\(\omega_s\) in rad × (h rad⁻¹) = h ✓</div>
+        <div class="mini-calc" data-fn="dliDayLength" data-output="Day length N" data-unit="h" data-digits="2" data-plot="J" data-ymin="0" data-ymax="24">
+          <div data-var="lat" data-label="Latitude φ" data-min="0" data-max="66" data-step="0.1" data-value="59.6" data-unit="°"></div>
+          <div data-var="J" data-label="Day of year J" data-min="1" data-max="365" data-step="1" data-value="355"></div>
+        </div>
+      </div>
+
+      <h3>Step 4 — Extraterrestrial radiation: the daily budget at the top of the atmosphere</h3>
+      <p>Just outside the atmosphere, a surface facing the sun receives the <strong>solar constant</strong>, \(G_{sc} \approx 1367\) W m⁻² (FAO-56 uses 0.0820 MJ m⁻² min⁻¹, which is the same number). A horizontal surface receives less, by the cosine law: \(G_{sc}\sin\beta\). Integrating this over the day gives the <strong>extraterrestrial radiation</strong> \(R_a\), the ceiling for everything that follows.</p>
+      <div class="eq-box" id="eq-ra">
+        <div class="eq-head"><span class="eq-label">Daily extraterrestrial radiation (FAO-56 Eqs. 21 and 23)</span><span class="eq-num">(4.2.7)</span></div>
+        <div class="eq-main">\[ R_a = \frac{24\cdot60}{\pi}\,G_{sc}\,d_r\left[\omega_s\sin\varphi\sin\delta + \cos\varphi\cos\delta\sin\omega_s\right], \qquad d_r = 1 + 0.033\cos\!\left(\frac{2\pi}{365}J\right) \]</div>
+        <p class="eq-read">the solar energy reaching one square metre of horizontal ground at the top of the atmosphere in one day equals a constant (minutes per day over π, times the solar constant, times a small Earth–Sun distance correction) multiplied by a bracket that combines the day length with the height of the sun.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(R_a\)</td><td>extraterrestrial radiation on a horizontal surface</td><td>MJ m⁻² d⁻¹</td><td>0–43</td></tr>
+          <tr><td>\(G_{sc}\)</td><td>solar constant</td><td>MJ m⁻² min⁻¹</td><td>0.0820 (= 1367 W m⁻²)</td></tr>
+          <tr><td>\(d_r\)</td><td>inverse relative Earth–Sun distance squared</td><td>–</td><td>0.967–1.033</td></tr>
+          <tr><td>\(\omega_s\)</td><td>sunset hour angle (Eq. 4.2.6), <em>in radians</em></td><td>rad</td><td>0–π</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Instantaneous extraterrestrial irradiance on a horizontal plane: \(G_0 = G_{sc}\,d_r\,\sin\beta\). The factor \(d_r\) corrects for the elliptical orbit: the Earth is about 1.7 % closer to the Sun than on average in early January, so by the inverse-square law it receives about 3.3 % more.</li>
+            <li>Substitute Eq. 4.2.5: \(G_0 = G_{sc}d_r(\sin\varphi\sin\delta + \cos\varphi\cos\delta\cos\omega)\).</li>
+            <li>Time and hour angle are proportional: the Earth turns \(2\pi\) rad in \(24\cdot60\) min, so \(\mathrm{d}t = \frac{24\cdot60}{2\pi}\,\mathrm{d}\omega\) (minutes).</li>
+            <li>Integrate from sunrise to sunset (declination is taken constant over one day): \(R_a = \frac{24\cdot60}{2\pi}G_{sc}d_r\int_{-\omega_s}^{\omega_s}(\sin\varphi\sin\delta + \cos\varphi\cos\delta\cos\omega)\,\mathrm{d}\omega\).</li>
+            <li>The integral is \(2\omega_s\sin\varphi\sin\delta + 2\cos\varphi\cos\delta\sin\omega_s\). The 2 cancels the 2 in \(2\pi\), giving Eq. 4.2.7.</li>
+            <li><strong>Worked number.</strong> Västerås, 21 June: \(\delta = 0.409\) rad, \(\omega_s = 2.402\) rad, \(d_r = 0.968\): \(R_a = 458.4\times0.0820\times0.968\times[2.402\times0.862\times0.397 + 0.506\times0.917\times0.674] = 41.3\) MJ m⁻² d⁻¹ — more than at the equator on the same day (33.4), because the long day more than compensates for the lower sun.</li>
+          </ol>
+        </details>
+        <div class="eq-units">min × MJ m⁻² min⁻¹ × (dimensionless) = MJ m⁻² (per day) ✓</div>
+        <div class="mini-calc" data-fn="dliRa" data-output="Extraterrestrial radiation R<sub>a</sub>" data-unit="MJ m⁻² d⁻¹" data-digits="2" data-plot="J" data-ymin="0" data-ymax="45">
+          <div data-var="lat" data-label="Latitude φ" data-min="0" data-max="66" data-step="0.1" data-value="59.6" data-unit="°"></div>
+          <div data-var="J" data-label="Day of year J" data-min="1" data-max="365" data-step="1" data-value="172"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Midwinter light budget in Västerås</span></div>
+        <div class="we-problem"><p>Calculate, for Västerås (φ = 59.61° N) on 21 December (J = 355): the declination, sunset hour angle, day length, noon solar elevation and extraterrestrial radiation. Then estimate the clear-sky DLI outdoors.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Declination (Eq. 4.2.4).</strong> \(2\pi\cdot355/365 - 1.39 = 4.721\) rad; \(\sin(4.721) = -0.99996\); \(\delta = 0.409\times(-0.99996) = -0.4090\) rad = −23.43°.</li>
+              <li><strong>Sunset hour angle (Eq. 4.2.6).</strong> \(\tan(59.61^{\circ}) = 1.7051\), \(\tan(-23.43^{\circ}) = -0.4334\); \(-\tan\varphi\tan\delta = 0.7390\); \(\omega_s = \arccos(0.7390) = 0.7391\) rad = 42.35°.</li>
+              <li><strong>Day length.</strong> \(N = 24\times0.7391/\pi = 5.65\) h. Sunrise at 09:11 and sunset at 14:49 solar time.</li>
+              <li><strong>Noon elevation.</strong> \(\beta_{\text{noon}} = 90^{\circ} - 59.61^{\circ} - 23.43^{\circ} = 6.96^{\circ}\).</li>
+              <li><strong>Extraterrestrial radiation (Eq. 4.2.7).</strong> \(d_r = 1 + 0.033\cos(2\pi\cdot355/365) = 1.0325\). Bracket: \(\omega_s\sin\varphi\sin\delta = 0.7391\times0.8626\times(-0.3977) = -0.2536\); \(\cos\varphi\cos\delta\sin\omega_s = 0.5059\times0.9175\times0.6737 = 0.3127\); sum 0.0592. \(R_a = 458.37\times0.0820\times1.0325\times0.0592 = 2.30\) MJ m⁻² d⁻¹.</li>
+              <li><strong>Clear-sky radiation and DLI</strong> (anticipating Eq. 4.2.8): \(R_{so} = 0.75\,R_a = 1.72\) MJ m⁻² d⁻¹, and \(\text{DLI}\approx 2.02\times1.72 = 3.5\) mol m⁻² d⁻¹.</li>
+              <li><strong>Sanity check against data.</strong> The 2001–2020 NASA POWER climatology gives a December mean of only 0.28 MJ m⁻² d⁻¹ of PAR at Västerås, i.e., 1.3 mol m⁻² d⁻¹ — cloudy December days deliver about a third of the clear-sky value.</li>
+            </ol>
+            <span class="answer">δ = −23.4°, N = 5.65 h, β<sub>noon</sub> = 7.0°, R<sub>a</sub> = 2.30 MJ m⁻² d⁻¹, clear-sky DLI ≈ 3.5 mol m⁻² d⁻¹</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="atmosphere">From the top of the atmosphere to the leaf</h2>
+      <p>Between the top of the atmosphere and a leaf inside a greenhouse, sunlight passes three filters: the clear atmosphere (scattering by molecules and aerosols, absorption by ozone and water vapour), clouds, and the greenhouse cover and structure. Figure 3 follows one mid-March day in Västerås through all three.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 680 270" role="img" aria-label="Cascade of daily solar energy from the top of the atmosphere to a greenhouse crop in Västerås in March">
+            <g font-size="12">
+              <text x="10" y="36" class="t-small">Top of atmosphere R<tspan baseline-shift="sub" font-size="9">a</tspan></text>
+              <rect x="200" y="22" width="420" height="22" rx="4" class="fill-amber"/><text x="612" y="38" class="t-small t-mono" text-anchor="end" style="fill:#fff">16.8 MJ</text>
+              <text x="10" y="76" class="t-small">Clear-sky surface R<tspan baseline-shift="sub" font-size="9">so</tspan> = 0.75 R<tspan baseline-shift="sub" font-size="9">a</tspan></text>
+              <rect x="200" y="62" width="315" height="22" rx="4" class="fill-amber" opacity=".8"/><text x="520" y="78" class="t-small t-mono">12.6 MJ</text>
+              <text x="10" y="116" class="t-small">Measured mean R<tspan baseline-shift="sub" font-size="9">s</tspan> (with clouds)</text>
+              <rect x="200" y="102" width="210" height="22" rx="4" class="fill-amber" opacity=".65"/><text x="416" y="118" class="t-small t-mono">8.4 MJ (n/N ≈ 0.5)</text>
+              <text x="10" y="156" class="t-small">PAR part (≈ 45 %)</text>
+              <rect x="200" y="142" width="94" height="22" rx="4" class="fill-accent"/><text x="300" y="158" class="t-small t-mono">3.75 MJ → 17.1 mol</text>
+              <text x="10" y="196" class="t-small">Inside greenhouse (τ = 0.65)</text>
+              <rect x="200" y="182" width="61" height="22" rx="4" class="fill-accent" opacity=".75"/><text x="267" y="198" class="t-small t-mono">11.1 mol m⁻² d⁻¹</text>
+              <text x="10" y="236" class="t-small">Lettuce target</text>
+              <line x1="200" y1="226" x2="200" y2="246" class="stroke"/>
+              <rect x="200" y="226" width="93" height="20" rx="4" fill="none" class="stroke-magenta" stroke-width="2" stroke-dasharray="5 3"/><text x="300" y="241" class="t-small t-mono" style="fill:var(--magenta)">17 mol → deficit ≈ 6 mol</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 3.</b> Daily energy and photon budget for a mid-March day in Västerås (bars to scale within each unit). Top-of-atmosphere and clear-sky values from Eqs. 4.2.7–4.2.8; measured mean global radiation and PAR for March from the NASA POWER climatology 2001–2020; greenhouse transmittance 0.65. Even in March, a lettuce crop in a Swedish greenhouse would be about 6 mol m⁻² d⁻¹ short of 17.</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-angstrom">
+        <div class="eq-head"><span class="eq-label">Clear-sky and cloudy-sky radiation, and the outdoor DLI (FAO-56 Eqs. 35 and 37)</span><span class="eq-num">(4.2.8)</span></div>
+        <div class="eq-main">\[ R_{so} = \left(0.75 + 2\times10^{-5}z\right)R_a, \qquad R_s = \left(a_s + b_s\,\frac{n}{N}\right)R_a, \qquad \text{DLI}_{\text{out}} \approx 2.02\,R_s \]</div>
+        <p class="eq-read">on a cloudless day about three-quarters of the extraterrestrial radiation reaches the ground (slightly more at altitude); on a real day the fraction is a straight-line function of the relative sunshine duration — about one-quarter on a completely overcast day and three-quarters on a completely sunny one. Every megajoule of global radiation contains about two moles of PAR photons.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(R_{so}\)</td><td>clear-sky global (shortwave) radiation</td><td>MJ m⁻² d⁻¹</td><td>—</td></tr>
+          <tr><td>\(R_s\)</td><td>actual global radiation</td><td>MJ m⁻² d⁻¹</td><td>measured by pyranometer</td></tr>
+          <tr><td>\(z\)</td><td>station elevation above sea level</td><td>m</td><td>Västerås ≈ 10</td></tr>
+          <tr><td>\(a_s,\ b_s\)</td><td>Ångström–Prescott coefficients (overcast fraction; extra fraction on clear days)</td><td>–</td><td>0.25, 0.50 (FAO default)</td></tr>
+          <tr><td>\(n,\ N\)</td><td>actual and maximum (Eq. 4.2.6) sunshine duration</td><td>h</td><td>—</td></tr>
+          <tr><td>2.02</td><td>PAR photons per unit global radiation (Eq. 4.1.5: 0.45 × 4.57 µmol J⁻¹ ≈ mol MJ⁻¹)</td><td>mol MJ⁻¹</td><td>1.9–2.1</td></tr>
+        </table>
+        <details><summary>Follow the derivation and history</summary>
+          <ol class="steps">
+            <li>Ångström (1924) noticed that the ratio of daily global radiation to clear-sky radiation at Stockholm was a linear function of the relative duration of sunshine recorded by a Campbell–Stokes recorder. Prescott (1940) replaced the clear-sky value, which is hard to define, by the extraterrestrial radiation \(R_a\), which is exactly computable (Eq. 4.2.7). Hence "Ångström–Prescott".</li>
+            <li>Physically: on an overcast day (\(n=0\)) only diffuse light passes the clouds, roughly \(a_s = 25\) % of \(R_a\); on a cloudless day (\(n=N\)) the clear atmosphere transmits \(a_s+b_s = 75\) %. Linear interpolation in between is the simplest model consistent with both limits.</li>
+            <li>The clear-sky equation is the same statement with \(n=N\), plus a small correction for thinner air at altitude (2 % per 1000 m).</li>
+            <li>Conversion to photons: multiply MJ by 10⁶ J MJ⁻¹, by the PAR fraction (≈ 0.45) and by 4.57 µmol J⁻¹, then by 10⁻⁶ mol µmol⁻¹: 0.45 × 4.57 = 2.06 ≈ 2.0 mol MJ⁻¹. The course library uses 2.02.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>\(a_s\) and \(b_s\) vary with climate, aerosol load and season; FAO-56 recommends local calibration where pyranometer data exist. The PAR fraction is higher under overcast skies (0.50) than under clear skies (0.43–0.45). For Västerås, NASA POWER climatology gives an annual PAR fraction of 0.457, consistent with the 2.02 factor to within about 3 %.</p></details>
+        <div class="eq-units">(–) × MJ m⁻² d⁻¹ = MJ m⁻² d⁻¹; mol MJ⁻¹ × MJ m⁻² d⁻¹ = mol m⁻² d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="2.02*(0.25+0.5*s)*Ra" data-output="Outdoor DLI" data-unit="mol m⁻² d⁻¹" data-digits="1" data-plot="s">
+          <div data-var="Ra" data-label="Extraterrestrial radiation R<sub>a</sub>" data-min="1" data-max="43" data-step="0.1" data-value="16.8" data-unit="MJ m⁻² d⁻¹"></div>
+          <div data-var="s" data-label="Relative sunshine n/N" data-min="0" data-max="1" data-step="0.01" data-value="0.5"></div>
+        </div>
+      </div>
+      <p>The third filter is the greenhouse. Glass or plastic glazing reflects and absorbs part of the light, and the frame, gutters, heating pipes, screens and lamps cast shadows. Extension guidance puts the loss at 30–50 % compared with an open field (Stallknecht, 2025), and Owen and Lopez (2015) note reductions "by up to 50 % or more" from glazing, superstructure and shading. Dirt, condensation and whitewash add further losses. We therefore write \(\text{DLI}_{\text{in}} = \tau\,\text{DLI}_{\text{out}}\) with a greenhouse transmittance \(\tau\) of typically 0.5–0.7 for PAR. Because of the 1 % rule, the transmittance is one of the most valuable properties of a greenhouse — modern Dutch-style glasshouses with anti-reflection coated diffuse glass are designed to push it as high as possible.</p>
+
+      <h2 id="seasons">The seasonal light cycle at 59.6° N, 36.8° N and 1.4° N</h2>
+      <p>Putting the equations together reveals why controlled-environment agriculture looks so different in Sweden, southern Spain and Singapore. Table 2 shows measured monthly mean DLI derived from the NASA POWER climatology (2001–2020, satellite-derived), and Figure 4 compares these data with the clear-sky model for every day of the year.</p>
+      <table>
+        <caption>Table 2. Monthly mean outdoor DLI (mol m⁻² d⁻¹) = monthly mean PAR (MJ m⁻² d⁻¹) × 4.57, from the NASA POWER climatology 2001–2020 (retrieved September 2026).</caption>
+        <thead><tr><th>Site</th><th class="num">Jan</th><th class="num">Feb</th><th class="num">Mar</th><th class="num">Apr</th><th class="num">May</th><th class="num">Jun</th><th class="num">Jul</th><th class="num">Aug</th><th class="num">Sep</th><th class="num">Oct</th><th class="num">Nov</th><th class="num">Dec</th><th class="num">Year</th></tr></thead>
+        <tbody>
+          <tr><td>Västerås 59.6° N</td><td class="num">2.1</td><td class="num">6.8</td><td class="num">17.1</td><td class="num">28.8</td><td class="num">38.5</td><td class="num">43.9</td><td class="num">40.6</td><td class="num">31.8</td><td class="num">20.3</td><td class="num">9.2</td><td class="num">3.1</td><td class="num">1.3</td><td class="num">20.4</td></tr>
+          <tr><td>Almería 36.8° N</td><td class="num">20.2</td><td class="num">26.8</td><td class="num">35.5</td><td class="num">43.7</td><td class="num">51.4</td><td class="num">56.5</td><td class="num">54.7</td><td class="num">49.5</td><td class="num">39.6</td><td class="num">29.9</td><td class="num">21.5</td><td class="num">18.1</td><td class="num">37.3</td></tr>
+          <tr><td>Singapore 1.4° N</td><td class="num">34.9</td><td class="num">39.5</td><td class="num">39.6</td><td class="num">38.6</td><td class="num">36.0</td><td class="num">34.4</td><td class="num">34.4</td><td class="num">34.9</td><td class="num">34.3</td><td class="num">34.6</td><td class="num">33.7</td><td class="num">32.4</td><td class="num">35.6</td></tr>
+        </tbody>
+      </table>
+      <p>Three different light climates emerge. <strong>Västerås</strong> has a 34-fold ratio between the June and December monthly means: a summer DLI higher than in Singapore, but a winter DLI that would starve almost any crop. Four to six months of the year a greenhouse needs supplementary lighting for leafy greens, and year-round production of fruit vegetables in the Nordic countries relies on it (Moe et al., 2006). <strong>Almería</strong>, with its tens of thousands of hectares of low-cost plastic greenhouses on the Campo de Dalías, never drops below about 18 mol m⁻² d⁻¹ outdoors even in December; the problem there is too much light and heat in summer, handled with whitewash and ventilation rather than lamps. <strong>Singapore</strong> has an almost constant 12-hour day, a high sun, frequent convective clouds and a DLI of 32–40 all year — plenty of light, but a hot and humid climate and very little land, which is why its planners are interested in vertical farms despite the electricity cost.</p>
+
+      <figure class="figure wide" id="fig-seasons">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the seasonal DLI cycle and the supplementary-lighting gap</div>
+          <div class="seg" id="se-site" role="group" aria-label="Site" style="margin-bottom:6px">
+            <button type="button" data-v="vas" aria-pressed="true">Västerås 59.6° N</button>
+            <button type="button" data-v="alm" aria-pressed="false">Almería 36.8° N</button>
+            <button type="button" data-v="sgp" aria-pressed="false">Singapore 1.4° N</button>
+          </div>
+          <div class="seg" id="se-crop" role="group" aria-label="Crop DLI target" style="margin-bottom:8px">
+            <button type="button" data-v="10" aria-pressed="false">Microgreens 10</button>
+            <button type="button" data-v="17" aria-pressed="true">Lettuce 17</button>
+            <button type="button" data-v="20" aria-pressed="false">Basil 20</button>
+            <button type="button" data-v="25" aria-pressed="false">Tomato 25</button>
+          </div>
+          <div id="se-ctl" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:2px 22px"></div>
+          <div id="se-plot" style="margin-top:8px"></div>
+          <div class="readouts" id="se-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 4.</b> Lines: clear-sky outdoor DLI for each day of the year (Eqs. 4.2.7–4.2.8) at the three sites. Points: measured monthly mean outdoor DLI (NASA POWER, Table 2). Shaded green area: the natural DLI inside a greenhouse with transmittance τ at the selected site (monthly means, interpolated). Magenta band: the deficit below the crop target, which supplementary lamps must supply. Readouts integrate the monthly deficits (Eq. 4.2.9) for LEDs of the chosen photon efficacy, assuming 90 % of the lamp photons land on the crop. The model ignores day-to-day weather variation, which in practice increases the lamp hours needed.</figcaption>
+      </figure>
+      <a class="lab-link" data-lab="sun-and-dli" data-why="Move a 3D greenhouse to any latitude and date, watch the sun path and shadows, and compute natural DLI and the supplementary lighting needed hour by hour."></a>
+
+      <h2 id="supplementary">Supplementary lighting: hours, intensity and electricity</h2>
+      <p>Once the natural DLI inside the greenhouse is known, the supplementary-lighting problem is simple arithmetic — but with two design variables that trade off against each other: the PPFD the lamps deliver (which sets the number of fixtures, i.e., the capital cost) and the hours they run (which, together with PPFD, sets the electricity cost).</p>
+      <div class="eq-box" id="eq-supplementary">
+        <div class="eq-head"><span class="eq-label">Supplementary lighting: hours and electricity</span><span class="eq-num">(4.2.9)</span></div>
+        <div class="eq-main">\[ t_s = \frac{\text{DLI}_{\text{target}} - \tau\,\text{DLI}_{\text{out}}}{\text{PPFD}_s\cdot 0.0036}, \qquad E_{\text{el}} = \frac{0.2778\,\left(\text{DLI}_{\text{target}} - \tau\,\text{DLI}_{\text{out}}\right)}{\eta_{\text{ph}}\;\eta_{\text{cap}}} \]</div>
+        <p class="eq-read">the number of hours the lamps must run equals the daily photon deficit divided by the photons they deliver per hour; the electricity needed per square metre per day equals the deficit in moles times 0.2778 kWh, divided by the lamp's photon efficacy and by the fraction of its photons that reach the crop.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(t_s\)</td><td>daily operating time of the supplementary lamps</td><td>h d⁻¹</td><td>0–20</td></tr>
+          <tr><td>\(\text{DLI}_{\text{target}}\)</td><td>crop DLI target</td><td>mol m⁻² d⁻¹</td><td>Table 1</td></tr>
+          <tr><td>\(\tau\)</td><td>greenhouse PAR transmittance</td><td>–</td><td>0.5–0.7</td></tr>
+          <tr><td>\(\text{PPFD}_s\)</td><td>PPFD delivered by the lamps at the canopy</td><td>µmol m⁻² s⁻¹</td><td>80–250 (greenhouse)</td></tr>
+          <tr><td>0.0036</td><td>(3600 s h⁻¹)(10⁻⁶ mol µmol⁻¹)</td><td>mol s µmol⁻¹ h⁻¹</td><td>—</td></tr>
+          <tr><td>\(E_{\text{el}}\)</td><td>lighting electricity per unit growing area</td><td>kWh m⁻² d⁻¹</td><td>0–2</td></tr>
+          <tr><td>\(\eta_{\text{ph}}\)</td><td>fixture photon efficacy</td><td>µmol J⁻¹</td><td>1.7 (HPS) – 3.5 (LED)</td></tr>
+          <tr><td>\(\eta_{\text{cap}}\)</td><td>fraction of emitted photons reaching the canopy</td><td>–</td><td>0.8–0.95</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Daily photon deficit per square metre: \(D = \text{DLI}_{\text{target}} - \tau\,\text{DLI}_{\text{out}}\) (mol m⁻² d⁻¹); if negative there is no deficit.</li>
+            <li>Lamps at PPFD\(_s\) deliver \(\text{PPFD}_s\times3600\times10^{-6} = 0.0036\,\text{PPFD}_s\) mol m⁻² per hour. Divide \(D\) by this to get the hours.</li>
+            <li>Each joule of electricity produces \(\eta_{\text{ph}}\) µmol of photons, of which \(\eta_{\text{cap}}\) reach the crop. Delivering \(D\) mol = \(D\times10^6\) µmol needs \(D\times10^6/(\eta_{\text{ph}}\eta_{\text{cap}})\) J.</li>
+            <li>Divide by \(3.6\times10^6\) J kWh⁻¹: \(E_{\text{el}} = D/(3.6\,\eta_{\text{ph}}\eta_{\text{cap}}) = 0.2778\,D/(\eta_{\text{ph}}\eta_{\text{cap}})\). This is Eq. L4 of the <a href="/laboratories/grow-room-lighting/">lighting laboratory</a> multiplied by the deficit.</li>
+            <li>Notice that \(E_{\text{el}}\) does not depend on \(\text{PPFD}_s\) or \(t_s\): for a given deficit, running fewer lamps for longer or more lamps for shorter costs the same electricity. What changes is the capital cost (number of fixtures) and — as Section 4.2.9 shows — how efficiently the crop uses the light.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Uses daily (or monthly mean) sums. On a real day, lamps are usually switched off when sunlight exceeds a threshold, so they partly overlap with sunlight; smart controllers dim LEDs to fill exactly the gap (van Iersel &amp; Gianino, 2017). If \(t_s\) exceeds the maximum acceptable photoperiod (e.g., 18–20 h for lettuce, less for short-day crops), PPFD\(_s\) must be increased. The equation counts only photosynthetic electricity; ventilation, dehumidification and — for LEDs in winter — extra heating are additional (Lesson 4.3).</p></details>
+        <div class="eq-units">\(\dfrac{\text{mol m}^{-2}\text{d}^{-1}}{\mu\text{mol m}^{-2}\text{s}^{-1}\cdot\text{mol s }\mu\text{mol}^{-1}\text{h}^{-1}} = \text{h d}^{-1}\); \(\dfrac{0.2778\ \text{kWh}\,\mu\text{mol J}^{-1}\,\text{mol}^{-1}\cdot\text{mol m}^{-2}\text{d}^{-1}}{\mu\text{mol J}^{-1}} = \text{kWh m}^{-2}\text{d}^{-1}\) ✓ (0.2778 = 10⁶ µmol mol⁻¹ ÷ 3.6 × 10⁶ J kWh⁻¹)</div>
+        <div class="mini-calc" data-fn="dliSuppHours" data-output="Lamp hours needed t<sub>s</sub>" data-unit="h d⁻¹" data-digits="1" data-plot="ppfd" data-ymin="0" data-ymax="30">
+          <div data-var="target" data-label="DLI target" data-min="6" data-max="30" data-step="0.5" data-value="17" data-unit="mol m⁻² d⁻¹"></div>
+          <div data-var="out" data-label="Outdoor DLI" data-min="0" data-max="40" data-step="0.1" data-value="2.1" data-unit="mol m⁻² d⁻¹"></div>
+          <div data-var="tau" data-label="Greenhouse transmittance τ" data-min="0.4" data-max="0.9" data-step="0.01" data-value="0.65"></div>
+          <div data-var="ppfd" data-label="Lamp PPFD at canopy" data-min="50" data-max="400" data-step="5" data-value="200" data-unit="µmol m⁻² s⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">Lettuce in a Västerås greenhouse in January</span></div>
+        <div class="we-problem"><p>A grower wants 17 mol m⁻² d⁻¹ for lettuce in a Västerås glasshouse (τ = 0.65) in January, when the mean outdoor DLI is 2.1 mol m⁻² d⁻¹ (Table 2). The LED top-lighting delivers 200 µmol m⁻² s⁻¹ at the canopy with a fixture efficacy of 3.0 µmol J⁻¹, and 90 % of the photons reach the crop. (a) How many hours must the lamps run? (b) If lettuce should not receive more than 18 h of light, what PPFD is needed instead? (c) How much electricity per square metre does January cost, and what does it cost at 1.20 SEK kWh⁻¹?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Natural light inside.</strong> \(\tau\,\text{DLI}_{\text{out}} = 0.65\times2.1 = 1.37\) mol m⁻² d⁻¹.</li>
+              <li><strong>Deficit.</strong> \(D = 17 - 1.37 = 15.63\) mol m⁻² d⁻¹ — the lamps must supply 92 % of the crop's light.</li>
+              <li><strong>(a) Hours at 200 µmol m⁻² s⁻¹.</strong> \(t_s = 15.63/(200\times0.0036) = 15.63/0.72 = 21.7\) h d⁻¹.</li>
+              <li><strong>(b) PPFD for an 18 h photoperiod.</strong> Rearranging, \(\text{PPFD}_s = D/(0.0036\,t_s) = 15.63/(0.0036\times18) = 241\) µmol m⁻² s⁻¹ — 21 % more fixtures.</li>
+              <li><strong>(c) Electricity.</strong> \(E_{\text{el}} = 0.2778\times15.63/(3.0\times0.9) = 1.61\) kWh m⁻² d⁻¹; for 31 days, 49.9 kWh m⁻². At 1.20 SEK kWh⁻¹ this is about 60 SEK m⁻² for January alone.</li>
+              <li><strong>Sanity check.</strong> Average electrical power density while lit: \(241/(3.0\times0.9) = 89\) W m⁻² for 18 h ⇒ 1.61 kWh m⁻² d⁻¹ ✓. Over the whole year the same calculation gives about 250 kWh m⁻² for a 17-mol lettuce target at Västerås (try Figure 4).</li>
+            </ol>
+            <span class="answer">(a) 21.7 h d⁻¹ (b) ≈ 240 µmol m⁻² s⁻¹ for 18 h (c) ≈ 50 kWh m⁻², ≈ 60 SEK m⁻² in January</span>
+          </div>
+        </details>
+      </div>
+      <div class="callout frontier"><div class="callout-title">Frontier — lighting that listens to the sun and the market</div><p>LEDs can be dimmed instantly, which allows control strategies that were impossible with high-pressure sodium lamps. Van Iersel and Gianino (2017) adjusted the duty cycle of LEDs every few seconds so that lamps supplied only the difference between a threshold PPFD and the measured sunlight; this reduced electricity use by 20–92 % compared with fixed 14-hour lighting, depending on the threshold and the sunlight. Combining such controllers with hourly electricity prices — in Sweden's SE3 price area, which includes Västerås, spot prices can vary several-fold within one winter day — lets the grower deliver the same DLI while buying photons when they are cheap (Avgoustaki &amp; Xydis, 2021). Lesson 4.3 returns to the economics.</p></div>
+
+      <h2 id="photoperiodism">Photoperiodism: day length as a signal</h2>
+      <p>The length of the day is not only a quantity of light; it is also <em>information</em>. In 1920 Wightman Garner and Harry Allard at the US Department of Agriculture reported that the tobacco cultivar 'Maryland Mammoth', which grew into giant plants without flowering in Maryland summers, flowered readily in winter greenhouses — and would flower in summer too if the plants were placed in a dark shed for part of each day. Soybeans sown at different dates flowered at the same calendar time. They concluded that plants measure the relative length of day and night, and named the phenomenon <strong>photoperiodism</strong> (Garner &amp; Allard, 1920).</p>
+      <table>
+        <caption>Table 3. Photoperiodic response classes with examples relevant to controlled-environment horticulture.</caption>
+        <thead><tr><th>Class</th><th>Flowers when…</th><th>Examples</th><th>Practical consequence</th></tr></thead>
+        <tbody>
+          <tr><td>Short-day plant (SDP)</td><td>the uninterrupted night is <em>longer</em> than a critical night length</td><td>chrysanthemum, poinsettia, <em>Kalanchoe</em>, many soybean cultivars, June-bearing strawberry</td><td>black-out screens induce flowering in summer; low-intensity night lighting keeps plants vegetative</td></tr>
+          <tr><td>Long-day plant (LDP)</td><td>the night is <em>shorter</em> than a critical length</td><td>spinach, radish, lettuce (bolting), dill, many annual bedding plants</td><td>long Nordic summer days promote premature bolting of leafy greens</td></tr>
+          <tr><td>Day-neutral plant (DNP)</td><td>independently of day length (after reaching a certain size)</td><td>tomato, cucumber, sweet pepper, day-neutral ("everbearing") strawberry</td><td>photoperiod can be chosen for photosynthesis alone (within the limits of Section 4.2.9)</td></tr>
+        </tbody>
+      </table>
+      <p>The decisive variable is the length of the <em>dark</em> period, not of the light period. Hamner and Bonner (1938) showed this with cocklebur (<em>Xanthium</em>), a short-day plant: plants on long nights flowered, but interrupting the long night with a brief flash of light — a <strong>night break</strong> — prevented flowering, whereas interrupting the day with darkness had no effect. The night length that separates flowering from non-flowering is the <strong>critical night length</strong>. They also showed that the leaves perceive the signal and send it to the shoot apex. Today we know that the signal is the protein FLOWERING LOCUS T (FT), produced in leaves when the clock-controlled protein CONSTANS coincides with light at the right time of day — the "external coincidence" model (Song et al., 2015). The photoreceptors that sense the light are phytochromes and cryptochromes, discussed in Lesson 4.4.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 680 250" role="img" aria-label="Diagram of short-day and long-day plant responses to day length and a night break">
+            <g font-size="12">
+              <text x="200" y="20" class="t-small t-muted">0 h</text><text x="560" y="20" class="t-small t-muted" text-anchor="end">24 h</text>
+              <text x="10" y="50" class="t-small">A. Short day (8 h)</text>
+              <rect x="200" y="36" width="120" height="22" class="fill-amber"/><rect x="320" y="36" width="240" height="22" class="fill-sunk" stroke="currentColor" stroke-width=".6"/>
+              <text x="575" y="46" class="t-small">SDP: flowers ✓</text><text x="575" y="60" class="t-small t-muted">LDP: vegetative</text>
+              <text x="10" y="110" class="t-small">B. Long day (16 h)</text>
+              <rect x="200" y="96" width="240" height="22" class="fill-amber"/><rect x="440" y="96" width="120" height="22" class="fill-sunk" stroke="currentColor" stroke-width=".6"/>
+              <text x="575" y="106" class="t-small t-muted">SDP: vegetative</text><text x="575" y="120" class="t-small">LDP: flowers ✓</text>
+              <text x="10" y="170" class="t-small">C. Short day + night break</text>
+              <rect x="200" y="156" width="120" height="22" class="fill-amber"/><rect x="320" y="156" width="240" height="22" class="fill-sunk" stroke="currentColor" stroke-width=".6"/>
+              <rect x="436" y="152" width="8" height="30" class="fill-magenta"/>
+              <text x="440" y="198" class="t-small" text-anchor="middle" style="fill:var(--magenta)">brief light</text>
+              <text x="575" y="166" class="t-small t-muted">SDP: vegetative</text><text x="575" y="180" class="t-small">LDP: flowers ✓</text>
+              <line x1="320" y1="222" x2="500" y2="222" class="stroke-water" stroke-width="2" marker-end="url(#dg-arr2)" style="color:var(--water)"/>
+              <text x="325" y="240" class="t-small" style="fill:var(--water)">critical night length (e.g., ≈ 9–13 h for many SDPs)</text>
+              <defs><marker id="dg-arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 5.</b> Photoperiodic responses. A short-day plant flowers only when the uninterrupted night exceeds its critical night length (A); in long days it stays vegetative (B). A brief night break (C) has the same effect as a long day, even though the total light hardly changes — proof that plants measure the continuous dark period (Hamner &amp; Bonner, 1938). Critical night lengths differ between species and cultivars.</figcaption>
+      </figure>
+      <p>For controlled-environment engineering, photoperiodism has two consequences. First, <strong>photoperiodic lighting is cheap</strong>: plants detect day length with photoreceptors, not photosynthesis, so a few µmol m⁻² s⁻¹ during a night break or a day extension is enough — two orders of magnitude less than photosynthetic lighting. Growers of chrysanthemum or strawberry transplants use such low-intensity lamps to control flowering. Second, <strong>the photoperiod constrains the DLI strategy</strong>: for a short-day crop you cannot extend the day to reach a DLI target without also preventing flowering, so a higher PPFD during a shorter day is required; for a long-day leafy green grown under 18–20 hours of light, bolting-resistant cultivars matter.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"Short-day plants need short days." They need <em>long uninterrupted nights</em>. A short-day plant given a 10-hour day and a 14-hour night interrupted in the middle by 15 minutes of light behaves as if it experienced two short nights — and does not flower. Conversely, light leaking into a black-out greenhouse from a neighbour's lamps or a street light can ruin a poinsettia crop.</p></div>
+
+      <h2 id="intensity-duration">Spreading the dose: photoperiod versus intensity</h2>
+      <p>For a day-neutral crop under electric light, a DLI of 16 mol m⁻² d⁻¹ can be delivered as 444 µmol m⁻² s⁻¹ for 10 hours or 222 µmol m⁻² s⁻¹ for 20 hours. The electricity is the same (Eq. 4.2.9). Is the growth the same? The answer lies in the curvature of the photosynthetic light response (Lesson 2.1): photosynthesis rises steeply at low PPFD and saturates at high PPFD. The first photons are used efficiently, the last ones poorly. Spreading the same photons over more hours keeps the leaves on the steep part of the curve.</p>
+      <div class="eq-box" id="eq-photoperiod-tradeoff">
+        <div class="eq-head"><span class="eq-label">Daily photosynthesis at a fixed DLI</span><span class="eq-num">(4.2.10)</span></div>
+        <div class="eq-main">\[ A_d(t) = 3600\,t\;P\!\left(\frac{10^{6}\,\text{DLI}}{3600\,t}\right)\cdot10^{-6} = \text{DLI}\cdot\frac{P(I)}{I}\Big|_{I = 10^{6}\text{DLI}/(3600\,t)} \]</div>
+        <p class="eq-read">the daily photosynthesis (moles of CO₂ fixed per square metre per day) equals the DLI multiplied by the light-use efficiency \(P(I)/I\) at the PPFD needed to supply that DLI in \(t\) hours. Because the efficiency falls as PPFD rises, longer photoperiods at lower PPFD fix more carbon from the same photons.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(A_d\)</td><td>daily gross photosynthesis of the canopy</td><td>mol CO₂ m⁻² d⁻¹</td></tr>
+          <tr><td>\(t\)</td><td>photoperiod</td><td>h d⁻¹</td></tr>
+          <tr><td>\(P(I)\)</td><td>gross photosynthetic rate at PPFD \(I\) (e.g., non-rectangular hyperbola, Lesson 2.1)</td><td>µmol CO₂ m⁻² s⁻¹</td></tr>
+          <tr><td>\(I\)</td><td>PPFD during the photoperiod</td><td>µmol m⁻² s⁻¹</td></tr>
+          <tr><td>\(P(I)/I\)</td><td>light-use efficiency (apparent quantum yield at \(I\))</td><td>mol CO₂ mol⁻¹ photons</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>At constant PPFD \(I\) for \(t\) hours, the DLI is \(I\cdot3600\,t\cdot10^{-6}\), so \(I = 10^6\,\text{DLI}/(3600\,t)\).</li>
+            <li>Photosynthesis proceeds at \(P(I)\) for \(3600\,t\) seconds: \(A_d = 3600\,t\,P(I)\cdot10^{-6}\) mol m⁻² d⁻¹.</li>
+            <li>Replace \(3600\,t\cdot10^{-6}\) by \(\text{DLI}/I\): \(A_d = \text{DLI}\cdot P(I)/I\).</li>
+            <li>For any light response that is concave and passes through the origin, \(P(I)/I\) (the slope of the line from the origin to the curve) decreases as \(I\) increases. Longer \(t\) ⇒ lower \(I\) ⇒ higher \(P(I)/I\) ⇒ higher \(A_d\) at the same DLI. This is Jensen's inequality applied to photosynthesis.</li>
+            <li>The gain is largest when \(I\) is close to saturation (high DLI, low \(P_{\max}\)) and vanishes when the whole response is nearly linear (low DLI).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ignores night respiration (roughly proportional to plant mass, not to photoperiod) and assumes the photosynthetic parameters do not acclimate to the photoperiod. Very long photoperiods can cause injury (tomato, Velez-Ramirez et al., 2011), promote tipburn (lettuce, Weaver &amp; van Iersel, 2020) or trigger bolting in long-day species. The optimum is therefore crop-specific, often 16–20 h for leafy greens.</p></details>
+        <div class="eq-units">h × 3600 s h⁻¹ × µmol m⁻² s⁻¹ × 10⁻⁶ mol µmol⁻¹ = mol m⁻² d⁻¹; mol m⁻² d⁻¹ × (mol mol⁻¹) = mol CO₂ m⁻² d⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="dli*1e6/(3600*t)" data-output="PPFD needed" data-unit="µmol m⁻² s⁻¹" data-digits="0" data-plot="t" data-title="Try it — PPFD needed for a DLI at different photoperiods">
+          <div data-var="dli" data-label="DLI" data-min="5" data-max="30" data-step="0.5" data-value="16" data-unit="mol m⁻² d⁻¹"></div>
+          <div data-var="t" data-label="Photoperiod t" data-min="8" data-max="24" data-step="0.5" data-value="16" data-unit="h"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="fig-tradeoff">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the same photons, spread over more hours</div>
+          <div id="to-ctl" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:2px 22px"></div>
+          <div id="to-plot" style="margin-top:8px"></div>
+          <div class="readouts" id="to-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 6.</b> Daily canopy gross photosynthesis (green, left axis) versus photoperiod at a fixed DLI, computed with Eq. 4.2.10 and a non-rectangular hyperbola (quantum yield 0.05 mol mol⁻¹; curvature θ and maximum rate \(P_{\max}\) adjustable). The amber curve (right axis) is the PPFD required, which is proportional to the number of fixtures. With the default settings (DLI 16, \(P_{\max}\) = 30 µmol m⁻² s⁻¹) the model predicts 19 % more daily photosynthesis at 20 h than at 10 h — close to the 16 % (lettuce) and 19 % (mizuna) biomass increases measured by Palmer and van Iersel (2020) for exactly this comparison.</figcaption>
+      </figure>
+
+      <p>The experimental evidence supports the model, with caveats. Palmer and van Iersel (2020) grew lettuce and mizuna at a DLI of 16 mol m⁻² d⁻¹ with photoperiods from 10 to 20 h; biomass increased by 16.0 % (lettuce) and 18.7 % (mizuna) from 10 to 20 h, partly because leaves were larger and intercepted more light. Kelly et al. (2020) found the same benefit for lettuce at a DLI of 15.6 mol m⁻² d⁻¹, but not at 10.4 — exactly as Eq. 4.2.10 predicts, because at low DLI the PPFD is on the nearly linear part of the response curve whatever the photoperiod. In a greenhouse with adaptive LED control, Weaver and van Iersel (2020) found that dry mass and the growth obtained per joule of supplementary light increased as the photoperiod was extended from 12 to 21 h — but so did tipburn.</p>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">Fewer fixtures for a longer day</span></div>
+        <div class="we-problem"><p>A vertical farm grows mizuna at a DLI of 16 mol m⁻² d⁻¹ on a 12-hour photoperiod. The engineer proposes switching to 20 hours. (a) What PPFD is needed in each case? (b) By what factor does the number of fixtures change? (c) Does the daily electricity change? (d) What growth benefit might be expected?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>(a)</strong> \(\text{PPFD} = \text{DLI}\times10^6/(3600\,t)\): at 12 h, \(16\times10^6/43\,200 = 370\) µmol m⁻² s⁻¹; at 20 h, \(16\times10^6/72\,000 = 222\) µmol m⁻² s⁻¹.</li>
+              <li><strong>(b)</strong> Fixtures scale with the PPFD needed: \(222/370 = 0.60\) — 40 % fewer fixtures (and 40 % less capital for lighting and for peak cooling capacity).</li>
+              <li><strong>(c)</strong> Daily electricity \(\propto\) DLI\(/\eta_{\text{ph}}\), unchanged — assuming the fixtures' efficacy does not depend on dimming level. (In fact LEDs run slightly more efficiently at lower current; Lesson 4.3.)</li>
+              <li><strong>(d)</strong> From Figure 6 (default parameters) the ratio of daily photosynthesis at 20 h and 12 h is 0.699/0.625 = 1.12; experimentally, Palmer and van Iersel (2020) measured +18.7 % biomass for mizuna between 10 and 20 h.</li>
+              <li><strong>Caveat.</strong> Check the crop's photoperiodic class — mizuna is a brassica that may bolt under very long days — and the night-time cooling and dehumidification capacity, which must now work 20 hours per day.</li>
+            </ol>
+            <span class="answer">370 → 222 µmol m⁻² s⁻¹; 40 % fewer fixtures; same kWh; roughly 10–20 % more growth</span>
+          </div>
+        </details>
+      </div>
+      <div class="callout frontier"><div class="callout-title">Frontier — breeding for 24-hour light</div><p>Continuous light would let a grower deliver a DLI with the lowest possible PPFD and thus the fewest fixtures, but most tomato cultivars are injured by it. Velez-Ramirez et al. (2014) traced continuous-light tolerance in wild tomato to a single locus on chromosome 7, pointing to the chlorophyll <em>a/b</em>-binding protein gene <em>CAB-13</em>; introgressed into modern hybrids by conventional breeding, it allowed yield increases of up to 20 % under extended lighting. The example shows how plant genetics and lighting engineering are becoming one design problem.</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="daily-light-integral-main">
+        <script type="application/json">
+        {"title":"Daily light integral, the sun and the photoperiod","questions":[
+          {"type":"numeric","q":"On a clear day the PPFD at solar noon is 1200 µmol m⁻² s⁻¹ and the day is 14 h long. Estimate the DLI with the half-sine approximation.","answer":38.5,"tol":0.02,"unit":"mol m⁻² d⁻¹","hint":"DLI ≈ (2/π) × PPFD<sub>max</sub> × N × 3600 × 10⁻⁶.","explain":"<p>\\((2/\\pi)\\times1200\\times14\\times3600\\times10^{-6} = 0.6366\\times1200\\times14\\times0.0036 = 38.5\\) mol m⁻² d⁻¹.</p>"},
+          {"type":"numeric","q":"A logger records instantaneous PPFD every 3 h: 06:00 → 0, 09:00 → 600, 12:00 → 1000, 15:00 → 600, 18:00 → 0 µmol m⁻² s⁻¹. Estimate the DLI with the trapezoidal rule.","answer":23.76,"tol":0.02,"unit":"mol m⁻² d⁻¹","hint":"Δt = 10 800 s. The end points count half.","explain":"<p>\\(10\\,800\\times(0/2+600+1000+600+0/2)\\times10^{-6} = 10\\,800\\times2200\\times10^{-6} = 23.76\\) mol m⁻² d⁻¹. With only four intervals the rule underestimates a smooth, concave day by several per cent (compare Eq. 4.2.2).</p>"},
+          {"type":"numeric","q":"What is the noon solar elevation at Västerås (59.6° N) at an equinox (δ = 0)?","answer":30.4,"abstol":0.2,"unit":"°","explain":"<p>\\(\\beta_{\\text{noon}} = 90^{\\circ} - \\varphi + \\delta = 90 - 59.6 + 0 = 30.4^{\\circ}\\).</p>"},
+          {"type":"numeric","q":"Calculate the day length at 60° N when the declination is −20°.","answer":6.79,"tol":0.02,"unit":"h","hint":"ω<sub>s</sub> = arccos(−tan φ tan δ); N = 2ω<sub>s</sub>/15° per hour.","explain":"<p>\\(-\\tan60^{\\circ}\\tan(-20^{\\circ}) = 1.7321\\times0.3640 = 0.6304\\); \\(\\omega_s = \\arccos(0.6304) = 50.92^{\\circ}\\); \\(N = 2\\times50.92/15 = 6.79\\) h.</p>"},
+          {"type":"mcq","q":"According to the Ångström–Prescott equation with the FAO default coefficients, what fraction of the extraterrestrial radiation reaches the ground on a completely overcast day?","options":["0 %","25 %","50 %","75 %"],"answer":1,"feedback":["Even under thick cloud, diffuse light reaches the ground.","","50 % is the extra fraction b<sub>s</sub> gained on a fully sunny day, not the overcast value.","75 % is the clear-sky value (a<sub>s</sub> + b<sub>s</sub>)."],"explain":"<p>With \\(n = 0\\), \\(R_s = a_s R_a = 0.25\\,R_a\\).</p>"},
+          {"type":"numeric","q":"Outdoor DLI is 5 mol m⁻² d⁻¹ and the greenhouse transmits 60 % of PAR. The crop target is 15 mol m⁻² d⁻¹ and the lamps give 180 µmol m⁻² s⁻¹ at the canopy. How many hours must the lamps run?","answer":18.52,"tol":0.02,"unit":"h d⁻¹","explain":"<p>Inside: \\(0.6\\times5 = 3\\); deficit 12 mol m⁻² d⁻¹; \\(t_s = 12/(180\\times0.0036) = 12/0.648 = 18.5\\) h.</p>"},
+          {"type":"numeric","q":"A daily deficit of 12 mol m⁻² d⁻¹ is filled with LEDs of 2.8 µmol J⁻¹, and 90 % of the photons reach the crop. How much electricity is used per square metre per day?","answer":1.323,"tol":0.02,"unit":"kWh m⁻² d⁻¹","explain":"<p>\\(E_{\\text{el}} = 0.2778\\times12/(2.8\\times0.9) = 3.333/2.52 = 1.32\\) kWh m⁻² d⁻¹.</p>"},
+          {"type":"multi","q":"Which of these crops are short-day plants, i.e., flower when the uninterrupted night exceeds a critical length? (Select all that apply.)","options":["Chrysanthemum","Poinsettia","Spinach","Tomato"],"answer":[0,1],"explain":"<p>Chrysanthemum and poinsettia are classic short-day plants (black-out screens are used to induce them). Spinach is a long-day plant; tomato is day-neutral.</p>"},
+          {"type":"tf","q":"A 15-minute night break in the middle of a 14-hour night prevents flowering of many short-day plants, even though it adds almost no photosynthetic light.","answer":true,"explain":"<p>True. Short-day plants measure the length of the <em>uninterrupted</em> dark period (Hamner &amp; Bonner, 1938). The night break splits one long night into two short ones.</p>"},
+          {"type":"mcq","q":"A grower increases greenhouse light transmission by cleaning the roof, giving 10 % more light over the season. According to Marcelis et al. (2006), what yield increase is expected for a fruit-vegetable crop?","options":["About 1 %","About 7–10 %","About 20 %","None, because the crop is already light-saturated"],"answer":1,"feedback":["That would imply an elasticity of 0.1; measured elasticities are 0.5–1.","","More light than the relative increase in light is not plausible for a saturating response.","Greenhouse crops in northern Europe are usually light-limited, which is why the 1 % rule works."],"explain":"<p>\\(\\Delta Y/Y \\approx \\varepsilon\\,\\Delta I/I\\) with \\(\\varepsilon = 0.7\\)–1 for fruit vegetables: 7–10 %.</p>"},
+          {"type":"tf","q":"Delivering the same DLI over 20 h instead of 10 h requires the same daily electricity but half the PPFD, and usually increases growth because the light-use efficiency is higher at lower PPFD.","answer":true,"explain":"<p>True, as long as the crop tolerates the long photoperiod (Eq. 4.2.10; Palmer &amp; van Iersel, 2020). Watch for tipburn, bolting and continuous-light injury.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Daily light integral (DLI)</dt><dd>The number of PAR photons received per unit area in one day, the time integral of PPFD (mol m⁻² d⁻¹).</dd>
+        <dt>Trapezoidal rule</dt><dd>Numerical integration that joins successive samples with straight lines and sums the areas beneath them.</dd>
+        <dt>Solar declination</dt><dd>The latitude at which the sun is overhead at noon; varies between ±23.44° over the year.</dd>
+        <dt>Hour angle</dt><dd>The angle through which the Earth has rotated since solar noon, 15° per hour.</dd>
+        <dt>Solar elevation</dt><dd>The angle of the sun above the horizon; complement of the zenith angle.</dd>
+        <dt>Day length</dt><dd>Time between sunrise and sunset, \(N = 24\,\omega_s/\pi\), from the sunset hour angle.</dd>
+        <dt>Extraterrestrial radiation</dt><dd>Daily solar energy on a horizontal surface at the top of the atmosphere (R<sub>a</sub>, MJ m⁻² d⁻¹).</dd>
+        <dt>Ångström–Prescott equation</dt><dd>Linear relation between the global-to-extraterrestrial radiation ratio and relative sunshine duration.</dd>
+        <dt>Greenhouse transmittance</dt><dd>Fraction of outdoor PAR that reaches the crop inside a greenhouse, typically 0.5–0.7.</dd>
+        <dt>Supplementary lighting</dt><dd>Electric lighting in a greenhouse that adds photons to natural light to reach a DLI target.</dd>
+        <dt>Light–yield elasticity ("1 % rule")</dt><dd>Relative yield change per relative light change; 0.5–1 for most greenhouse crops.</dd>
+        <dt>Photoperiodism</dt><dd>Developmental responses, especially flowering, to the relative lengths of day and night.</dd>
+        <dt>Critical night length</dt><dd>The uninterrupted dark period that separates flowering from non-flowering in a photoperiodic plant.</dd>
+        <dt>Night break</dt><dd>A short light period in the middle of the night that cancels the effect of a long night.</dd>
+        <dt>Light-use efficiency</dt><dd>Photosynthesis per unit incident light, \(P(I)/I\); decreases as PPFD approaches saturation.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can compute a DLI from a logger file with the trapezoidal rule and explain when that rule under- or overestimates.</li>
+        <li>I can derive the solar elevation from latitude, declination and hour angle, and calculate the day length.</li>
+        <li>I can estimate outdoor and in-greenhouse DLI from extraterrestrial radiation, sunshine duration and greenhouse transmittance.</li>
+        <li>I can size supplementary lighting — hours, PPFD and kWh m⁻² — for a crop target at a given site and month.</li>
+        <li>I can explain to a grower why short-day plants measure the night, and why spreading a DLI over a longer photoperiod usually increases growth.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Faust, J. E., &amp; Logan, J. (2018). Daily light integral: A research review and high-resolution maps of the United States. <em>HortScience</em>, 53(9), 1250–1257. <a href="https://doi.org/10.21273/HORTSCI13144-18" target="_blank" rel="noopener">doi:10.21273/HORTSCI13144-18</a><span class="r-why">The standard review of DLI: definitions, crop responses and how DLI maps are made. Read the review part; skim the maps.</span></li>
+        <li><span class="r-type">Required · open access</span>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56), Chapter 3, "Radiation". FAO. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">fao.org/4/x0490e</a><span class="r-why">The source of Eqs. 4.2.4–4.2.8, with worked examples and tables of R<sub>a</sub> and N for every latitude.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Palmer, S., &amp; van Iersel, M. W. (2020). Increasing growth of lettuce and mizuna under sole-source LED lighting using longer photoperiods with the same daily light integral. <em>Agronomy</em>, 10(11), 1659. <a href="https://doi.org/10.3390/agronomy10111659" target="_blank" rel="noopener">doi:10.3390/agronomy10111659</a><span class="r-why">A clean experiment behind Section 4.2.9; look at how light interception and quantum yield change with photoperiod.</span></li>
+        <li><span class="r-type">Recommended</span>Marcelis, L. F. M., Broekhuijsen, A. G. M., Meinen, E., Nijs, E. M. F. M., &amp; Raaphorst, M. G. M. (2006). Quantification of the growth response to light quantity of greenhouse grown crops. <em>Acta Horticulturae</em>, 711, 97–104. <a href="https://doi.org/10.17660/ActaHortic.2006.711.9" target="_blank" rel="noopener">doi:10.17660/ActaHortic.2006.711.9</a><span class="r-why">Where the "1 % rule" comes from, crop by crop.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Stallknecht, E. (2025). <em>Calculating and using daily light integral (DLI): An introductory guide</em> (SPES-720NP). Virginia Cooperative Extension. <a href="https://www.pubs.ext.vt.edu/SPES/spes-720/spes-720.html" target="_blank" rel="noopener">pubs.ext.vt.edu/SPES/spes-720</a><span class="r-why">A practical grower's guide with crop DLI targets — compare its advice with the equations of this lesson.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Albright, L. D., Both, A.-J., &amp; Chiu, A. J. (2000). Controlling greenhouse light to a consistent daily integral. <em>Transactions of the ASAE</em>, 43(2), 421–431. <a href="https://doi.org/10.13031/2013.2721" target="_blank" rel="noopener">doi:10.13031/2013.2721</a></li>
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper 56). Food and Agriculture Organization of the United Nations. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">https://www.fao.org/4/x0490e/x0490e00.htm</a></li>
+        <li>Ångström, A. (1924). Solar and terrestrial radiation. <em>Quarterly Journal of the Royal Meteorological Society</em>, 50(210), 121–126. <a href="https://doi.org/10.1002/qj.49705021008" target="_blank" rel="noopener">doi:10.1002/qj.49705021008</a></li>
+        <li>Avgoustaki, D. D., &amp; Xydis, G. (2021). Energy cost reduction by shifting electricity demand in indoor vertical farms with artificial lighting. <em>Biosystems Engineering</em>, 211, 219–229. <a href="https://doi.org/10.1016/j.biosystemseng.2021.09.006" target="_blank" rel="noopener">doi:10.1016/j.biosystemseng.2021.09.006</a></li>
+        <li>Both, A. J., Albright, L. D., Langhans, R. W., Reiser, R. A., &amp; Vinzant, B. G. (1997). Hydroponic lettuce production influenced by integrated supplemental light levels in a controlled environment agriculture facility: Experimental results. <em>Acta Horticulturae</em>, 418, 45–51. <a href="https://doi.org/10.17660/ActaHortic.1997.418.5" target="_blank" rel="noopener">doi:10.17660/ActaHortic.1997.418.5</a></li>
+        <li>Dou, H., Niu, G., Gu, M., &amp; Masabni, J. G. (2018). Responses of sweet basil to different daily light integrals in photosynthesis, morphology, yield, and nutritional quality. <em>HortScience</em>, 53(4), 496–503. <a href="https://doi.org/10.21273/HORTSCI12785-17" target="_blank" rel="noopener">doi:10.21273/HORTSCI12785-17</a></li>
+        <li>Faust, J. E., &amp; Logan, J. (2018). Daily light integral: A research review and high-resolution maps of the United States. <em>HortScience</em>, 53(9), 1250–1257. <a href="https://doi.org/10.21273/HORTSCI13144-18" target="_blank" rel="noopener">doi:10.21273/HORTSCI13144-18</a></li>
+        <li>Garner, W. W., &amp; Allard, H. A. (1920). Effect of the relative length of day and night and other factors of the environment on growth and reproduction in plants. <em>Journal of Agricultural Research</em>, 18(11), 553–606.</li>
+        <li>Gerovac, J. R., Craver, J. K., Boldt, J. K., &amp; Lopez, R. G. (2016). Light intensity and quality from sole-source light-emitting diodes impact growth, morphology, and nutrient content of <em>Brassica</em> microgreens. <em>HortScience</em>, 51(5), 497–503. <a href="https://doi.org/10.21273/HORTSCI.51.5.497" target="_blank" rel="noopener">doi:10.21273/HORTSCI.51.5.497</a></li>
+        <li>Hamner, K. C., &amp; Bonner, J. (1938). Photoperiodism in relation to hormones as factors in floral initiation and development. <em>Botanical Gazette</em>, 100(2), 388–431. <a href="https://doi.org/10.1086/334793" target="_blank" rel="noopener">doi:10.1086/334793</a></li>
+        <li>Kelly, N., Choe, D., Meng, Q., &amp; Runkle, E. S. (2020). Promotion of lettuce growth under an increasing daily light integral depends on the combination of the photosynthetic photon flux density and photoperiod. <em>Scientia Horticulturae</em>, 272, 109565. <a href="https://doi.org/10.1016/j.scienta.2020.109565" target="_blank" rel="noopener">doi:10.1016/j.scienta.2020.109565</a></li>
+        <li>Korczynski, P. C., Logan, J., &amp; Faust, J. E. (2002). Mapping monthly distribution of daily light integrals across the contiguous United States. <em>HortTechnology</em>, 12(1), 12–16. <a href="https://doi.org/10.21273/HORTTECH.12.1.12" target="_blank" rel="noopener">doi:10.21273/HORTTECH.12.1.12</a></li>
+        <li>Marcelis, L. F. M., Broekhuijsen, A. G. M., Meinen, E., Nijs, E. M. F. M., &amp; Raaphorst, M. G. M. (2006). Quantification of the growth response to light quantity of greenhouse grown crops. <em>Acta Horticulturae</em>, 711, 97–104. <a href="https://doi.org/10.17660/ActaHortic.2006.711.9" target="_blank" rel="noopener">doi:10.17660/ActaHortic.2006.711.9</a></li>
+        <li>Moe, R., Grimstad, S. O., &amp; Gislerød, H. R. (2006). The use of artificial light in year round production of greenhouse crops in Norway. <em>Acta Horticulturae</em>, 711, 35–42. <a href="https://doi.org/10.17660/ActaHortic.2006.711.2" target="_blank" rel="noopener">doi:10.17660/ActaHortic.2006.711.2</a></li>
+        <li>NASA Langley Research Center. (2026). <em>POWER Project climatology API (v2.10), 20-year monthly climatology 2001–2020: ALLSKY_SFC_SW_DWN, CLRSKY_SFC_SW_DWN and ALLSKY_SFC_PAR_TOT</em> [Data set]. Retrieved September 2026 from <a href="https://power.larc.nasa.gov/" target="_blank" rel="noopener">https://power.larc.nasa.gov/</a></li>
+        <li>Owen, W. G., &amp; Lopez, R. G. (2015). End-of-production supplemental lighting with red and blue light-emitting diodes (LEDs) influences red pigmentation of four lettuce varieties. <em>HortScience</em>, 50(5), 676–684. <a href="https://doi.org/10.21273/HORTSCI.50.5.676" target="_blank" rel="noopener">doi:10.21273/HORTSCI.50.5.676</a></li>
+        <li>Palmer, S., &amp; van Iersel, M. W. (2020). Increasing growth of lettuce and mizuna under sole-source LED lighting using longer photoperiods with the same daily light integral. <em>Agronomy</em>, 10(11), 1659. <a href="https://doi.org/10.3390/agronomy10111659" target="_blank" rel="noopener">doi:10.3390/agronomy10111659</a></li>
+        <li>Prescott, J. A. (1940). Evaporation from a water surface in relation to solar radiation. <em>Transactions of the Royal Society of South Australia</em>, 64, 114–118.</li>
+        <li>Song, Y. H., Shim, J. S., Kinmonth-Schultz, H. A., &amp; Imaizumi, T. (2015). Photoperiodic flowering: Time measurement mechanisms in leaves. <em>Annual Review of Plant Biology</em>, 66, 441–464. <a href="https://doi.org/10.1146/annurev-arplant-043014-115555" target="_blank" rel="noopener">doi:10.1146/annurev-arplant-043014-115555</a></li>
+        <li>Spencer, J. W. (1971). Fourier series representation of the position of the sun. <em>Search</em>, 2(5), 172.</li>
+        <li>Stallknecht, E. (2025). <em>Calculating and using daily light integral (DLI): An introductory guide</em> (Publication SPES-720NP). Virginia Cooperative Extension. <a href="https://www.pubs.ext.vt.edu/SPES/spes-720/spes-720.html" target="_blank" rel="noopener">https://www.pubs.ext.vt.edu/SPES/spes-720/spes-720.html</a></li>
+        <li>van Iersel, M. W., &amp; Gianino, D. (2017). An adaptive control approach for light-emitting diode lights can reduce the energy costs of supplemental lighting in greenhouses. <em>HortScience</em>, 52(1), 72–77. <a href="https://doi.org/10.21273/HORTSCI11385-16" target="_blank" rel="noopener">doi:10.21273/HORTSCI11385-16</a></li>
+        <li>Velez-Ramirez, A. I., van Ieperen, W., Vreugdenhil, D., & Millenaar, F. F. (2011). Plants under continuous light. <em>Trends in Plant Science</em>, 16(6), 310–318. <a href="https://doi.org/10.1016/j.tplants.2011.02.003" target="_blank" rel="noopener">doi:10.1016/j.tplants.2011.02.003</a></li>
+        <li>Velez-Ramirez, A. I., van Ieperen, W., Vreugdenhil, D., van Poppel, P. M. J. A., Heuvelink, E., &amp; Millenaar, F. F. (2014). A single locus confers tolerance to continuous light and allows substantial yield increase in tomato. <em>Nature Communications</em>, 5, 4549. <a href="https://doi.org/10.1038/ncomms5549" target="_blank" rel="noopener">doi:10.1038/ncomms5549</a></li>
+        <li>Weaver, G., &amp; van Iersel, M. W. (2020). Longer photoperiods with adaptive lighting control can improve growth of greenhouse-grown 'Little Gem' lettuce (<em>Lactuca sativa</em>). <em>HortScience</em>, 55(4), 573–580. <a href="https://doi.org/10.21273/HORTSCI14721-19" target="_blank" rel="noopener">doi:10.21273/HORTSCI14721-19</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, linspace } from '/assets/js/plot.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+import { declination, earthSunFactor, solarElevation, dayLength, clearSkyRadiation, clearSkyIrradiance, nonRectHyperbola, SUN_PPFD_PER_WM2 } from '/assets/js/physics.js';
+
+/* small slider factory in the style of the course mini-calculators */
+function slider(host, o) {
+  const w = document.createElement('div'); w.className = 'mc-var';
+  w.innerHTML = `<div class="mc-lab"><span>${o.label}</span><output></output></div><input type="range" min="${o.min}" max="${o.max}" step="${o.step}" value="${o.value}" aria-label="${o.label.replace(/<[^>]+>/g, '')}">`;
+  const r = w.querySelector('input'), out = w.querySelector('output');
+  const show = () => { out.textContent = (o.format ? o.format(+r.value) : fmt(+r.value, o.digits ?? 0)) + (o.unit ? ' ' + o.unit : ''); r.style.setProperty('--fill', ((r.value - o.min) / (o.max - o.min) * 100) + '%'); };
+  r.addEventListener('input', () => { show(); o.onInput && o.onInput(); });
+  show(); host.appendChild(w);
+  return { get value() { return +r.value; } };
+}
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const dateOf = J => { const d = new Date(Date.UTC(2026, 0, J)); return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()]; };
+const GSC = 0.0820 * 1e6 / 60; // W m-2 (1366.7)
+
+/* ---------------- Figure 1: diurnal curve and trapezoidal integration ---------------- */
+{
+  const ctl = document.getElementById('di-ctl');
+  const upd = () => draw();
+  const sLat = slider(ctl, { label: 'Latitude φ', min: 0, max: 66, step: 0.1, value: 59.6, unit: '° N', digits: 1, onInput: upd });
+  const sJ = slider(ctl, { label: 'Date', min: 1, max: 365, step: 1, value: 105, format: v => dateOf(v) + ' (J = ' + v + ')', onInput: upd });
+  const sK = slider(ctl, { label: 'Sky transmissivity (0.75 = clear)', min: 0.25, max: 0.75, step: 0.01, value: 0.75, digits: 2, onInput: upd });
+  const sN = slider(ctl, { label: 'Trapezoid intervals n (sunrise → sunset)', min: 2, max: 24, step: 1, value: 6, onInput: upd });
+  const plot = new Plot('#di-plot', { height: 290, x: { label: 'Solar time', unit: 'h', min: 0, max: 24 }, y: { label: 'PPFD', unit: 'µmol m⁻² s⁻¹', min: 0 } });
+  const ro = new Readouts('#di-ro');
+  ro.add({ id: 'N', label: 'Day length N (Eq. 4.2.6)', unit: 'h', digits: 2 })
+    .add({ id: 'bn', label: 'Noon solar elevation', unit: '°', digits: 1 })
+    .add({ id: 'pmax', label: 'Noon PPFD', unit: 'µmol m⁻² s⁻¹', digits: 0 })
+    .add({ id: 'dli', label: 'DLI, exact integral', unit: 'mol m⁻² d⁻¹', digits: 2 })
+    .add({ id: 'trap', label: 'DLI, trapezoidal rule', unit: 'mol m⁻² d⁻¹', digits: 2, note: '&nbsp;' })
+    .add({ id: 'hs', label: 'DLI, half-sine estimate', unit: 'mol m⁻² d⁻¹', digits: 2, note: '&nbsp;' });
+  const T = linspace(0, 24, 481);
+  function draw() {
+    const lat = sLat.value, J = sJ.value, K = sK.value, n = sN.value;
+    const ppfd = t => Math.max(0, K * GSC * earthSunFactor(J) * Math.sin(solarElevation(lat, J, t))) * SUN_PPFD_PER_WM2;
+    const alt = t => clearSkyIrradiance(solarElevation(lat, J, t)) * SUN_PPFD_PER_WM2 * (K / 0.75);
+    const ys = T.map(ppfd);
+    let exact = 0; for (let i = 1; i < T.length; i++) exact += 0.5 * (ys[i] + ys[i - 1]) * (T[i] - T[i - 1]) * 3600;
+    exact /= 1e6;
+    const N = dayLength(lat, J), t0 = 12 - N / 2, t1 = 12 + N / 2;
+    const nodes = N > 0.05 && N < 23.95 ? linspace(t0, t1, n + 1) : linspace(0, 24, n + 1);
+    const nv = nodes.map(ppfd);
+    let trap = 0; for (let i = 1; i < nodes.length; i++) trap += 0.5 * (nv[i] + nv[i - 1]) * (nodes[i] - nodes[i - 1]) * 3600;
+    trap /= 1e6;
+    const pmax = ppfd(12);
+    plot.custom('trap', (ctx, p) => {
+      ctx.fillStyle = 'rgba(192,86,155,0.13)'; ctx.strokeStyle = 'rgba(192,86,155,0.75)'; ctx.lineWidth = 1.2;
+      for (let i = 1; i < nodes.length; i++) {
+        ctx.beginPath(); ctx.moveTo(p.px(nodes[i - 1]), p.py(0)); ctx.lineTo(p.px(nodes[i - 1]), p.py(nv[i - 1])); ctx.lineTo(p.px(nodes[i]), p.py(nv[i])); ctx.lineTo(p.px(nodes[i]), p.py(0)); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    });
+    plot.line('clear', T, ys, { color: 'accent', width: 2.6, label: 'FAO-consistent model', fill: 0.08 });
+    plot.line('alt', T, T.map(alt), { color: 'magenta', width: 1.6, dash: [6, 4], label: 'Air-mass model (physics.js)' });
+    plot.scatter('nodes', nodes, nv, { color: 'magenta', r: 3.5, label: 'Samples' });
+    ro.set('N', N); ro.set('bn', Math.max(-90, solarElevation(lat, J, 12) * 180 / Math.PI)); ro.set('pmax', pmax);
+    ro.set('dli', exact); ro.set('trap', trap, null, `error ${fmt(100 * (trap - exact) / (exact || 1), 1)} %`);
+    ro.set('hs', 2 / Math.PI * pmax * Math.min(N, 24) * 3600 / 1e6, null, `error ${fmt(100 * (2 / Math.PI * pmax * N * 0.0036 - exact) / (exact || 1), 1)} %`);
+  }
+  draw();
+}
+
+/* ---------------- Figure 4: seasonal DLI cycle and supplementary lighting ---------------- */
+{
+  const SITES = {
+    vas: { name: 'Västerås', lat: 59.61, color: 'accent', par: [0.46, 1.48, 3.75, 6.31, 8.43, 9.6, 8.89, 6.96, 4.44, 2.02, 0.67, 0.28] },
+    alm: { name: 'Almería', lat: 36.78, color: 'amber', par: [4.42, 5.87, 7.76, 9.57, 11.25, 12.37, 11.96, 10.83, 8.67, 6.55, 4.71, 3.96] },
+    sgp: { name: 'Singapore', lat: 1.35, color: 'water', par: [7.64, 8.65, 8.67, 8.45, 7.88, 7.53, 7.52, 7.64, 7.51, 7.58, 7.37, 7.1] }
+  };
+  const DAYS = [31, 28.25, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  let site = 'vas', target = 17;
+  const ctl = document.getElementById('se-ctl');
+  const upd = () => draw();
+  const sTau = slider(ctl, { label: 'Greenhouse transmittance τ', min: 0.4, max: 0.9, step: 0.01, value: 0.65, digits: 2, onInput: upd });
+  const sEff = slider(ctl, { label: 'LED photon efficacy', min: 1.7, max: 4.0, step: 0.05, value: 3.0, digits: 2, unit: 'µmol J⁻¹', onInput: upd });
+  const sPpfd = slider(ctl, { label: 'Lamp PPFD at canopy', min: 50, max: 400, step: 5, value: 200, unit: 'µmol m⁻² s⁻¹', onInput: upd });
+  const sPrice = slider(ctl, { label: 'Electricity price', min: 0.03, max: 0.40, step: 0.01, value: 0.10, digits: 2, unit: '€ kWh⁻¹', onInput: upd });
+  const segSel = (id, cb) => { const el = document.getElementById(id); el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); cb(b.dataset.v); draw(); }); };
+  segSel('se-site', v => site = v); segSel('se-crop', v => target = +v);
+  const X = J => (J - 0.5) / 365 * 12;           // day of year -> month axis
+  const plot = new Plot('#se-plot', { height: 320, x: { label: 'Month (tick = 1st day)', unit: '', min: 0, max: 12, format: v => MONTHS[Math.round(v) % 12] }, y: { label: 'DLI', unit: 'mol m⁻² d⁻¹', min: 0, max: 70 } });
+  const ro = new Readouts('#se-ro');
+  ro.add({ id: 'mean', label: 'Annual mean outdoor DLI (measured)', unit: 'mol m⁻² d⁻¹', digits: 1, note: '&nbsp;' })
+    .add({ id: 'months', label: 'Months with a deficit', unit: '', digits: 0 })
+    .add({ id: 'worst', label: 'Lamp hours in the darkest month', unit: 'h d⁻¹', digits: 1, note: '&nbsp;' })
+    .add({ id: 'mol', label: 'Supplementary photons per year', unit: 'mol m⁻² yr⁻¹', digits: 0 })
+    .add({ id: 'kwh', label: 'Lighting electricity per year', unit: 'kWh m⁻² yr⁻¹', digits: 0, note: '&nbsp;' })
+    .add({ id: 'cost', label: 'Lighting electricity cost', unit: '€ m⁻² yr⁻¹', digits: 0 });
+  const Js = []; for (let J = 1; J <= 365; J++) Js.push(J);
+  Object.entries(SITES).forEach(([k, s]) => { s.clear = Js.map(J => clearSkyRadiation(s.lat, J) * SUN_PPFD_PER_WM2); s.dli = s.par.map(p => p * 4.57); });
+  // periodic linear interpolation of monthly means (placed at mid-month) to daily values
+  const interp = (arr, J) => { const m = (J - 0.5) / 365 * 12 - 0.5; const i0 = Math.floor(m), f = m - i0; const a = arr[(i0 + 12) % 12], b = arr[(i0 + 13) % 12]; return a + (b - a) * f; };
+  function draw() {
+    const S = SITES[site], tau = sTau.value, eff = sEff.value, cap = 0.9;
+    const xs = Js.map(X);
+    Object.entries(SITES).forEach(([k, s]) => {
+      plot.line('clr-' + k, xs, s.clear, { color: s.color, width: k === site ? 2.4 : 1.3, dash: k === site ? null : [5, 4], label: s.name, opacity: k === site ? 1 : 0.7 });
+      plot.scatter('pow-' + k, s.dli.map((_, i) => i + 0.5), s.dli, { color: s.color, r: k === site ? 4.5 : 3, label: k === site ? 'Measured monthly mean (NASA POWER)' : null, hollow: k !== site });
+    });
+    const inside = Js.map(J => tau * interp(S.dli, J));
+    plot.band('inside', xs, inside.map(() => 0), inside, { color: 'accent', alpha: 0.16 });
+    plot.band('deficit', xs, inside.map(v => Math.min(v, target)), inside.map(() => target), { color: 'magenta', alpha: 0.22 });
+    plot.hline('target', target, { color: 'magenta', label: `crop target ${target} mol m⁻² d⁻¹`, dash: [6, 4] });
+    // monthly supplementary calculation (Eq. 4.2.9)
+    let mol = 0, months = 0, worst = 0;
+    S.dli.forEach((d, i) => { const def = Math.max(0, target - tau * d); if (def > 0.05) months++; mol += def * DAYS[i]; worst = Math.max(worst, def / (sPpfd.value * 0.0036)); });
+    const kwh = mol * 0.2778 / (eff * cap);
+    const annual = S.dli.reduce((s, d, i) => s + d * DAYS[i], 0) / 365.25;
+    ro.set('mean', annual, null, S.name);
+    ro.set('months', months, months > 6 ? 'bad' : months > 2 ? 'warn' : 'ok');
+    ro.set('worst', worst, worst > 20 ? 'bad' : worst > 18 ? 'warn' : 'ok', worst > 18 ? 'exceeds 18 h: raise the lamp PPFD' : 'within an 18 h photoperiod');
+    ro.set('mol', mol); ro.set('kwh', kwh, null, `η<sub>cap</sub> = 0.9, ${fmt(eff, 2)} µmol J⁻¹`); ro.set('cost', kwh * sPrice.value);
+  }
+  draw();
+}
+
+/* ---------------- Figure 6: photoperiod versus intensity at fixed DLI ---------------- */
+{
+  const ctl = document.getElementById('to-ctl');
+  const upd = () => draw();
+  const sD = slider(ctl, { label: 'DLI', min: 5, max: 35, step: 0.5, value: 16, digits: 1, unit: 'mol m⁻² d⁻¹', onInput: upd });
+  const sP = slider(ctl, { label: 'Canopy P<sub>max</sub>', min: 10, max: 60, step: 1, value: 30, unit: 'µmol m⁻² s⁻¹', onInput: upd });
+  const sT = slider(ctl, { label: 'Curvature θ', min: 0.5, max: 0.98, step: 0.01, value: 0.7, digits: 2, onInput: upd });
+  const plot = new Plot('#to-plot', { height: 300, x: { label: 'Photoperiod', unit: 'h d⁻¹', min: 6, max: 24 }, y: { label: 'Daily photosynthesis', unit: 'mol m⁻² d⁻¹', min: 0 }, y2: { label: 'PPFD required', unit: 'µmol m⁻² s⁻¹', min: 0 } });
+  const ro = new Readouts('#to-ro');
+  ro.add({ id: 'g1', label: 'Gain 10 h → 20 h', unit: '%', digits: 1 })
+    .add({ id: 'g2', label: 'Gain 12 h → 18 h', unit: '%', digits: 1 })
+    .add({ id: 'p12', label: 'PPFD at 12 h', unit: 'µmol m⁻² s⁻¹', digits: 0 })
+    .add({ id: 'p18', label: 'PPFD at 18 h', unit: 'µmol m⁻² s⁻¹', digits: 0 })
+    .add({ id: 'lue', label: 'Light-use efficiency at 18 h', unit: 'mol mol⁻¹', digits: 3 });
+  const ts = linspace(6, 24, 181);
+  function draw() {
+    const D = sD.value, Pm = sP.value, th = sT.value;
+    const I = t => D * 1e6 / (3600 * t);
+    const Ad = t => nonRectHyperbola(I(t), 0.05, Pm, th, 0) * 3600 * t / 1e6;
+    plot.line('A', ts, ts.map(Ad), { color: 'accent', width: 2.6, label: 'Daily gross photosynthesis (CO₂)' });
+    plot.line('I', ts, ts.map(I), { color: 'amber', width: 2, dash: [6, 4], label: 'PPFD required', y2: true });
+    plot.point('p10', 10, Ad(10), { color: 'magenta', r: 5, label: '10 h' });
+    plot.point('p20', 20, Ad(20), { color: 'magenta', r: 5, label: '20 h' });
+    ro.set('g1', 100 * (Ad(20) / Ad(10) - 1)); ro.set('g2', 100 * (Ad(18) / Ad(12) - 1));
+    ro.set('p12', I(12)); ro.set('p18', I(18)); ro.set('lue', nonRectHyperbola(I(18), 0.05, Pm, th, 0) / I(18));
+  }
+  draw();
+}
+</script>
+</body>
+</html>

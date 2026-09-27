@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Describing and visualising data · Future Food Production</title>
+<meta name="description" content="Measurement scales, mean, median and trimmed mean, variance and Bessel's correction, standard deviation versus standard error, quantiles, box plots, histograms and kernel densities, the normal distribution, outliers, rounding and honest graphs.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<style>@media (max-width: 760px) { .l32-grid { grid-template-columns: 1fr !important; } } .quiz .btn[hidden] { display: none; } #dr-plot canvas { touch-action: none; cursor: grab; }</style>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+(function () {
+  function Phi(x) { // standard normal CDF (Zelen & Severo 26.2.17)
+    var t = 1 / (1 + 0.2316419 * Math.abs(x)), y = 0.3989422804014327 * Math.exp(-x * x / 2) * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+    return x >= 0 ? 1 - y : y;
+  }
+  FFP_CALC.l32Percentile = function (v) { return 100 * Phi((v.x - v.mu) / v.sigma); };
+})();
+</script>
+</head>
+<body data-page="lesson" data-slug="descriptive-statistics">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Describing and visualising data</h1>
+      <p class="lead">Harvest day: eighteen compartments of lettuce, 72 plants, a spreadsheet full of numbers. Before any hypothesis test, you have to <em>see</em> the data and summarise them honestly — where they are centred, how much they vary, whether one rotten plant is dragging the mean down. This lesson gives you the vocabulary and the equations of descriptive statistics, explains the single most common error in scientific figures (confusing the standard deviation with the standard error), and shows how to draw graphs that let readers judge your results for themselves.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Classify variables by measurement scale and organise project data in a tidy table (LO4, LO5).</li>
+        <li>Calculate and choose between measures of location (mean, median, mode, trimmed mean) and spread (range, IQR, variance, SD, CV, MAD), and derive Bessel's \(n-1\) correction (LO4).</li>
+        <li>Explain the difference between the standard deviation and the standard error, convert between them, and state which one a figure should show (LO4).</li>
+        <li>Construct and interpret quantiles, box plots, histograms and kernel density estimates, and use z-scores with the normal distribution (LO4, LO5).</li>
+        <li>Detect outliers with the 1.5 × IQR rule and decide, with justification, how to handle them (LO4).</li>
+        <li>Round and report results with appropriate precision and design honest graphs with correctly labelled error bars (LO4).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="scales">Data, variables and scales of measurement</h2>
+      <p class="lede-drop">Statistics begins with the question: <em>what kind of number is this?</em> A lettuce's fresh mass of 148.3 g, its tipburn score of 2, its cultivar "Rex" and the temperature of 21.4 °C in its compartment are all recorded in the same spreadsheet, but they support very different operations. You can say that a 150 g plant is twice as heavy as a 75 g plant; you cannot say that a tipburn score of 2 is twice as bad as 1, and 21 °C is not "twice as warm" as 10.5 °C. The psychologist S. S. Stevens (1946) organised these differences into four <strong>scales of measurement</strong>, which still guide the choice of summary statistics and tests.</p>
+      <table>
+        <caption>Table 1. Scales of measurement with examples from the course project.</caption>
+        <thead><tr><th>Scale</th><th>What is meaningful</th><th>Project examples</th><th>Location</th><th>Spread</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Nominal</strong> (categorical)</td><td>equality only (same / different)</td><td>cultivar, spectrum treatment, system type (Kratky, DWC, NFT)</td><td>mode</td><td>counts, proportions</td></tr>
+          <tr><td><strong>Ordinal</strong></td><td>order (more / less), not distances</td><td>tipburn score 0–4, 9-point hedonic liking scale, ranking of samples</td><td>median, mode</td><td>IQR, range</td></tr>
+          <tr><td><strong>Interval</strong></td><td>differences, but no true zero</td><td>temperature in °C, calendar date, pH (a logarithmic scale)</td><td>mean, median</td><td>SD, IQR</td></tr>
+          <tr><td><strong>Ratio</strong></td><td>differences and ratios; true zero</td><td>fresh and dry mass, leaf area, PPFD, EC, temperature in K, counts of leaves</td><td>mean, median, geometric mean</td><td>SD, CV, IQR</td></tr>
+        </tbody>
+      </table>
+      <p>Variables are also <strong>discrete</strong> (countable values: number of leaves, number of panellists who chose sample A) or <strong>continuous</strong> (any value within a range, limited only by the instrument: mass, length, time). Many instruments turn continuous quantities into discrete readings — a balance with 0.1 g resolution — which matters when you decide how many digits to report (Section 3.2.8).</p>
+      <div class="callout note"><div class="callout-title">A practical note on Likert and hedonic scales</div><p>The 9-point hedonic scale used in sensory studies ("dislike extremely" … "like extremely") is strictly ordinal: nobody guarantees that the step from 5 to 6 is as large as the step from 8 to 9. In practice, sensory scientists usually analyse hedonic means with ANOVA, because the results are robust and interpretable — but you should know that this is an approximation and check it against rank-based methods when distributions are very skewed (<a href="/lessons/sensory-statistics/">Lesson 13.4</a>).</p></div>
+      <h3>Tidy data</h3>
+      <p>Before you compute anything, arrange the data so that the computer can understand them. In a <strong>tidy</strong> data set, each variable is a column, each observation is a row, and each type of observational unit forms its own table (Wickham, 2014). The data sheet of <a href="/lessons/experimental-design/">Lesson 3.1</a> is tidy: one row per measurement of one plant on one date, with columns for identifiers (jar, block, treatment), the variable name, the value and the unit. Tidy data can be filtered, grouped and summarised with a few lines of code or a pivot table; data with merged header cells, colour-coded treatments and units written inside the numbers ("148 g") cannot.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 680 210" role="img" aria-label="Messy versus tidy data layout">
+            <text x="10" y="20" font-weight="600">Messy (one column per treatment × date)</text>
+            <g class="t-small">
+              <rect x="10" y="32" width="300" height="130" rx="6" class="fill-sunk" stroke="currentColor" stroke-width=".8"/>
+              <text x="20" y="52" font-weight="600">Jar</text><text x="70" y="52" font-weight="600">W d7</text><text x="130" y="52" font-weight="600">W d35 (g)</text><text x="215" y="52" font-weight="600">FR d35</text>
+              <text x="20" y="76">1</text><text x="70" y="76">35 cm2</text><text x="130" y="76">148.3</text><text x="215" y="76" style="fill:var(--danger)">164,5 ⚠</text>
+              <text x="20" y="100">2</text><text x="70" y="100">—</text><text x="130" y="100">142 g</text><text x="215" y="100">dead?</text>
+              <text x="20" y="124">…</text><text x="70" y="124" style="fill:var(--danger)">merged cells,</text><text x="70" y="140" style="fill:var(--danger)">units in values, notes in numbers</text>
+            </g>
+            <line x1="325" y1="97" x2="355" y2="97" class="stroke" stroke-width="1.6"/><path d="M355 91 L365 97 L355 103 z" fill="currentColor"/>
+            <text x="375" y="20" font-weight="600">Tidy (one row per observation)</text>
+            <g class="t-small t-mono" style="white-space:pre">
+              <rect x="375" y="32" width="295" height="130" rx="6" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/>
+              <text x="385" y="52" font-weight="600">jar  trt  DAT  variable    value unit</text>
+              <text x="385" y="74">1    W    7    leaf_area   35    cm2</text>
+              <text x="385" y="94">1    W    35   fresh_mass  148.3 g</text>
+              <text x="385" y="114">2    W    35   fresh_mass  142.0 g</text>
+              <text x="385" y="134">7    FR   35   fresh_mass  164.5 g</text>
+              <text x="385" y="154">8    FR   35   fresh_mass  NA    g</text>
+            </g>
+            <text x="375" y="190" class="t-small t-muted">missing value coded NA; reason in a note column</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The same measurements in a messy and a tidy layout. The tidy version can be read by any statistics tool, including the project's <a href="/project/grow-log/">grow-log</a> and the <a href="/laboratories/statistics-workbench/">statistics workbench</a> (paste CSV). Note the decimal comma in "164,5": Swedish spreadsheets use it by default — decide on one convention and document it.</figcaption>
+      </figure>
+
+      <h2 id="location">Measures of location: where are the data centred?</h2>
+      <p>Let us work with a real-looking example throughout this lesson. Ten lettuce plants from one deep-water-culture tank were harvested 35 days after transplanting. Their shoot fresh masses (g) were:</p>
+      <p style="text-align:center;font-family:var(--font-mono)">142.3 · 156.8 · 138.4 · 149.9 · 161.2 · 145.7 · 152.3 · 97.6 · 147.1 · 158.4</p>
+      <p>One plant, 97.6 g, had brown, slimy roots at harvest — a sign of <em>Pythium</em> root rot (<a href="/lessons/root-zone/">Lesson 5.3</a>). Keep an eye on it: it will teach us the difference between robust and non-robust statistics.</p>
+      <div class="eq-box" id="eq-mean">
+        <div class="eq-head"><span class="eq-label">Arithmetic mean</span><span class="eq-num">(3.2.1)</span></div>
+        <div class="eq-main">\[ \bar x = \frac{1}{n}\sum_{i=1}^{n} x_i \qquad\text{with the property}\qquad \sum_{i=1}^{n}\left(x_i-\bar x\right) = 0 \]</div>
+        <p class="eq-read">the sample mean is the sum of all observations divided by the number of observations; the deviations of the observations from their mean always add up to zero — the mean is the "balance point" of the data.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\bar x\)</td><td>sample mean ("x-bar"), an estimate of the population mean \(\mu\)</td><td>same as \(x\), e.g., g</td></tr>
+          <tr><td>\(x_i\)</td><td>the \(i\)-th observation</td><td>g</td></tr>
+          <tr><td>\(n\)</td><td>number of observations</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation: why the mean is the least-squares centre</summary>
+          <ol class="steps">
+            <li>Ask: which single number \(c\) is "closest" to all observations, if closeness is measured by the sum of squared deviations \(S(c) = \sum (x_i-c)^2\)?</li>
+            <li>Differentiate with respect to \(c\): \(S'(c) = -2\sum(x_i - c)\). Setting \(S'(c)=0\) gives \(\sum x_i = nc\), i.e., \(c = \bar x\). The second derivative \(2n > 0\) confirms a minimum.</li>
+            <li>The zero-sum property follows directly: \(\sum(x_i-\bar x) = \sum x_i - n\bar x = 0\).</li>
+            <li>The <em>median</em> minimises instead the sum of <em>absolute</em> deviations \(\sum|x_i-c|\). Squares punish large deviations heavily, which is why a single extreme value pulls the mean much more than the median.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Meaningful for interval and ratio data. For strongly right-skewed ratio data (e.g., bacterial counts, or plant masses spanning several orders of magnitude), the geometric mean \(\left(\prod x_i\right)^{1/n}\) — the mean on a log scale — is often a better summary.</p></details>
+        <div class="eq-units">\(\dfrac{1}{-}\times\text{g} = \text{g}\) ✓</div>
+      </div>
+      <p>Other measures of location answer slightly different questions:</p>
+      <ul>
+        <li>The <strong>median</strong> is the middle value of the sorted data (the average of the two middle values when \(n\) is even). Half of the observations lie below it, half above.</li>
+        <li>The <strong>mode</strong> is the most frequent value or category. It is the only measure of location for nominal data ("the most common system type in the class was Kratky").</li>
+        <li>The <strong>trimmed mean</strong> discards a fixed fraction of the smallest and largest observations (often 10 % at each end) and averages the rest — a compromise between the efficiency of the mean and the robustness of the median.</li>
+      </ul>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">Mean, median and trimmed mean of the tank data</span></div>
+        <div class="we-problem"><p>For the ten fresh masses above, calculate the mean, the median and the 10 % trimmed mean. Then recalculate the mean and median without the diseased plant. Which summary is least affected?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Sum and mean.</strong> \(\sum x_i = 1449.7\) g, so \(\bar x = 1449.7/10 = 144.97\) g.</li>
+              <li><strong>Sort.</strong> 97.6, 138.4, 142.3, 145.7, 147.1, 149.9, 152.3, 156.8, 158.4, 161.2.</li>
+              <li><strong>Median.</strong> With \(n = 10\), average the 5th and 6th values: \((147.1+149.9)/2 = 148.5\) g.</li>
+              <li><strong>10 % trimmed mean.</strong> 10 % of 10 is one observation at each end: drop 97.6 and 161.2 and average the remaining eight: \(1190.9/8 = 148.86\) g.</li>
+              <li><strong>Without the diseased plant</strong> (\(n = 9\)): mean \(= 1352.1/9 = 150.23\) g (up 5.3 g); median = 149.9 g (the 5th of 9 values; up only 1.4 g).</li>
+              <li><strong>Interpretation.</strong> One plant moved the mean by 5 g but the median by little more than 1 g. The mean is below 7 of the 10 plants — a sign of a skewed sample. Report the median (or both) and explain the diseased plant.</li>
+            </ol>
+            <span class="answer">Mean 145.0 g; median 148.5 g; 10 % trimmed mean 148.9 g</span>
+          </div>
+        </details>
+      </div>
+      <figure class="figure wide" id="l32-drag">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — drag the plants and watch the statistics</div>
+          <div id="dr-plot" style="height:300px"></div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px">
+            <button class="btn btn-sm" type="button" id="dr-reset">Reset tank data</button>
+            <button class="btn btn-sm" type="button" id="dr-add">Add a random plant</button>
+            <button class="btn btn-sm" type="button" id="dr-out">Add an extreme plant (60 g)</button>
+            <button class="btn btn-sm btn-ghost" type="button" id="dr-del">Remove last plant</button>
+          </div>
+          <div class="readouts" id="dr-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 2.</b> Each dot is one plant (drag it sideways). The box plot shows the median (line), the quartiles (box), the 1.5 × IQR whiskers and flagged outliers (red); below it, the mean ± SD (thick bar) and mean ± SE (thin bar, with caps). Drag one plant far to the left: the mean, SD and CV jump, while the median, IQR and MAD hardly move. Now add plants: the SD settles down, but the SE keeps shrinking.</figcaption>
+      </figure>
+
+      <h2 id="spread">Measures of spread: how much do the data vary?</h2>
+      <p>Two treatments can have identical means and completely different behaviour. For a grower, a uniform crop of 150 g heads is worth more than a mixture of 100 g and 200 g heads with the same average, because every head must meet a minimum market weight. Variability is therefore not a nuisance to hide; it is a result to report.</p>
+      <p>The simplest measure, the <strong>range</strong> (maximum − minimum), depends entirely on the two most extreme observations and grows with sample size. The <strong>interquartile range</strong> (IQR = Q3 − Q1, Section 3.2.5) describes the spread of the middle half of the data and is robust. The workhorse, however, is the variance and its square root, the standard deviation.</p>
+      <div class="eq-box" id="eq-variance">
+        <div class="eq-head"><span class="eq-label">Sample variance and standard deviation (with Bessel's correction)</span><span class="eq-num">(3.2.2)</span></div>
+        <div class="eq-main">\[ s^2 = \frac{1}{n-1}\sum_{i=1}^{n}\left(x_i-\bar x\right)^2, \qquad s = \sqrt{s^2} \]</div>
+        <p class="eq-read">the sample variance is the sum of the squared deviations from the sample mean divided by the number of observations minus one; the standard deviation is its square root and has the same unit as the data.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(s^2\)</td><td>sample variance, an unbiased estimate of the population variance \(\sigma^2\)</td><td>g²</td></tr>
+          <tr><td>\(s\)</td><td>sample standard deviation (SD)</td><td>g</td></tr>
+          <tr><td>\(n-1\)</td><td>degrees of freedom of the deviations</td><td>–</td></tr>
+        </table>
+        <details open><summary>Follow the derivation: why divide by n − 1 and not n?</summary>
+          <ol class="steps">
+            <li>Let the observations be independent draws from a population with mean \(\mu\) and variance \(\sigma^2\), so \(E[(x_i-\mu)^2] = \sigma^2\).</li>
+            <li>We would like to average \((x_i-\mu)^2\), but \(\mu\) is unknown, so we use \(\bar x\) instead. Add and subtract \(\mu\): \(x_i - \bar x = (x_i-\mu) - (\bar x-\mu)\).</li>
+            <li>Square and sum: \(\sum(x_i-\bar x)^2 = \sum(x_i-\mu)^2 - 2(\bar x-\mu)\sum(x_i-\mu) + n(\bar x-\mu)^2\).</li>
+            <li>Since \(\sum(x_i-\mu) = n(\bar x-\mu)\), the middle term is \(-2n(\bar x-\mu)^2\), and the sum simplifies to \(\sum(x_i-\bar x)^2 = \sum(x_i-\mu)^2 - n(\bar x-\mu)^2\).</li>
+            <li>Take expectations. \(E\left[\sum(x_i-\mu)^2\right] = n\sigma^2\). The variance of the mean of \(n\) independent observations is \(\sigma^2/n\) (Eq. 3.2.4), so \(E\left[n(\bar x-\mu)^2\right] = n\cdot\sigma^2/n = \sigma^2\).</li>
+            <li>Therefore \(E\left[\sum(x_i-\bar x)^2\right] = n\sigma^2 - \sigma^2 = (n-1)\sigma^2\). Dividing by \(n-1\) gives an estimator whose expected value is exactly \(\sigma^2\) (unbiased); dividing by \(n\) underestimates \(\sigma^2\) by the factor \((n-1)/n\).</li>
+            <li>Intuition: the sample mean is, by construction, the point closest to the data (Eq. 3.2.1), so deviations from \(\bar x\) are systematically a little smaller than deviations from the true \(\mu\). Equivalently, the \(n\) deviations must sum to zero, so only \(n-1\) of them are free: they carry \(n-1\) <em>degrees of freedom</em>.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Unbiasedness requires independent observations with a common variance; no normality is needed. Note that \(s\) itself is still slightly biased low (the square root of an unbiased estimator is not unbiased), but the correction is small and conventionally ignored. When the data <em>are</em> the whole population (e.g., all 18 compartments in your room, described rather than generalised), divide by \(n\).</p></details>
+        <div class="eq-units">\(\dfrac{\text{g}^2}{-} = \text{g}^2\) for \(s^2\); \(\sqrt{\text{g}^2} = \text{g}\) for \(s\) ✓</div>
+        <div class="mini-calc" data-formula="(n-1)/n" data-output="E[divide-by-n variance] / σ²" data-unit="" data-digits="3" data-plot="n" data-ymin="0" data-ymax="1" data-title="Try it — how biased is dividing by n?">
+          <div data-var="n" data-label="Sample size n" data-min="2" data-max="30" data-step="1" data-value="6"></div>
+        </div>
+      </div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Variance and SD by hand</span></div>
+        <div class="we-problem"><p>The shoot dry masses of six lettuces from one treatment were 7.2, 8.1, 6.9, 7.8, 8.4 and 7.2 g. Calculate the mean, the sample variance, the SD and the coefficient of variation. What would the "variance" be if you divided by \(n\)?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <table>
+              <caption>Deviation table</caption>
+              <thead><tr><th>\(x_i\) (g)</th><th>\(x_i-\bar x\) (g)</th><th>\((x_i-\bar x)^2\) (g²)</th></tr></thead>
+              <tbody>
+                <tr><td class="num">7.2</td><td class="num">−0.4</td><td class="num">0.16</td></tr>
+                <tr><td class="num">8.1</td><td class="num">+0.5</td><td class="num">0.25</td></tr>
+                <tr><td class="num">6.9</td><td class="num">−0.7</td><td class="num">0.49</td></tr>
+                <tr><td class="num">7.8</td><td class="num">+0.2</td><td class="num">0.04</td></tr>
+                <tr><td class="num">8.4</td><td class="num">+0.8</td><td class="num">0.64</td></tr>
+                <tr><td class="num">7.2</td><td class="num">−0.4</td><td class="num">0.16</td></tr>
+                <tr><td><strong>Σ = 45.6</strong></td><td class="num"><strong>0.0</strong> ✓</td><td class="num"><strong>1.74</strong></td></tr>
+              </tbody>
+            </table>
+            <ol class="steps">
+              <li><strong>Mean.</strong> \(\bar x = 45.6/6 = 7.60\) g. The deviations sum to zero, as Eq. 3.2.1 requires — a useful arithmetic check.</li>
+              <li><strong>Variance.</strong> \(s^2 = 1.74/(6-1) = 0.348\) g².</li>
+              <li><strong>SD.</strong> \(s = \sqrt{0.348} = 0.590\) g.</li>
+              <li><strong>CV</strong> (Eq. 3.2.3). \(0.590/7.60 = 0.0776\), i.e., 7.8 %.</li>
+              <li><strong>Divide by n.</strong> \(1.74/6 = 0.290\) g² — 17 % smaller, exactly the factor \((n-1)/n = 5/6\).</li>
+            </ol>
+            <span class="answer">x̄ = 7.60 g; s² = 0.348 g²; s = 0.59 g; CV = 7.8 %</span>
+          </div>
+        </details>
+      </div>
+      <figure class="figure" id="l32-bessel">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — Bessel's correction by simulation</div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:end">
+            <div class="mc-var"><div class="mc-lab"><span>Sample size n</span><output id="bs-n-o"></output></div><input id="bs-n" type="range" min="2" max="20" step="1" value="4" aria-label="Sample size"></div>
+            <button class="btn btn-sm btn-primary" type="button" id="bs-run">Draw 4 000 new samples</button>
+          </div>
+          <div id="bs-plot" style="height:260px;margin-top:8px"></div>
+          <div class="readouts" id="bs-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> Thousands of samples of size \(n\) are drawn from a population of lettuce masses with \(\mu = 150\) g and \(\sigma = 10\) g (\(\sigma^2 = 100\) g²). For each sample, the variance is computed twice: dividing by \(n-1\) (green) and by \(n\) (magenta). The dashed lines are the averages over all samples. Only the \(n-1\) version is centred on the true 100 g² — most visibly for small \(n\), which is exactly the situation of a student experiment.</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-cv">
+        <div class="eq-head"><span class="eq-label">Coefficient of variation</span><span class="eq-num">(3.2.3)</span></div>
+        <div class="eq-main">\[ \text{CV} = \frac{s}{\bar x}\times100\,\% \]</div>
+        <p class="eq-read">the coefficient of variation is the standard deviation expressed as a percentage of the mean — a unit-free measure of relative variability.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>CV</td><td>coefficient of variation (relative standard deviation)</td><td>%</td></tr>
+          <tr><td>\(s\), \(\bar x\)</td><td>sample SD and mean, in the same unit</td><td>g</td></tr>
+        </table>
+        <details><summary>When is the CV useful — and when is it meaningless?</summary>
+          <p>The CV lets you compare variability across variables with different units or magnitudes (fresh mass in g versus leaf area in cm²), across crops of different size, or against published experiments (it is also the quantity needed for power calculations, <a href="/lessons/experimental-design/">Lesson 3.1</a>). It is only meaningful for <strong>ratio</strong> data: a temperature of 20 ± 2 °C has a "CV" of 10 %, but the same temperatures in kelvin (293 ± 2 K) give 0.7 % — the value depends on the arbitrary zero. Never compute a CV for °C, pH or hedonic scores.</p>
+        </details>
+        <div class="eq-units">\(\text{g}/\text{g}\) — dimensionless (quoted in %) ✓</div>
+        <div class="mini-calc" data-formula="100*s/m" data-output="CV" data-unit="%" data-digits="1" data-plot="s" data-title="Try it">
+          <div data-var="s" data-label="Standard deviation s" data-min="1" data-max="40" data-step="0.5" data-value="18" data-unit="g"></div>
+          <div data-var="m" data-label="Mean x̄" data-min="20" data-max="300" data-step="1" data-value="145" data-unit="g"></div>
+        </div>
+      </div>
+      <p>A robust alternative to the SD is the <strong>median absolute deviation</strong>, \(\text{MAD} = \operatorname{median}\left(|x_i - \operatorname{median}(x)|\right)\). For the tank data, MAD = 7.25 g, while the SD is 18.1 g; without the diseased plant, the SD drops to 7.6 g. For normally distributed data, \(1.4826\times\text{MAD}\) estimates \(\sigma\), which makes the MAD a handy check: if \(s\) is much larger than \(1.48\,\text{MAD}\), one or a few extreme values dominate.</p>
+
+      <h2 id="sd-vs-se">Standard deviation versus standard error</h2>
+      <p>This is the most important distinction in the lesson, and the most frequently botched one in published figures (Altman &amp; Bland, 2005; Cumming et al., 2007). The two quantities answer different questions:</p>
+      <ul>
+        <li>The <strong>standard deviation</strong> (SD) describes the <em>data</em>: how much individual plants differ from one another. It is a property of the population you sampled and does not shrink as you measure more plants — it just gets estimated more reliably.</li>
+        <li>The <strong>standard error of the mean</strong> (SE or SEM) describes the <em>estimate</em>: how much the sample mean would vary if you repeated the whole experiment. It shrinks as \(1/\sqrt n\).</li>
+      </ul>
+      <div class="eq-box" id="eq-se">
+        <div class="eq-head"><span class="eq-label">Standard error of the mean</span><span class="eq-num">(3.2.4)</span></div>
+        <div class="eq-main">\[ \operatorname{Var}(\bar x) = \frac{\sigma^2}{n} \quad\Longrightarrow\quad \text{SE} = \frac{s}{\sqrt{n}}, \qquad s = \text{SE}\,\sqrt{n} \]</div>
+        <p class="eq-read">the variance of a sample mean is the population variance divided by the sample size; so the standard error of the mean is estimated by the sample standard deviation divided by the square root of the sample size, and conversely an SD can be recovered from a reported SE by multiplying by the square root of n.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>SE</td><td>standard error of the mean: the SD of the sampling distribution of \(\bar x\)</td><td>g</td></tr>
+          <tr><td>\(s\)</td><td>sample SD of the observations</td><td>g</td></tr>
+          <tr><td>\(n\)</td><td>number of <em>independent</em> observations (experimental units!)</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>\(\bar x = \frac1n\sum x_i\). For a constant \(a\), \(\operatorname{Var}(aX) = a^2\operatorname{Var}(X)\), so \(\operatorname{Var}(\bar x) = \frac{1}{n^2}\operatorname{Var}\left(\sum x_i\right)\).</li>
+            <li>For <em>independent</em> observations, variances add: \(\operatorname{Var}\left(\sum x_i\right) = \sum\operatorname{Var}(x_i) = n\sigma^2\).</li>
+            <li>Hence \(\operatorname{Var}(\bar x) = n\sigma^2/n^2 = \sigma^2/n\), and its square root is \(\sigma/\sqrt n\). Replacing the unknown \(\sigma\) by \(s\) gives the SE.</li>
+            <li>The independence assumption in step 2 is exactly what pseudo-replication violates: if plants share a tank, their deviations are correlated and \(\operatorname{Var}\left(\sum x_i\right) > n\sigma^2\) (<a href="/lessons/experimental-design/">Lesson 3.1</a>, Eq. 3.1.3).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Independent observations, finite variance. No normality assumption is needed for the formula itself; normality (or a large \(n\), by the central limit theorem) is needed to turn the SE into a confidence interval (<a href="/lessons/inferential-statistics/">Lesson 3.3</a>).</p></details>
+        <div class="eq-units">\(\text{g}/\sqrt{-} = \text{g}\) ✓</div>
+        <div class="mini-calc" data-formula="s/sqrt(n)" data-output="Standard error SE" data-unit="g" data-digits="2" data-plot="n" data-ymin="0" data-title="Try it — the SD stays, the SE shrinks">
+          <div data-var="s" data-label="Standard deviation s" data-min="1" data-max="30" data-step="0.5" data-value="12" data-unit="g"></div>
+          <div data-var="n" data-label="Sample size n" data-min="2" data-max="100" data-step="1" data-value="6"></div>
+        </div>
+      </div>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"Error bars show the variation of our plants, and SE bars are smaller, so they look better." SE bars do not show the variation of the plants — they show the uncertainty of the mean. Choosing SE because it looks tidier misleads readers into thinking the plants were more uniform than they were. Weissgerber et al. (2015) found that in physiology papers most bar graphs showed mean ± SE, often without saying so. <strong>Rule:</strong> to describe variability, show the SD (or better, all data points); to show how precisely a mean is known, show a 95 % confidence interval. And always write in the caption which one you used, and \(n\).</p></div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">Unmasking a standard error in a paper</span></div>
+        <div class="we-problem"><p>A paper reports that lettuce under a new LED fixture yielded "182 ± 6.4 g (mean ± SE, n = 8)". You want to use this in your power calculation. What is the SD, the CV, and the 95 % confidence interval of the mean?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>SD from SE</strong> (Eq. 3.2.4): \(s = 6.4\times\sqrt8 = 6.4\times2.828 = 18.1\) g.</li>
+              <li><strong>CV</strong>: \(18.1/182 = 0.099\), i.e., about 10 %. This, not \(6.4/182 = 3.5\) %, is the CV to use in Eq. 3.1.7.</li>
+              <li><strong>95 % CI</strong>: with \(n-1 = 7\) degrees of freedom the t quantile is 2.365 (Lesson 3.3), so the half-width is \(2.365\times6.4 = 15.1\) g and the interval is 167–197 g.</li>
+              <li><strong>Sanity check.</strong> Individual plants would typically lie within about ±2 SD, i.e., roughly 146–218 g — a much wider band than "182 ± 6.4" suggests at first glance.</li>
+            </ol>
+            <span class="answer">SD ≈ 18 g; CV ≈ 10 %; 95 % CI ≈ 167–197 g</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="distributions">Seeing the whole distribution: quantiles, box plots, histograms and densities</h2>
+      <p>Two numbers (a mean and an SD) cannot describe the shape of a distribution: is it symmetric or skewed, does it have one peak or two, are there stragglers? Quantiles and graphical summaries answer these questions.</p>
+      <div class="eq-box" id="eq-quantile">
+        <div class="eq-head"><span class="eq-label">Sample quantile (Hyndman–Fan type 7) and Tukey's fences</span><span class="eq-num">(3.2.5)</span></div>
+        <div class="eq-main">\[ Q(p) = x_{(k)} + (h-k)\left(x_{(k+1)}-x_{(k)}\right),\quad h = (n-1)p + 1,\ k = \lfloor h\rfloor; \qquad \text{fences} = \left[Q_1 - 1.5\,\text{IQR},\ Q_3 + 1.5\,\text{IQR}\right] \]</div>
+        <p class="eq-read">to find the p-quantile, sort the data, compute the fractional position h, take the order statistic at the integer part of h and interpolate linearly towards the next one; observations outside the fences, one and a half interquartile ranges beyond the quartiles, are flagged as potential outliers.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_{(k)}\)</td><td>\(k\)-th smallest observation (order statistic)</td><td>g</td></tr>
+          <tr><td>\(p\)</td><td>probability level: 0.25 for Q1, 0.5 for the median, 0.75 for Q3</td><td>–</td></tr>
+          <tr><td>\(h\), \(k\)</td><td>fractional position and its integer part</td><td>–</td></tr>
+          <tr><td>IQR</td><td>interquartile range \(Q_3 - Q_1\)</td><td>g</td></tr>
+        </table>
+        <details><summary>Why are there several definitions of a quantile?</summary>
+          <p>With a finite sample, "the value below which 25 % of the data lie" is ambiguous: between two sorted observations, where exactly? Hyndman and Fan (1996) catalogued nine definitions used by statistical packages. Type 7, used here, is the default in R, in Excel's <code>PERCENTILE.INC</code> and <code>QUARTILE.INC</code>, and in this course's <code>stats.js</code>. Other packages can give slightly different quartiles for small samples; state your software when it matters.</p>
+        </details>
+        <details><summary>Where does 1.5 × IQR come from?</summary>
+          <p>John Tukey proposed the rule in his book <em>Exploratory Data Analysis</em> (1977) as a practical screening device. For normally distributed data, the fences lie at about ±2.7σ from the mean, so only about 0.7 % of observations from a normal population fall outside them. It is a flag for "look at this plant", not a rule for deletion.</p>
+        </details>
+        <div class="eq-units">Quantiles and fences have the unit of the data (g) ✓</div>
+      </div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">Quartiles, box plot and outlier screen for the tank data</span></div>
+        <div class="we-problem"><p>Using the sorted tank data (97.6, 138.4, 142.3, 145.7, 147.1, 149.9, 152.3, 156.8, 158.4, 161.2 g), find Q1, Q3, the IQR and Tukey's fences. Is any plant flagged?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Q1</strong> (\(p = 0.25\)): \(h = 9\times0.25+1 = 3.25\), \(k = 3\). \(Q_1 = x_{(3)} + 0.25(x_{(4)}-x_{(3)}) = 142.3 + 0.25\times3.4 = 143.15\) g.</li>
+              <li><strong>Q3</strong> (\(p = 0.75\)): \(h = 7.75\), \(k = 7\). \(Q_3 = 152.3 + 0.75\times(156.8-152.3) = 155.675\) g.</li>
+              <li><strong>IQR</strong> \(= 155.675 - 143.15 = 12.525\) g; \(1.5\times\text{IQR} = 18.79\) g.</li>
+              <li><strong>Fences.</strong> Lower: \(143.15-18.79 = 124.36\) g. Upper: \(155.675+18.79 = 174.46\) g.</li>
+              <li><strong>Screen.</strong> 97.6 g lies below the lower fence and is flagged. All other plants are inside the fences.</li>
+              <li><strong>Box plot.</strong> The box spans 143.2–155.7 g with the median at 148.5 g; the lower whisker ends at the smallest value inside the fence (138.4 g), the upper at 161.2 g; 97.6 g is drawn as a separate point.</li>
+            </ol>
+            <span class="answer">Q1 = 143.2 g, Q3 = 155.7 g, IQR = 12.5 g; fences 124.4–174.5 g; the 97.6 g plant is flagged</span>
+          </div>
+        </details>
+      </div>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 680 190" role="img" aria-label="Anatomy of a box plot">
+            <line x1="40" y1="150" x2="650" y2="150" class="stroke-muted" stroke-width="1"/>
+            <g class="t-small t-muted" text-anchor="middle"><text x="70" y="168">95</text><text x="190" y="168">115</text><text x="310" y="168">135</text><text x="430" y="168">155</text><text x="550" y="168">175</text></g>
+            <text x="340" y="186" text-anchor="middle" class="t-small">shoot fresh mass (g)</text>
+            <!-- scale: x = 70 + (v-95)*6 -->
+            <line x1="330.4" y1="80" x2="467.2" y2="80" class="stroke" stroke-width="1.5"/>
+            <rect x="358.9" y="60" width="75.2" height="40" class="fill-accent-soft" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="391" y1="60" x2="391" y2="100" class="stroke-accent" stroke-width="3"/>
+            <line x1="330.4" y1="68" x2="330.4" y2="92" class="stroke" stroke-width="1.5"/><line x1="467.2" y1="68" x2="467.2" y2="92" class="stroke" stroke-width="1.5"/>
+            <circle cx="85.6" cy="80" r="5" style="fill:var(--danger)"/>
+            <line x1="246.2" y1="112" x2="246.2" y2="146" class="stroke-danger" stroke-dasharray="3 3"/><text x="246.2" y="140" text-anchor="middle" class="t-small" style="fill:var(--danger)">lower fence 124.4</text>
+            <g class="t-small">
+              <text x="85.6" y="60" text-anchor="middle">outlier</text><text x="85.6" y="46" text-anchor="middle">97.6</text>
+              <text x="330" y="44" text-anchor="middle">whisker end</text><text x="330" y="30" text-anchor="middle">138.4</text>
+              <text x="358.9" y="116" text-anchor="middle">Q1 143.2</text>
+              <text x="391" y="44" text-anchor="middle" font-weight="600">median 148.5</text>
+              <text x="434.1" y="116" text-anchor="middle">Q3 155.7</text>
+              <text x="469" y="44" text-anchor="middle">whisker end</text><text x="469" y="30" text-anchor="middle">161.2</text>
+              <text x="560" y="72">box = middle 50 %</text><text x="560" y="88">(IQR = 12.5 g)</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 4.</b> Anatomy of a Tukey box plot for the tank data. Whiskers extend to the most extreme observations within the fences; points beyond are drawn individually. A box plot needs at least 5–10 observations to be informative; with fewer, show the points themselves (Krzywinski &amp; Altman, 2014).</figcaption>
+      </figure>
+      <p>A <strong>histogram</strong> divides the measurement axis into bins and counts the observations in each. Its appearance depends strongly on the bin width: too narrow and it is noisy, too wide and it hides structure such as two peaks. The Freedman–Diaconis rule, bin width \(= 2\,\text{IQR}\,n^{-1/3}\), is a good starting point (Freedman &amp; Diaconis, 1981). A <strong>kernel density estimate</strong> (KDE) replaces each observation by a small smooth bump and adds the bumps, giving a smooth curve instead of steps.</p>
+      <div class="eq-box" id="eq-kde">
+        <div class="eq-head"><span class="eq-label">Gaussian kernel density estimate with Silverman's bandwidth</span><span class="eq-num">(3.2.6)</span></div>
+        <div class="eq-main">\[ \hat f(x) = \frac{1}{n\,h}\sum_{i=1}^{n} K\!\left(\frac{x-x_i}{h}\right),\quad K(u) = \frac{e^{-u^2/2}}{\sqrt{2\pi}}; \qquad h = 0.9\,\min\!\left(s,\ \frac{\text{IQR}}{1.34}\right)n^{-1/5} \]</div>
+        <p class="eq-read">the estimated density at any value x is the average, over all observations, of a bell-shaped kernel centred on each observation and scaled by the bandwidth h; Silverman's rule of thumb chooses h from the smaller of the SD and the IQR divided by 1.34, shrinking slowly as the sample grows.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(\hat f(x)\)</td><td>estimated probability density at \(x\)</td><td>g⁻¹</td></tr>
+          <tr><td>\(K(u)\)</td><td>kernel: the standard normal density</td><td>–</td></tr>
+          <tr><td>\(h\)</td><td>bandwidth (the SD of each bump)</td><td>g</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Each term \(\frac1h K\left(\frac{x-x_i}{h}\right)\) is a normal density with mean \(x_i\) and SD \(h\); it integrates to 1.</li>
+            <li>Averaging \(n\) such densities (the factor \(1/n\)) gives a function that also integrates to 1 — a valid probability density.</li>
+            <li>The bandwidth plays the role of the bin width: small \(h\) gives a wiggly curve that follows every observation; large \(h\) oversmooths.</li>
+            <li>Silverman (1986) derived \(h\) by minimising the mean integrated squared error for a normal reference distribution; using \(\min(s, \text{IQR}/1.34)\) makes the rule less sensitive to outliers and bimodality (for a normal distribution IQR ≈ 1.34σ).</li>
+          </ol>
+        </details>
+        <div class="eq-units">\(\dfrac{1}{\text{g}}\times(-) = \text{g}^{-1}\): multiplied by a mass interval, it gives a probability ✓</div>
+      </div>
+      <figure class="figure wide" id="l32-kde">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — histogram versus kernel density</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 18px">
+            <div class="mc-var"><div class="mc-lab"><span>Histogram bin width</span><output id="kd-bw-o"></output></div><input id="kd-bw" type="range" min="1" max="30" step="0.5" value="8" aria-label="Bin width"></div>
+            <div class="mc-var"><div class="mc-lab"><span>KDE bandwidth h</span><output id="kd-h-o"></output></div><input id="kd-h" type="range" min="0.5" max="20" step="0.5" value="5" aria-label="Bandwidth"></div>
+            <div style="display:flex;gap:6px;align-items:end;flex-wrap:wrap"><button class="btn btn-sm" type="button" id="kd-auto">Use the rules of thumb</button><button class="btn btn-sm btn-ghost" type="button" id="kd-new">New sample</button></div>
+          </div>
+          <div id="kd-plot" style="height:290px;margin-top:8px"></div>
+          <div class="readouts" id="kd-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 5.</b> Fresh masses of 60 lettuces from two sowing batches (the second batch was transplanted a week later), shown as a density-scaled histogram (grey), a Gaussian KDE (green) and a rug of individual observations. With a wide bin or bandwidth the two batches merge into one misleading hump; with a very narrow one every plant becomes a spike. Mean ± SD alone (bar below the axis) would never reveal the two groups.</figcaption>
+      </figure>
+
+      <h2 id="normal">The normal distribution and z-scores</h2>
+      <p>Many biological measurements — the masses of plants grown under uniform conditions, measurement errors of a balance, the averages of many small independent influences — are approximately <strong>normally distributed</strong>: symmetric and bell-shaped. The normal distribution is completely described by two parameters, its mean \(\mu\) and SD \(\sigma\).</p>
+      <div class="eq-box" id="eq-normal">
+        <div class="eq-head"><span class="eq-label">Normal probability density and the z-score</span><span class="eq-num">(3.2.7)</span></div>
+        <div class="eq-main">\[ f(x) = \frac{1}{\sigma\sqrt{2\pi}}\exp\!\left[-\frac{(x-\mu)^2}{2\sigma^2}\right], \qquad z = \frac{x-\mu}{\sigma} \]</div>
+        <p class="eq-read">the density of a normal distribution falls off symmetrically and exponentially with the squared distance from the mean, measured in units of the standard deviation; the z-score expresses any observation as the number of standard deviations it lies above (positive) or below (negative) the mean.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(f(x)\)</td><td>probability density</td><td>g⁻¹</td></tr>
+          <tr><td>\(\mu\), \(\sigma\)</td><td>population mean and SD</td><td>g</td></tr>
+          <tr><td>\(z\)</td><td>standardised score; \(z\sim N(0,1)\) if \(x\sim N(\mu,\sigma^2)\)</td><td>–</td></tr>
+        </table>
+        <details><summary>Properties worth memorising</summary>
+          <ol class="steps">
+            <li>About 68 % of values lie within \(\mu\pm1\sigma\), 95 % within \(\mu\pm1.96\sigma\) (≈ 2σ), and 99.7 % within \(\mu\pm3\sigma\) — the "68–95–99.7 rule".</li>
+            <li>The cumulative probability \(\Phi(z) = P(Z\le z)\) has no closed form; it is tabulated or computed numerically (as in the calculator below and in <code>stats.js</code>).</li>
+            <li>Sums and means of independent normal variables are normal; by the central limit theorem, means of <em>any</em> reasonable distribution become approximately normal as \(n\) grows (<a href="/lessons/inferential-statistics/">Lesson 3.3</a>).</li>
+            <li>The factor \(1/(\sigma\sqrt{2\pi})\) makes the total area equal to 1, using \(\int_{-\infty}^{\infty} e^{-u^2/2}\,du = \sqrt{2\pi}\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Real data are never exactly normal: fresh masses cannot be negative, and skewness appears when a few plants are stunted. Check the shape with a histogram or QQ plot (Lesson 3.3) before using normal probabilities for individual observations.</p></details>
+        <div class="eq-units">\(z = \text{g}/\text{g}\) is dimensionless; \(f\) has unit g⁻¹ because \(1/\sigma\) does ✓</div>
+        <div class="mini-calc" data-fn="l32Percentile" data-output="Percentile Φ(z) × 100" data-unit="%" data-digits="1" data-plot="x" data-ymin="0" data-ymax="100" data-title="Try it — z-score to percentile">
+          <div data-var="x" data-label="Observation x" data-min="100" data-max="200" data-step="0.5" data-value="165" data-unit="g"></div>
+          <div data-var="mu" data-label="Mean μ" data-min="120" data-max="180" data-step="1" data-value="148" data-unit="g"></div>
+          <div data-var="sigma" data-label="SD σ" data-min="2" data-max="30" data-step="0.5" data-value="12" data-unit="g"></div>
+        </div>
+      </div>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">How unusual is this plant?</span></div>
+        <div class="we-problem"><p>In a large, uniform batch of butterhead lettuce, fresh mass at harvest is approximately normal with \(\mu = 148\) g and \(\sigma = 12\) g. (a) What fraction of heads exceed 165 g? (b) A retailer requires at least 130 g per head. What fraction fails? (c) What is the z-score of the diseased 97.6 g plant, and what does it tell you?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>(a)</strong> \(z = (165-148)/12 = 1.42\). \(\Phi(1.42) = 0.922\), so \(1-0.922 = 0.078\): about 8 % of heads exceed 165 g.</li>
+              <li><strong>(b)</strong> \(z = (130-148)/12 = -1.50\). \(\Phi(-1.50) = 0.067\): about 7 % of heads are below the market weight.</li>
+              <li><strong>(c)</strong> \(z = (97.6-148)/12 = -4.2\). Under a normal model, a value this low occurs in fewer than 2 in 100 000 plants. The plant is not simply "at the low end" of the same distribution; it belongs to a different process (disease). This is useful evidence when you justify excluding it — together with the documented root symptoms.</li>
+              <li><strong>Sanity check.</strong> The 68–95–99.7 rule says ~2.5 % of values lie beyond +2σ = 172 g; 165 g is less extreme, so a result of 8 % above 165 g is plausible.</li>
+            </ol>
+            <span class="answer">(a) ≈ 8 %; (b) ≈ 7 %; (c) z ≈ −4.2: not an ordinary member of the distribution</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="outliers">Outliers: flag, investigate, decide — never delete blindly</h2>
+      <p>An <strong>outlier</strong> is an observation that lies far from the bulk of the data. The 1.5 × IQR rule and z-scores <em>flag</em> candidates; they do not tell you what to do. Outliers arise for three very different reasons, each calling for a different response:</p>
+      <ol>
+        <li><strong>Errors</strong> — a typing mistake (164.5 recorded as 16.45), a balance not tared, a sensor spike. If you can prove the error from the notebook or the raw file, correct it (never silently) or remove the value.</li>
+        <li><strong>A different process</strong> — a plant with root rot, a jar that leaked and dried out, a seedling transplanted a week late. The observation is real but does not answer your research question. Exclude it <em>only</em> if the exclusion criterion was defined in advance (your preregistration, <a href="/lessons/experimental-design/">Lesson 3.1</a>) or can be justified by an independent observation (root symptoms), and report every exclusion.</li>
+        <li><strong>Genuine extreme values</strong> — the natural tail of the distribution. Deleting them makes your data look cleaner than nature is, underestimates the SD and biases tests. Keep them; if they are influential, use robust statistics or show results with and without them (a <em>sensitivity analysis</em>).</li>
+      </ol>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 680 260" role="img" aria-label="Decision flow for handling a flagged outlier">
+            <defs><marker id="l32-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <rect x="250" y="10" width="180" height="40" rx="8" class="fill-amber-soft" stroke="currentColor"/><text x="340" y="35" text-anchor="middle" font-weight="600">Value flagged</text>
+            <rect x="230" y="78" width="220" height="40" rx="8" class="fill-bg" stroke="currentColor"/><text x="340" y="96" text-anchor="middle" class="t-small">Provable recording or</text><text x="340" y="110" text-anchor="middle" class="t-small">measurement error?</text>
+            <rect x="490" y="78" width="175" height="40" rx="8" class="fill-accent-soft" stroke="currentColor"/><text x="577" y="96" text-anchor="middle" class="t-small">correct / remove,</text><text x="577" y="110" text-anchor="middle" class="t-small">log it in the notebook</text>
+            <rect x="230" y="146" width="220" height="40" rx="8" class="fill-bg" stroke="currentColor"/><text x="340" y="164" text-anchor="middle" class="t-small">Pre-defined exclusion criterion or</text><text x="340" y="178" text-anchor="middle" class="t-small">independent evidence (disease, leak)?</text>
+            <rect x="490" y="146" width="175" height="40" rx="8" class="fill-accent-soft" stroke="currentColor"/><text x="577" y="164" text-anchor="middle" class="t-small">exclude, report n and</text><text x="577" y="178" text-anchor="middle" class="t-small">reason in Methods</text>
+            <rect x="200" y="212" width="280" height="40" rx="8" class="fill-magenta-soft" stroke="currentColor"/><text x="340" y="230" text-anchor="middle" class="t-small">Keep it. Use robust summaries and/or</text><text x="340" y="244" text-anchor="middle" class="t-small">report results with and without it</text>
+            <g class="stroke" stroke-width="1.5" fill="none" marker-end="url(#l32-a)">
+              <path d="M340 50 L340 76"/><path d="M450 98 L488 98"/><path d="M340 118 L340 144"/><path d="M450 166 L488 166"/><path d="M340 186 L340 210"/>
+            </g>
+            <g class="t-small"><text x="458" y="92">yes</text><text x="346" y="136">no</text><text x="458" y="160">yes</text><text x="346" y="203">no</text></g>
+            <text x="12" y="100" class="t-small t-muted">Never: delete because</text><text x="12" y="116" class="t-small t-muted">"it ruins the p-value"</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 6.</b> A decision flow for flagged observations. Deleting data points to obtain a significant result is a form of falsification — research misconduct (<a href="/lessons/scientific-reporting/">Lesson 3.4</a>).</figcaption>
+      </figure>
+      <div class="callout warn"><div class="callout-title">Sensor data are different</div><p>Automatic outlier removal is appropriate for high-frequency sensor streams — a temperature logger recording every minute occasionally produces a physically impossible spike. Rolling medians and plausibility limits are standard tools there (<a href="/lessons/measurement-uncertainty/">Lesson 9.3</a> and the <a href="/laboratories/sensor-anomaly/">anomaly-detection lab</a>). The rules for experimental response data are stricter, because each value is an independent experimental unit.</p></div>
+
+      <h2 id="rounding">Significant figures, rounding and reporting precision</h2>
+      <p>A calculator happily reports a mean of 144.97 g and an SD of 18.138482 g. Neither the balance (0.1 g) nor the biology justify eight digits. Excess digits imply precision that does not exist; too few digits throw information away. Four practical rules:</p>
+      <ol>
+        <li><strong>Round the uncertainty first</strong>: quote an SD, SE or confidence half-width to two significant figures (18 g, 5.7 g) — or three if the leading digit is 1 (18.1 g). The <em>Guide to the Expression of Uncertainty in Measurement</em> recommends at most two significant digits for uncertainties (JCGM, 2008).</li>
+        <li><strong>Round the estimate to the same decimal place</strong> as its uncertainty: 145.0 ± 18.1 g, not 144.97 ± 18.1 g, and not 145 ± 18.138 g.</li>
+        <li><strong>Keep full precision in calculations</strong>; round only when reporting. Rounding intermediate results (e.g., using a rounded mean to compute deviations) accumulates error.</li>
+        <li><strong>Report p-values</strong> to two or three decimals (p = .032), and as p &lt; .001 when smaller (<a href="/lessons/scientific-reporting/">Lesson 3.4</a>). Test statistics to two decimals (t = 2.31).</li>
+      </ol>
+      <p>Units follow the SI conventions (BIPM, 2019): a space between number and unit (148 g, not 148g), unit symbols in upright type, no plural "gs", and derived units written as µmol m⁻² s⁻¹ or µmol/(m² s) — never "µmol/m²/s", which is ambiguous.</p>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 6</span><span class="we-title">Rounding a results sentence</span></div>
+        <div class="we-problem"><p>A spreadsheet reports for the far-red treatment: mean 166.416667 g, SD 8.650876 g, n = 6, SE 3.531681 g. Write the result for the text of a report, with the SD, and separately with a 95 % CI (t quantile 2.571).</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>SD</strong> to two significant figures: 8.7 g. <strong>Mean</strong> to the same decimal place: 166.4 g.</li>
+              <li><strong>95 % CI half-width</strong>: \(2.571\times3.5317 = 9.08\) g → 9.1 g; interval \(166.4\pm9.1\) g, i.e., 157.3–175.5 g.</li>
+              <li><strong>Sentence</strong>: "Shoot fresh mass under white + far-red light was 166.4 ± 8.7 g (mean ± SD, n = 6 compartments; 95 % CI 157.3–175.5 g)."</li>
+              <li><strong>Check</strong>: every number carries its unit, the kind of uncertainty is named, and \(n\) refers to experimental units.</li>
+            </ol>
+            <span class="answer">166.4 ± 8.7 g (mean ± SD, n = 6); 95 % CI 157.3–175.5 g</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="honest-graphs">Honest graphs and what error bars mean</h2>
+      <p>Graphs are how most readers experience your results; many never read the numbers. Edward Tufte (2001) argued that good graphics show the data, maximise the share of ink devoted to data ("data-ink ratio"), avoid decoration that carries no information ("chartjunk"), and never distort. He quantified distortion with the lie factor.</p>
+      <div class="eq-box" id="eq-lie-factor">
+        <div class="eq-head"><span class="eq-label">Tufte's lie factor</span><span class="eq-num">(3.2.8)</span></div>
+        <div class="eq-main">\[ \text{LF} = \frac{\text{size of effect shown in the graphic}}{\text{size of effect in the data}}, \qquad \text{effect} = \frac{\text{second value}-\text{first value}}{\text{first value}} \]</div>
+        <p class="eq-read">the lie factor is the relative change a reader perceives from the graphic divided by the relative change actually present in the numbers; an honest graphic has a lie factor close to one.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>LF</td><td>lie factor; Tufte suggests values outside 0.95–1.05 indicate substantial distortion</td><td>–</td></tr>
+          <tr><td>effect</td><td>relative change, e.g., in bar height (graphic) or in the mean (data)</td><td>–</td></tr>
+        </table>
+        <details><summary>The classic trap: truncated bar charts</summary>
+          <p>A bar encodes a value by its <em>length</em>, so the bar must start at zero. Suppose W gives 150 g and W+FR 165 g — a 10 % increase. If the y-axis starts at 140 g, the bars are 10 and 25 units tall: a 150 % increase on the page, a lie factor of 15. Dot plots and line graphs encode values by <em>position</em> and may use a truncated axis — but then there must be no bars.</p>
+        </details>
+        <div class="eq-units">Ratio of two dimensionless relative changes — dimensionless ✓</div>
+        <div class="mini-calc" data-formula="((b-base)/(a-base)-1)/((b/a)-1)" data-output="Lie factor" data-unit="" data-digits="2" data-plot="base" data-ymin="0" data-title="Try it — truncating the axis of a bar chart">
+          <div data-var="a" data-label="Control mean" data-min="50" data-max="200" data-step="1" data-value="150" data-unit="g"></div>
+          <div data-var="b" data-label="Treatment mean" data-min="51" data-max="250" data-step="1" data-value="165" data-unit="g"></div>
+          <div data-var="base" data-label="Axis starts at" data-min="0" data-max="145" data-step="1" data-value="140" data-unit="g"></div>
+        </div>
+      </div>
+      <p>The dominant chart type in biology papers — the bar graph with an error bar ("dynamite plot") — is also one of the least informative for continuous data. Weissgerber et al. (2015) examined 703 papers in top physiology journals: 85.6 % presented continuous data in bar graphs, which hide the sample size, the distribution and any outliers, while the smallest group in a figure typically contained only about four observations. Their recommendation, now adopted by many journals, is simple: <strong>for small samples, show every data point</strong> (a dot or strip plot), with the mean or median and a correctly labelled interval.</p>
+      <figure class="figure wide" id="l32-err">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the same data, five ways</div>
+          <div class="seg" id="eb-mode" role="group" aria-label="Chart type" style="margin-bottom:10px">
+            <button type="button" data-v="se" aria-pressed="true">Bar ± SE</button>
+            <button type="button" data-v="sd">Bar ± SD</button>
+            <button type="button" data-v="ci">Mean ± 95 % CI</button>
+            <button type="button" data-v="dots">Points + mean ± 95 % CI</button>
+            <button type="button" data-v="box">Box plot + points</button>
+          </div>
+          <label style="display:flex;gap:8px;align-items:center;font-size:.9rem;margin-bottom:6px"><input type="checkbox" id="eb-trunc"> Start the y-axis at 100 g</label>
+          <div id="eb-plot" style="height:320px"></div>
+          <p id="eb-note" style="margin:8px 0 0;font-size:.92rem"></p>
+        </div>
+        <figcaption><b>Figure 7.</b> Shoot fresh mass (compartment means, n = 6 per spectrum) from the design in <a href="/lessons/experimental-design/">Lesson 3.1</a>: W = white, RB = red + blue, W+FR = white + far-red. Switch between representations. SE bars are the shortest and SD bars the longest, although the data never change. Tick the box to see how a truncated axis exaggerates the differences — acceptable for points, a distortion for bars.</figcaption>
+      </figure>
+      <p>What can a reader conclude from error bars? For two <em>independent</em> groups of similar size with \(n \ge 10\), Cumming and Finch (2005) give "rules of eye": if the 95 % confidence intervals overlap by about half of one arm, \(p \approx 0.05\); if they just touch, \(p \approx 0.01\). For SE bars, a <em>gap</em> of about one SE between the bars corresponds to \(p \approx 0.05\) and a gap of two SE to \(p \approx 0.01\) (Cumming et al., 2007) — so SE bars that merely do not overlap do <em>not</em> indicate a significant difference. With very small samples (\(n = 3\)) the intervals are so wide that even a full arm of overlap corresponds to \(p \approx 0.05\). For repeated measurements on the same units (paired data), no such visual rule works: the bars show between-unit variation, but the test uses within-unit differences.</p>
+      <div class="callout key"><div class="callout-title">Checklist for an honest figure</div><ul style="margin:0">
+        <li>Show the individual data points whenever \(n\) is small (below about 20 per group).</li>
+        <li>Say in the caption what the centre and the bars represent (mean ± SD, median and IQR, mean with 95 % CI) and give \(n\) as the number of experimental units.</li>
+        <li>Label each axis with the quantity and its unit: "Shoot fresh mass (g plant⁻¹)".</li>
+        <li>Start bar charts at zero; use the same axis range for panels that will be compared.</li>
+        <li>No 3D effects, shadows or gradient fills; minimise gridlines; use direct labels instead of legends where possible.</li>
+        <li>Use colour-blind-safe, perceptually uniform colours (avoid rainbow colour maps; Crameri et al., 2020), and never rely on red–green contrast alone.</li>
+      </ul></div>
+      <h3>Why summary statistics are never enough</h3>
+      <p>In 1973, Francis Anscombe constructed four small data sets with identical means (\(\bar x = 9\), \(\bar y = 7.50\)), variances, correlation (\(r = 0.816\)) and regression line (\(y = 3.00 + 0.500x\)) — and completely different shapes (Anscombe, 1973). Matejka and Fitzmaurice (2017) generalised the trick into the "Datasaurus dozen", which includes a dinosaur with the same summary statistics as a featureless cloud. Plot first; summarise second.</p>
+      <figure class="figure wide" id="l32-anscombe">
+        <div class="fig-body">
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px" class="l32-grid">
+            <div><div class="t-small" style="font-weight:600;margin-left:8px">I · linear with noise</div><div id="an-1" style="height:240px"></div></div>
+            <div><div class="t-small" style="font-weight:600;margin-left:8px">II · curved</div><div id="an-2" style="height:240px"></div></div>
+            <div><div class="t-small" style="font-weight:600;margin-left:8px">III · one outlier</div><div id="an-3" style="height:240px"></div></div>
+            <div><div class="t-small" style="font-weight:600;margin-left:8px">IV · one leverage point</div><div id="an-4" style="height:240px"></div></div>
+          </div>
+        </div>
+        <figcaption><b>Figure 8.</b> Anscombe's quartet (data from Anscombe, 1973). All four sets have the same means, variances, correlation and least-squares line (drawn). Only the plots reveal that set II is curved, set III has a single outlier that tilts the line, and in set IV one point alone determines the slope.</figcaption>
+      </figure>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="descriptive-statistics-main">
+        <script type="application/json">
+        {"title":"Describing and visualising data","questions":[
+          {"type":"numeric","q":"Four lettuce dry masses were 5.8, 6.4, 6.1 and 7.1 g. Calculate the sample standard deviation (divide by n − 1).","answer":0.5568,"tol":0.02,"unit":"g","hint":"Mean = 6.35 g. Square the deviations, sum them, divide by 3, take the square root.","explain":"<p>Deviations −0.55, 0.05, −0.25, 0.75; squares sum to 0.93 g²; \\(s^2 = 0.93/3 = 0.31\\) g²; \\(s = 0.557\\) g.</p>"},
+          {"type":"numeric","q":"The SD of fresh mass in a treatment is 12 g with n = 9 plants. What is the standard error of the mean?","answer":4,"tol":0.02,"unit":"g","explain":"<p>\\(\\text{SE} = 12/\\sqrt9 = 4\\) g.</p>"},
+          {"type":"numeric","q":"A paper reports 210 ± 3.1 g (mean ± SE, n = 16). What is the standard deviation?","answer":12.4,"tol":0.02,"unit":"g","hint":"Invert Eq. 3.2.4.","explain":"<p>\\(s = \\text{SE}\\sqrt n = 3.1\\times4 = 12.4\\) g — four times larger than the number printed in the paper.</p>"},
+          {"type":"mcq","q":"One plant in a sample of ten had root rot and weighs far less than the others. Which summary of location is least affected by it?","options":["The arithmetic mean","The median","The mean ± SD","The range"],"answer":1,"feedback":["The mean uses every value and is pulled towards the extreme one.","","The SD is even more sensitive than the mean because deviations are squared.","The range is determined by the extreme value itself."],"explain":"<p>The median depends only on the middle of the sorted data; its breakdown point is 50 %.</p>"},
+          {"type":"numeric","q":"For a set of fresh masses, Q1 = 140 g and Q3 = 156 g. Where is Tukey's upper fence?","answer":180,"tol":0.005,"unit":"g","explain":"<p>IQR = 16 g; upper fence = 156 + 1.5 × 16 = 180 g.</p>"},
+          {"type":"numeric","q":"Mean fresh mass is 150 g with SD 18 g. What is the coefficient of variation?","answer":12,"tol":0.02,"unit":"%","explain":"<p>\\(\\text{CV} = 18/150\\times100 = 12\\) %.</p>"},
+          {"type":"numeric","q":"Lettuce mass is approximately normal with μ = 148 g and σ = 12 g. What is the z-score of a 165 g head?","answer":1.417,"tol":0.02,"unit":"","explain":"<p>\\(z = (165-148)/12 = 1.42\\): the head lies 1.42 SD above the mean, heavier than about 92 % of heads.</p>"},
+          {"type":"tf","q":"The standard error describes how much individual plants differ from one another.","answer":false,"explain":"<p>That is the standard deviation. The standard error describes the uncertainty of the <em>mean</em> and shrinks as n grows.</p>"},
+          {"type":"mcq","q":"On which scale of measurement is a 9-point hedonic liking score strictly measured?","options":["Nominal","Ordinal","Interval","Ratio"],"answer":1,"feedback":["The categories are ordered, so it is more than nominal.","","Equal distances between categories are not guaranteed, although the scale is often analysed as if they were.","There is no true zero and ratios are meaningless."],"explain":"<p>Ordinal: the order is meaningful, the distances are not guaranteed.</p>"},
+          {"type":"mcq","q":"Two independent groups (n = 12 each) are plotted with 95 % confidence intervals that just touch end to end. Approximately what is the p-value of a t-test comparing them?","options":["about 0.5","about 0.16","about 0.01","exactly 0.05"],"answer":2,"feedback":["That would correspond to heavily overlapping intervals.","","","Non-overlapping 95 % CIs imply a p-value well below 0.05, not equal to it."],"explain":"<p>Rule of eye for n ≥ 10 (Cumming &amp; Finch, 2005): touching 95 % CIs correspond to p ≈ 0.01; overlap of about half an arm to p ≈ 0.05.</p>"},
+          {"type":"numeric","q":"Bars for W (150 g) and W+FR (165 g) are drawn on an axis that starts at 140 g. What is Tufte's lie factor?","answer":15,"tol":0.02,"unit":"","hint":"Compare the relative change in bar height (10 → 25 units) with the relative change in the data.","explain":"<p>Graphic: (25 − 10)/10 = 150 %. Data: (165 − 150)/150 = 10 %. LF = 150/10 = 15.</p>"},
+          {"type":"multi","q":"Which practices make a figure of a small-sample experiment (n = 6 per group) more honest? (Select all that apply.)","options":["Plot every data point","State in the caption whether bars are SD, SE or 95 % CI","Use SE bars because they are shorter","Give n as the number of experimental units","Truncate the y-axis of a bar chart to emphasise differences","Use a colour-blind-safe palette"],"answer":[0,1,3,5],"explain":"<p>Choosing SE because it looks better and truncating bar axes both mislead the reader.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Scale of measurement</dt><dd>Nominal, ordinal, interval or ratio; determines which summaries and operations are meaningful (Stevens, 1946).</dd>
+        <dt>Tidy data</dt><dd>A table in which each variable is a column, each observation a row and each type of observational unit a separate table.</dd>
+        <dt>Median</dt><dd>The middle value of the sorted data; a robust measure of location.</dd>
+        <dt>Trimmed mean</dt><dd>The mean after discarding a fixed fraction of the smallest and largest observations.</dd>
+        <dt>Variance</dt><dd>The average squared deviation from the mean; the sample variance divides the sum of squares by n − 1.</dd>
+        <dt>Bessel's correction</dt><dd>Dividing by n − 1 instead of n so that the sample variance is an unbiased estimator of the population variance.</dd>
+        <dt>Standard deviation (SD)</dt><dd>The square root of the variance; describes the spread of individual observations.</dd>
+        <dt>Standard error of the mean (SE)</dt><dd>The standard deviation of the sampling distribution of the mean, estimated as s/√n; describes the precision of the mean.</dd>
+        <dt>Coefficient of variation (CV)</dt><dd>The SD as a percentage of the mean; meaningful only for ratio-scale data.</dd>
+        <dt>Interquartile range (IQR)</dt><dd>Q3 − Q1: the range of the middle 50 % of the data.</dd>
+        <dt>Median absolute deviation (MAD)</dt><dd>The median of the absolute deviations from the median; a robust measure of spread.</dd>
+        <dt>Box plot</dt><dd>A graphic showing the median, quartiles, whiskers to the most extreme values within 1.5 × IQR of the box, and individual outliers.</dd>
+        <dt>Kernel density estimate</dt><dd>A smooth estimate of a probability density obtained by summing a kernel (bump) centred on each observation.</dd>
+        <dt>z-score</dt><dd>The number of standard deviations an observation lies above or below the mean.</dd>
+        <dt>Lie factor</dt><dd>Tufte's ratio of the effect size shown in a graphic to the effect size in the data.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can classify each variable in my project by scale and store the data in a tidy table.</li>
+        <li>I can calculate the mean, median, SD, CV and IQR of a small sample by hand and explain why the variance divides by n − 1.</li>
+        <li>I can explain the difference between SD and SE to a fellow student and convert one into the other.</li>
+        <li>I can draw and read a box plot and choose a sensible histogram bin width or KDE bandwidth.</li>
+        <li>I can decide, with a documented reason, what to do with a flagged outlier.</li>
+        <li>I can make a figure that shows all data points, labels its error bars and passes the honesty checklist.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Weissgerber, T. L., Milic, N. M., Winham, S. J., &amp; Garovic, V. D. (2015). Beyond bar and line graphs: Time for a new data presentation paradigm. <em>PLOS Biology</em>, 13(4), e1002128. <a href="https://doi.org/10.1371/journal.pbio.1002128" target="_blank" rel="noopener">doi:10.1371/journal.pbio.1002128</a><span class="r-why">The evidence that bar graphs hide data, and practical templates for dot plots of small samples.</span></li>
+        <li><span class="r-type">Required</span>Cumming, G., Fidler, F., &amp; Vaux, D. L. (2007). Error bars in experimental biology. <em>Journal of Cell Biology</em>, 177(1), 7–11. <a href="https://doi.org/10.1083/jcb.200611141" target="_blank" rel="noopener">doi:10.1083/jcb.200611141</a><span class="r-why">Eight rules for drawing and reading SD, SE and CI error bars — short and essential.</span></li>
+        <li><span class="r-type">Recommended</span>Altman, D. G., &amp; Bland, J. M. (2005). Standard deviations and standard errors. <em>BMJ</em>, 331(7521), 903. <a href="https://doi.org/10.1136/bmj.331.7521.903" target="_blank" rel="noopener">doi:10.1136/bmj.331.7521.903</a><span class="r-why">A one-page explanation of when to use which.</span></li>
+        <li><span class="r-type">Recommended</span>Krzywinski, M., &amp; Altman, N. (2014). Visualizing samples with box plots. <em>Nature Methods</em>, 11(2), 119–120. <a href="https://doi.org/10.1038/nmeth.2813" target="_blank" rel="noopener">doi:10.1038/nmeth.2813</a><span class="r-why">How box plots work and when they fail; part of the excellent "Points of Significance" series.</span></li>
+        <li><span class="r-type">Recommended · book</span>Tufte, E. R. (2001). <em>The visual display of quantitative information</em> (2nd ed.). Graphics Press.<span class="r-why">The classic on graphical integrity, data-ink and small multiples; browse chapters 2 and 4.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Altman, D. G., &amp; Bland, J. M. (2005). Standard deviations and standard errors. <em>BMJ</em>, 331(7521), 903. <a href="https://doi.org/10.1136/bmj.331.7521.903" target="_blank" rel="noopener">doi:10.1136/bmj.331.7521.903</a></li>
+        <li>Anscombe, F. J. (1973). Graphs in statistical analysis. <em>The American Statistician</em>, 27(1), 17–21. <a href="https://doi.org/10.1080/00031305.1973.10478966" target="_blank" rel="noopener">doi:10.1080/00031305.1973.10478966</a></li>
+        <li>BIPM. (2019). <em>The International System of Units (SI)</em> (9th ed.). Bureau International des Poids et Mesures. <a href="https://www.bipm.org/en/publications/si-brochure" target="_blank" rel="noopener">bipm.org</a></li>
+        <li>Crameri, F., Shephard, G. E., &amp; Heron, P. J. (2020). The misuse of colour in science communication. <em>Nature Communications</em>, 11, 5444. <a href="https://doi.org/10.1038/s41467-020-19160-7" target="_blank" rel="noopener">doi:10.1038/s41467-020-19160-7</a></li>
+        <li>Cumming, G., &amp; Finch, S. (2005). Inference by eye: Confidence intervals and how to read pictures of data. <em>American Psychologist</em>, 60(2), 170–180. <a href="https://doi.org/10.1037/0003-066X.60.2.170" target="_blank" rel="noopener">doi:10.1037/0003-066X.60.2.170</a></li>
+        <li>Cumming, G., Fidler, F., &amp; Vaux, D. L. (2007). Error bars in experimental biology. <em>Journal of Cell Biology</em>, 177(1), 7–11. <a href="https://doi.org/10.1083/jcb.200611141" target="_blank" rel="noopener">doi:10.1083/jcb.200611141</a></li>
+        <li>Freedman, D., &amp; Diaconis, P. (1981). On the histogram as a density estimator: L₂ theory. <em>Zeitschrift für Wahrscheinlichkeitstheorie und verwandte Gebiete</em>, 57(4), 453–476. <a href="https://doi.org/10.1007/BF01025868" target="_blank" rel="noopener">doi:10.1007/BF01025868</a></li>
+        <li>Hyndman, R. J., &amp; Fan, Y. (1996). Sample quantiles in statistical packages. <em>The American Statistician</em>, 50(4), 361–365. <a href="https://doi.org/10.1080/00031305.1996.10473566" target="_blank" rel="noopener">doi:10.1080/00031305.1996.10473566</a></li>
+        <li>JCGM. (2008). <em>Evaluation of measurement data — Guide to the expression of uncertainty in measurement</em> (JCGM 100:2008). Joint Committee for Guides in Metrology. <a href="https://www.bipm.org/en/committees/jc/jcgm/publications" target="_blank" rel="noopener">bipm.org</a></li>
+        <li>Krzywinski, M., &amp; Altman, N. (2013). Error bars. <em>Nature Methods</em>, 10(10), 921–922. <a href="https://doi.org/10.1038/nmeth.2659" target="_blank" rel="noopener">doi:10.1038/nmeth.2659</a></li>
+        <li>Krzywinski, M., &amp; Altman, N. (2014). Visualizing samples with box plots. <em>Nature Methods</em>, 11(2), 119–120. <a href="https://doi.org/10.1038/nmeth.2813" target="_blank" rel="noopener">doi:10.1038/nmeth.2813</a></li>
+        <li>Matejka, J., &amp; Fitzmaurice, G. (2017). Same stats, different graphs: Generating datasets with varied appearance and identical statistics through simulated annealing. In <em>Proceedings of the 2017 CHI Conference on Human Factors in Computing Systems</em> (pp. 1290–1294). ACM. <a href="https://doi.org/10.1145/3025453.3025912" target="_blank" rel="noopener">doi:10.1145/3025453.3025912</a></li>
+        <li>Silverman, B. W. (1986). <em>Density estimation for statistics and data analysis</em>. Chapman and Hall. <a href="https://doi.org/10.1201/9781315140919" target="_blank" rel="noopener">doi:10.1201/9781315140919</a></li>
+        <li>Stevens, S. S. (1946). On the theory of scales of measurement. <em>Science</em>, 103(2684), 677–680. <a href="https://doi.org/10.1126/science.103.2684.677" target="_blank" rel="noopener">doi:10.1126/science.103.2684.677</a></li>
+        <li>Tufte, E. R. (2001). <em>The visual display of quantitative information</em> (2nd ed.). Graphics Press.</li>
+        <li>Tukey, J. W. (1977). <em>Exploratory data analysis</em>. Addison-Wesley.</li>
+        <li>Weissgerber, T. L., Milic, N. M., Winham, S. J., &amp; Garovic, V. D. (2015). Beyond bar and line graphs: Time for a new data presentation paradigm. <em>PLOS Biology</em>, 13(4), e1002128. <a href="https://doi.org/10.1371/journal.pbio.1002128" target="_blank" rel="noopener">doi:10.1371/journal.pbio.1002128</a></li>
+        <li>Wickham, H. (2014). Tidy data. <em>Journal of Statistical Software</em>, 59(10), 1–23. <a href="https://doi.org/10.18637/jss.v059.i10" target="_blank" rel="noopener">doi:10.18637/jss.v059.i10</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot } from '/assets/js/plot.js';
+import { mean, sd, median, quantile, variance, mulberry32, randn, tInv } from '/assets/js/stats.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+import { categorical, palette, withAlpha } from '/assets/js/colors.js';
+
+const setFill = el => el.style.setProperty('--fill', ((+el.value - +el.min) / (+el.max - +el.min) * 100) + '%');
+const segBind = (el, cb) => el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); cb(b.dataset.v); });
+const TANK = [142.3, 156.8, 138.4, 149.9, 161.2, 145.7, 152.3, 97.6, 147.1, 158.4];
+
+/* ---------------- Figure 2: drag the data ---------------- */
+{
+  let xs = [...TANK], jit = TANK.map((_, i) => ((i * 37) % 11) / 11 - 0.5), drag = -1;
+  const rng = mulberry32(11);
+  const yLab = { 0.5: 'plants', 1.5: 'box plot', 2.5: 'mean ± SD / SE' };
+  const plot = new Plot('#dr-plot', { x: { label: 'Shoot fresh mass', unit: 'g', min: 40, max: 220 }, y: { label: '', min: 0, max: 3, format: () => '' }, legend: false, crosshair: false, padding: { left: 24 } });
+  plot.canvas.style.touchAction = 'none';
+  const ro = new Readouts('#dr-ro');
+  [['n', 'n (plants)', '', 0], ['mean', 'Mean', 'g', 1], ['median', 'Median', 'g', 1], ['trim', '10 % trimmed mean', 'g', 1], ['sd', 'SD', 'g', 1], ['se', 'SE = SD/√n', 'g', 2], ['cv', 'CV', '%', 1], ['iqr', 'IQR', 'g', 1], ['mad', 'MAD', 'g', 2], ['out', 'Flagged by 1.5 × IQR', '', 0]].forEach(([id, label, unit, digits]) => ro.add({ id, label, unit, digits, note: id === 'out' ? ' ' : '' }));
+  function trimmed(a) { const s = [...a].sort((p, q) => p - q), k = Math.floor(0.1 * s.length); return mean(s.slice(k, s.length - k)); }
+  function draw() {
+    const n = xs.length, m = mean(xs), s = n > 1 ? sd(xs) : NaN, md = median(xs), q1 = quantile(xs, 0.25), q3 = quantile(xs, 0.75), iqr = q3 - q1;
+    const lo = q1 - 1.5 * iqr, hi = q3 + 1.5 * iqr, inside = xs.filter(v => v >= lo && v <= hi), outs = xs.filter(v => v < lo || v > hi);
+    const mad = median(xs.map(v => Math.abs(v - md))), se = s / Math.sqrt(n);
+    const P = palette(), c = categorical(0);
+    plot.scatter('pts', xs, xs.map((_, i) => 0.5 + 0.35 * jit[i]), { color: c, r: 6, colors: xs.map(v => v < lo || v > hi ? P.danger : c) });
+    plot.custom('box', (ctx, p) => {
+      const Y = p.py(1.5), H = p.py(1.3) - p.py(1.7);
+      ctx.strokeStyle = P.ink; ctx.lineWidth = 1.5; ctx.fillStyle = withAlpha(P.accent, 0.18);
+      ctx.fillRect(p.px(q1), Y - H / 2, p.px(q3) - p.px(q1), H); ctx.strokeRect(p.px(q1), Y - H / 2, p.px(q3) - p.px(q1), H);
+      ctx.beginPath(); ctx.moveTo(p.px(Math.min(...inside)), Y); ctx.lineTo(p.px(q1), Y); ctx.moveTo(p.px(q3), Y); ctx.lineTo(p.px(Math.max(...inside)), Y);
+      ctx.moveTo(p.px(Math.min(...inside)), Y - H / 4); ctx.lineTo(p.px(Math.min(...inside)), Y + H / 4); ctx.moveTo(p.px(Math.max(...inside)), Y - H / 4); ctx.lineTo(p.px(Math.max(...inside)), Y + H / 4); ctx.stroke();
+      ctx.strokeStyle = P.accent; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(p.px(md), Y - H / 2); ctx.lineTo(p.px(md), Y + H / 2); ctx.stroke();
+      ctx.fillStyle = P.danger; outs.forEach(v => { ctx.beginPath(); ctx.arc(p.px(v), Y, 4.5, 0, 7); ctx.fill(); });
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = withAlpha(P.danger, 0.7); ctx.lineWidth = 1;
+      [lo, hi].forEach(f => { ctx.beginPath(); ctx.moveTo(p.px(f), p.py(1.95)); ctx.lineTo(p.px(f), p.py(1.05)); ctx.stroke(); });
+      ctx.setLineDash([]);
+      ctx.font = '600 11px Inter, sans-serif'; ctx.fillStyle = P.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      [[2.97, 'MEAN ± SD / SE'], [1.97, 'BOX PLOT'], [0.97, 'PLANTS (drag me)']].forEach(([y, t]) => ctx.fillText(t, p.px(42), p.py(y)));
+      if (isFinite(s)) {
+        const Y2 = p.py(2.65), Y3 = p.py(2.3);
+        ctx.strokeStyle = P.magenta; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(p.px(m - s), Y2); ctx.lineTo(p.px(m + s), Y2); ctx.stroke();
+        ctx.lineWidth = 1.8; ctx.strokeStyle = P.water; ctx.beginPath(); ctx.moveTo(p.px(m - se), Y3); ctx.lineTo(p.px(m + se), Y3); ctx.moveTo(p.px(m - se), Y3 - 6); ctx.lineTo(p.px(m - se), Y3 + 6); ctx.moveTo(p.px(m + se), Y3 - 6); ctx.lineTo(p.px(m + se), Y3 + 6); ctx.stroke();
+        ctx.fillStyle = P.ink; [Y2, Y3].forEach(y => { ctx.beginPath(); ctx.arc(p.px(m), y, 5, 0, 7); ctx.fill(); });
+        ctx.font = '600 11px Inter, sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillStyle = P.magenta; ctx.fillText('mean ± SD', p.px(m + s) + 8, Y2); ctx.fillStyle = P.water; ctx.fillText('mean ± SE', p.px(m + se) + 8, Y3);
+        ctx.fillStyle = P.muted; ctx.textAlign = 'center'; ctx.fillText('fences', p.px(lo), p.py(1.98) - 6);
+      }
+    });
+    ro.set('n', n); ro.set('mean', m); ro.set('median', md); ro.set('trim', trimmed(xs)); ro.set('sd', s); ro.set('se', se); ro.set('cv', 100 * s / m); ro.set('iqr', iqr); ro.set('mad', mad);
+    ro.set('out', outs.length, outs.length ? 'warn' : 'ok', outs.length ? outs.map(v => fmt(v, 1) + ' g').join(', ') : 'none');
+  }
+  plot.on('pointerdown', e => { if (!e.inside) return; let best = -1, bd = 14 * 14; xs.forEach((v, i) => { const dx = plot.px(v) - e.px, dy = plot.py(0.5 + 0.35 * jit[i]) - e.py; const d2 = dx * dx + dy * dy; if (d2 < bd) { bd = d2; best = i; } }); drag = best; });
+  plot.on('pointermove', e => { if (drag < 0) return; xs[drag] = Math.round(Math.max(40, Math.min(220, e.x)) * 10) / 10; draw(); });
+  plot.on('pointerup', () => { drag = -1; });
+  document.getElementById('dr-reset').addEventListener('click', () => { xs = [...TANK]; jit = TANK.map((_, i) => ((i * 37) % 11) / 11 - 0.5); draw(); });
+  document.getElementById('dr-add').addEventListener('click', () => { xs.push(Math.round((150 + 8 * randn(rng)) * 10) / 10); jit.push(rng() - 0.5); draw(); });
+  document.getElementById('dr-out').addEventListener('click', () => { xs.push(60); jit.push(rng() - 0.5); draw(); });
+  document.getElementById('dr-del').addEventListener('click', () => { if (xs.length > 3) { xs.pop(); jit.pop(); draw(); } });
+  draw();
+}
+
+/* ---------------- Figure 3: Bessel simulation ---------------- */
+{
+  const nEl = document.getElementById('bs-n'); const rng = mulberry32(3);
+  const plot = new Plot('#bs-plot', { x: { label: 'Estimated variance', unit: 'g²', min: 0, max: 350 }, y: { label: 'Share of samples', unit: '%', min: 0 }, legend: true, crosshair: false });
+  const ro = new Readouts('#bs-ro');
+  ro.add({ id: 'u', label: 'Average of s² (÷ n − 1)', unit: 'g²', digits: 1, note: 'should be ≈ 100' }).add({ id: 'b', label: 'Average of ÷ n version', unit: 'g²', digits: 1, note: 'biased low' }).add({ id: 'r', label: 'Ratio (÷ n) / truth', unit: '', digits: 3, note: 'theory' });
+  function run() {
+    setFill(nEl); const n = +nEl.value; document.getElementById('bs-n-o').textContent = n;
+    const U = [], B = [];
+    for (let k = 0; k < 4000; k++) { const a = []; for (let i = 0; i < n; i++) a.push(150 + 10 * randn(rng)); const ss = variance(a) * (n - 1); U.push(ss / (n - 1)); B.push(ss / n); }
+    const hist = a => { const bw = 10, nb = 35, c = new Array(nb).fill(0); a.forEach(v => { const k = Math.floor(v / bw); if (k < nb) c[k]++; }); const xs = [], ys = []; c.forEach((v, k) => { xs.push(k * bw, (k + 1) * bw); ys.push(100 * v / a.length, 100 * v / a.length); }); return [xs, ys]; };
+    const [ux, uy] = hist(U), [bx, by] = hist(B);
+    plot.line('u', ux, uy, { color: 'accent', width: 2, fill: 0.12, label: 's² (divide by n − 1)' });
+    plot.line('b', bx, by, { color: 'magenta', width: 2, fill: 0.08, label: 'divide by n' });
+    const mu = mean(U), mb = mean(B);
+    plot.vline('mu', mu, { color: 'accent', dash: [5, 4] }); plot.vline('mb', mb, { color: 'magenta', dash: [5, 4] });
+    plot.vline('t', 100, { color: 'ink', label: 'true σ² = 100', dash: [2, 2] });
+    ro.set('u', mu, Math.abs(mu - 100) < 5 ? 'ok' : 'warn'); ro.set('b', mb, Math.abs(mb - 100) < 5 ? 'ok' : 'bad'); ro.set('r', mb / 100, null, 'theory: (n − 1)/n = ' + fmt((n - 1) / n, 3));
+  }
+  nEl.addEventListener('input', run); document.getElementById('bs-run').addEventListener('click', run); run();
+}
+
+/* ---------------- Figure 5: histogram vs KDE ---------------- */
+{
+  const bwEl = document.getElementById('kd-bw'), hEl = document.getElementById('kd-h');
+  let seed = 5, data = [];
+  function sample() { const r = mulberry32(seed); data = []; for (let i = 0; i < 36; i++) data.push(150 + 10 * randn(r)); for (let i = 0; i < 24; i++) data.push(118 + 9 * randn(r)); }
+  const plot = new Plot('#kd-plot', { x: { label: 'Shoot fresh mass', unit: 'g', min: 80, max: 190 }, y: { label: 'Density', unit: 'g⁻¹', min: -0.004 }, legend: true, crosshair: false });
+  const ro = new Readouts('#kd-ro');
+  ro.add({ id: 'n', label: 'n', unit: '', digits: 0 }).add({ id: 'ms', label: 'Mean ± SD', unit: 'g', format: v => v })
+    .add({ id: 'fd', label: 'Freedman–Diaconis bin width', unit: 'g', digits: 1 }).add({ id: 'sil', label: 'Silverman bandwidth', unit: 'g', digits: 1 });
+  const rules = () => { const n = data.length, iqr = quantile(data, .75) - quantile(data, .25); return { fd: 2 * iqr * Math.pow(n, -1 / 3), sil: 0.9 * Math.min(sd(data), iqr / 1.34) * Math.pow(n, -0.2) }; };
+  function draw() {
+    [bwEl, hEl].forEach(setFill);
+    const bw = +bwEl.value, h = +hEl.value, n = data.length;
+    document.getElementById('kd-bw-o').textContent = fmt(bw, 1) + ' g'; document.getElementById('kd-h-o').textContent = fmt(h, 1) + ' g';
+    const lo = 80, nb = Math.ceil(110 / bw), c = new Array(nb).fill(0); data.forEach(v => { const k = Math.floor((v - lo) / bw); if (k >= 0 && k < nb) c[k]++; });
+    const hx = [], hy = []; c.forEach((v, k) => { const d = v / (n * bw); hx.push(lo + k * bw, lo + (k + 1) * bw); hy.push(d, d); });
+    plot.line('hist', hx, hy, { color: 'muted', width: 1.4, fill: 0.18, label: 'histogram (density)' });
+    const X = [], Y = []; for (let i = 0; i <= 300; i++) { const x = 80 + 110 * i / 300; let s = 0; data.forEach(v => { const u = (x - v) / h; s += Math.exp(-u * u / 2); }); X.push(x); Y.push(s / (n * h * Math.sqrt(2 * Math.PI))); }
+    plot.line('kde', X, Y, { color: 'accent', width: 2.6, label: 'kernel density' });
+    const m = mean(data), s = sd(data);
+    plot.custom('rug', (ctx, p, P) => { ctx.strokeStyle = P.ink; ctx.globalAlpha = 0.55; ctx.lineWidth = 1; data.forEach(v => { ctx.beginPath(); ctx.moveTo(p.px(v), p.py(0)); ctx.lineTo(p.px(v), p.py(0) - 7); ctx.stroke(); }); ctx.globalAlpha = 1;
+      const y = p.py(-0.0026); ctx.strokeStyle = P.magenta; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(p.px(m - s), y); ctx.lineTo(p.px(m + s), y); ctx.stroke(); ctx.fillStyle = P.magenta; ctx.beginPath(); ctx.arc(p.px(m), y, 4, 0, 7); ctx.fill(); });
+    const r = rules();
+    ro.set('n', n); ro.set('ms', `${fmt(m, 1)} ± ${fmt(s, 1)}`); ro.set('fd', r.fd); ro.set('sil', r.sil);
+  }
+  [bwEl, hEl].forEach(el => el.addEventListener('input', draw));
+  document.getElementById('kd-auto').addEventListener('click', () => { const r = rules(); bwEl.value = Math.round(r.fd * 2) / 2; hEl.value = Math.round(r.sil * 2) / 2; draw(); });
+  document.getElementById('kd-new').addEventListener('click', () => { seed++; sample(); draw(); });
+  sample(); draw();
+}
+
+/* ---------------- Figure 7: error bars ---------------- */
+{
+  const G = { W: [150.7, 146.1, 161.3, 138.8, 157.0, 131.4], RB: [142.2, 122.1, 133.9, 137.3, 131.6, 122.1], FR: [164.5, 164.8, 177.6, 159.6, 175.9, 156.1] };
+  const names = ['W', 'RB', 'FR'], labels = { 1: 'W', 2: 'RB', 3: 'W+FR' };
+  let mode = 'se';
+  const trunc = document.getElementById('eb-trunc');
+  const plot = new Plot('#eb-plot', { x: { label: 'Spectrum', unit: '', min: 0.4, max: 3.6, format: v => labels[Math.round(v * 100) / 100] || '' }, y: { label: 'Shoot fresh mass', unit: 'g plant⁻¹', min: 0, max: 200 }, legend: false, crosshair: false });
+  const NOTE = {
+    se: '<strong>Bar ± SE.</strong> The shortest bars — they show the precision of each mean, not the spread of the plants. Two SE bars that do not overlap do <em>not</em> imply p &lt; 0.05. The six individual values are invisible.',
+    sd: '<strong>Bar ± SD.</strong> Describes the spread of compartment means around each treatment mean: most observations lie within ±1 SD. Still hides n, skewness and outliers.',
+    ci: '<strong>Mean ± 95 % CI.</strong> Shows how precisely each population mean is estimated (t quantile 2.571 for 5 df). Cumming et al.\'s overlap rules apply to these intervals.',
+    dots: '<strong>Points + mean ± 95 % CI.</strong> The recommended display for small samples: every experimental unit is visible, so readers can judge the spread, the n and any outliers themselves.',
+    box: '<strong>Box plot + points.</strong> Median, quartiles and whiskers, with the data overlaid. With n = 6 the quartiles are imprecise — the points carry the real information.'
+  };
+  function draw() {
+    const P = palette(), cols = [categorical(1), categorical(2), categorical(3)];
+    plot.setAxis('y', { min: trunc.checked ? 100 : 0, max: 200 });
+    plot.custom('g', (ctx, p) => {
+      names.forEach((k, j) => {
+        const a = G[k], x = j + 1, m = mean(a), s = sd(a), se = s / Math.sqrt(a.length), ci = tInv(0.975, a.length - 1) * se;
+        const X = p.px(x), w = (p.px(1.3) - p.px(1));
+        const bar = mode === 'se' || mode === 'sd';
+        if (bar) { const base = p.py(Math.max(p._y0, 0)); ctx.fillStyle = withAlpha(cols[j], 0.75); ctx.fillRect(X - w, p.py(m), 2 * w, base - p.py(m)); }
+        let e = mode === 'se' ? se : mode === 'sd' ? s : ci;
+        if (mode === 'box') {
+          const q1 = quantile(a, .25), q3 = quantile(a, .75), md = median(a), iq = q3 - q1, inn = a.filter(v => v >= q1 - 1.5 * iq && v <= q3 + 1.5 * iq);
+          ctx.strokeStyle = P.ink; ctx.lineWidth = 1.5; ctx.fillStyle = withAlpha(cols[j], 0.2);
+          ctx.fillRect(X - w, p.py(q3), 2 * w, p.py(q1) - p.py(q3)); ctx.strokeRect(X - w, p.py(q3), 2 * w, p.py(q1) - p.py(q3));
+          ctx.beginPath(); ctx.moveTo(X, p.py(q3)); ctx.lineTo(X, p.py(Math.max(...inn))); ctx.moveTo(X, p.py(q1)); ctx.lineTo(X, p.py(Math.min(...inn))); ctx.stroke();
+          ctx.lineWidth = 3; ctx.strokeStyle = cols[j]; ctx.beginPath(); ctx.moveTo(X - w, p.py(md)); ctx.lineTo(X + w, p.py(md)); ctx.stroke();
+        } else {
+          ctx.strokeStyle = P.ink; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(X, p.py(m - e)); ctx.lineTo(X, p.py(m + e)); ctx.moveTo(X - 8, p.py(m - e)); ctx.lineTo(X + 8, p.py(m - e)); ctx.moveTo(X - 8, p.py(m + e)); ctx.lineTo(X + 8, p.py(m + e)); ctx.stroke();
+          if (!bar) { ctx.fillStyle = P.ink; ctx.beginPath(); ctx.arc(X, p.py(m), 5.5, 0, 7); ctx.fill(); }
+        }
+        if (mode === 'dots' || mode === 'box') a.forEach((v, i) => { ctx.fillStyle = cols[j]; ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.arc(X + (mode === 'dots' ? -w * 0.9 : 0) + (i - 2.5) * 5, p.py(v), 4.5, 0, 7); ctx.fill(); ctx.globalAlpha = 1; });
+        ctx.fillStyle = P.ink2; ctx.font = '500 11px JetBrains Mono, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        const lab = mode === 'box' ? 'median ' + fmt(median(a), 1) : fmt(m, 1) + (mode === 'se' ? ' ± ' + fmt(se, 1) : mode === 'sd' ? ' ± ' + fmt(s, 1) : ' ± ' + fmt(ci, 1));
+        const top = mode === 'box' ? Math.max(...a) : Math.max(m + e, mode === 'dots' ? Math.max(...a) : -Infinity);
+        ctx.fillText(lab, X, p.py(top) - 8);
+      });
+    });
+    let note = NOTE[mode];
+    if (trunc.checked) note += (mode === 'se' || mode === 'sd') ? ' <span style="color:var(--danger)"><strong>Truncated bar axis:</strong> bar lengths no longer represent the values — the W+FR bar is now twice as long as the RB bar, although the means differ by only 27 % (lie factor ≈ 4).</span>' : ' A truncated axis is acceptable here, because values are encoded by position, not by bar length.';
+    document.getElementById('eb-note').innerHTML = note;
+  }
+  segBind(document.getElementById('eb-mode'), v => { mode = v; draw(); });
+  trunc.addEventListener('change', draw);
+  document.addEventListener('ffp:theme', draw);
+  draw();
+}
+
+/* ---------------- Figure 8: Anscombe's quartet ---------------- */
+{
+  const x = [10, 8, 13, 9, 11, 14, 6, 4, 12, 7, 5];
+  const S = [
+    [x, [8.04, 6.95, 7.58, 8.81, 8.33, 9.96, 7.24, 4.26, 10.84, 4.82, 5.68]],
+    [x, [9.14, 8.14, 8.74, 8.77, 9.26, 8.10, 6.13, 3.10, 9.13, 7.26, 4.74]],
+    [x, [7.46, 6.77, 12.74, 7.11, 7.81, 8.84, 6.08, 5.39, 8.15, 6.42, 5.73]],
+    [[8, 8, 8, 8, 8, 8, 8, 19, 8, 8, 8], [6.58, 5.76, 7.71, 8.84, 8.47, 7.04, 5.25, 12.50, 5.56, 7.91, 6.89]]
+  ];
+  S.forEach(([xs, ys], i) => {
+    const p = new Plot('#an-' + (i + 1), { x: { label: 'x', min: 0, max: 20 }, y: { label: 'y', min: 0, max: 14 }, legend: false });
+    p.line('fit', [0, 20], [3, 3 + 0.5 * 20], { color: 'muted', width: 1.5, dash: [5, 4], noTip: true });
+    p.scatter('d', xs, ys, { color: i, r: 5 });
+  });
+}
+</script>
+</body>
+</html>

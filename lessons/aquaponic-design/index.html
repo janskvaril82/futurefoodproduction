@@ -1,0 +1,1187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Designing and balancing aquaponic systems · Future Food Production</title>
+<meta name="description" content="Feed-rate ratio and nutrient-based sizing, fish biomass and stocking density, hydraulic retention and ammonia control, biofilter and clarifier design, sludge mineralisation, coupled versus decoupled multi-loop aquaponics, nitrogen and phosphorus budgets, supplementation, the pH compromise, energy, water and economics.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Stokes critical diameter (µm) captured by an ideal settler at overflow rate OFR (m h-1); water viscosity from an empirical Vogel-type fit */
+FFP_CALC.stokesDc = v => { const mu = 2.414e-5 * Math.pow(10, 247.8 / (v.T + 273.15 - 140)); const vs = v.OFR / 3600; return 1e6 * Math.sqrt(18 * mu * vs / (9.81 * v.drho)); };
+/* Mineralisation-loop effluent concentration (Goddek et al. 2019, Eqs 8.1-8.3) */
+FFP_CALC.minConc = v => { const Q = v.F * (v.k / 100) / (v.pi / 100); const M = v.F * 1000 * (v.w / 100) * (v.s / 100) * (v.eta / 100); return M * 1000 / Q; };
+/* Dissolved (plant-available) nitrogen from feed in a coupled system */
+FFP_CALC.dissN = v => v.F * 1000 * (v.PC / 100) * 0.16 * ((v.s / 100) + (1 - v.c / 100) * Math.max(0, 1 - v.r / 100 - v.s / 100));
+</script>
+</head>
+<body data-page="lesson" data-slug="aquaponic-design">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Designing and balancing aquaponic systems</h1>
+      <p class="lead">A lettuce raft does not know how many fish swim upstream of it, and a tilapia does not care how many heads of lettuce leave the greenhouse each week. Only the engineer sees both — and must decide how many square metres of plants, how many kilograms of fish, how many cubic metres of water per hour and how much potassium hydroxide belong together. This lesson turns the nitrogen chemistry of Lesson 6.1 into a design procedure: from a production target to tanks, flows, filters, nutrient budgets and supplements, for both the classic one-loop system and the decoupled multi-loop systems developed in Europe over the past decade — and it ends with the questions that decide whether a farm survives: energy, water, money and scale.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Size the plant area, daily feed, fish biomass and rearing volume of an aquaponic system from a production target, using the feed-rate ratio and a nutrient-based balance, and explain why no single ratio balances every nutrient (LO2, LO3).</li>
+        <li>Calculate flow rates, hydraulic retention times, steady-state ammonia and biofilter area, and size a gravity clarifier from Stokes' law and the overflow rate (LO3).</li>
+        <li>Build nitrogen and phosphorus budgets for coupled and decoupled designs, including sludge mineralisation, and calculate supplements of potassium, calcium and iron (LO3, LO7).</li>
+        <li>Compare coupled one-loop and decoupled multi-loop systems, and use the evapotranspiration-driven water flow to explain why decoupled systems need more plant area per kilogram of feed (LO2, LO3).</li>
+        <li>Justify a pH–temperature operating point as a compromise between fish, nitrifiers and plants, and evaluate energy use, water use, economics and scale in a Nordic and European context (LO2, LO7).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+
+      <h2 id="design-problem">One input, many constraints</h2>
+      <p class="lede-drop">Aquaponic design is a problem with one input and many constraints. The input is fish feed. Everything the system has to do — remove ammonia, supply oxygen, capture faeces, neutralise acid, feed the plants — scales with the kilograms of feed that enter each day, because feed is the only substantial source of nitrogen, phosphorus and organic matter (Lesson 6.1, Eq. 6.1.2). The constraints come from three groups of organisms with different preferences. Fish want oxygen, low ammonia and nitrite and a stable temperature. Nitrifying bacteria want surfaces, oxygen, alkalinity and a pH above 7. Plants want light, oxygen at their roots and a complete nutrient supply at a pH between 5.5 and 6.5. And the whole system must pay for its pumps, heaters, feed and labour every day of the year.</p>
+      <p>Rakocy, Masser and Losordo (2006) describe three ways into a design: copy a proven system such as the University of the Virgin Islands (UVI) design, design for the space you have, or design for a production target of fish or of plants. We follow the last route and start from the plants, for a practical reason: in the few published economic analyses, the vegetables — not the fish — carry the profit (Engle, 2015). Figure 1 shows the chain of calculations that the rest of the lesson works through, section by section.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 400" role="img" aria-label="Design chain of an aquaponic system: a production target sets the daily feed, which in turn sets plant area, fish biomass and tanks, ammonia load and biofilter, solids handling, nutrient budgets and oxygen and energy demand">
+            <defs>
+              <marker id="d1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--amber)"/></marker>
+              <marker id="d1m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+            </defs>
+            <rect x="14" y="160" width="152" height="74" rx="10" class="fill-sunk" stroke="currentColor" stroke-width="1.3"/>
+            <text x="90" y="186" text-anchor="middle" font-weight="600">Production target</text>
+            <text x="90" y="205" text-anchor="middle" class="t-small">lettuce heads per week</text>
+            <text x="90" y="220" text-anchor="middle" class="t-small">or tonnes of fish per year</text>
+            <line x1="166" y1="197" x2="196" y2="197" style="stroke:var(--amber)" stroke-width="2.5" marker-end="url(#d1a)"/>
+            <rect x="200" y="148" width="150" height="98" rx="12" class="fill-amber-soft" style="stroke:var(--amber)" stroke-width="2"/>
+            <text x="275" y="180" text-anchor="middle" font-weight="700">Daily feed F</text>
+            <text x="275" y="200" text-anchor="middle" class="t-mono t-small">kg d⁻¹</text>
+            <text x="275" y="222" text-anchor="middle" class="t-small">the load that sets</text>
+            <text x="275" y="236" text-anchor="middle" class="t-small">every other quantity</text>
+            <g stroke="currentColor" stroke-width="1.2">
+              <rect x="410" y="12" width="336" height="50" rx="8" class="fill-accent-soft"/>
+              <rect x="410" y="74" width="336" height="50" rx="8" class="fill-water-soft"/>
+              <rect x="410" y="136" width="336" height="50" rx="8" class="fill-magenta-soft"/>
+              <rect x="410" y="198" width="336" height="50" rx="8" class="fill-sunk"/>
+              <rect x="410" y="260" width="336" height="50" rx="8" class="fill-accent-soft"/>
+              <rect x="410" y="322" width="336" height="50" rx="8" class="fill-amber-soft"/>
+            </g>
+            <text x="424" y="33" font-weight="600">Plant area  A = F / R<tspan font-size="10" dy="3">F</tspan></text>
+            <text x="424" y="52" class="t-small t-muted">feed-rate ratio and nutrient balance · Eqs. 6.2.1–6.2.2</text>
+            <text x="424" y="95" font-weight="600">Fish biomass, tanks and production</text>
+            <text x="424" y="114" class="t-small t-muted">feeding rate, stocking density, cohorts · Eq. 6.2.3</text>
+            <text x="424" y="157" font-weight="600">Ammonia load → flow and biofilter</text>
+            <text x="424" y="176" class="t-small t-muted">retention time, steady-state TAN, area · Eqs. 6.2.4–6.2.5</text>
+            <text x="424" y="219" font-weight="600">Solids → settler, drum filter, sludge</text>
+            <text x="424" y="238" class="t-small t-muted">Stokes' law, overflow rate, mineralisation · Eqs. 6.2.6–6.2.7</text>
+            <text x="424" y="281" font-weight="600">N and P budgets → supplements</text>
+            <text x="424" y="300" class="t-small t-muted">decoupling, K, Ca, Fe, pH compromise · Eqs. 6.2.8–6.2.9</text>
+            <text x="424" y="343" font-weight="600">O₂, CO₂ and heat → aeration and energy</text>
+            <text x="424" y="362" class="t-small t-muted">pumping power · Eq. 6.2.10 · water quality in Lesson 6.3</text>
+            <g style="stroke:var(--amber)" stroke-width="1.8" fill="none">
+              <path d="M350 180 C 380 180, 380 37, 406 37" marker-end="url(#d1a)"/>
+              <path d="M350 188 C 380 188, 382 99, 406 99" marker-end="url(#d1a)"/>
+              <path d="M350 194 C 378 194, 384 161, 406 161" marker-end="url(#d1a)"/>
+              <path d="M350 202 C 378 202, 384 223, 406 223" marker-end="url(#d1a)"/>
+              <path d="M350 210 C 380 210, 382 285, 406 285" marker-end="url(#d1a)"/>
+              <path d="M350 218 C 380 218, 380 347, 406 347" marker-end="url(#d1a)"/>
+            </g>
+            <path d="M726 372 V 392 H 275 V 250" fill="none" class="stroke-muted" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#d1m)"/>
+            <text x="286" y="385" class="t-small t-muted">check fish, bacteria and plant limits → adjust the design, never the limits</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The design chain. A production target fixes the daily feed input; the feed then fixes the loads on every other component. The dashed arrow is the essential second step: each preliminary size is checked against the tolerance limits of fish, nitrifiers and plants (Lesson 6.3) and revised until all are respected.</figcaption>
+      </figure>
+
+      <p>Many practical rules of thumb have been published for this chain. Table 1 collects the most important ones, with their sources. They are starting points, not laws: every one of them hides assumptions about fish size, feed composition, climate, water source and solids handling that the rest of this lesson makes explicit.</p>
+      <table>
+        <caption>Table 1. Design rules of thumb for aquaponic systems and where they come from.</caption>
+        <thead><tr><th>Quantity</th><th>Rule of thumb</th><th>Source and context</th></tr></thead>
+        <tbody>
+          <tr><td>Feed-rate ratio, raft (deep-water) culture</td><td>60–100 g feed m⁻² d⁻¹</td><td>UVI system; low end for small plants such as Bibb lettuce, high end for romaine or Chinese cabbage (Rakocy et al., 2006)</td></tr>
+          <tr><td>Feed-rate ratio, small-scale units (32 % protein feed)</td><td>40–50 (leafy greens); 50–80 (fruiting crops) g m⁻² d⁻¹</td><td>FAO manual (Somerville et al., 2014)</td></tr>
+          <tr><td>Feed-rate ratio, gravel beds and NFT</td><td>≈ 25 % of the raft ratio</td><td>much smaller water volume, so the same feed gives about four times higher concentrations (Rakocy et al., 2006)</td></tr>
+          <tr><td>Feeding rate of grow-out fish (&gt; 50 g)</td><td>1–2 % of body mass per day</td><td>Somerville et al. (2014); small fish eat more: 5 % at 9 g, 3 % at 113 g, 2.2 % at 454 g (Masser et al., 1999)</td></tr>
+          <tr><td>Maximum stocking density</td><td>≤ 20 kg m⁻³ (small-scale); ≈ 60 kg m⁻³ (UVI)</td><td>FAO advice for beginners and unreliable power (Somerville et al., 2014); UVI "critical standing crop" of 0.5 lb gal⁻¹ with intensive aeration (Rakocy et al., 2006)</td></tr>
+          <tr><td>Biofilter media per gram of daily feed</td><td>1 L volcanic gravel or 0.5 L bio-balls</td><td>specific surface areas 300 and 600 m² m⁻³ (Somerville et al., 2014)</td></tr>
+          <tr><td>Mechanical separator volume</td><td>10–30 % of fish-tank volume</td><td>Somerville et al. (2014)</td></tr>
+          <tr><td>Plant area : fish-tank surface area</td><td>7.3 : 1</td><td>commercial-scale UVI unit (Rakocy et al., 2006)</td></tr>
+          <tr><td>Daily water exchange</td><td>&lt; 2 % of volume (aquaponics); 5–10 % (fish-only RAS)</td><td>Rakocy et al. (2006); Masser et al. (1999)</td></tr>
+        </tbody>
+      </table>
+      <div class="callout key"><div class="callout-title">Key idea</div><p><strong>Size by feed, check by chemistry.</strong> Ratios such as grams of feed per square metre give a first design. Mass balances for ammonia, oxygen, solids and nutrients then check whether each organism's limits are respected. When a check fails, you change the design — the plant area, the flow, the filter, the fish density or the feed — not the limit.</p></div>
+
+      <h2 id="feed-rate-ratio">The feed-rate ratio: how many plants per fish?</h2>
+      <p>The decisive design ratio links the fish side to the plant side through the feed. In Rakocy's words, "the key is the ratio of daily feed input to plant growing area" (Rakocy et al., 2006). If the ratio is too high, nutrient salts accumulate — potentially to phytotoxic levels above about 2000 ppm total dissolved solids or 3.5 mS cm⁻¹ — and more water must be exchanged. If it is too low, the plants show deficiencies and more nutrients must be supplemented. Fortunately, hydroponic plants grow well over a wide range of concentrations, so the ratio does not have to be exact.</p>
+      <div class="eq-box" id="eq-frr">
+        <div class="eq-head"><span class="eq-label">Feed-rate ratio and plant growing area</span><span class="eq-num">(6.2.1)</span></div>
+        <div class="eq-main">\[ R_F = \frac{F}{A_p} \qquad\Longleftrightarrow\qquad A_p = \frac{F}{R_F} \]</div>
+        <p class="eq-read">the feed-rate ratio is the mass of fish feed added per day divided by the plant growing area; turned round, the plant area needed equals the daily feed divided by the chosen feed-rate ratio.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(R_F\)</td><td>feed-rate ratio</td><td>g feed m⁻² d⁻¹</td><td>40–100 (Table 1)</td></tr>
+          <tr><td>\(F\)</td><td>daily feed input</td><td>g d⁻¹</td><td>10³–10⁵</td></tr>
+          <tr><td>\(A_p\)</td><td>plant growing area (raft, bed or channel area)</td><td>m²</td><td>10–10⁴</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The ratio is an empirical <em>definition</em>: it was found by running systems at different ratios and observing when nutrients accumulated or ran short (Rakocy et al., 2006).</li>
+            <li>For design, the production target usually fixes one side. If the plant target is known, \(A_p\) follows from plant spacing and cropping time, and the feed is \(F = R_F A_p\). If the fish target is known, \(F\) follows from fish production and feed conversion (Eq. 6.2.3) and \(A_p = F/R_F\).</li>
+            <li>Because \(F\) is proportional to the nutrients entering the system, choosing \(R_F\) is equivalent to choosing the nutrient load per square metre of crop.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>The published ranges assume a feed of about 32 % crude protein (Somerville et al., 2014), fairly complete solids removal, low water exchange and supplementation of K, Ca and Fe (UVI). Rakocy et al. (2006) list the factors that shift the optimum: <em>lower</em> ratios are possible with low water exchange, nutrient-rich source water, incomplete or slow solids removal (more mineralisation) and slow-growing plants; <em>higher</em> ratios are needed with high exchange, soft source water, fast complete solids removal and fast-growing crops. Staggered cropping evens out uptake and allows slightly lower ratios than batch cropping. Gravel and NFT systems contain little water, so they need about a quarter of the raft ratio for the same nutrient concentrations.</p>
+        </details>
+        <div class="eq-units">\(\dfrac{\text{g d}^{-1}}{\text{g m}^{-2}\,\text{d}^{-1}} = \text{m}^2\) ✓</div>
+        <div class="mini-calc" data-formula="F*1000/R" data-output="Plant area A<sub>p</sub>" data-unit="m²" data-digits="0" data-plot="R" data-ymin="0">
+          <div data-var="F" data-label="Daily feed F" data-min="0.5" data-max="40" data-step="0.5" data-value="12" data-unit="kg d⁻¹"></div>
+          <div data-var="R" data-label="Feed-rate ratio R<sub>F</sub>" data-min="20" data-max="120" data-step="5" data-value="60" data-unit="g m⁻² d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">A thousand lettuces a week in Västerås</span></div>
+        <div class="we-problem"><p>A cooperative plans a raft aquaponic greenhouse near Västerås to deliver 1000 butterhead lettuces every week. Transplants spend 4 weeks on the rafts at 20 plants m⁻² (FAO recommends 20–25 plants m⁻² for leafy greens). Nile tilapia are stocked at 50 g and harvested at 500 g with a feed conversion ratio (FCR) of 1.7. Following the UVI scheme, there are four rearing tanks; one is harvested every 6 weeks and the final density must not exceed 60 kg m⁻³. Using a feed-rate ratio at the low end of the raft range (60 g m⁻² d⁻¹, because butterhead lettuces are small), find the plant area, the daily feed, the annual fish production and the water volume of each tank.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Plants in the system.</strong> With weekly harvests and 4 weeks on the rafts, four batches grow at once: \(4\times1000 = 4000\) plants.</li>
+              <li><strong>Plant area.</strong> \(A_p = 4000/20 = 200\) m².</li>
+              <li><strong>Daily feed (Eq. 6.2.1).</strong> \(F = R_F A_p = 60\times200 = 12\,000\) g d⁻¹ = 12 kg d⁻¹.</li>
+              <li><strong>Annual fish gain.</strong> Feed per year \(= 12\times365 = 4380\) kg; gain \(= 4380/1.7 = 2576\) kg yr⁻¹.</li>
+              <li><strong>Number of fish and harvest mass.</strong> Each fish gains \(500-50 = 450\) g, so \(2576/0.45 = 5725\) fish per year, weighing \(5725\times0.5 = 2863\) kg at harvest (gain plus the fingerling mass).</li>
+              <li><strong>Per harvest.</strong> One tank every 6 weeks gives \(52/6 = 8.67\) harvests per year, so each harvest is \(2863/8.67 = 330\) kg, or 661 fish.</li>
+              <li><strong>Tank volume.</strong> At 60 kg m⁻³: \(V = 330/60 = 5.5\) m³ of water per tank (plus freeboard), 22 m³ in total. Rakocy et al. (2006) add about 10 % extra fingerlings for mortality, so stock ≈ 730 fish per tank.</li>
+              <li><strong>Sanity check.</strong> With four cohorts spread evenly over the cycle, the mean fish mass is roughly \((50+500)/2 = 275\) g, so the mean standing biomass is \(4\times661\times0.275 \approx 727\) kg. The feed is then \(12/727 = 1.65\) % of body mass per day — inside the 1–2 % range recommended for grow-out tilapia ✓.</li>
+            </ol>
+            <span class="answer">200 m² of rafts; 12 kg feed d⁻¹; ≈ 2.9 t tilapia yr⁻¹; four tanks of ≈ 5.5 m³</span>
+            <p style="margin-top:10px">The same procedure, in US units, is the "design for plant production" example of Rakocy et al. (2006). Note that the whole design hangs on one number, \(R_F = 60\): at 100 g m⁻² d⁻¹ the fish side would be two-thirds larger for the same lettuce output.</p>
+          </div>
+        </details>
+      </div>
+
+      <h3>Where does the ratio come from? A nutrient-based view</h3>
+      <p>The feed-rate ratio is empirical, but it can be understood — and challenged — with a mass balance. Plants take up nutrients with the water they transpire. A simple and widely used first estimate, recommended for aquaponic sizing by Goddek et al. (2019), assumes that the crop absorbs each nutrient at the concentration in which it is dissolved: uptake per square metre equals crop evapotranspiration times the target concentration of the nutrient solution. The fish, in turn, release a known fraction of each fed nutrient in dissolved form. Setting supply equal to demand gives a feed-rate ratio for every nutrient separately.</p>
+      <div class="eq-box" id="eq-frr-nutrient">
+        <div class="eq-head"><span class="eq-label">Nutrient-limited feed-rate ratio</span><span class="eq-num">(6.2.2)</span></div>
+        <div class="eq-main">\[ R_{F,X} = \frac{u_X}{w_X\,\eta_X} = \frac{ET_c\,\rho_X}{1000\;w_X\,\eta_X} \]</div>
+        <p class="eq-read">the feed-rate ratio that exactly supplies nutrient X equals the plants' daily uptake of X per square metre divided by the grams of dissolved, plant-available X released per gram of feed; the uptake is estimated as crop evapotranspiration times the target concentration of X.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example (lettuce, N)</th></tr>
+          <tr><td>\(R_{F,X}\)</td><td>feed-rate ratio balanced on nutrient X</td><td>g feed m⁻² d⁻¹</td><td></td></tr>
+          <tr><td>\(u_X\)</td><td>crop uptake of X per unit area</td><td>g m⁻² d⁻¹</td><td>≈ 0.19</td></tr>
+          <tr><td>\(ET_c\)</td><td>crop evapotranspiration (1 mm = 1 L m⁻²)</td><td>L m⁻² d⁻¹</td><td>1–3 in a greenhouse</td></tr>
+          <tr><td>\(\rho_X\)</td><td>target concentration of X in the nutrient solution</td><td>mg L⁻¹</td><td>N ≈ 125, P 31, K 215</td></tr>
+          <tr><td>\(w_X\)</td><td>mass fraction of X in the feed</td><td>g g⁻¹</td><td>N: 0.16 × 0.32 = 0.051</td></tr>
+          <tr><td>\(\eta_X\)</td><td>fraction of fed X released in dissolved form</td><td>–</td><td>N ≈ 0.33; P ≈ 0.17</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Demand.</strong> A crop transpiring \(ET_c\) litres per square metre per day, fed a solution with \(\rho_X\) milligrams of X per litre, takes up \(ET_c\,\rho_X\) mg m⁻² d⁻¹ if uptake follows water uptake: \(u_X = ET_c\,\rho_X/1000\) in g m⁻² d⁻¹ (Goddek et al., 2019; Eck et al., 2019).</li>
+            <li><strong>Supply.</strong> Each gram of feed contains \(w_X\) grams of X, of which a fraction \(\eta_X\) reaches the water in dissolved form (soluble excretion; plus any in-system mineralisation of solids). Per square metre: \(R_F\,w_X\,\eta_X\).</li>
+            <li><strong>Balance.</strong> Steady state without accumulation or supplementation requires \(R_F\,w_X\,\eta_X = u_X\), hence \(R_{F,X} = u_X/(w_X\eta_X)\).</li>
+            <li><strong>Numbers.</strong> Cornell's commercial lettuce solution contains about 125 mg N, 31 mg P and 215 mg K per litre (Brechner &amp; Both, 2013). Montanhini Neto and Ostrensky found that Nile tilapia release 33 % of feed N and 17 % of feed P in soluble form (as reported by Goddek et al., 2019). With \(ET_c = 1.5\) L m⁻² d⁻¹, a 32 % protein feed and 1.2 % P in feed: \(R_{F,N} = 1.5\times125/(1000\times0.0512\times0.33) = 11\) and \(R_{F,P} = 1.5\times31/(1000\times0.012\times0.17) = 23\) g m⁻² d⁻¹.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary>
+          <p>Uptake proportional to water uptake is a deliberate simplification: plants absorb some ions faster (nitrate, potassium) and others slower than water, store surplus nitrate and change their demand with growth stage and light (Eck et al., 2019). \(\eta_X\) is not a constant either — it rises if solids stay in the system and mineralise, and it falls for phosphorus when phosphate precipitates with calcium at pH ≥ 7. Use Eq. 6.2.2 to find <em>which nutrient runs out first</em>, not to fix the plant area to the nearest square metre.</p>
+        </details>
+        <div class="eq-units">\(\dfrac{\text{L m}^{-2}\text{d}^{-1}\times\text{mg L}^{-1}\times10^{-3}\,\text{g mg}^{-1}}{\text{g g}^{-1}\times(-)} = \text{g feed m}^{-2}\,\text{d}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="ET*rho*10/(w*eta)" data-output="Balanced feed-rate ratio R<sub>F,X</sub>" data-unit="g m⁻² d⁻¹" data-digits="1" data-plot="ET" data-ymin="0" data-title="Try it — nitrogen by default; for phosphorus use 31 mg L⁻¹, 1.2 % and 17 %">
+          <div data-var="ET" data-label="Crop evapotranspiration ET<sub>c</sub>" data-min="0.5" data-max="4" data-step="0.1" data-value="1.5" data-unit="L m⁻² d⁻¹"></div>
+          <div data-var="rho" data-label="Target concentration ρ<sub>X</sub>" data-min="5" data-max="300" data-step="1" data-value="125" data-unit="mg L⁻¹"></div>
+          <div data-var="w" data-label="X in feed w<sub>X</sub>" data-min="0.3" data-max="8" data-step="0.02" data-value="5.12" data-unit="%"></div>
+          <div data-var="eta" data-label="Released dissolved η<sub>X</sub>" data-min="5" data-max="80" data-step="1" data-value="33" data-unit="%"></div>
+        </div>
+      </div>
+      <p>The result is striking. Balanced on nitrogen alone, lettuce would need only about 10 g of feed per square metre per day — six to ten times less than the UVI ratio. At 60–100 g m⁻² d⁻¹ the fish therefore deliver several times more dissolved nitrogen than the lettuce can take up, which is exactly what the nitrogen use efficiencies in Lesson 6.1 showed. In the UVI system much of the surplus is removed by denitrification in the sludge that accumulates on the orchard netting of the filter tanks; the operators regulate it — and with it nitrate-N anywhere between about 1 and 100 mg L⁻¹ — simply by cleaning the netting more or less often (Rakocy et al., 2006). Why not design at 10 g m⁻² d⁻¹, then? Because the other nutrients would run out even faster. Fish feed is formulated for fish, and its nutrient ratios do not match a plant's: no single plant-to-fish ratio can supply every nutrient in the right proportion from feed alone (Seawright, Stickney &amp; Walker, 1998, as discussed by Eck et al., 2019). The empirical feed-rate ratio is a compromise between surplus nitrogen and deficient potassium, iron or calcium — a compromise that supplementation (Section 6.2.8) and decoupling (Section 6.2.6) try to escape.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"A well-balanced aquaponic system recycles all the fish waste into plants and needs no other inputs." Even the best-documented coupled systems add bases containing K and Ca, chelated iron and some fresh water, and lose a large part of the nitrogen as gas and much of the phosphorus with the sludge. "Balanced" means that no nutrient accumulates to harmful levels and none limits growth — not that nothing is lost or added.</p></div>
+
+      <h2 id="fish-biomass">Fish biomass, feeding rate and stocking density</h2>
+      <p>The feed has to be eaten, so the daily feed fixes the fish biomass. Feeding rate expressed as a percentage of body mass falls steeply as fish grow: Masser, Rakocy and Losordo (1999) give about 5 % per day for 9 g warm-water fish, 3 % at 113 g, 2.75 % at 227 g, 2.2 % at 454 g and 1.8 % at 681 g. The FAO manual uses 1–2 % per day for grow-out fish above 50 g (Somerville et al., 2014). Once the biomass is known, the stocking density fixes the tank volume, and the feed conversion ratio fixes the annual production.</p>
+      <div class="eq-box" id="eq-biomass">
+        <div class="eq-head"><span class="eq-label">Fish biomass, rearing volume and annual production</span><span class="eq-num">(6.2.3)</span></div>
+        <div class="eq-main">\[ B = \frac{F}{r_f}, \qquad V_R = \frac{B_{\max}}{SD_{\max}}, \qquad P_{\text{fish}} = \frac{365\,\bar F}{\text{FCR}} \]</div>
+        <p class="eq-read">the standing fish biomass equals the daily feed divided by the feeding rate; the rearing volume equals the largest biomass the tanks must hold divided by the highest acceptable stocking density; and the annual fish gain equals a year's feed divided by the feed conversion ratio.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(B\)</td><td>standing fish biomass</td><td>kg</td><td></td></tr>
+          <tr><td>\(r_f\)</td><td>feeding rate as a fraction of body mass per day</td><td>d⁻¹</td><td>0.01–0.03</td></tr>
+          <tr><td>\(B_{\max}\)</td><td>largest biomass in a tank (just before harvest)</td><td>kg</td><td></td></tr>
+          <tr><td>\(SD_{\max}\)</td><td>maximum stocking density</td><td>kg m⁻³</td><td>20 (FAO) – 60 (UVI)</td></tr>
+          <tr><td>\(V_R\)</td><td>rearing water volume</td><td>m³</td><td></td></tr>
+          <tr><td>\(\bar F\), FCR</td><td>mean daily feed (kg d⁻¹); feed conversion ratio (kg feed per kg gain)</td><td>kg d⁻¹; –</td><td>FCR 1.7–1.8 (UVI tilapia)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The feeding rate is defined as \(r_f = F/B\) (feed per unit biomass per day), so \(B = F/r_f\).</li>
+            <li>Stocking density is biomass per volume, \(SD = B/V\). The binding moment is just before harvest, when a tank holds its largest biomass; therefore \(V_R = B_{\max}/SD_{\max}\).</li>
+            <li>FCR is defined as feed eaten per unit gain, so the gain from a year's feed is \(365\bar F/\text{FCR}\). The harvested mass is the gain plus the mass of the fingerlings stocked.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>\(r_f\) must be the <em>mean</em> feeding rate of a population that contains fish of all sizes (Figure 2). FCR depends strongly on temperature, feed quality and feeding management; UVI reported 1.7 for Nile and 1.8 for red tilapia (Rakocy et al., 2006). Mortality (10 % was allowed at UVI) reduces the harvest for the same feed.</p></details>
+        <div class="eq-units">\(\dfrac{\text{kg d}^{-1}}{\text{d}^{-1}} = \text{kg}\); \(\dfrac{\text{kg}}{\text{kg m}^{-3}} = \text{m}^3\); \(\dfrac{\text{d yr}^{-1}\times\text{kg d}^{-1}}{\text{kg kg}^{-1}} = \text{kg yr}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="F/(r/100)/SD" data-output="Rearing volume V<sub>R</sub>" data-unit="m³" data-digits="1" data-plot="SD" data-ymin="0" data-title="Try it — volume needed if the whole biomass is held at the maximum density">
+          <div data-var="F" data-label="Daily feed F" data-min="1" data-max="40" data-step="0.5" data-value="12" data-unit="kg d⁻¹"></div>
+          <div data-var="r" data-label="Mean feeding rate r<sub>f</sub>" data-min="0.8" data-max="4" data-step="0.05" data-value="1.65" data-unit="% d⁻¹"></div>
+          <div data-var="SD" data-label="Maximum density SD<sub>max</sub>" data-min="10" data-max="100" data-step="1" data-value="60" data-unit="kg m⁻³"></div>
+        </div>
+      </div>
+      <p>What density is acceptable? The FAO manual recommends that beginners do not exceed 20 kg of fish per 1000 L, because "a brief interruption can kill all of the fish within an hour at high stocking densities" (Somerville et al., 2014). UVI raised tilapia to a "critical standing crop" of 0.5 lb gal⁻¹ (≈ 60 kg m⁻³): Nile tilapia were harvested at 61.5 kg m⁻³ and red tilapia at 70.7 kg m⁻³ from 7.8 m³ tanks aerated by 22 diffusers each, without pure oxygen (Rakocy et al., 2006). Goddek et al. (2015) quote 30–40 kg m⁻³ as common for outdoor tilapia systems without pure oxygen and up to 60 kg m⁻³ in greenhouses. Density is also a welfare question: its effects operate largely through water quality and behaviour, which Lesson 6.3 examines.</p>
+      <p>The <strong>critical standing crop</strong> is the largest biomass a system can carry without restricting growth. Operating close to it uses tank space efficiently and, just as importantly for aquaponics, "reduces variation in the daily feed input to the system, an important factor in sizing the hydroponic component" (Rakocy et al., 2006). There are three ways to keep biomass near the critical standing crop: sequential rearing (several age groups in one tank, with selective harvests), stock splitting (halving the population into a new tank when the limit is reached) and multiple rearing units (separate tanks for separate cohorts). UVI uses four tanks stocked six weeks apart on a 24-week cycle. Figure 2 shows why.</p>
+
+      <figure class="figure wide" id="stagger-sim">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — staggered cohorts smooth the nutrient supply</div>
+          <div class="seg" id="st-n" role="group" aria-label="Number of cohorts" style="margin-bottom:10px">
+            <button type="button" data-v="1" aria-pressed="false">1 tank (batch)</button>
+            <button type="button" data-v="2" aria-pressed="false">2 cohorts</button>
+            <button type="button" data-v="4" aria-pressed="true">4 cohorts (UVI)</button>
+            <button type="button" data-v="6" aria-pressed="false">6 cohorts</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 18px" id="st-ctl"></div>
+          <div id="st-plot" style="height:300px;margin-top:8px"></div>
+          <div class="readouts" id="st-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 2.</b> Daily feed input (left axis) and standing fish biomass (right axis, dashed) for a total rearing volume of 31.2 m³ divided into 1–6 tanks that are stocked at equal intervals over a 24-week cycle. Each fish grows as \(dW/dt = aW^{0.5}\) from 79.2 g to 813.8 g in 168 days and 98.3 % survive — the Nile tilapia results of the UVI system (Rakocy et al., 2006) — and eats FCR × its daily gain. With the UVI settings the model reproduces the published numbers: 480 kg per harvest, 61.5 kg m⁻³ at harvest, 4.2 t yr⁻¹ and ≈ 220 m² of plants at 80 g m⁻² d⁻¹ (UVI: 214 m²). The growth exponent 0.5 is an assumption; the conclusions do not depend on its exact value.</figcaption>
+      </figure>
+      <p>With a single batch, the feed input climbs from about 8.5 to 27 kg d⁻¹ over the cycle and then collapses at harvest — a factor of three. Plants sized for the mean would be starved at the start of each cycle and overloaded at the end. With four staggered cohorts the same fish volume varies only by about ±13 % around the same mean of 17.7 kg d⁻¹, and with six cohorts by about ±8 %. Staggering the plants works the same way: UVI harvests a quarter of its leaf lettuce every week, so that nutrient uptake stays nearly constant (Rakocy et al., 2006).</p>
+
+      <h2 id="hydraulics">Flow, retention time and ammonia control</h2>
+      <p>Water carries waste from the fish to the treatment units and returns treated water. Two times characterise the hydraulics. The <strong>hydraulic retention time</strong> (HRT) of a component is its volume divided by the flow through it; its inverse, multiplied by 24 h, is the number of turnovers per day. In the UVI system, 378 L min⁻¹ flows through four 7.8 m³ rearing tanks, giving a mean retention time in the rearing tanks of 82 min, and the whole 111 m³ system circulates about five times a day (Rakocy et al., 2006). What sets the flow? Usually ammonia.</p>
+      <div class="eq-box" id="eq-hrt-tan">
+        <div class="eq-head"><span class="eq-label">Retention time and steady-state TAN in a recirculating tank</span><span class="eq-num">(6.2.4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \tau = \frac{V}{Q}, \qquad C_T = C_{\text{in}} + \frac{P_{\text{TAN}}}{Q} \\[6pt] C_{\text{in}} = (1-\eta)\,C_T \;\;\Rightarrow\;\; C_T = \frac{P_{\text{TAN}}}{\eta\,Q} \end{gathered} \]</div>
+        <p class="eq-read">the retention time is volume divided by flow. In a fish tank at steady state, the ammonia concentration leaving the tank equals the incoming concentration plus the daily ammonia production divided by the flow; if the treatment loop removes a fraction eta of the ammonia on each pass, the tank settles at the ammonia production divided by eta times the flow.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(\tau\)</td><td>hydraulic retention time</td><td>h (or min)</td><td>0.5–1.5 h in fish tanks</td></tr>
+          <tr><td>\(V,\ Q\)</td><td>volume of the component; flow through it</td><td>m³; m³ d⁻¹ or m³ h⁻¹</td><td></td></tr>
+          <tr><td>\(C_T,\ C_{\text{in}}\)</td><td>TAN in the tank (= outflow) and in the inflow</td><td>g m⁻³ = mg L⁻¹</td><td>target ≤ 1 (FAO)</td></tr>
+          <tr><td>\(P_{\text{TAN}}\)</td><td>TAN production (Eq. 6.1.2: ≈ 0.092 F PC)</td><td>g d⁻¹</td><td></td></tr>
+          <tr><td>\(\eta\)</td><td>fraction of TAN removed per pass through biofilter and plants</td><td>–</td><td>0.2–0.6</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Treat the tank as well mixed: the outflow concentration equals the tank concentration \(C_T\).</li>
+            <li>Mass balance on TAN: accumulation = in − out + production, i.e. \(V\,dC_T/dt = Q C_{\text{in}} - Q C_T + P_{\text{TAN}}\).</li>
+            <li>At steady state \(dC_T/dt = 0\): \(C_T = C_{\text{in}} + P_{\text{TAN}}/Q\). In a flow-through tank fed with clean water, \(C_{\text{in}} = 0\) and \(C_T = P_{\text{TAN}}/Q\).</li>
+            <li>In a recirculating system the "new" water is treated tank water: if treatment removes a fraction \(\eta\), then \(C_{\text{in}} = (1-\eta)C_T\). Substituting: \(C_T = (1-\eta)C_T + P/Q\) ⇒ \(\eta C_T = P/Q\) ⇒ \(C_T = P/(\eta Q)\).</li>
+            <li><strong>Check against a published example.</strong> Losordo, Masser and Rakocy (1998) consider 2500 lb of fish eating 37.5 lb d⁻¹ of 32 % protein feed, producing ≈ 1.1 lb (499 g) TAN-N d⁻¹. To hold 1.0 mg L⁻¹ with new water they need ≈ 93 gpm: \(499\ \text{g d}^{-1}/1\ \text{g m}^{-3} = 499\) m³ d⁻¹ = 91.5 gpm ✓. With 50 % removal per pass the recirculation flow must be doubled, to 186 gpm — exactly the factor \(1/\eta\) ✓.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A daily average: TAN excretion peaks a few hours after feeding, so peak concentrations exceed \(C_T\). Plug-flow raceways have a concentration gradient instead of a single value. \(\eta\) itself depends on concentration, temperature and oxygen (Eq. 6.2.5), so \(C_T\) and \(\eta\) must be solved together for an exact design. Ammonia is not the only constraint on flow: oxygen supply and solids transport can require more (Lesson 6.3).</p></details>
+        <div class="eq-units">\(\dfrac{\text{g d}^{-1}}{(-)\times\text{m}^3\,\text{d}^{-1}} = \text{g m}^{-3} = \text{mg L}^{-1}\) ✓; \(\tau\): m³ ÷ m³ h⁻¹ = h ✓</div>
+        <div class="mini-calc" data-formula="P/((eta/100)*Q*24)" data-output="Steady-state TAN in the tank" data-unit="mg L⁻¹" data-digits="2" data-plot="Q" data-ymin="0" data-ymax="5">
+          <div data-var="P" data-label="TAN production P<sub>TAN</sub>" data-min="20" data-max="1500" data-step="10" data-value="353" data-unit="g d⁻¹"></div>
+          <div data-var="Q" data-label="Recirculation flow Q" data-min="2" data-max="80" data-step="0.5" data-value="29.5" data-unit="m³ h⁻¹"></div>
+          <div data-var="eta" data-label="Removal per pass η" data-min="10" data-max="90" data-step="5" data-value="50" data-unit="%"></div>
+        </div>
+      </div>
+      <p>The removal per pass depends on the biofilter. Lesson 6.1 sized the biofilm area with a constant areal removal rate (Eq. 6.1.9). In reality the rate depends on the TAN concentration the biofilm sees: nitrifiers follow Monod kinetics (Eq. 6.1.8), so at low TAN they are substrate-limited. The FAO manual quotes areal ammonia removal rates of 0.2–2 g m⁻² d⁻¹ and designs with a conservative 0.57 g m⁻² d⁻¹ (Somerville et al., 2014). Writing the areal rate in Monod form reveals a design trade-off that a constant rate hides.</p>
+      <div class="eq-box" id="eq-biofilter-monod">
+        <div class="eq-head"><span class="eq-label">Biofilter area for a target TAN concentration</span><span class="eq-num">(6.2.5)</span></div>
+        <div class="eq-main">\[ r_A = r_{A,\max}\,\frac{C}{K + C} \quad\Rightarrow\quad A_{\text{bf}} = \frac{P_{\text{TAN}}}{r_A} = \frac{P_{\text{TAN}}\,(K + C)}{r_{A,\max}\,C} \]</div>
+        <p class="eq-read">the areal removal rate of a nitrifying biofilm rises with the TAN concentration towards a maximum; the biofilm area needed is the daily TAN production divided by that rate, which grows without limit as the target concentration approaches zero.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Illustrative value</th></tr>
+          <tr><td>\(r_A\)</td><td>areal TAN removal rate</td><td>g N m⁻² d⁻¹</td><td>0.2–2 (FAO)</td></tr>
+          <tr><td>\(r_{A,\max}\)</td><td>maximum areal rate (non-limiting TAN, ample O₂)</td><td>g N m⁻² d⁻¹</td><td>≈ 1</td></tr>
+          <tr><td>\(K\)</td><td>apparent half-saturation concentration of the biofilm</td><td>mg N L⁻¹</td><td>≈ 0.5</td></tr>
+          <tr><td>\(C\)</td><td>TAN concentration at which the filter must operate</td><td>mg N L⁻¹</td><td>0.3–2</td></tr>
+          <tr><td>\(A_{\text{bf}}\)</td><td>colonised surface area</td><td>m²</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The areal rate is the biomass per area times the specific substrate uptake rate. With Monod kinetics (Eq. 6.1.8) and a fully grown biofilm, \(r_A = r_{A,\max}\,C/(K+C)\).</li>
+            <li>At steady state the filter removes what the fish produce: \(r_A A_{\text{bf}} = P_{\text{TAN}}\).</li>
+            <li>Substitute and solve: \(A_{\text{bf}} = P_{\text{TAN}}(K+C)/(r_{A,\max}C)\).</li>
+            <li>The factor \((K+C)/C\) is the penalty for a low target: at \(C = 2K\) it is 1.5, at \(C = K\) it is 2, at \(C = K/2\) it is 3. Halving the allowed TAN from 1.0 to 0.5 mg L⁻¹ (with \(K = 0.5\)) enlarges the filter by a third.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The parameters are illustrative orders of magnitude chosen to agree with the 0.2–2 g m⁻² d⁻¹ range quoted by Somerville et al. (2014) and with the Monod parameters of Lesson 6.1; real biofilms are often limited by oxygen diffusion rather than by TAN, slow down in cold water (θ ≈ 1.07 per °C, Eq. 6.1.8) and lose capacity when heterotrophs overgrow them. Add a safety factor of 1.5–2.</p></details>
+        <div class="eq-units">\(\dfrac{\text{g d}^{-1}\times\text{mg L}^{-1}}{\text{g m}^{-2}\,\text{d}^{-1}\times\text{mg L}^{-1}} = \text{m}^2\) ✓</div>
+        <div class="mini-calc" data-formula="P*(K+C)/(rmax*C)" data-output="Biofilm area A<sub>bf</sub>" data-unit="m²" data-digits="0" data-plot="C" data-ymin="0">
+          <div data-var="P" data-label="TAN production P<sub>TAN</sub>" data-min="20" data-max="1500" data-step="10" data-value="353" data-unit="g d⁻¹"></div>
+          <div data-var="C" data-label="Target TAN C" data-min="0.1" data-max="3" data-step="0.05" data-value="1" data-unit="mg L⁻¹"></div>
+          <div data-var="rmax" data-label="Maximum areal rate r<sub>A,max</sub>" data-min="0.3" data-max="2" data-step="0.05" data-value="1" data-unit="g m⁻² d⁻¹"></div>
+          <div data-var="K" data-label="Half-saturation K" data-min="0.1" data-max="2" data-step="0.05" data-value="0.5" data-unit="mg L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Flows and biofilter for the Västerås farm</span></div>
+        <div class="we-problem"><p>The farm of Worked example 1 feeds 12 kg d⁻¹ of a 32 % protein feed; its four rearing tanks hold 22 m³. TAN in the fish tanks must stay at or below 1.0 mg L⁻¹, and the biofilter plus rafts remove 50 % of the TAN on each pass. (a) What is the TAN production? (b) Which recirculation flow is needed, and what are the retention time in the rearing tanks and the number of turnovers per day? (c) How much biofilm area is needed (Eq. 6.2.5, \(r_{A,\max}\) = 1 g m⁻² d⁻¹, \(K\) = 0.5 mg L⁻¹), and what volume of bio-balls (600 m² m⁻³) is that? (d) Could the 200 m² of rafts do the nitrification alone?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>TAN production (Eq. 6.1.2).</strong> \(P_{\text{TAN}} = 0.092\times12\times0.32 = 0.353\) kg d⁻¹ = 353 g d⁻¹.</li>
+              <li><strong>Flow (Eq. 6.2.4).</strong> \(Q = P/(\eta C_T) = 353/(0.5\times1.0) = 706\) m³ d⁻¹ = 29.4 m³ h⁻¹ (490 L min⁻¹).</li>
+              <li><strong>Retention time.</strong> \(\tau = 22/29.4 = 0.75\) h = 45 min; turnovers \(= 706/22 = 32\) per day. Compare UVI: 82 min at a lower loading per unit volume.</li>
+              <li><strong>Biofilm area (Eq. 6.2.5).</strong> At 1.0 mg L⁻¹: \(r_A = 1\times1.0/(0.5+1.0) = 0.667\) g m⁻² d⁻¹, so \(A_{\text{bf}} = 353/0.667 = 530\) m²; as bio-balls, \(530/600 = 0.88\) m³ (≈ 1.3–1.8 m³ with a safety factor).</li>
+              <li><strong>Rafts as biofilter.</strong> UVI found the waste-treatment capacity of raft beds to be equivalent to 180 g feed m⁻² d⁻¹ once solids are removed (Rakocy et al., 2006): \(200\times180 = 36\) kg feed d⁻¹, three times the 12 kg fed. The rafts could suffice, but a separate filter is insurance while plants are small or during crop changes.</li>
+            </ol>
+            <span class="answer">(a) 353 g TAN-N d⁻¹ (b) ≈ 29 m³ h⁻¹; τ ≈ 45 min; ≈ 32 turnovers d⁻¹ (c) ≈ 530 m², ≈ 0.9 m³ bio-balls before safety factor (d) yes, on paper</span>
+          </div>
+        </details>
+      </div>
+      <a class="lab-link" data-lab="aquaponics-system" data-why="Change the fish biomass, feeding rate, flow and temperature of a running 3D system and see how ammonia, nitrite, nitrate and plant growth respond."></a>
+
+      <h2 id="solids">Solids: remove them fast, then recycle them</h2>
+      <p>Faeces, uneaten feed and sloughed biofilm are the least glamorous part of aquaponics and the most frequent cause of failure. Between 20 and 40 % of the feed mass ends up as total suspended solids in the sludge of a recirculating system (Timmons &amp; Ebeling, 2013, cited by Goddek et al., 2019). Left in the water, solids consume oxygen as they decay and release CO₂ and ammonia; deep deposits turn anaerobic and produce methane and hydrogen sulphide, "which are very toxic to fish"; suspended solids that reach the plants coat the roots and create anaerobic zones that block nutrient uptake (Rakocy et al., 2006). Fine particles also damage gills (Yavuzcan Yildiz et al., 2017). Thorarinsdottir (2015) attributed more than 85 % of the failures of aquaponic systems to inadequate solids removal (as cited by Yavuzcan Yildiz et al., 2017).</p>
+      <p>Yet solids are also where most of the phosphorus and many micronutrients sit, and their microbial breakdown — <strong>mineralisation</strong> — releases nutrients the plants need (Rakocy et al., 2006). The design principle is therefore: remove solids from the fish loop quickly, before they break into fine particles and leach, and then decide deliberately what to do with them. Engineers classify solids by size and behaviour: <em>settleable</em> solids (above about 100 µm) sink out of still water within an hour; <em>suspended</em> solids stay in the water column; <em>fine</em> solids below 30 µm can make up more than half of the total suspended solids in a recirculating system; and <em>dissolved</em> organic matter passes every filter (Losordo et al., 1998). Table 2 and Figure 3 match the devices to the particle sizes.</p>
+      <table>
+        <caption>Table 2. Solids-removal devices used in aquaponics (Rakocy et al., 2006; Losordo et al., 1998; Yavuzcan Yildiz et al., 2017).</caption>
+        <thead><tr><th>Device</th><th>Principle</th><th>Particles removed</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Swirl separator, radial-flow settler, cylindro-conical clarifier</td><td>gravity settling</td><td>settleable, &gt; ≈ 100 µm</td><td>no moving parts, low energy. The UVI clarifiers remove ≈ 50 % of particulate solids. At the same overflow rate a radial-flow settler removed 78 % of suspended solids against 37 % for a swirl separator in a coldwater RAS (Davidson &amp; Summerfelt, 2005).</td></tr>
+          <tr><td>Microscreen drum filter</td><td>straining on a rotating screen, automatic spray backwash</td><td>screens typically 40–80 µm</td><td>solids leave within minutes, so little leaching; recommended when fish loading is high relative to plant area (Rakocy et al., 2006); uses power and backwash water</td></tr>
+          <tr><td>Bead and sand filters</td><td>depth filtration</td><td>sand down to ≈ 5 µm</td><td>also host nitrifiers; need regular backwashing</td></tr>
+          <tr><td>Filter tanks with orchard netting (UVI)</td><td>interception on netting</td><td>fine and suspended</td><td>sludge stays for days: some mineralisation and denitrification, used at UVI to control nitrate</td></tr>
+          <tr><td>Foam fractionator (protein skimmer)</td><td>attachment to rising bubbles</td><td>fine (&lt; 30 µm) and dissolved organics</td><td>rarely needed in aquaponics at the recommended feed-rate ratios (Rakocy et al., 2006)</td></tr>
+          <tr><td>Media beds (gravel, clay pebbles) in flood-and-drain mode</td><td>interception plus in-bed mineralisation</td><td>all sizes</td><td>simple, but clog when overloaded; beds are cultivated between crops and inoculated with red worms (Rakocy et al., 2006)</td></tr>
+        </tbody>
+      </table>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 380" role="img" aria-label="Cross-sections of a swirl separator, a radial-flow settler and a microscreen drum filter, above a logarithmic particle-size scale showing which device captures which particle sizes">
+            <defs>
+              <marker id="d3w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--water)"/></marker>
+              <marker id="d3m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+            </defs>
+            <!-- (a) swirl separator -->
+            <text x="125" y="18" text-anchor="middle" font-weight="600">(a) Swirl separator</text>
+            <path d="M65 40 H185 V150 L125 208 L65 150 Z" class="fill-water-soft" stroke="currentColor" stroke-width="1.5"/>
+            <ellipse cx="125" cy="70" rx="48" ry="9" fill="none" class="stroke-water" stroke-width="1.4" stroke-dasharray="4 3"/>
+            <ellipse cx="125" cy="100" rx="42" ry="8" fill="none" class="stroke-water" stroke-width="1.4" stroke-dasharray="4 3"/>
+            <ellipse cx="125" cy="128" rx="34" ry="7" fill="none" class="stroke-water" stroke-width="1.4" stroke-dasharray="4 3"/>
+            <line x1="20" y1="62" x2="63" y2="62" class="stroke-water" stroke-width="3" marker-end="url(#d3w)"/>
+            <text x="18" y="54" class="t-small">tangential</text><text x="18" y="84" class="t-small">inlet</text>
+            <line x1="125" y1="52" x2="125" y2="26" class="stroke-water" stroke-width="3" marker-end="url(#d3w)"/>
+            <text x="133" y="36" class="t-small">outlet</text>
+            <g class="fill-amber"><circle cx="112" cy="176" r="3"/><circle cx="128" cy="186" r="3.5"/><circle cx="120" cy="196" r="3"/><circle cx="136" cy="172" r="2.5"/></g>
+            <line x1="125" y1="208" x2="125" y2="238" class="stroke-muted" stroke-width="2" marker-end="url(#d3m)"/>
+            <text x="133" y="232" class="t-small t-muted">sludge</text>
+            <!-- (b) radial flow settler -->
+            <text x="380" y="18" text-anchor="middle" font-weight="600">(b) Radial-flow settler</text>
+            <path d="M290 40 H470 V140 L380 208 L290 140 Z" class="fill-water-soft" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="365" y="30" width="30" height="72" class="fill-bg" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="380" y1="26" x2="380" y2="92" class="stroke-water" stroke-width="3" marker-end="url(#d3w)"/>
+            <text x="400" y="36" class="t-small">inlet well</text>
+            <path d="M366 100 C 340 108, 320 90, 300 52" fill="none" class="stroke-water" stroke-width="1.8" marker-end="url(#d3w)"/>
+            <path d="M394 100 C 420 108, 440 90, 460 52" fill="none" class="stroke-water" stroke-width="1.8" marker-end="url(#d3w)"/>
+            <path d="M294 44 H274" class="stroke-water" stroke-width="2.5" marker-end="url(#d3w)"/>
+            <path d="M466 44 H486" class="stroke-water" stroke-width="2.5" marker-end="url(#d3w)"/>
+            <text x="252" y="64" class="t-small">weir</text><text x="480" y="64" class="t-small">weir</text>
+            <g class="fill-amber"><circle cx="360" cy="168" r="3"/><circle cx="380" cy="180" r="3.5"/><circle cx="397" cy="170" r="3"/><circle cx="372" cy="192" r="3"/><circle cx="388" cy="196" r="2.5"/></g>
+            <line x1="380" y1="208" x2="380" y2="238" class="stroke-muted" stroke-width="2" marker-end="url(#d3m)"/>
+            <text x="388" y="232" class="t-small t-muted">sludge (≈ 1 % DM)</text>
+            <!-- (c) drum filter -->
+            <text x="636" y="18" text-anchor="middle" font-weight="600">(c) Microscreen drum filter</text>
+            <rect x="548" y="34" width="176" height="178" rx="8" class="fill-water-soft" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="636" cy="124" r="66" class="fill-bg" style="stroke:var(--water)" stroke-width="2.5" stroke-dasharray="3 2"/>
+            <path d="M606 72 h60 v14 h-60 z" class="fill-sunk" stroke="currentColor" stroke-width="1"/>
+            <text x="636" y="100" text-anchor="middle" class="t-small">sludge trough</text>
+            <g class="fill-amber"><path d="M586 48 l8 12 l-16 0 z"/><path d="M618 44 l8 12 l-16 0 z"/><path d="M650 48 l8 12 l-16 0 z"/></g>
+            <text x="664" y="58" class="t-small">sprays</text>
+            <line x1="520" y1="130" x2="600" y2="130" class="stroke-water" stroke-width="3" marker-end="url(#d3w)"/>
+            <text x="500" y="120" class="t-small">inflow</text>
+            <path d="M690 150 L 712 170" class="stroke-water" stroke-width="2" marker-end="url(#d3w)"/>
+            <path d="M636 190 L 636 205" class="stroke-water" stroke-width="2" marker-end="url(#d3w)"/>
+            <text x="636" y="228" text-anchor="middle" class="t-small">filtrate through 40–80 µm screen</text>
+            <g class="fill-amber"><circle cx="612" cy="146" r="2.5"/><circle cx="626" cy="160" r="3"/><circle cx="650" cy="150" r="2.5"/></g>
+            <!-- particle size scale -->
+            <line x1="40" y1="276" x2="720" y2="276" class="stroke" stroke-width="1.2"/>
+            <g class="t-small t-mono">
+              <text x="40" y="266" text-anchor="middle">1 µm</text><text x="210" y="266" text-anchor="middle">10</text><text x="380" y="266" text-anchor="middle">100</text><text x="550" y="266" text-anchor="middle">1 mm</text><text x="720" y="266" text-anchor="middle">10 mm</text>
+            </g>
+            <g class="stroke" stroke-width="1"><line x1="40" y1="272" x2="40" y2="280"/><line x1="210" y1="272" x2="210" y2="280"/><line x1="380" y1="272" x2="380" y2="280"/><line x1="550" y1="272" x2="550" y2="280"/><line x1="720" y1="272" x2="720" y2="280"/></g>
+            <rect x="380" y="286" width="340" height="12" rx="3" class="fill-water"/>
+            <text x="376" y="296" text-anchor="end" class="t-small">gravity settlers (a, b)</text>
+            <rect x="312" y="304" width="408" height="12" rx="3" class="fill-accent"/>
+            <text x="308" y="314" text-anchor="end" class="t-small">microscreens 40–80 µm (c)</text>
+            <rect x="159" y="322" width="561" height="12" rx="3" class="fill-amber"/>
+            <text x="155" y="332" text-anchor="end" class="t-small">sand filters</text>
+            <rect x="40" y="340" width="251" height="12" rx="3" class="fill-magenta"/>
+            <text x="298" y="350" class="t-small">foam fractionation (&lt; 30 µm)</text>
+            <text x="380" y="372" text-anchor="middle" class="t-small t-muted">particle diameter (logarithmic scale)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 3.</b> Three common solids separators (schematic, not to scale) and the particle sizes that each group of devices captures. (a) In a swirl separator the tangential inflow sets up a rotating flow that carries particles to the wall and down into the cone. (b) In a radial-flow settler water enters a central well and flows outwards and upwards at decreasing velocity to a peripheral weir; particles settle into the cone. (c) A drum filter strains water flowing outwards through a rotating screen; sprays wash the retained solids into a trough. Size ranges after Yavuzcan Yildiz et al. (2017): gravity devices above ≈ 100 µm, drum screens 40–80 µm, sand filters down to ≈ 5 µm, foam fractionators below 30 µm.</figcaption>
+      </figure>
+
+      <h3>How big must a settler be? Stokes and Hazen</h3>
+      <p>Gravity separators are sized with two classic results. Stokes' law gives the terminal settling velocity of a small sphere in a viscous fluid. Hazen (1904) then showed that in an ideal settling basin, whether a particle is captured depends only on its settling velocity and the <strong>overflow rate</strong> — flow divided by the surface area of the basin — and not on the depth. Figure 4 shows the argument.</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 250" role="img" aria-label="Ideal settling basin with the trajectories of particles that settle faster than, equal to and slower than the overflow rate">
+            <defs>
+              <marker id="d4w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--water)"/></marker>
+              <marker id="d4k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:currentColor"/></marker>
+            </defs>
+            <rect x="100" y="40" width="460" height="130" class="fill-water-soft" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="100" y="170" width="460" height="14" class="fill-sunk" stroke="currentColor" stroke-width="1"/>
+            <text x="330" y="199" text-anchor="middle" class="t-small t-muted">sludge zone</text>
+            <line x1="40" y1="70" x2="96" y2="70" class="stroke-water" stroke-width="3" marker-end="url(#d4w)"/>
+            <text x="40" y="60" class="t-small">inflow Q</text>
+            <line x1="564" y1="70" x2="620" y2="70" class="stroke-water" stroke-width="3" marker-end="url(#d4w)"/>
+            <text x="572" y="60" class="t-small">outflow</text>
+            <line x1="104" y1="44" x2="330" y2="168" class="stroke-accent" stroke-width="2.4"/>
+            <text x="112" y="158" class="t-small" style="fill:var(--accent)">v<tspan font-size="9" dy="3">s</tspan><tspan dy="-3"> &gt; Q/A: captured</tspan></text>
+            <line x1="104" y1="44" x2="558" y2="168" stroke="currentColor" stroke-width="2.4"/>
+            <text x="404" y="118" class="t-small">v<tspan font-size="9" dy="3">s</tspan><tspan dy="-3"> = Q/A: just captured</tspan></text>
+            <line x1="104" y1="44" x2="558" y2="112" class="stroke-magenta" stroke-width="2.4" stroke-dasharray="6 4"/>
+            <text x="404" y="80" class="t-small" style="fill:var(--magenta)">v<tspan font-size="9" dy="3">s</tspan><tspan dy="-3"> &lt; Q/A: escapes</tspan></text>
+            <line x1="130" y1="28" x2="230" y2="28" stroke="currentColor" stroke-width="1.5" marker-end="url(#d4k)"/>
+            <text x="238" y="32" class="t-small">u = Q/(W H)</text>
+            <line x1="120" y1="80" x2="120" y2="116" stroke="currentColor" stroke-width="1.5" marker-end="url(#d4k)"/>
+            <text x="126" y="104" class="t-small">v<tspan font-size="9" dy="3">s</tspan></text>
+            <line x1="580" y1="40" x2="580" y2="170" class="stroke-muted" stroke-width="1"/>
+            <text x="588" y="110" class="t-small t-muted">H</text>
+            <line x1="100" y1="222" x2="560" y2="222" class="stroke-muted" stroke-width="1"/>
+            <text x="330" y="238" text-anchor="middle" class="t-small t-muted">length L (width W into the page, surface area A = W L)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 4.</b> The ideal settling basin (Hazen, 1904). Water moves horizontally at velocity \(u = Q/(WH)\); a particle falls at its settling velocity \(v_s\). The worst case is a particle entering at the surface: it reaches the bottom before the outlet if the time to fall the depth, \(H/v_s\), is shorter than the time to cross the basin, \(L/u = WLH/Q\). The depth cancels, leaving the capture condition \(v_s \ge Q/A\).</figcaption>
+      </figure>
+      <div class="eq-box" id="eq-stokes">
+        <div class="eq-head"><span class="eq-label">Stokes settling velocity and the overflow-rate criterion</span><span class="eq-num">(6.2.6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} v_s = \frac{g\,(\rho_p-\rho_w)\,d^{2}}{18\,\mu}, \qquad \text{captured if}\;\; v_s \ge \frac{Q}{A_s} \\[6pt] \Rightarrow\;\; d_c = \sqrt{\frac{18\,\mu\,Q}{g\,(\rho_p-\rho_w)\,A_s}} \end{gathered} \]</div>
+        <p class="eq-read">a small particle sinks at a speed proportional to gravity, to its excess density over water and to the square of its diameter, and inversely proportional to the water's viscosity; an ideal settler captures every particle that sinks faster than the flow divided by the settler's surface area, so the smallest particle it captures completely has the critical diameter d-c.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(v_s\)</td><td>terminal settling velocity</td><td>m s⁻¹</td><td>10⁻⁵–10⁻²</td></tr>
+          <tr><td>\(g\)</td><td>gravitational acceleration</td><td>m s⁻²</td><td>9.81</td></tr>
+          <tr><td>\(\rho_p-\rho_w\)</td><td>excess density of the particle over water</td><td>kg m⁻³</td><td>small for organic flocs (assumed 25–200)</td></tr>
+          <tr><td>\(d,\ d_c\)</td><td>particle diameter; critical diameter</td><td>m (quoted in µm)</td><td>10–1000 µm</td></tr>
+          <tr><td>\(\mu\)</td><td>dynamic viscosity of water</td><td>Pa s</td><td>1.00 × 10⁻³ at 20 °C; 0.83 × 10⁻³ at 28 °C</td></tr>
+          <tr><td>\(Q/A_s\)</td><td>overflow (surface loading) rate</td><td>m h⁻¹ (= m³ m⁻² h⁻¹)</td><td>1–12</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Forces on a settling sphere.</strong> Weight minus buoyancy is \((\rho_p-\rho_w)\,g\,\pi d^3/6\). At low Reynolds number, the viscous drag is \(3\pi\mu d v\) (Stokes drag).</li>
+            <li><strong>Terminal velocity.</strong> The particle stops accelerating when drag balances net weight: \(3\pi\mu d v_s = (\rho_p-\rho_w)g\pi d^3/6\) ⇒ \(v_s = g(\rho_p-\rho_w)d^2/(18\mu)\).</li>
+            <li><strong>Ideal basin (Figure 4).</strong> Residence time \(t = V/Q = A_sH/Q\). A particle entering at the surface needs \(H/v_s\) to reach the bottom. Captured if \(H/v_s \le A_sH/Q\) ⇔ \(v_s \ge Q/A_s\). Particles entering lower down are captured partly even if slower; the fraction captured is \(v_s A_s/Q\).</li>
+            <li><strong>Critical diameter.</strong> Set \(v_s = Q/A_s\) in Stokes' law and solve for \(d\).</li>
+            <li><strong>Validity check.</strong> Stokes' law needs \(Re = \rho_w v_s d/\mu \lesssim 1\). For 200 µm and 1.2 mm s⁻¹: \(Re = 1000\times0.0012\times0.0002/0.00083 = 0.29\) ✓.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Fish faeces and feed fines are irregular, porous organic flocs whose density is only slightly greater than that of water; their excess density is the most uncertain input, which is why designers prefer measured settling-velocity distributions. Real basins also suffer from turbulence, short-circuiting and scouring, and flocs break up in pumps and turbulent pipes — one reason to remove solids before pumping. Viscosity is computed here from the empirical fit \(\mu = 2.414\times10^{-5}\cdot10^{247.8/(T-140)}\) Pa s (T in K), which matches tabulated values within about 1 % between 10 and 40 °C.</p></details>
+        <div class="eq-units">\(\dfrac{\text{m s}^{-2}\,\text{kg m}^{-3}\,\text{m}^2}{\text{kg m}^{-1}\,\text{s}^{-1}} = \text{m s}^{-1}\) ✓ (Pa s = kg m⁻¹ s⁻¹)</div>
+        <div class="mini-calc" data-fn="stokesDc" data-output="Critical diameter d<sub>c</sub>" data-unit="µm" data-digits="0" data-plot="OFR" data-ymin="0" data-title="Try it — smallest particle fully captured by an ideal settler">
+          <div data-var="OFR" data-label="Overflow rate Q/A<sub>s</sub>" data-min="0.5" data-max="15" data-step="0.1" data-value="4.3" data-unit="m h⁻¹"></div>
+          <div data-var="drho" data-label="Excess density ρ<sub>p</sub> − ρ<sub>w</sub>" data-min="10" data-max="300" data-step="5" data-value="50" data-unit="kg m⁻³"></div>
+          <div data-var="T" data-label="Water temperature" data-min="5" data-max="32" data-step="1" data-value="28" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">What does the UVI clarifier catch?</span></div>
+        <div class="we-problem"><p>Each of the two UVI clarifiers is a cylinder of 6 ft (1.83 m) diameter with a 45° cone, and each receives half of the 100 US gal min⁻¹ system flow (Rakocy et al., 2006). The water is at about 28 °C. (a) What is the overflow rate? (b) What is the critical particle diameter if faecal particles are 50 kg m⁻³ denser than water? (c) What diameter would the clarifier need to capture all 100 µm particles of that density?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Flow per clarifier.</strong> 50 gal min⁻¹ × 3.785 L gal⁻¹ = 189.3 L min⁻¹ = 11.36 m³ h⁻¹.</li>
+              <li><strong>Surface area.</strong> \(A_s = \pi(1.83/2)^2 = 2.63\) m².</li>
+              <li><strong>Overflow rate.</strong> \(11.36/2.63 = 4.3\) m h⁻¹ = 1.20 × 10⁻³ m s⁻¹.</li>
+              <li><strong>Critical diameter (Eq. 6.2.6).</strong> With \(\mu = 0.83\times10^{-3}\) Pa s: \(d_c = \sqrt{18\times0.83\times10^{-3}\times1.2\times10^{-3}/(9.81\times50)} = 1.9\times10^{-4}\) m ≈ 190 µm (≈ 135 µm if the excess density were 100 kg m⁻³).</li>
+              <li><strong>Size for 100 µm.</strong> \(v_s(100\ \mu\text{m}) = 9.81\times50\times(10^{-4})^2/(18\times0.83\times10^{-3}) = 3.3\times10^{-4}\) m s⁻¹ = 1.18 m h⁻¹; \(A_s = 11.36/1.18 = 9.6\) m², i.e. a diameter of 3.5 m — almost four times the surface area.</li>
+              <li><strong>Interpretation.</strong> The clarifier is deliberately small: it removes the coarse, settleable half of the solids (≈ 50 % at UVI) and leaves the rest to the netting filters. Bigger is not simply better — a large, slow tank retains solids longer, and fish sludge starts to decompose and leach nutrients within hours.</li>
+            </ol>
+            <span class="answer">(a) 4.3 m h⁻¹ (b) ≈ 190 µm (c) ≈ 9.6 m², a diameter of ≈ 3.5 m</span>
+          </div>
+        </details>
+      </div>
+
+      <h3>Recycling the sludge: the mineralisation loop</h3>
+      <p>In a coupled system, the captured sludge is usually discharged — to holding ponds and farmland, compost or the municipal sewer (Rakocy et al., 2006) — and with it goes most of the phosphorus. Decoupled designs (Section 6.2.6) add a separate <strong>mineralisation loop</strong>: sludge is digested in aerobic or anaerobic bioreactors, and the nutrient-rich effluent is sent to the plants only. The benefits are measurable. Aerobic treatment of aquaculture sludge raised soluble reactive phosphorus 3.2-fold (from 9.4 to 29.7 mg L⁻¹) and also mobilised potassium, whereas unaerated treatment left phosphate unchanged (Monsees, Keitel et al., 2017). In sequential upflow anaerobic sludge blanket (UASB) reactors, a pH below 6 increased the recovery of phosphorus, potassium and calcium by about 25 % compared with reactors at higher pH, at the cost of less organic-matter reduction (Goddek et al., 2018); around 90 % of the nutrients in RAS sludge can be recovered at pH 4 (Jung &amp; Lovitt, 2011, as cited by Goddek et al., 2019). Goddek et al. (2019) give three equations to size such a loop.</p>
+      <div class="eq-box" id="eq-mineralisation">
+        <div class="eq-head"><span class="eq-label">Flow and nutrient concentration of a sludge mineralisation loop</span><span class="eq-num">(6.2.7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} Q_{\text{MIN}} = \frac{n_{\text{feed}}\,k_{\text{sludge}}}{\pi_{\text{sludge}}}, \qquad \rho_{X,\text{MIN}} = \frac{1000\,\dot M_X}{Q_{\text{MIN}}} \\[6pt] \dot M_X = 1000\,n_{\text{feed}}\,w_X\,\pi_{X,\text{sludge}}\,\eta_{\min} \end{gathered} \]</div>
+        <p class="eq-read">the sludge-water flow into the reactor equals the feed times the fraction of feed that becomes sludge, divided by the dry-matter fraction of the concentrated sludge; the mass of nutrient mineralised per day equals the feed times the nutrient's content, times the share of that nutrient ending in the sludge, times the reactor's mineralisation efficiency; the effluent concentration is that mass divided by the sludge-water flow.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Example (Goddek et al., 2019)</th></tr>
+          <tr><td>\(Q_{\text{MIN}}\)</td><td>sludge-water flow to the reactors (1 kg ≈ 1 L)</td><td>kg d⁻¹</td><td>250</td></tr>
+          <tr><td>\(n_{\text{feed}}\)</td><td>feed input</td><td>kg d⁻¹</td><td>10</td></tr>
+          <tr><td>\(k_{\text{sludge}}\)</td><td>fraction of feed mass ending as sludge solids</td><td>–</td><td>0.25 (0.20–0.40)</td></tr>
+          <tr><td>\(\pi_{\text{sludge}}\)</td><td>dry-matter fraction after thickening (e.g. radial-flow settler)</td><td>–</td><td>0.01</td></tr>
+          <tr><td>\(w_X\)</td><td>content of nutrient X in the feed</td><td>g g⁻¹</td><td>P: 0.015</td></tr>
+          <tr><td>\(\pi_{X,\text{sludge}}\)</td><td>share of fed X that ends in the sludge</td><td>–</td><td>P: 0.55</td></tr>
+          <tr><td>\(\eta_{\min}\)</td><td>mineralisation and mobilisation efficiency of the reactors</td><td>–</td><td>0.9</td></tr>
+          <tr><td>\(\dot M_X,\ \rho_{X,\text{MIN}}\)</td><td>nutrient mineralised; its concentration in the effluent</td><td>g d⁻¹; mg L⁻¹</td><td>74.3; 297</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Dry sludge produced: \(n_{\text{feed}}k_{\text{sludge}}\) kg d⁻¹. At a dry-matter fraction \(\pi_{\text{sludge}}\), it is carried by \(n_{\text{feed}}k_{\text{sludge}}/\pi_{\text{sludge}}\) kg d⁻¹ of sludge water.</li>
+            <li>Nutrient in the sludge: \(1000\,n_{\text{feed}}w_X\pi_{X,\text{sludge}}\) g d⁻¹; the reactors make a fraction \(\eta_{\min}\) of it soluble.</li>
+            <li>Effluent concentration: g d⁻¹ × 1000 mg g⁻¹ ÷ L d⁻¹.</li>
+            <li>Goddek et al.'s example: \(10\times0.25/0.01 = 250\) L d⁻¹; \(10\,000\times0.015\times0.55\times0.9 = 74.25\) g P d⁻¹; \(74\,250/250 = 297\) mg P L⁻¹ — about six times a typical hydroponic P concentration. Measured RAS sludge at 1 % solids contained 150–200 mg P L⁻¹ (Goddek et al., 2018, as reported by Goddek et al., 2019).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The share of feed P in tilapia sludge is about 55 % (Montanhini Neto &amp; Ostrensky, 2015); other studies report 30–65 % of feed P in solids and up to 85 % (Eck et al., 2019). The efficiency \(\eta_{\min}\) depends strongly on reactor pH, temperature and retention time. The effluent may contain volatile fatty acids and ammonium and may need aerobic post-treatment before sensitive crops such as tomato (Goddek et al., 2019).</p></details>
+        <div class="eq-units">\(\dfrac{\text{kg d}^{-1}\times(-)}{(-)} = \text{kg d}^{-1}\); g d⁻¹ × 1000 mg g⁻¹ ÷ L d⁻¹ = mg L⁻¹ ✓</div>
+        <div class="mini-calc" data-fn="minConc" data-output="Effluent concentration ρ<sub>X,MIN</sub>" data-unit="mg L⁻¹" data-digits="0" data-plot="pi" data-ymin="0" data-title="Try it — mineralisation-loop effluent (defaults: Goddek et al., 2019, phosphorus)">
+          <div data-var="F" data-label="Feed n<sub>feed</sub>" data-min="1" data-max="200" data-step="1" data-value="10" data-unit="kg d⁻¹"></div>
+          <div data-var="k" data-label="Feed → sludge k<sub>sludge</sub>" data-min="15" data-max="45" data-step="1" data-value="25" data-unit="%"></div>
+          <div data-var="pi" data-label="Sludge dry matter π<sub>sludge</sub>" data-min="0.2" data-max="5" data-step="0.1" data-value="1" data-unit="%"></div>
+          <div data-var="w" data-label="Nutrient in feed w<sub>X</sub>" data-min="0.3" data-max="8" data-step="0.05" data-value="1.5" data-unit="%"></div>
+          <div data-var="s" data-label="Share of X in sludge" data-min="5" data-max="90" data-step="1" data-value="55" data-unit="%"></div>
+          <div data-var="eta" data-label="Reactor efficiency η<sub>min</sub>" data-min="10" data-max="100" data-step="1" data-value="90" data-unit="%"></div>
+        </div>
+      </div>
+
+      <h2 id="coupled-decoupled">One loop or several? Coupled and decoupled designs</h2>
+      <p>In the traditional <strong>coupled</strong> (one-loop) system, water recirculates freely between fish and plants, so pH, temperature and nutrient concentrations must be a compromise between their different optima (Goddek et al., 2019). <strong>Decoupled</strong> (two-loop) systems separate the recirculating aquaculture system (RAS) from the hydroponic (HP) unit. Water flows only one way, from the fish to the plants; the RAS is topped up with fresh water, and the hydroponic loop runs at its own pH and temperature and can be supplemented with fertiliser without exposing the fish. The concept was proposed by Goddek et al. (2015) and Kloas et al. (2015) — the latter as ASTAF-PRO, an "aquaponic system for (nearly) emission-free tomato and fish production" in which a recirculating fish unit and a hydroponic unit are joined by a one-way valve. <strong>Multi-loop</strong> systems add a sludge mineralisation loop (Eq. 6.2.7) and, in the most ambitious designs, a distillation or desalination loop that concentrates the nutrient solution for the plants and returns clean water to the fish (Goddek &amp; Keesman, 2018). Figure 5 compares the three layouts.</p>
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 800 544" role="img" aria-label="Three aquaponic layouts: a coupled one-loop system, a decoupled two-loop system with one-way flow from fish to plants, and a multi-loop system with mineralisation reactor and distillation unit">
+            <defs>
+              <marker id="d5w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--water)"/></marker>
+              <marker id="d5m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+              <marker id="d5a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--amber)"/></marker>
+            </defs>
+            <!-- (a) coupled -->
+            <text x="12" y="22" font-weight="700">(a) Coupled one-loop system</text>
+            <g stroke="currentColor" stroke-width="1.3">
+              <rect x="40" y="40" width="120" height="56" rx="8" class="fill-water-soft"/>
+              <rect x="215" y="40" width="130" height="56" rx="8" class="fill-sunk"/>
+              <rect x="400" y="40" width="120" height="56" rx="8" class="fill-accent-soft"/>
+              <rect x="575" y="40" width="150" height="56" rx="8" class="fill-accent-soft"/>
+            </g>
+            <text x="100" y="64" text-anchor="middle" font-weight="600">Fish tanks</text><text x="100" y="82" text-anchor="middle" class="t-small">tilapia</text>
+            <text x="280" y="64" text-anchor="middle" font-weight="600">Solids removal</text><text x="280" y="82" text-anchor="middle" class="t-small">clarifier, filters</text>
+            <text x="460" y="64" text-anchor="middle" font-weight="600">Biofilter</text><text x="460" y="82" text-anchor="middle" class="t-small">nitrification</text>
+            <text x="650" y="64" text-anchor="middle" font-weight="600">Plants (rafts)</text><text x="650" y="82" text-anchor="middle" class="t-small">lettuce, herbs</text>
+            <g class="stroke-water" stroke-width="2.6"><line x1="160" y1="68" x2="211" y2="68" marker-end="url(#d5w)"/><line x1="345" y1="68" x2="396" y2="68" marker-end="url(#d5w)"/><line x1="520" y1="68" x2="571" y2="68" marker-end="url(#d5w)"/></g>
+            <path d="M650 96 V 122 H 100 V 100" fill="none" class="stroke-water" stroke-width="2.6" marker-end="url(#d5w)"/>
+            <text x="375" y="138" text-anchor="middle" class="t-small">one shared loop: pH ≈ 7 and one temperature for all organisms</text>
+            <line x1="280" y1="96" x2="280" y2="112" class="stroke-muted" stroke-width="1.6" marker-end="url(#d5m)"/>
+            <text x="288" y="112" class="t-small t-muted">sludge out</text>
+            <text x="740" y="58" class="t-small" style="fill:var(--amber)">base</text><text x="740" y="72" class="t-small" style="fill:var(--amber)">+ Fe</text>
+            <!-- (b) decoupled -->
+            <text x="12" y="178" font-weight="700">(b) Decoupled two-loop system</text>
+            <rect x="30" y="192" width="330" height="116" rx="12" fill="none" class="stroke-water" stroke-width="1.4" stroke-dasharray="6 4"/>
+            <text x="44" y="210" class="t-small" style="fill:var(--water)">RAS loop · pH ≈ 7–7.5 · 27 °C for tilapia</text>
+            <rect x="440" y="192" width="330" height="116" rx="12" fill="none" class="stroke-accent" stroke-width="1.4" stroke-dasharray="6 4"/>
+            <text x="454" y="210" class="t-small" style="fill:var(--accent)">hydroponic loop · pH ≈ 5.5–6 · ≈ 20 °C</text>
+            <g stroke="currentColor" stroke-width="1.3">
+              <rect x="50" y="222" width="120" height="52" rx="8" class="fill-water-soft"/>
+              <rect x="220" y="222" width="120" height="52" rx="8" class="fill-sunk"/>
+              <rect x="460" y="222" width="130" height="52" rx="8" class="fill-accent-soft"/>
+              <rect x="640" y="222" width="115" height="52" rx="8" class="fill-bg"/>
+            </g>
+            <text x="110" y="244" text-anchor="middle" font-weight="600">Fish tanks</text><text x="110" y="262" text-anchor="middle" class="t-small">feed in</text>
+            <text x="280" y="244" text-anchor="middle" font-weight="600">Filters</text><text x="280" y="262" text-anchor="middle" class="t-small">solids + biofilter</text>
+            <text x="525" y="244" text-anchor="middle" font-weight="600">Plants</text><text x="525" y="262" text-anchor="middle" class="t-small">transpire ET</text>
+            <text x="697" y="244" text-anchor="middle" font-weight="600">HP sump</text><text x="697" y="262" text-anchor="middle" class="t-small">+ fertiliser, acid</text>
+            <path d="M170 238 H 216" class="stroke-water" stroke-width="2.4" marker-end="url(#d5w)"/>
+            <path d="M280 274 V 292 H 110 V 278" fill="none" class="stroke-water" stroke-width="2.4" marker-end="url(#d5w)"/>
+            <path d="M590 238 H 636" class="stroke-accent" stroke-width="2.4" marker-end="url(#d5w)"/>
+            <path d="M697 274 V 292 H 525 V 278" fill="none" class="stroke-accent" stroke-width="2.4" marker-end="url(#d5w)"/>
+            <path d="M340 250 H 456" class="stroke-water" stroke-width="3.5" marker-end="url(#d5w)"/>
+            <text x="398" y="240" text-anchor="middle" class="t-small" font-weight="600">one way</text>
+            <text x="398" y="270" text-anchor="middle" class="t-small t-mono">Q = A·ET</text>
+            <line x1="110" y1="330" x2="110" y2="312" class="stroke-water" stroke-width="1.8" marker-end="url(#d5w)"/>
+            <text x="120" y="330" class="t-small">fresh water in = Q</text>
+            <line x1="280" y1="296" x2="280" y2="330" class="stroke-muted" stroke-width="1.6" marker-end="url(#d5m)"/>
+            <text x="288" y="330" class="t-small t-muted">sludge out</text>
+            <!-- (c) multi loop -->
+            <text x="12" y="362" font-weight="700">(c) Decoupled multi-loop system</text>
+            <g stroke="currentColor" stroke-width="1.3">
+              <rect x="50" y="376" width="120" height="50" rx="8" class="fill-water-soft"/>
+              <rect x="220" y="376" width="120" height="50" rx="8" class="fill-sunk"/>
+              <rect x="460" y="376" width="130" height="50" rx="8" class="fill-accent-soft"/>
+              <rect x="640" y="376" width="115" height="50" rx="8" class="fill-bg"/>
+              <rect x="220" y="452" width="150" height="50" rx="8" class="fill-amber-soft"/>
+              <rect x="560" y="452" width="170" height="50" rx="8" class="fill-magenta-soft"/>
+            </g>
+            <text x="110" y="406" text-anchor="middle" font-weight="600">Fish tanks</text>
+            <text x="280" y="406" text-anchor="middle" font-weight="600">Filters</text>
+            <text x="525" y="406" text-anchor="middle" font-weight="600">Plants</text>
+            <text x="697" y="406" text-anchor="middle" font-weight="600">HP sump</text>
+            <text x="295" y="474" text-anchor="middle" font-weight="600">Mineralisation</text><text x="295" y="492" text-anchor="middle" class="t-small">reactor, pH ≈ 4–6</text>
+            <text x="645" y="474" text-anchor="middle" font-weight="600">Distillation</text><text x="645" y="492" text-anchor="middle" class="t-small">concentrates HP solution</text>
+            <path d="M170 392 H 216" class="stroke-water" stroke-width="2.4" marker-end="url(#d5w)"/>
+            <path d="M340 400 H 456" class="stroke-water" stroke-width="3.5" marker-end="url(#d5w)"/>
+            <text x="398" y="390" text-anchor="middle" class="t-small t-mono">Q = A·ET − …</text>
+            <path d="M590 392 H 636" class="stroke-accent" stroke-width="2.4" marker-end="url(#d5w)"/>
+            <path d="M280 426 V 448" class="stroke-muted" stroke-width="1.8" marker-end="url(#d5m)"/>
+            <text x="288" y="442" class="t-small t-muted">sludge</text>
+            <path d="M370 476 C 420 476, 450 450, 490 430" fill="none" style="stroke:var(--amber)" stroke-width="2.2" marker-end="url(#d5a)"/>
+            <text x="380" y="500" class="t-small" style="fill:var(--amber)">effluent → plants only</text>
+            <path d="M735 426 V 448" class="stroke-accent" stroke-width="2" marker-end="url(#d5w)"/>
+            <path d="M665 452 V 430" class="stroke-accent" stroke-width="2" marker-end="url(#d5w)"/>
+            <text x="674" y="444" class="t-small" style="fill:var(--accent)">brine</text>
+            <path d="M600 502 V 516 H 110 V 430" fill="none" class="stroke-water" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#d5w)"/>
+            <text x="150" y="534" class="t-small" style="fill:var(--water)">distillate: clean water back to the fish</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 5.</b> The evolution of aquaponic layouts after Goddek et al. (2019). (a) In a coupled system all organisms share one water loop. (b) In a decoupled system water flows one way from the RAS to the plants, at the rate at which the crop transpires; each loop has its own pH and temperature. (c) Multi-loop systems add a mineralisation reactor that returns sludge nutrients to the plants only, and a distillation unit that concentrates the hydroponic solution and returns clean water to the fish. pH values are approximate.</figcaption>
+      </figure>
+      <table>
+        <caption>Table 3. Coupled versus decoupled aquaponics (after Goddek et al., 2019; Monsees, Kloas &amp; Wuertz, 2017; Yavuzcan Yildiz et al., 2019).</caption>
+        <thead><tr><th>Aspect</th><th>Coupled (one loop)</th><th>Decoupled (two or more loops)</th></tr></thead>
+        <tbody>
+          <tr><td>pH</td><td>one compromise value, ≈ 7</td><td>RAS ≈ 7–7.5 for fish and nitrifiers; HP ≈ 5.5–6 for nutrient availability</td></tr>
+          <tr><td>Temperature</td><td>one value for fish and roots</td><td>can differ (e.g. tilapia at 27 °C, lettuce roots at 20 °C)</td></tr>
+          <tr><td>Nutrient supplementation</td><td>only fish-safe forms and levels</td><td>any fertiliser in the HP loop, without exposing fish</td></tr>
+          <tr><td>Fish disease treatment</td><td>very limited — salt and drugs reach the plants</td><td>possible in the RAS loop (Yavuzcan Yildiz et al., 2019)</td></tr>
+          <tr><td>Water flow between parts</td><td>continuous recirculation</td><td>one-way, equal to crop evapotranspiration (Eq. 6.2.8)</td></tr>
+          <tr><td>Sludge nutrients</td><td>mostly discharged</td><td>can be mineralised and sent to the plants (Eq. 6.2.7)</td></tr>
+          <tr><td>Complexity and cost</td><td>lower</td><td>higher; more tanks, pumps, sensors and control</td></tr>
+          <tr><td>Evidence</td><td>decades of operation (UVI)</td><td>36 % higher fruit yield with comparable fish production in a direct comparison (Monsees, Kloas &amp; Wuertz, 2017)</td></tr>
+        </tbody>
+      </table>
+      <p>Decoupling introduces a new constraint that is easy to overlook. The only continuous route by which dissolved nutrients leave the fish loop is the water sent to the plants, and in the long run that water flow equals the crop's water consumption by evapotranspiration (Goddek et al., 2019). The fish loop therefore concentrates until the evapotranspiration stream carries away as much nitrogen as the fish produce.</p>
+      <div class="eq-box" id="eq-decoupled">
+        <div class="eq-head"><span class="eq-label">Evapotranspiration-driven flow and nutrient concentration in a decoupled RAS</span><span class="eq-num">(6.2.8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} Q_{\text{RAS}\to\text{HP}} \approx A_p\,ET_c, \qquad C_{\text{RAS}}^{*} = \frac{1000\,F\,w_X\,\eta_X}{A_p\,ET_c} \\[6pt] A_{p,\min} = \frac{1000\,F\,w_X\,\eta_X}{ET_c\,C_{\max}} \end{gathered} \]</div>
+        <p class="eq-read">the long-term flow from the fish loop to the plant loop is the growing area times the crop evapotranspiration; if dissolved nutrient X can leave the fish loop only with this flow, its concentration settles at the daily dissolved release divided by that flow; to keep the fish below a concentration limit, the plant area must be at least the dissolved release divided by evapotranspiration times the limit.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(Q_{\text{RAS}\to\text{HP}}\)</td><td>one-way flow from fish to plant loop</td><td>L d⁻¹</td><td></td></tr>
+          <tr><td>\(ET_c\)</td><td>crop evapotranspiration (1 mm d⁻¹ = 1 L m⁻² d⁻¹)</td><td>L m⁻² d⁻¹</td><td>≈ 1.3 annual mean for greenhouse lettuce in Goddek et al.'s (2019) example</td></tr>
+          <tr><td>\(F\,w_X\,\eta_X\)</td><td>dissolved release of X (feed kg d⁻¹ × content × dissolved fraction)</td><td>kg d⁻¹ (× 1000 → g d⁻¹)</td><td>N: 0.33 of feed N</td></tr>
+          <tr><td>\(C^{*}_{\text{RAS}},\ C_{\max}\)</td><td>steady-state concentration in the RAS; fish limit</td><td>mg L⁻¹ (= g m⁻³)</td><td>NO₃-N limit ≈ 250 (Nile tilapia), 100 (rainbow trout)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Water balance.</strong> Water leaves the plant loop mainly by transpiration and evaporation. At steady state the same volume must arrive from the RAS: \(Q = A_pET_c\) (plus water stored in harvested plants; minus any reactor effluent).</li>
+            <li><strong>Nutrient balance of the RAS.</strong> Input: dissolved release \(1000Fw_X\eta_X\) g d⁻¹. Output: \(Q\,C_{\text{RAS}}\) (g d⁻¹ with Q in m³ d⁻¹ and C in g m⁻³). At steady state these are equal.</li>
+            <li><strong>Solve</strong> for \(C^*_{\text{RAS}}\); then set \(C^*_{\text{RAS}} = C_{\max}\) and solve for the area. Remember to convert: L d⁻¹ × mg L⁻¹ = mg d⁻¹.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Denitrification, sludge removal and deliberate bleed-off also remove nitrogen and lower \(C^*_{\text{RAS}}\); plant uptake is not selective here. The limits for nitrate-N — about 100 mg L⁻¹ for rainbow trout, 140 for African catfish and 250 for Nile tilapia — are those compiled by Goddek et al. (2015); chronic welfare effects in juvenile rainbow trout have been reported at 80–100 mg L⁻¹ (Davidson et al., 2014). Evapotranspiration varies strongly with season and latitude, so the RAS concentration is dynamic (Goddek &amp; Körner, 2019).</p></details>
+        <div class="eq-units">\(\dfrac{\text{g d}^{-1}\times1000\ \text{mg g}^{-1}}{\text{m}^2\times\text{L m}^{-2}\,\text{d}^{-1}} = \text{mg L}^{-1}\) ✓</div>
+        <div class="mini-calc" data-formula="1000*F*1000*(PC/100)*0.16*(eta/100)/(A*ET)" data-output="Steady-state RAS nitrogen" data-unit="mg N L⁻¹" data-digits="0" data-plot="A" data-ymin="0" data-ymax="1500" data-title="Try it — nitrate-N that the fish loop settles at (no denitrification or bleed)">
+          <div data-var="F" data-label="Feed F" data-min="1" data-max="40" data-step="0.5" data-value="12" data-unit="kg d⁻¹"></div>
+          <div data-var="PC" data-label="Crude protein" data-min="25" data-max="50" data-step="1" data-value="32" data-unit="%"></div>
+          <div data-var="eta" data-label="Dissolved N release η<sub>N</sub>" data-min="20" data-max="60" data-step="1" data-value="33" data-unit="%"></div>
+          <div data-var="A" data-label="Plant area A<sub>p</sub>" data-min="50" data-max="1500" data-step="10" data-value="200" data-unit="m²"></div>
+          <div data-var="ET" data-label="Crop evapotranspiration" data-min="0.5" data-max="4" data-step="0.1" data-value="2" data-unit="L m⁻² d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">Decoupling the Västerås farm, summer and winter</span></div>
+        <div class="we-problem"><p>The cooperative considers a decoupled version of its 12 kg d⁻¹ tilapia system (32 % protein; 33 % of feed N released in dissolved form) with the same 200 m² of lettuce. In summer the greenhouse lettuce transpires 2.0 L m⁻² d⁻¹; in winter, without supplementary lighting, perhaps 1.0 L m⁻² d⁻¹. (a) What flow goes from the RAS to the plants in summer? (b) At what nitrate-N concentration would the RAS settle if no N were lost otherwise? (c) How much plant area keeps nitrate-N at 250 mg L⁻¹ in summer and in winter, and what feed-rate ratios do these areas correspond to?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Dissolved N release.</strong> \(12\,000\times0.32\times0.16\times0.33 = 203\) g N d⁻¹.</li>
+              <li><strong>Flow (Eq. 6.2.8).</strong> \(Q = 200\times2.0 = 400\) L d⁻¹ — only 0.4 m³ a day, compared with ≈ 700 m³ d⁻¹ circulating inside the RAS (Worked example 2).</li>
+              <li><strong>RAS concentration.</strong> \(C^* = 203\,000\ \text{mg d}^{-1}/400\ \text{L d}^{-1} = 507\) mg N L⁻¹ — twice the tilapia limit.</li>
+              <li><strong>Area for 250 mg L⁻¹.</strong> Summer: \(A = 203\,000/(2.0\times250) = 406\) m², i.e. \(R_F = 12\,000/406 = 30\) g m⁻² d⁻¹. Winter: \(A = 203\,000/(1.0\times250) = 812\) m², \(R_F = 15\) g m⁻² d⁻¹.</li>
+              <li><strong>Interpretation.</strong> A decoupled system needs two to four times more plant area per kilogram of feed than the UVI ratio — consistent with the simulations of Goddek and Körner (2019), who needed about 15 500 m² of lettuce for about 159 kg feed d⁻¹ in the Netherlands (≈ 10 g m⁻² d⁻¹), 17 000 m² in the Faroe Islands and 8750 m² in Namibia (Goddek et al., 2019). At high latitudes, low winter evapotranspiration forces a choice: more area, bleed-off to a denitrification unit, supplementary lighting to raise transpiration (a daily light integral of at least 10 mol m⁻² d⁻¹ is suggested to damp seasonal swings), a distillation loop, or less feed in winter.</li>
+            </ol>
+            <span class="answer">(a) 400 L d⁻¹ (b) ≈ 510 mg NO₃-N L⁻¹ (c) ≈ 410 m² (R<sub>F</sub> ≈ 30) in summer; ≈ 810 m² (R<sub>F</sub> ≈ 15) in winter</span>
+          </div>
+        </details>
+      </div>
+      <div class="callout frontier"><div class="callout-title">Frontier — closing the last loops</div><p>Multi-loop aquaponics treats a farm as a set of coupled mass balances that must be sized by simulation rather than by rules of thumb. Goddek and Körner (2019) built an integrated model of fish growth, greenhouse climate, crop evapotranspiration and nutrient flows to size multi-loop systems for different climates, and Goddek and Keesman (2018) showed how a desalination or distillation unit can keep the fish water clean while concentrating the plant solution — attractive where solar or geothermal heat is cheap. Decoupled designs have been adopted by commercial companies, but the sector remains fragile: UrbanFarmers in The Hague, an early adopter of decoupling, went bankrupt, and Goddek et al. (2019) could point to only a few multi-loop implementations, such as NerBreen in Spain and Kikaboni AgriVentures in Kenya.</p></div>
+
+      <h2 id="mass-balances">Nitrogen and phosphorus budgets</h2>
+      <p>The design checks of the previous sections rest on one principle: over a long enough period, every gram of nitrogen and phosphorus that enters with the feed must leave the system or accumulate in it. For any element X, a steady-state budget has six terms.</p>
+      <div class="eq-box" id="eq-element-balance">
+        <div class="eq-head"><span class="eq-label">Element budget of an aquaponic system</span><span class="eq-num">(6.2.9)</span></div>
+        <div class="eq-main">\[ \begin{aligned} F\,w_X &= \underbrace{r_X F w_X}_{\text{fish}} + \underbrace{c\,\varphi_X F w_X}_{\text{sludge}} + U_X + G_X + E_X + \Delta M_X \\[3pt] D_X &= F w_X\left[s_X + (1-c)\,\varphi_X\right], \qquad \varphi_X = 1 - r_X - s_X \end{aligned} \]</div>
+        <p class="eq-read">the element fed each day ends up retained in fish growth, removed with the captured sludge, taken up by plants, lost as gas, flushed out with exchanged water, or accumulating; the dissolved pool available to plants is the soluble excretion plus the part of the solids that is not captured and therefore mineralises in the system.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>N · P (tilapia)</th></tr>
+          <tr><td>\(F\,w_X\)</td><td>element input with feed</td><td>g d⁻¹</td><td></td></tr>
+          <tr><td>\(r_X\)</td><td>fraction retained in fish growth</td><td>–</td><td>≈ 0.32 · ≈ 0.28</td></tr>
+          <tr><td>\(s_X\)</td><td>fraction excreted in soluble form</td><td>–</td><td>0.33 · 0.17</td></tr>
+          <tr><td>\(\varphi_X\)</td><td>fraction in solids (faeces + uneaten feed)</td><td>–</td><td>0.35 · 0.55</td></tr>
+          <tr><td>\(c\)</td><td>fraction of solids captured and removed</td><td>–</td><td>0.5–0.95</td></tr>
+          <tr><td>\(U_X,\ G_X,\ E_X\)</td><td>plant uptake; gaseous loss (N₂, N₂O; N only); loss with exchanged water</td><td>g d⁻¹</td><td></td></tr>
+          <tr><td>\(\Delta M_X\)</td><td>accumulation in water, biofilm and precipitates</td><td>g d⁻¹</td><td>0 at steady state</td></tr>
+          <tr><td>\(D_X\)</td><td>dissolved (plant-available) pool</td><td>g d⁻¹</td><td></td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Conservation of mass: input = sum of outputs + accumulation, applied to the element, not to the chemical form (nitrogen may enter as protein and leave as N₂).</li>
+            <li>Partition the feed element: fish retain \(r_X\); the fish excrete \(s_X\) in dissolved form (for N mostly TAN); the rest, \(\varphi_X = 1-r_X-s_X\), leaves as faeces or is never eaten.</li>
+            <li>Of the solids, the fraction \(c\) is captured and leaves as sludge; the rest stays long enough to be mineralised by heterotrophic bacteria and joins the dissolved pool.</li>
+            <li>The dissolved pool is shared by plants, denitrifiers (for N), precipitation (for P) and water exchange.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The partition fractions come from studies of Nile tilapia (Table 4) and differ between species, fish sizes, diets and temperatures (Eck et al., 2019). The budget must be closed over a whole production cycle, because nitrogen and phosphorus can accumulate for months in water, biofilms and sludge before they appear in any output.</p></details>
+        <div class="eq-units">every term in g d⁻¹; fractions dimensionless ✓</div>
+        <div class="mini-calc" data-fn="dissN" data-output="Dissolved N pool D<sub>N</sub>" data-unit="g N d⁻¹" data-digits="0" data-plot="c" data-ymin="0" data-title="Try it — how solids capture changes the dissolved N available to plants">
+          <div data-var="F" data-label="Feed F" data-min="1" data-max="40" data-step="0.5" data-value="12" data-unit="kg d⁻¹"></div>
+          <div data-var="PC" data-label="Crude protein" data-min="25" data-max="50" data-step="1" data-value="32" data-unit="%"></div>
+          <div data-var="r" data-label="Retained in fish r<sub>N</sub>" data-min="15" data-max="50" data-step="1" data-value="32" data-unit="%"></div>
+          <div data-var="s" data-label="Soluble excretion s<sub>N</sub>" data-min="15" data-max="60" data-step="1" data-value="33" data-unit="%"></div>
+          <div data-var="c" data-label="Solids captured c" data-min="0" data-max="100" data-step="1" data-value="60" data-unit="%"></div>
+        </div>
+      </div>
+      <table>
+        <caption>Table 4. Fate of feed nitrogen and phosphorus in tilapia culture and aquaponics (percent of the amount fed).</caption>
+        <thead><tr><th>Pathway</th><th>N</th><th>P</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>Soluble excretion (to the water)</td><td class="num">33</td><td class="num">17</td><td>Nile tilapia (Montanhini Neto &amp; Ostrensky, 2015, as reported by Goddek et al., 2019)</td></tr>
+          <tr><td>Faeces</td><td class="num">17</td><td class="num">37</td><td>same study (as reported by Yavuzcan Yildiz et al., 2017)</td></tr>
+          <tr><td>Uneaten feed</td><td class="num">18</td><td class="num">18</td><td>18 % of the feed not consumed (same study)</td></tr>
+          <tr><td>Retained in fish (by difference)</td><td class="num">≈ 32</td><td class="num">≈ 28</td><td>100 % minus the three rows above</td></tr>
+          <tr><td>Retained in fish, range across integrated systems</td><td class="num">20–50</td><td class="num">15–65</td><td>Schneider et al. (2005)</td></tr>
+          <tr><td>Used by red tilapia in a RAS</td><td class="num">≈ 30</td><td class="num">≤ 15</td><td>Rafiee &amp; Saad (2005), as reported by Eck et al. (2019)</td></tr>
+          <tr><td>Fixed in removed solids</td><td class="num">–</td><td class="num">30–65 (up to 85)</td><td>Schneider et al. (2004); Yogev et al. (2016), both as reported by Eck et al. (2019)</td></tr>
+          <tr><td>Lost by denitrification</td><td class="num">25–60</td><td class="num">–</td><td>Hu et al. (2015); Zou et al. (2016)</td></tr>
+        </tbody>
+      </table>
+      <p>Figure 6 turns Eq. 6.2.9 into a live budget. Switch between nitrogen and phosphorus, and between a coupled system whose sludge is discharged and a decoupled system whose sludge is mineralised for the plants. The node "fertiliser supplement" appears whenever the plants demand more than the fish supply.</p>
+      <figure class="figure wide" id="np-sankey">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — nitrogen and phosphorus budgets, coupled or decoupled</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px">
+            <div class="seg" id="sk-el" role="group" aria-label="Element" style="flex:1;min-width:220px">
+              <button type="button" data-v="N" aria-pressed="true">Nitrogen</button>
+              <button type="button" data-v="P" aria-pressed="false">Phosphorus</button>
+            </div>
+            <div class="seg" id="sk-de" role="group" aria-label="Design" style="flex:1;min-width:300px">
+              <button type="button" data-v="c" aria-pressed="true">Coupled, sludge discharged</button>
+              <button type="button" data-v="d" aria-pressed="false">Decoupled, sludge mineralised</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 18px;margin-top:10px" id="sk-ctl"></div>
+          <div id="sk-chart" style="margin-top:10px"></div>
+          <div class="readouts" id="sk-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 6.</b> Daily nitrogen or phosphorus flows (g d⁻¹) computed with Eq. 6.2.9. Default partitions follow Table 4; the default plant demand is lettuce transpiring 1.5 L m⁻² d⁻¹ of a solution with 125 mg N and 31 mg P per litre (Brechner &amp; Both, 2013). In decoupled mode, captured sludge passes through a mineralisation reactor and its soluble fraction joins the plant supply (Eq. 6.2.7). "Surplus" is nutrient that must be denitrified, exchanged, precipitated or accumulate. Try: raise the solids capture in coupled mode and watch the plant supply of P shrink; then switch to decoupled mode.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">The nitrogen and phosphorus budget of the Västerås farm</span></div>
+        <div class="we-problem"><p>For the coupled design of Worked examples 1–2 (12 kg feed d⁻¹, 32 % protein, 1.2 % P), use the Table 4 partitions for tilapia, a solids capture of 60 %, denitrification of 25 % of the dissolved N, and lettuce uptake of 0.19 g N and 0.047 g P m⁻² d⁻¹ on 200 m². (a) Draw up the N and P budgets. (b) The operator wants to keep nitrate-N at 150 mg L⁻¹, well below the ≈ 250 mg L⁻¹ tolerated by Nile tilapia. What daily water exchange is needed if the system holds 87 m³?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Inputs.</strong> N: \(12\,000\times0.32\times0.16 = 614\) g d⁻¹. P: \(12\,000\times0.012 = 144\) g d⁻¹.</li>
+              <li><strong>Fish.</strong> N: \(0.32\times614 = 197\) g; P: \(0.28\times144 = 40\) g d⁻¹.</li>
+              <li><strong>Sludge.</strong> N: \(0.6\times0.35\times614 = 129\) g; P: \(0.6\times0.55\times144 = 48\) g d⁻¹.</li>
+              <li><strong>Dissolved pool (Eq. 6.2.9).</strong> N: \(614\times[0.33 + 0.4\times0.35] = 289\) g; P: \(144\times[0.17 + 0.4\times0.55] = 56\) g d⁻¹.</li>
+              <li><strong>Plants.</strong> N: \(200\times0.19 = 38\) g; P: \(200\times0.047 = 9.4\) g d⁻¹ — only 6 % of the feed N and 6.5 % of the feed P.</li>
+              <li><strong>N surplus.</strong> Denitrification removes \(0.25\times289 = 72\) g; the surplus is \(289-72-38 = 179\) g N d⁻¹. To hold 150 mg L⁻¹: \(179/150 = 1.2\) m³ d⁻¹, i.e. 1.4 % of 87 m³ per day — close to the "less than 2 %" of the UVI system ✓.</li>
+              <li><strong>P surplus?</strong> On paper 47 g P d⁻¹ is left over, yet aquaponic waters typically contain only 1–17 mg PO₄-P L⁻¹ against 40–60 in hydroponic solutions (Goddek et al., 2015): at pH ≈ 7 phosphate precipitates with calcium as hydroxyapatite and is trapped in the sludge. Recycling P therefore means mineralising sludge, not simply adding fish.</li>
+            </ol>
+            <span class="answer">N: 614 in → 197 fish, 129 sludge, 72 gas, 38 plants, 179 surplus (≈ 1.4 % exchange d⁻¹). P: 144 in → 40 fish, 48 sludge, 9 plants, 47 left to precipitate or accumulate</span>
+          </div>
+        </details>
+      </div>
+      <a class="lab-link" data-lab="nutrient-mass-balance" data-why="Follow nitrogen and phosphorus from feed to fish, sludge and plants in a live Sankey diagram and size a balanced system yourself."></a>
+
+      <h2 id="supplementation-ph">Filling the gaps: supplements and the pH compromise</h2>
+      <p>Fish feed is a complete food for fish, "but not necessarily everything needed for plant growth": fish simply do not need the same amounts of iron, potassium and calcium as plants, so even a perfectly balanced system tends to become deficient in exactly these three (Somerville et al., 2014). The UVI experience is the same. Nitrate, phosphate and sulphate are usually sufficient for good plant growth, while potassium and calcium are generally insufficient; iron from the feed is insufficient and must be supplemented as chelated iron to about 2 mg L⁻¹; manganese, boron and molybdenum are several times lower than in hydroponic formulations but produce no deficiency symptoms; copper is similar; and zinc accumulates to 4–16 times hydroponic levels, although it usually remains within the limit safe for fish (Rakocy et al., 2006). Other systems differ with their feed and water: Delaide et al. (2016) found K, P, Fe, Cu, Zn, Mn and Mo lacking and N, Ca, B and Na accumulating, and Graber and Junge (2009) measured three times less nitrogen, ten times less phosphorus and 45 times less potassium than in a hydroponic solution, with similar yields but lower quality because of the potassium shortage (as reported by Eck et al., 2019). Fish retain only up to about 7 % of the potassium in the feed (Rafiee &amp; Saad, 2005, as reported by Eck et al., 2019) — the problem is that feed contains too little of it.</p>
+      <table>
+        <caption>Table 5. Nutrients that most often limit aquaponic crops, their symptoms and common remedies (symptoms after Somerville et al., 2014; practice after Rakocy et al., 2006).</caption>
+        <thead><tr><th>Nutrient</th><th>Typical status</th><th>Deficiency symptoms</th><th>Remedy</th></tr></thead>
+        <tbody>
+          <tr><td>Potassium (K)</td><td>short</td><td>brown spots on the leaf margins</td><td>KOH (or K₂CO₃) as the pH buffer</td></tr>
+          <tr><td>Calcium (Ca)</td><td>short in soft or rain water</td><td>tip-burn in lettuce, blossom-end rot in tomato; distorted new leaves (Ca is immobile and moves only with transpiration)</td><td>Ca(OH)₂ or CaCO₃ as the buffer; air movement to keep plants transpiring</td></tr>
+          <tr><td>Iron (Fe)</td><td>short; precipitates above pH 7</td><td>interveinal yellowing of the youngest leaves, later whole leaves pale</td><td>chelated Fe to ≈ 2 mg L⁻¹ — Fe-DTPA stays soluble at pH 7, Fe-EDTA less so; foliar sprays</td></tr>
+          <tr><td>Manganese (Mn)</td><td>low; uptake poor above pH 8</td><td>interveinal chlorosis similar to Fe, dull grey appearance</td><td>keep pH ≤ 7; micronutrient mix</td></tr>
+          <tr><td>Magnesium (Mg)</td><td>sometimes low</td><td>yellowing between the veins of older leaves</td><td>dolomite as the base</td></tr>
+          <tr><td>Sodium (Na) — excess</td><td>accumulates (salt in feed, NaHCO₃)</td><td>above ≈ 50 mg L⁻¹ it interferes with K and Ca uptake; tip-burn</td><td>never use NaHCO₃ for pH control; dilute by partial exchange</td></tr>
+        </tbody>
+      </table>
+      <p>Because nitrification produces acid (Lesson 6.1, Eq. 6.1.7), a base must be added anyway — and the choice of base is a choice of nutrient. At UVI, potassium hydroxide and calcium hydroxide are added "in equal amounts (usually 500 to 1,000 g)", alternately several times weekly, to keep the pH near 7.0; dolomite supplies magnesium if needed, but too much calcium can precipitate phosphorus as dicalcium phosphate (Rakocy et al., 2006). The FAO manual suggests leaning towards calcium bases for leafy crops and potassium bases for fruiting crops (Somerville et al., 2014). The arithmetic is simple: KOH is 69.7 % K by mass (39.10/56.11) and Ca(OH)₂ is 54.1 % Ca (40.08/74.09). If the Västerås farm dosed 600 g KOH three times a week (257 g d⁻¹), it would add 179 g K d⁻¹ — almost three times the 65 g d⁻¹ its 200 m² of lettuce take up (1.5 L m⁻² d⁻¹ × 215 mg K L⁻¹) — which is why the bases are alternated. Iron is dosed separately:</p>
+      <div class="mini-calc" data-formula="max(0,(Ct-C0))*V/(w/100)" data-output="Chelate product to dose" data-unit="g" data-digits="0" data-plot="V" data-ymin="0" data-title="Try it — mass of chelated-iron product for a target Fe concentration (check the Fe % on the label)">
+        <div data-var="Ct" data-label="Target Fe" data-min="0.5" data-max="3" data-step="0.1" data-value="2" data-unit="mg L⁻¹"></div>
+        <div data-var="C0" data-label="Measured Fe" data-min="0" data-max="2" data-step="0.05" data-value="0.3" data-unit="mg L⁻¹"></div>
+        <div data-var="V" data-label="System volume" data-min="1" data-max="150" data-step="1" data-value="87" data-unit="m³"></div>
+        <div data-var="w" data-label="Fe content of the product" data-min="3" data-max="14" data-step="0.5" data-value="11" data-unit="%"></div>
+      </div>
+
+      <h3>The pH compromise</h3>
+      <p>pH is the parameter on which the three organisms disagree most. Nitrification is optimal between pH 7.0 and 9.0, most efficient in the high 8s; most hydroponic plants grow best at pH 5.8–6.2 (acceptable 5.5–6.5); iron, manganese, copper, zinc and boron become less available above pH 7.0, while the solubility of phosphorus, calcium, magnesium and molybdenum drops sharply below 6.0 (Rakocy et al., 2006). Goddek et al. (2015) summarise the evidence for the bacteria: in submerged biofilters nitrification efficiency increased linearly by about 13 % per pH unit between pH 5 and 9, with the highest ammonia-oxidiser activity at pH 8.2 (Villaverde, García-Encina &amp; Fdz-Polanco, 1997); optimal values reported for <i>Nitrosomonas</i> are 7.0–7.5, for <i>Nitrobacter</i> 7.5 and for <i>Nitrospira</i> 8.0–8.3. Tilapia tolerate pH 3.7–11 but grow best at 7–9. Their recommendation, "the highest possible pH value … consistent with the prevention of ammonia accumulation", is 6.8–7.0; Rakocy et al. (2006) recommend "close to 7.0" and the FAO manual 6–7 (Somerville et al., 2014). Higher pH also raises the toxic, un-ionised share of ammonia (Lesson 6.3). Root uptake of nitrate releases bicarbonate and nudges the pH up, but nitrification dominates, so a coupled system drifts slowly downwards and needs base (Goddek et al., 2015). Figure 7 lets you look for the operating point yourself.</p>
+      <figure class="figure wide" id="ph-window">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — find the operating window (drag the point)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px">
+            <div class="seg" id="pw-fish" role="group" aria-label="Fish type" style="flex:1;min-width:240px">
+              <button type="button" data-v="warm" aria-pressed="true">Warm-water fish (tilapia)</button>
+              <button type="button" data-v="cold" aria-pressed="false">Cold-water fish (trout)</button>
+            </div>
+            <div class="seg" id="pw-mode" role="group" aria-label="Design" style="flex:1;min-width:240px">
+              <button type="button" data-v="c" aria-pressed="true">Coupled: one point</button>
+              <button type="button" data-v="d" aria-pressed="false">Decoupled: two points</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 18px" id="pw-ctl"></div>
+          <div id="pw-plot" style="height:340px;margin-top:6px;touch-action:none"></div>
+          <div class="readouts" id="pw-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 7.</b> Tolerance windows of warm- or cold-water fish, plants and nitrifying bacteria (FAO Table 3.1, Somerville et al., 2014) and the FAO compromise zone for aquaponics (pH 6–7, 18–30 °C; dashed). Drag the operating point or use the sliders. Readouts: un-ionised ammonia from Emerson et al. (1975) for the chosen TAN; relative nitrifier activity from the linear pH response reported by Villaverde et al. (1997) (100 % at pH 8.2; an acclimated biofilm, so treat below-6 values with caution — other sources report inhibition below pH 6); dissolved-oxygen saturation from Benson and Krause (1984). In decoupled mode the plant window is judged at a separate hydroponic operating point (pH 5.8, 21 °C).</figcaption>
+      </figure>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"Any base will do to correct the pH — baking soda is cheap and safe for fish." Sodium bicarbonate is widely used in fish-only RAS, but it "should never be added to an aquaponic system for pH control because a high Na⁺ level in the presence of chloride is toxic to plants"; above about 50 mg Na L⁻¹ sodium interferes with K and Ca uptake and causes tip-burn in lettuce (Rakocy et al., 2006). In aquaponics the base is part of the fertiliser plan.</p></div>
+
+      <h2 id="energy-economics">Energy, water, money and scale</h2>
+      <h3>Water</h3>
+      <p>Recirculating aquaculture already reuses 95–99 % of its water and can produce fish with less than 100 L of water per kilogram (Goddek et al., 2015). Fish-only RAS usually replace 5–10 % of their volume each day to keep nitrate and dissolved organics down (Masser et al., 1999); in aquaponics the plants take over part of that job, and daily exchange falls below 2 % (Rakocy et al., 2006). The remaining losses are evaporation, transpiration and sludge — UVI runs entirely on collected rainwater. In a decoupled system the fish water becomes the plants' irrigation water, and the RAS is topped up by exactly the volume the crop transpires (Eq. 6.2.8).</p>
+      <h3>Energy</h3>
+      <p>Aquaponics trades land and water for electricity and heat. Water must be lifted and air blown continuously, and warm-water fish must be kept warm. Pumping power follows directly from the hydraulic head.</p>
+      <div class="eq-box" id="eq-pump">
+        <div class="eq-head"><span class="eq-label">Electrical power of a pump</span><span class="eq-num">(6.2.10)</span></div>
+        <div class="eq-main">\[ P_{\text{el}} = \frac{\rho_w\,g\,Q\,H}{\eta_p} \]</div>
+        <p class="eq-read">the electrical power a pump draws equals water density times gravity times the volume flow times the total head it must supply, divided by the pump-and-motor efficiency.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(P_{\text{el}}\)</td><td>electrical power</td><td>W</td><td></td></tr>
+          <tr><td>\(\rho_w,\ g\)</td><td>water density; gravity</td><td>kg m⁻³; m s⁻²</td><td>1000; 9.81</td></tr>
+          <tr><td>\(Q\)</td><td>volume flow</td><td>m³ s⁻¹</td><td>(m³ h⁻¹ ÷ 3600)</td></tr>
+          <tr><td>\(H\)</td><td>total head: lift plus friction losses</td><td>m</td><td>1–3 in low-head systems</td></tr>
+          <tr><td>\(\eta_p\)</td><td>wire-to-water efficiency of pump and motor</td><td>–</td><td>0.3–0.7</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Lifting a mass \(m\) through a height \(H\) requires the potential energy \(mgH\).</li>
+            <li>A flow \(Q\) carries a mass \(\rho_wQ\) per second, so the hydraulic power is \(\rho_w g Q H\) (J s⁻¹ = W). Friction in pipes and fittings is expressed as extra head (Lesson 5.4).</li>
+            <li>Losses in the pump and motor are accounted for by dividing by the efficiency \(\eta_p\).</li>
+          </ol>
+        </details>
+        <div class="eq-units">kg m⁻³ × m s⁻² × m³ s⁻¹ × m = kg m² s⁻³ = W ✓</div>
+        <div class="mini-calc" data-formula="1000*9.81*(Q/3600)*H/(eta/100)" data-output="Electrical power" data-unit="W" data-digits="0" data-plot="Q" data-ymin="0">
+          <div data-var="Q" data-label="Flow Q" data-min="1" data-max="100" data-step="0.5" data-value="29.5" data-unit="m³ h⁻¹"></div>
+          <div data-var="H" data-label="Total head H" data-min="0.3" data-max="6" data-step="0.1" data-value="1.5" data-unit="m"></div>
+          <div data-var="eta" data-label="Efficiency η<sub>p</sub>" data-min="20" data-max="80" data-step="1" data-value="50" data-unit="%"></div>
+        </div>
+      </div>
+      <p>For the Västerås farm (29.5 m³ h⁻¹, 1.5 m head, 50 % efficiency) the pump needs about 240 W, or 5.8 kWh per day. Aeration usually costs more than pumping: the UVI unit lists a ½ hp water pump but blowers of 1½ hp for the fish and 1 hp for the plants — about 2.2 kW of motors in total, or up to ≈ 54 kWh d⁻¹ if they all ran at their rated power, for roughly 5 t of tilapia and 1400 cases of lettuce a year (Rakocy et al., 2006). In a Nordic greenhouse, heat dominates: tilapia grow best at 27–30 °C, while rainbow trout prefer 14–16 °C (Somerville et al., 2014), so the choice of fish is also a choice of heating bill (Lesson 8.1). Goddek et al. (2015) point to waste heat from combined heat-and-power plants, geothermal heat as in Iceland, and heat pumps. Housing fish and plants in the same greenhouse creates synergies — shared heat, and CO₂ from fish respiration that enriches the greenhouse air (Eck et al., 2019; Rakocy et al., 2006).</p>
+      <h3>Money and scale</h3>
+      <p>The economic evidence is sobering. In an international survey of 257 aquaponic operations, only 31 % reported that their operation had been profitable in the previous 12 months, aquaponics was the main source of income for only 30 %, and the average US production site covered just 0.01 ha — closer to a hobby than to commercial horticulture (Love et al., 2015, as summarised by Turnšek et al., 2019). Engle (2015) found labour to be 46 % of operating costs in the one detailed cost analysis of commercial farms (Tokunaga et al., 2015, as cited by Engle, 2015), fixed costs only 8–13 % of total costs (so economies of scale are weaker than in other aquaculture), and a consistent pattern in which the vegetables — especially basil — made money while the fish broke even or lost it. Modelled investments paid back in 7.5 years for a trout–lettuce system (Adler et al., 2000) and 6.8 years at non-organic prices (Quagrainie et al., 2018), both as reported by Turnšek et al. (2019); in Europe, an initial investment of at least 250 € per m² of growing area should be expected (Turnšek et al., 2019). A European model of three farm sizes found that only the production-scale farm covered its costs — and only if land was free — with labour, feed plus fingerlings, and energy each making up roughly a third of the costs (Morgenstern et al., 2017, as reported by Turnšek et al., 2019). For multi-loop systems, Goddek et al. (2019) conclude that profitability currently requires large scale (more than about 1 ha) and good markets. Organic certification, which could justify premium prices, is not available: EU Regulation 2018/848 prohibits hydroponic production and closed recirculation aquaculture facilities (except hatcheries and nurseries), so aquaponic products cannot be sold as organic in the EU (Kledal, König &amp; Matulić, 2019; as of 2026).</p>
+      <h3>The European and Nordic research landscape</h3>
+      <p>European aquaponics research was organised by COST Action FA1305, "The EU Aquaponics Hub" (2014–2018), which produced the open-access book used throughout this module. In 2016 the Association of Commercial Aquaponics Companies grew out of it, and a survey counted about 20 commercial aquaponic enterprises in Europe; a later count found 45 commercial enterprises and 52 research organisations, although only a handful actually sold aquaponic produce (Villarroel et al., 2016; Turnšek et al., 2019). Nordic researchers took part from the start: the review of aquaponic challenges by Goddek et al. (2015) came partly from the University of Iceland, the fish-welfare review of Yavuzcan Yildiz et al. (2017) included the University of Jyväskylä, and the chapter on decoupled systems was co-written at the University of Gothenburg (Goddek et al., 2019). Simulations for the Faroe Islands at 62° N show what high latitude means for design: low and strongly seasonal evapotranspiration requires the largest plant areas and the most active nutrient control, and in Norway, vegetable cultivation without supplementary lighting "hardly takes place" (Goddek et al., 2019). For a Swedish farm at 59.6° N the lesson is clear: design for winter light and heat first, and choose fish accordingly.</p>
+      <div class="callout note"><div class="callout-title">Sustainability link</div><p>A design that halves water use but doubles electricity may not reduce the environmental footprint at all. Whether aquaponics is more sustainable than separate RAS and hydroponics depends on the whole life cycle — feed ingredients, energy source, nutrient losses and yields — and is assessed with the methods of <a href="/lessons/life-cycle-thinking/">Lesson 1.3</a> and <a href="/lessons/lca-emerging-systems/">Lesson 15.1</a>.</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="aquaponic-design-main">
+        <script type="application/json">
+        {"title":"Designing and balancing aquaponic systems","questions":[
+          {"type":"numeric","q":"A raft system receives 9 kg of feed per day. The designer uses a feed-rate ratio of 75 g m⁻² d⁻¹. What plant growing area is needed?","answer":120,"tol":0.02,"unit":"m²","hint":"\\(A_p = F/R_F\\) — convert kg to g first.","explain":"<p>\\(A_p = 9000/75 = 120\\) m².</p>"},
+          {"type":"numeric","q":"A 150 m² lettuce raft system is designed at 60 g feed m⁻² d⁻¹. The fish eat on average 1.5 % of their body mass per day. What standing fish biomass does the system need?","answer":600,"tol":0.02,"unit":"kg","hint":"First \\(F = R_F A_p\\), then \\(B = F/r_f\\).","explain":"<p>\\(F = 60\\times150 = 9000\\) g d⁻¹ = 9 kg d⁻¹; \\(B = 9/0.015 = 600\\) kg.</p>"},
+          {"type":"mcq","q":"Why should gravel-bed and NFT aquaponic systems use a feed-rate ratio of only about a quarter of the raft value?","options":["They hold much less water, so the same feed would give about four times higher nutrient concentrations.","Their plants grow four times more slowly.","They cannot host nitrifying bacteria.","Their fish need four times less feed."],"answer":0,"feedback":["","Growth rates are similar; the difference is the water volume.","Gravel beds are excellent biofilters; NFT may need a separate one, but that is not the reason.","The fish side is the same."],"explain":"<p>In raft systems about 75 % of the system water is in the plant tanks. For the same fish and plants, gravel and NFT systems concentrate nutrients roughly four times more (Rakocy et al., 2006).</p>"},
+          {"type":"numeric","q":"Fish produce 400 g TAN-N per day. The recirculation flow is 20 m³ h⁻¹ and the treatment loop removes 40 % of the TAN on each pass. What TAN concentration will the fish tank settle at?","answer":2.083,"tol":0.03,"unit":"mg L⁻¹","hint":"\\(C_T = P_{\\text{TAN}}/(\\eta Q)\\), with Q in m³ d⁻¹.","explain":"<p>\\(Q = 480\\) m³ d⁻¹; \\(C_T = 400/(0.4\\times480) = 2.08\\) g m⁻³ = 2.08 mg L⁻¹ — too high for trout, borderline for tilapia (FAO: &lt; 2 mg L⁻¹).</p>"},
+          {"type":"numeric","q":"A 8 m³ fish tank receives 12 m³ h⁻¹. What is its hydraulic retention time in minutes?","answer":40,"tol":0.02,"unit":"min","explain":"<p>\\(\\tau = V/Q = 8/12 = 0.667\\) h = 40 min.</p>"},
+          {"type":"numeric","q":"A circular clarifier of 2.0 m diameter receives 9 m³ h⁻¹. What is its overflow rate?","answer":2.865,"tol":0.03,"unit":"m h⁻¹","hint":"Overflow rate = Q / surface area.","explain":"<p>\\(A_s = \\pi\\times1.0^2 = 3.14\\) m²; \\(Q/A_s = 9/3.14 = 2.86\\) m h⁻¹. Every particle settling faster than 2.86 m h⁻¹ is captured in an ideal basin.</p>"},
+          {"type":"tf","q":"In an ideal settling basin, making the basin deeper (at the same surface area and flow) captures more particles.","answer":false,"explain":"<p>The depth cancels (Hazen, 1904): residence time grows with depth, but so does the distance a particle must fall. Only the overflow rate \\(Q/A_s\\) matters.</p>"},
+          {"type":"numeric","q":"A mineralisation loop receives sludge from 20 kg feed d⁻¹; 30 % of the feed becomes sludge, thickened to 2 % dry matter. The feed contains 1.2 % P, 55 % of it ends in the sludge and the reactor mineralises 80 %. What P concentration leaves the reactor?","answer":352,"tol":0.03,"unit":"mg P L⁻¹","hint":"Eq. 6.2.7: \\(Q_{\\text{MIN}} = n k/\\pi\\), \\(\\dot M = 1000\\,n\\,w\\,\\pi_X\\,\\eta\\).","explain":"<p>\\(Q = 20\\times0.3/0.02 = 300\\) L d⁻¹; \\(\\dot M = 20\\,000\\times0.012\\times0.55\\times0.8 = 105.6\\) g d⁻¹; \\(\\rho = 105\\,600/300 = 352\\) mg L⁻¹.</p>"},
+          {"type":"numeric","q":"In a decoupled system, the fish release 200 g of dissolved N per day. The 400 m² of plants transpire 2 L m⁻² d⁻¹, and no N is lost otherwise. At what nitrate-N concentration does the RAS settle?","answer":250,"tol":0.02,"unit":"mg L⁻¹","hint":"\\(C^* = \\text{release}/(A\\,ET)\\) — watch the units.","explain":"<p>\\(Q = 400\\times2 = 800\\) L d⁻¹; \\(C^* = 200\\,000\\ \\text{mg}/800\\ \\text{L} = 250\\) mg L⁻¹ — right at the limit usually quoted for Nile tilapia.</p>"},
+          {"type":"multi","q":"Which nutrients most commonly have to be supplemented in coupled aquaponics fed with standard fish feed? (Select all that apply.)","options":["Potassium","Iron","Calcium","Nitrogen","Sodium"],"answer":[0,1,2],"explain":"<p>Fish feed supplies too little K, Fe and (in soft water) Ca for plants; nitrogen is usually in surplus and sodium accumulates (Rakocy et al., 2006; Somerville et al., 2014).</p>"},
+          {"type":"mcq","q":"Why do coupled aquaponic systems usually operate near pH 7?","options":["It is the compromise between nitrifiers (best above 7), plants (best 5.5–6.5) and low un-ionised ammonia for fish.","Fish cannot survive outside pH 6.8–7.2.","Nitrate is toxic to plants above pH 7.","Chelated iron works only at exactly pH 7."],"answer":0,"feedback":["","Most farmed fish tolerate roughly pH 6–8.5; tilapia even wider.","Nitrate is not phytotoxic at these pH values.","Fe-DTPA remains soluble at pH 7, but that is a consequence of the compromise, not its reason."],"explain":"<p>Rakocy et al. (2006) and Goddek et al. (2015) recommend about 6.8–7.0: high enough for nitrification, low enough for micronutrient availability and for limiting NH₃.</p>"},
+          {"type":"mcq","q":"Why should sodium bicarbonate not be used to raise the pH of a coupled aquaponic system?","options":["Sodium accumulates and above ≈ 50 mg L⁻¹ interferes with K and Ca uptake by plants.","Bicarbonate is toxic to nitrifying bacteria.","It lowers the pH instead of raising it.","It precipitates iron chelates immediately."],"answer":0,"feedback":["","Bicarbonate is the very alkalinity nitrifiers need.","Bicarbonate raises pH and alkalinity.","This is not the main reason."],"explain":"<p>Use KOH, Ca(OH)₂ or carbonates of K, Ca and Mg instead, so that the base also supplies plant nutrients (Rakocy et al., 2006).</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Feed-rate ratio</dt><dd>Daily fish-feed input per square metre of plant growing area (g m⁻² d⁻¹); the main empirical sizing rule of aquaponics.</dd>
+        <dt>Critical standing crop</dt><dd>The largest fish biomass a system can carry without restricting growth; operating near it keeps the daily feed input stable.</dd>
+        <dt>Stocking density</dt><dd>Fish biomass per unit water volume (kg m⁻³); limited by oxygen supply, water quality and welfare.</dd>
+        <dt>Staggered (multiple-cohort) production</dt><dd>Rearing several age groups of fish or plants in parallel and harvesting them in rotation, to smooth feed input and nutrient uptake.</dd>
+        <dt>Hydraulic retention time</dt><dd>Volume of a component divided by the flow through it; the mean time water spends in it.</dd>
+        <dt>Removal per pass</dt><dd>The fraction of a substance (e.g. TAN) removed each time water passes through a treatment unit.</dd>
+        <dt>Overflow rate</dt><dd>Flow divided by the surface area of a settling basin (m h⁻¹); an ideal basin captures all particles that settle faster than this.</dd>
+        <dt>Stokes' law</dt><dd>The terminal settling velocity of a small sphere: \(v_s = g\Delta\rho\,d^2/(18\mu)\).</dd>
+        <dt>Microscreen drum filter</dt><dd>A rotating cylindrical screen (typically 40–80 µm) that strains solids from water and removes them by automatic backwashing.</dd>
+        <dt>Sludge mineralisation</dt><dd>Aerobic or anaerobic microbial digestion of captured solids that converts organic nutrients into dissolved forms plants can use.</dd>
+        <dt>Decoupled aquaponics</dt><dd>A design in which the fish and plant units have separate water loops and water flows one way from fish to plants.</dd>
+        <dt>Multi-loop aquaponics</dt><dd>A decoupled design with additional loops, such as sludge mineralisation reactors and distillation units, to recycle nutrients and water more completely.</dd>
+        <dt>Chelated iron</dt><dd>Iron bound to an organic ligand (e.g. DTPA, EDTA) that keeps it soluble and plant-available at near-neutral pH.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can size the plant area, daily feed, fish biomass and tank volume of an aquaponic system from a production target, and check the result against a feeding-rate range.</li>
+        <li>I can explain why the empirical feed-rate ratio supplies surplus nitrogen while potassium, calcium and iron still run short.</li>
+        <li>I can calculate the recirculation flow and biofilter area needed to keep TAN below a target, and explain why a lower target costs more filter area.</li>
+        <li>I can size a gravity clarifier from Stokes' law and the overflow rate, and explain why its depth does not matter in the ideal case.</li>
+        <li>I can draw up nitrogen and phosphorus budgets for coupled and decoupled designs and explain the role of sludge mineralisation.</li>
+        <li>I can argue for a pH and temperature operating point and discuss the energy, water and economic trade-offs of aquaponics in a Nordic climate.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Goddek, S., Joyce, A., Wuertz, S., Körner, O., Bläser, I., Reuter, M., &amp; Keesman, K. J. (2019). Decoupled aquaponics systems. In S. Goddek, A. Joyce, B. Kotzen, &amp; G. M. Burnell (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 201–229). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_8" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_8</a><span class="r-why">The design equations for mineralisation loops, evapotranspiration-driven flows and multi-loop sizing, with worked examples — the basis of Sections 6.2.5–6.2.7 of this lesson.</span></li>
+        <li><span class="r-type">Required · free</span>Rakocy, J. E., Masser, M. P., &amp; Losordo, T. M. (2006). <em>Recirculating aquaculture tank production systems: Aquaponics — integrating fish and plant culture</em> (SRAC Publication No. 454, revision). Southern Regional Aquaculture Center.<span class="r-why">The classic account of the UVI system: component ratios, solids removal, supplementation, pH and two complete design examples.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Somerville, C., Cohen, M., Pantanella, E., Stankus, A., &amp; Lovatelli, A. (2014). <em>Small-scale aquaponic food production</em> (FAO Fisheries and Aquaculture Technical Paper No. 589). FAO. <a href="https://www.fao.org/3/i4021e/i4021e.pdf" target="_blank" rel="noopener">fao.org/3/i4021e</a><span class="r-why">Read chapter 8 and appendix 4: component calculations and biofilter sizing, clearly illustrated.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Monsees, H., Kloas, W., &amp; Wuertz, S. (2017). Decoupled systems on trial: Eliminating bottlenecks to improve aquaponic processes. <em>PLOS ONE</em>, 12(9), e0183056. <a href="https://doi.org/10.1371/journal.pone.0183056" target="_blank" rel="noopener">doi:10.1371/journal.pone.0183056</a><span class="r-why">A direct experimental comparison of coupled and decoupled systems.</span></li>
+        <li><span class="r-type">Recommended · open access</span>Turnšek, M., Morgenstern, R., Schröter, I., Mergenthaler, M., Hüttel, S., &amp; Leyer, M. (2019). Commercial aquaponics: A long road ahead. In S. Goddek et al. (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 453–485). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_18" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_18</a><span class="r-why">A critical look at the economics of aquaponics and at the European farms that tried.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Benson, B. B., &amp; Krause, D., Jr. (1984). The concentration and isotopic fractionation of oxygen dissolved in freshwater and seawater in equilibrium with the atmosphere. <em>Limnology and Oceanography</em>, 29(3), 620–632. <a href="https://doi.org/10.4319/lo.1984.29.3.0620" target="_blank" rel="noopener">doi:10.4319/lo.1984.29.3.0620</a></li>
+        <li>Brechner, M., &amp; Both, A. J. (2013). <em>Hydroponic Lettuce Handbook</em>. Cornell University Controlled Environment Agriculture (CEA) Program, Ithaca, NY.</li>
+        <li>Davidson, J., Good, C., Welsh, C., &amp; Summerfelt, S. T. (2014). Comparing the effects of high vs. low nitrate on the health, performance, and welfare of juvenile rainbow trout <i>Oncorhynchus mykiss</i> within water recirculating aquaculture systems. <em>Aquacultural Engineering</em>, 59, 30–40. <a href="https://doi.org/10.1016/j.aquaeng.2014.01.003" target="_blank" rel="noopener">doi:10.1016/j.aquaeng.2014.01.003</a></li>
+        <li>Davidson, J., &amp; Summerfelt, S. T. (2005). Solids removal from a coldwater recirculating system — comparison of a swirl separator and a radial-flow settler. <em>Aquacultural Engineering</em>, 33(1), 47–61. <a href="https://doi.org/10.1016/j.aquaeng.2004.11.002" target="_blank" rel="noopener">doi:10.1016/j.aquaeng.2004.11.002</a></li>
+        <li>Delaide, B., Goddek, S., Gott, J., Soyeurt, H., &amp; Jijakli, M. H. (2016). Lettuce (<i>Lactuca sativa</i> L. var. Sucrine) growth performance in complemented aquaponic solution outperforms hydroponics. <em>Water</em>, 8(10), 467. <a href="https://doi.org/10.3390/w8100467" target="_blank" rel="noopener">doi:10.3390/w8100467</a></li>
+        <li>Eck, M., Körner, O., &amp; Jijakli, M. H. (2019). Nutrient cycling in aquaponics systems. In S. Goddek, A. Joyce, B. Kotzen, &amp; G. M. Burnell (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 231–246). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_9" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_9</a></li>
+        <li>Emerson, K., Russo, R. C., Lund, R. E., &amp; Thurston, R. V. (1975). Aqueous ammonia equilibrium calculations: Effect of pH and temperature. <em>Journal of the Fisheries Research Board of Canada</em>, 32(12), 2379–2383. <a href="https://doi.org/10.1139/f75-274" target="_blank" rel="noopener">doi:10.1139/f75-274</a></li>
+        <li>Engle, C. R. (2015). <em>Economics of aquaponics</em> (SRAC Publication No. 5006). Southern Regional Aquaculture Center.</li>
+        <li>Goddek, S., Delaide, B., Joyce, A., Wuertz, S., Jijakli, M. H., Gross, A., Eding, E. H., Bläser, I., Reuter, M., Keizer, L. C. P., Morgenstern, R., Körner, O., Verreth, J., &amp; Keesman, K. J. (2018). Nutrient mineralization and organic matter reduction performance of RAS-based sludge in sequential UASB-EGSB reactors. <em>Aquacultural Engineering</em>, 83, 10–19. <a href="https://doi.org/10.1016/j.aquaeng.2018.07.003" target="_blank" rel="noopener">doi:10.1016/j.aquaeng.2018.07.003</a></li>
+        <li>Goddek, S., Delaide, B., Mankasingh, U., Ragnarsdottir, K. V., Jijakli, H., &amp; Thorarinsdottir, R. (2015). Challenges of sustainable and commercial aquaponics. <em>Sustainability</em>, 7(4), 4199–4224. <a href="https://doi.org/10.3390/su7044199" target="_blank" rel="noopener">doi:10.3390/su7044199</a></li>
+        <li>Goddek, S., Joyce, A., Wuertz, S., Körner, O., Bläser, I., Reuter, M., &amp; Keesman, K. J. (2019). Decoupled aquaponics systems. In S. Goddek, A. Joyce, B. Kotzen, &amp; G. M. Burnell (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 201–229). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_8" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_8</a></li>
+        <li>Goddek, S., &amp; Keesman, K. J. (2018). The necessity of desalination technology for designing and sizing multi-loop aquaponics systems. <em>Desalination</em>, 428, 76–85. <a href="https://doi.org/10.1016/j.desal.2017.11.024" target="_blank" rel="noopener">doi:10.1016/j.desal.2017.11.024</a></li>
+        <li>Goddek, S., &amp; Körner, O. (2019). A fully integrated simulation model of multi-loop aquaponics: A case study for system sizing in different environments. <em>Agricultural Systems</em>, 171, 143–154. <a href="https://doi.org/10.1016/j.agsy.2019.01.010" target="_blank" rel="noopener">doi:10.1016/j.agsy.2019.01.010</a></li>
+        <li>Graber, A., &amp; Junge, R. (2009). Aquaponic systems: Nutrient recycling from fish wastewater by vegetable production. <em>Desalination</em>, 246(1–3), 147–156. <a href="https://doi.org/10.1016/j.desal.2008.03.048" target="_blank" rel="noopener">doi:10.1016/j.desal.2008.03.048</a></li>
+        <li>Hazen, A. (1904). On sedimentation. <em>Transactions of the American Society of Civil Engineers</em>, 53, 45–71. <a href="https://doi.org/10.1061/TACEAT.0001655" target="_blank" rel="noopener">doi:10.1061/TACEAT.0001655</a></li>
+        <li>Hu, Z., Lee, J. W., Chandran, K., Kim, S., Brotto, A. C., &amp; Khanal, S. K. (2015). Effect of plant species on nitrogen recovery in aquaponics. <em>Bioresource Technology</em>, 188, 92–98. <a href="https://doi.org/10.1016/j.biortech.2015.01.013" target="_blank" rel="noopener">doi:10.1016/j.biortech.2015.01.013</a></li>
+        <li>Kledal, P. R., König, B., &amp; Matulić, D. (2019). Aquaponics: The ugly duckling in organic regulation. In S. Goddek, A. Joyce, B. Kotzen, &amp; G. M. Burnell (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 487–500). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_19" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_19</a></li>
+        <li>Kloas, W., Groß, R., Baganz, D., Graupner, J., Monsees, H., Schmidt, U., Staaks, G., Suhl, J., Tschirner, M., Wittstock, B., Wuertz, S., Zikova, A., &amp; Rennert, B. (2015). A new concept for aquaponic systems to improve sustainability, increase productivity, and reduce environmental impacts. <em>Aquaculture Environment Interactions</em>, 7(2), 179–192. <a href="https://doi.org/10.3354/aei00146" target="_blank" rel="noopener">doi:10.3354/aei00146</a></li>
+        <li>Losordo, T. M., Masser, M. P., &amp; Rakocy, J. (1998). <em>Recirculating aquaculture tank production systems: An overview of critical considerations</em> (SRAC Publication No. 451). Southern Regional Aquaculture Center.</li>
+        <li>Love, D. C., Fry, J. P., Li, X., Hill, E. S., Genello, L., Semmens, K., &amp; Thompson, R. E. (2015). Commercial aquaponics production and profitability: Findings from an international survey. <em>Aquaculture</em>, 435, 67–74. <a href="https://doi.org/10.1016/j.aquaculture.2014.09.023" target="_blank" rel="noopener">doi:10.1016/j.aquaculture.2014.09.023</a></li>
+        <li>Masser, M. P., Rakocy, J., &amp; Losordo, T. M. (1999). <em>Recirculating aquaculture tank production systems: Management of recirculating systems</em> (SRAC Publication No. 452, revision). Southern Regional Aquaculture Center.</li>
+        <li>Monsees, H., Keitel, J., Paul, M., Kloas, W., &amp; Wuertz, S. (2017). Potential of aquacultural sludge treatment for aquaponics: Evaluation of nutrient mobilization under aerobic and anaerobic conditions. <em>Aquaculture Environment Interactions</em>, 9, 9–18. <a href="https://doi.org/10.3354/aei00205" target="_blank" rel="noopener">doi:10.3354/aei00205</a></li>
+        <li>Monsees, H., Kloas, W., &amp; Wuertz, S. (2017). Decoupled systems on trial: Eliminating bottlenecks to improve aquaponic processes. <em>PLOS ONE</em>, 12(9), e0183056. <a href="https://doi.org/10.1371/journal.pone.0183056" target="_blank" rel="noopener">doi:10.1371/journal.pone.0183056</a></li>
+        <li>Montanhini Neto, R., &amp; Ostrensky, A. (2015). Nutrient load estimation in the waste of Nile tilapia <i>Oreochromis niloticus</i> (L.) reared in cages in tropical climate conditions. <em>Aquaculture Research</em>, 46(6), 1309–1322. <a href="https://doi.org/10.1111/are.12280" target="_blank" rel="noopener">doi:10.1111/are.12280</a></li>
+        <li>Rafiee, G., &amp; Saad, C. R. (2005). Nutrient cycle and sludge production during different stages of red tilapia (<i>Oreochromis</i> sp.) growth in a recirculating aquaculture system. <em>Aquaculture</em>, 244(1–4), 109–118. <a href="https://doi.org/10.1016/j.aquaculture.2004.10.029" target="_blank" rel="noopener">doi:10.1016/j.aquaculture.2004.10.029</a></li>
+        <li>Rakocy, J. E., Masser, M. P., &amp; Losordo, T. M. (2006). <em>Recirculating aquaculture tank production systems: Aquaponics — integrating fish and plant culture</em> (SRAC Publication No. 454, revision). Southern Regional Aquaculture Center.</li>
+        <li>Schneider, O., Sereti, V., Eding, E. H., &amp; Verreth, J. A. J. (2005). Analysis of nutrient flows in integrated intensive aquaculture systems. <em>Aquacultural Engineering</em>, 32(3–4), 379–401. <a href="https://doi.org/10.1016/j.aquaeng.2004.09.001" target="_blank" rel="noopener">doi:10.1016/j.aquaeng.2004.09.001</a></li>
+        <li>Seawright, D. E., Stickney, R. R., &amp; Walker, R. B. (1998). Nutrient dynamics in integrated aquaculture–hydroponics systems. <em>Aquaculture</em>, 160(3–4), 215–237. <a href="https://doi.org/10.1016/S0044-8486(97)00168-3" target="_blank" rel="noopener">doi:10.1016/S0044-8486(97)00168-3</a></li>
+        <li>Somerville, C., Cohen, M., Pantanella, E., Stankus, A., &amp; Lovatelli, A. (2014). <em>Small-scale aquaponic food production: Integrated fish and plant farming</em> (FAO Fisheries and Aquaculture Technical Paper No. 589). FAO. <a href="https://www.fao.org/3/i4021e/i4021e.pdf" target="_blank" rel="noopener">https://www.fao.org/3/i4021e/i4021e.pdf</a></li>
+        <li>Turnšek, M., Morgenstern, R., Schröter, I., Mergenthaler, M., Hüttel, S., &amp; Leyer, M. (2019). Commercial aquaponics: A long road ahead. In S. Goddek, A. Joyce, B. Kotzen, &amp; G. M. Burnell (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 453–485). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_18" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_18</a></li>
+        <li>Villarroel, M., Junge, R., Komives, T., König, B., Plaza, I., Bittsánszky, A., &amp; Joly, A. (2016). Survey of aquaponics in Europe. <em>Water</em>, 8(10), 468. <a href="https://doi.org/10.3390/w8100468" target="_blank" rel="noopener">doi:10.3390/w8100468</a></li>
+        <li>Villaverde, S., García-Encina, P. A., &amp; Fdz-Polanco, F. (1997). Influence of pH over nitrifying biofilm activity in submerged biofilters. <em>Water Research</em>, 31(5), 1180–1186. <a href="https://doi.org/10.1016/S0043-1354(96)00376-4" target="_blank" rel="noopener">doi:10.1016/S0043-1354(96)00376-4</a></li>
+        <li>Yavuzcan Yildiz, H., Radosavljevic, V., Parisi, G., &amp; Cvetkovikj, A. (2019). Insight into risks in aquatic animal health in aquaponics. In S. Goddek, A. Joyce, B. Kotzen, &amp; G. M. Burnell (Eds.), <em>Aquaponics Food Production Systems</em> (pp. 435–452). Springer. <a href="https://doi.org/10.1007/978-3-030-15943-6_17" target="_blank" rel="noopener">doi:10.1007/978-3-030-15943-6_17</a></li>
+        <li>Yavuzcan Yildiz, H., Robaina, L., Pirhonen, J., Mente, E., Domínguez, D., &amp; Parisi, G. (2017). Fish welfare in aquaponic systems: Its relation to water quality with an emphasis on feed and faeces — a review. <em>Water</em>, 9(1), 13. <a href="https://doi.org/10.3390/w9010013" target="_blank" rel="noopener">doi:10.3390/w9010013</a></li>
+        <li>Zou, Y., Hu, Z., Zhang, J., Xie, H., Guimbaud, C., &amp; Fang, Y. (2016). Effects of pH on nitrogen transformations in media-based aquaponics. <em>Bioresource Technology</em>, 210, 81–87. <a href="https://doi.org/10.1016/j.biortech.2015.12.079" target="_blank" rel="noopener">doi:10.1016/j.biortech.2015.12.079</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, Sankey, linspace } from '/assets/js/plot.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+import { nh3Fraction, doSaturation } from '/assets/js/physics.js';
+import { palette, withAlpha } from '/assets/js/colors.js';
+
+/* ---------- small slider builder (same markup as the site mini-calcs) ---------- */
+function slider(host, { label, min, max, step, value, unit = '', digits = 1 }, onInput) {
+  const w = document.createElement('div'); w.className = 'mc-var';
+  w.innerHTML = `<div class="mc-lab"><span>${label}</span><output></output></div><input type="range" aria-label="${label.replace(/<[^>]+>/g, '')}">`;
+  const r = w.querySelector('input'), o = w.querySelector('output');
+  r.min = min; r.max = max; r.step = step;
+  const show = () => { o.textContent = fmt(+r.value, digits) + (unit ? ' ' + unit : ''); r.style.setProperty('--fill', ((+r.value - min) / (max - min) * 100) + '%'); };
+  r.addEventListener('input', () => { show(); onInput(); });
+  host.appendChild(w); r.value = value; show();
+  return { get: () => +r.value, set: v => { r.value = v; show(); }, el: w };
+}
+function segmented(el, onChange) {
+  el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); onChange(b.dataset.v); });
+  return () => el.querySelector('button[aria-pressed="true"]').dataset.v;
+}
+
+/* ================= Figure 2: staggered cohorts ================= */
+(function () {
+  const W0 = 79.2, Wf = 813.8, TC = 168, SURV = 0.983, VTOT = 31.2;
+  const a = 2 * (Math.sqrt(Wf) - Math.sqrt(W0)) / TC;              // g^0.5 d^-1
+  const W = t => (Math.sqrt(W0) + a * t / 2) ** 2;                  // g
+  const G = t => a * Math.sqrt(W(t));                               // g d^-1
+  const host = document.getElementById('st-ctl');
+  const run = () => draw();
+  const dens = slider(host, { label: 'Stocking density at start', min: 40, max: 160, step: 1, value: 77, unit: 'fish m⁻³', digits: 0 }, run);
+  const fcr = slider(host, { label: 'Feed conversion ratio (FCR)', min: 1.2, max: 2.2, step: 0.05, value: 1.7, digits: 2 }, run);
+  const frr = slider(host, { label: 'Feed-rate ratio used for the plants', min: 40, max: 100, step: 5, value: 80, unit: 'g m⁻² d⁻¹', digits: 0 }, run);
+  const getN = segmented(document.getElementById('st-n'), run);
+  const plot = new Plot('#st-plot', { x: { label: 'Time after full rotation is reached', unit: 'days', min: 0, max: 336 }, y: { label: 'Feed input', unit: 'kg d⁻¹', min: 0 }, y2: { label: 'Fish biomass', unit: 'kg', min: 0 } });
+  const ro = new Readouts('#st-ro');
+  ro.add({ id: 'mean', label: 'Mean feed input', unit: 'kg d⁻¹', digits: 1 })
+    .add({ id: 'range', label: 'Feed input range', unit: 'kg d⁻¹', format: v => v })
+    .add({ id: 'var', label: 'Swing around the mean', unit: '%', format: v => '± ' + fmt(v, 0) })
+    .add({ id: 'area', label: 'Plant area at chosen ratio', unit: 'm²', digits: 0, note: '–' })
+    .add({ id: 'dens', label: 'Density in a tank at harvest', unit: 'kg m⁻³', digits: 1, note: 'UVI ≈ 61.5; FAO small-scale ≤ 20' })
+    .add({ id: 'prod', label: 'Annual fish production', unit: 't yr⁻¹', digits: 2 });
+  let prevN = 0;
+  function draw() {
+    const n = +getN(), Vt = VTOT / n, N0 = dens.get() * Vt, off = TC / n, F = fcr.get();
+    const ts = linspace(0, 336, 337);
+    const tot = new Array(ts.length).fill(0), bio = new Array(ts.length).fill(0);
+    const per = [];
+    for (let k = 0; k < n; k++) {
+      const ys = ts.map((t, i) => { const tau = (t + k * off) % TC; const N = N0 * Math.pow(SURV, tau / TC); const f = F * N * G(tau) / 1000; tot[i] += f; bio[i] += N * W(tau) / 1000; return f; });
+      per.push(ys);
+    }
+    for (let k = 0; k < Math.max(prevN, n); k++) plot.remove('c' + k);
+    if (n > 1) per.forEach((ys, k) => plot.line('c' + k, ts, ys, { color: 'c' + (k + 1), width: 1.2, label: k === 0 ? 'Individual tanks' : undefined, noTip: k > 0 }));
+    prevN = n;
+    const mean = tot.reduce((s, v) => s + v, 0) / tot.length, mn = Math.min(...tot), mx = Math.max(...tot);
+    plot.line('tot', ts, tot, { color: 'accent', width: 3, label: 'Total feed input' });
+    plot.hline('mean', mean, { color: 'ink', dash: [5, 4], label: 'mean ' + fmt(mean, 1) + ' kg d⁻¹' });
+    plot.line('bio', ts, bio, { color: 'magenta', width: 1.6, dash: [6, 4], y2: true, label: 'Standing biomass (right axis)' });
+    plot.setAxis('y', { min: 0, max: Math.max(10, Math.ceil(mx * 1.15 / 5) * 5) });
+    const harvest = N0 * SURV * Wf / 1000, d = harvest / Vt;
+    ro.set('mean', mean);
+    ro.set('range', fmt(mn, 1) + '–' + fmt(mx, 1));
+    const sw = 100 * (mx - mn) / 2 / mean;
+    ro.set('var', sw, sw > 30 ? 'bad' : sw > 15 ? 'warn' : 'ok');
+    ro.set('area', mean * 1000 / frr.get(), null, 'effective ratio ' + fmt(mn * 1000 / (mean * 1000 / frr.get()), 0) + '–' + fmt(mx * 1000 / (mean * 1000 / frr.get()), 0) + ' g m⁻² d⁻¹');
+    ro.set('dens', d, d > 75 ? 'bad' : d > 62 ? 'warn' : 'ok');
+    ro.set('prod', harvest * 365 / off / 1000);
+  }
+  draw();
+})();
+
+/* ================= Figure 6: N and P Sankey ================= */
+(function () {
+  const host = document.getElementById('sk-ctl');
+  const run = () => draw();
+  const S = {};
+  S.F = slider(host, { label: 'Feed', min: 1, max: 40, step: 0.5, value: 12, unit: 'kg d⁻¹', digits: 1 }, run);
+  S.c = slider(host, { label: 'Solids captured', min: 0, max: 100, step: 1, value: 60, unit: '%', digits: 0 }, run);
+  S.A = slider(host, { label: 'Plant area', min: 20, max: 1500, step: 10, value: 200, unit: 'm²', digits: 0 }, run);
+  S.eta = slider(host, { label: 'Reactor mineralisation (decoupled)', min: 0, max: 95, step: 1, value: 60, unit: '%', digits: 0 }, run);
+  S.PC = slider(host, { label: 'Crude protein in feed', min: 25, max: 50, step: 1, value: 32, unit: '%', digits: 0 }, run);
+  S.rN = slider(host, { label: 'N retained in fish', min: 15, max: 50, step: 1, value: 32, unit: '% of feed N', digits: 0 }, run);
+  S.sN = slider(host, { label: 'N excreted dissolved', min: 15, max: 60, step: 1, value: 33, unit: '% of feed N', digits: 0 }, run);
+  S.d = slider(host, { label: 'Denitrified', min: 0, max: 60, step: 1, value: 25, unit: '% of dissolved N', digits: 0 }, run);
+  S.uN = slider(host, { label: 'Plant N uptake', min: 0.05, max: 0.6, step: 0.01, value: 0.19, unit: 'g m⁻² d⁻¹', digits: 2 }, run);
+  S.P = slider(host, { label: 'Phosphorus in feed', min: 0.6, max: 1.8, step: 0.05, value: 1.2, unit: '%', digits: 2 }, run);
+  S.rP = slider(host, { label: 'P retained in fish', min: 10, max: 65, step: 1, value: 28, unit: '% of feed P', digits: 0 }, run);
+  S.sP = slider(host, { label: 'P excreted dissolved', min: 5, max: 40, step: 1, value: 17, unit: '% of feed P', digits: 0 }, run);
+  S.uP = slider(host, { label: 'Plant P uptake', min: 0.01, max: 0.15, step: 0.002, value: 0.047, unit: 'g m⁻² d⁻¹', digits: 3 }, run);
+  const nOnly = [S.PC, S.rN, S.sN, S.d, S.uN], pOnly = [S.P, S.rP, S.sP, S.uP];
+  const getEl = segmented(document.getElementById('sk-el'), run);
+  const getDe = segmented(document.getElementById('sk-de'), run);
+  const sankey = new Sankey('#sk-chart', { unit: 'g d⁻¹', height: 360, digits: 0 });
+  const ro = new Readouts('#sk-ro');
+  ro.add({ id: 'in', label: 'Element in feed', unit: 'g d⁻¹', digits: 0 })
+    .add({ id: 'rec', label: 'Recovered in fish + plants', unit: '% of feed', digits: 1 })
+    .add({ id: 'cov', label: 'Plant demand covered by fish waste', unit: '%', digits: 0 })
+    .add({ id: 'sup', label: 'Fertiliser supplement needed', unit: 'g d⁻¹', digits: 1 })
+    .add({ id: 'sur', label: 'Surplus (exchange, precipitation, accumulation)', unit: 'g d⁻¹', digits: 0 });
+  function draw() {
+    const el = getEl(), dec = getDe() === 'd';
+    nOnly.forEach(s => s.el.style.display = el === 'N' ? '' : 'none');
+    pOnly.forEach(s => s.el.style.display = el === 'P' ? '' : 'none');
+    S.eta.el.style.opacity = dec ? '' : '.45'; S.eta.el.querySelector('input').disabled = !dec;
+    const isN = el === 'N';
+    const In = S.F.get() * 1000 * (isN ? S.PC.get() / 100 * 0.16 : S.P.get() / 100);
+    let r = (isN ? S.rN.get() : S.rP.get()) / 100, s = (isN ? S.sN.get() : S.sP.get()) / 100;
+    if (r + s > 1) s = 1 - r;
+    const phi = Math.max(0, 1 - r - s), c = S.c.get() / 100;
+    const fish = r * In, sol = s * In, solids = phi * In, capt = c * solids, inSys = solids - capt;
+    const diss = sol + inSys, den = isN ? diss * S.d.get() / 100 : 0, availD = diss - den;
+    const minR = dec ? capt * S.eta.get() / 100 : 0, resid = dec ? capt - minR : capt;
+    const avail = availD + minR, demand = S.A.get() * (isN ? S.uN.get() : S.uP.get());
+    const plants = Math.min(demand, avail), sup = Math.max(0, demand - avail), surplus = avail - plants;
+    const fD = avail > 0 ? availD / avail : 1;
+    const X = isN ? 'N' : 'P';
+    const nodes = [
+      { id: 'feed', label: 'Feed ' + X, color: 'amber', col: 0 },
+      { id: 'fish', label: 'Fish growth', color: 'accent', col: 1 },
+      { id: 'solids', label: 'Faeces + uneaten feed', color: 'c7', col: 1 },
+      { id: 'diss', label: isN ? 'Dissolved TAN → NO₃⁻' : 'Dissolved PO₄', color: isN ? 'magenta' : 'water', col: 2 },
+      { id: 'sludge', label: dec ? 'Mineralisation reactor' : 'Sludge removed', color: dec ? 'amber' : 'muted', col: 2 },
+      { id: 'supp', label: 'Fertiliser supplement', color: 'c4', col: 2 },
+      { id: 'plants', label: 'Plants', color: 'accent', col: 3 },
+      { id: 'gas', label: 'N₂ / N₂O', color: 'danger', col: 3 },
+      { id: 'surplus', label: 'Surplus', color: 'water', col: 3 },
+      { id: 'resid', label: 'Residual sludge out', color: 'muted', col: 3 }
+    ];
+    const links = [
+      { source: 'feed', target: 'fish', value: fish },
+      { source: 'feed', target: 'solids', value: solids },
+      { source: 'feed', target: 'diss', value: sol },
+      { source: 'solids', target: 'diss', value: inSys },
+      { source: 'solids', target: 'sludge', value: capt },
+      { source: 'diss', target: 'plants', value: plants * fD },
+      { source: 'diss', target: 'surplus', value: surplus * fD },
+      { source: 'diss', target: 'gas', value: den },
+      { source: 'supp', target: 'plants', value: sup }
+    ];
+    if (dec) { links.push({ source: 'sludge', target: 'plants', value: plants * (1 - fD) }, { source: 'sludge', target: 'surplus', value: surplus * (1 - fD) }, { source: 'sludge', target: 'resid', value: resid }); }
+    else links.push({ source: 'sludge', target: 'resid', value: 1e-9 });
+    const used = new Set(); links.filter(l => l.value > 0.05).forEach(l => { used.add(l.source); used.add(l.target); });
+    sankey.set({ nodes: nodes.filter(n => used.has(n.id)), links: links.filter(l => l.value > 0.05) });
+    ro.set('in', In);
+    const rec = 100 * (fish + plants) / In;
+    ro.set('rec', rec, rec >= 45 ? 'ok' : rec >= 30 ? 'warn' : 'bad');
+    const cov = demand > 0 ? Math.min(100, 100 * avail / demand) : 100;
+    ro.set('cov', cov, cov >= 99.5 ? 'ok' : cov >= 60 ? 'warn' : 'bad');
+    ro.set('sup', sup, sup > 0.05 ? 'warn' : 'ok');
+    ro.set('sur', surplus, surplus > 0.5 * In ? 'warn' : null);
+  }
+  draw();
+})();
+
+/* ================= Figure 7: pH–temperature operating window ================= */
+(function () {
+  const host = document.getElementById('pw-ctl');
+  const run = () => draw();
+  const pH = slider(host, { label: 'pH of the fish loop', min: 5, max: 9, step: 0.05, value: 7.0, digits: 2 }, run);
+  const T = slider(host, { label: 'Water temperature', min: 4, max: 36, step: 0.5, value: 26, unit: '°C', digits: 1 }, run);
+  const TAN = slider(host, { label: 'TAN in the fish tank', min: 0.1, max: 5, step: 0.05, value: 1, unit: 'mg L⁻¹', digits: 2 }, run);
+  const getFish = segmented(document.getElementById('pw-fish'), run);
+  const getMode = segmented(document.getElementById('pw-mode'), run);
+  const WIN = {
+    warm: { x0: 6, x1: 8.5, y0: 22, y1: 32, label: 'warm-water fish', color: 'magenta' },
+    cold: { x0: 6, x1: 8.5, y0: 10, y1: 18, label: 'cold-water fish', color: 'magenta' },
+    plants: { x0: 5.5, x1: 7.5, y0: 16, y1: 30, label: 'plants', color: 'accent' },
+    bact: { x0: 6, x1: 8.5, y0: 14, y1: 34, label: 'nitrifying bacteria', color: 'amber' },
+    comp: { x0: 6, x1: 7, y0: 18, y1: 30 }
+  };
+  const HP = { pH: 5.8, T: 21 };
+  const plot = new Plot('#pw-plot', { x: { label: 'pH', min: 5, max: 9 }, y: { label: 'Water temperature', unit: '°C', min: 4, max: 36 }, legend: false, crosshair: false });
+  const ro = new Readouts('#pw-ro');
+  ro.add({ id: 'nh3', label: 'Un-ionised ammonia NH₃-N', unit: 'mg L⁻¹', digits: 3 })
+    .add({ id: 'frac', label: 'NH₃ share of TAN', unit: '%', digits: 2 })
+    .add({ id: 'nit', label: 'Relative nitrifier activity (pH only)', unit: '%', digits: 0, note: '–' })
+    .add({ id: 'dos', label: 'O₂ saturation at this temperature', unit: 'mg L⁻¹', digits: 2 })
+    .add({ id: 'fish', label: 'Fish window', unit: '', format: v => v })
+    .add({ id: 'bact', label: 'Bacteria window', unit: '', format: v => v })
+    .add({ id: 'plants', label: 'Plant window', unit: '', format: v => v, note: '–' });
+  const inWin = (w, x, y) => x >= w.x0 && x <= w.x1 && y >= w.y0 && y <= w.y1;
+  plot.custom('windows', (ctx, p, P) => {
+    const fishW = WIN[getFish()];
+    const box = (w, dy) => {
+      const c = P[w.color] || P.ink;
+      const X0 = p.px(w.x0), X1 = p.px(w.x1), Y0 = p.py(w.y1), Y1 = p.py(w.y0);
+      ctx.fillStyle = withAlpha(c, 0.10); ctx.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
+      ctx.strokeStyle = c; ctx.lineWidth = 1.8; ctx.setLineDash([]); ctx.strokeRect(X0 + 0.5, Y0 + 0.5, X1 - X0 - 1, Y1 - Y0 - 1);
+      ctx.fillStyle = c; ctx.font = '600 12px Inter, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(w.label, X0 + 5, Y0 + 4 + (dy || 0));
+    };
+    box(WIN.bact, 0); box(WIN.plants, 16); box(fishW, 32);
+    const c = WIN.comp, X0 = p.px(c.x0), X1 = p.px(c.x1), Y0 = p.py(c.y1), Y1 = p.py(c.y0);
+    ctx.strokeStyle = P.ink; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(X0, Y0, X1 - X0, Y1 - Y0); ctx.setLineDash([]);
+    ctx.fillStyle = P.ink; ctx.font = '600 11.5px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('FAO compromise', (X0 + X1) / 2, Y1 - 4);
+  });
+  let drag = false;
+  const setFrom = e => { pH.set(Math.min(9, Math.max(5, Math.round(e.x / 0.05) * 0.05))); T.set(Math.min(36, Math.max(4, Math.round(e.y * 2) / 2))); draw(); };
+  plot.on('pointerdown', e => { if (e.inside) { drag = true; setFrom(e); } });
+  plot.on('pointermove', e => { if (drag && e.inside) setFrom(e); });
+  plot.on('pointerup', () => { drag = false; });
+  function draw() {
+    const x = pH.get(), y = T.get(), dec = getMode() === 'd', fishW = WIN[getFish()];
+    const f = nh3Fraction(x, y);
+    plot.point('op', x, y, { color: 'ink', r: 7, label: dec ? 'fish loop' : 'operating point' });
+    if (dec) plot.point('hp', HP.pH, HP.T, { color: 'accent', r: 7, label: 'plant loop' }); else plot.remove('hp');
+    ro.set('nh3', TAN.get() * f, TAN.get() * f > 0.05 ? 'bad' : TAN.get() * f > 0.02 ? 'warn' : 'ok');
+    ro.set('frac', 100 * f);
+    const nit = x >= 8.2 ? 100 : Math.max(0, 100 - 13 * (8.2 - x));
+    ro.set('nit', nit, x < 6 ? 'bad' : nit < 80 ? 'warn' : 'ok', x < 6 ? 'inhibition reported below pH 6' : 'linear fit, Villaverde et al. (1997)');
+    ro.set('dos', doSaturation(y));
+    const okF = inWin(fishW, x, y), okB = inWin(WIN.bact, x, y), okP = dec ? inWin(WIN.plants, HP.pH, HP.T) : inWin(WIN.plants, x, y);
+    ro.set('fish', okF ? 'inside ✓' : 'outside ✗', okF ? 'ok' : 'bad');
+    ro.set('bact', okB ? 'inside ✓' : 'outside ✗', okB ? 'ok' : 'bad');
+    ro.set('plants', okP ? 'inside ✓' : 'outside ✗', okP ? 'ok' : 'bad', dec ? 'judged at pH 5.8, 21 °C' : '');
+  }
+  draw();
+})();
+</script>
+</body>
+</html>

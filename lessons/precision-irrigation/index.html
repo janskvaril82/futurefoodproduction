@@ -1,0 +1,1005 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Precision irrigation and nutrient management · Future Food Production</title>
+<meta name="description" content="The FAO-56 framework: Penman–Monteith reference evapotranspiration derived term by term, crop coefficients, total and readily available water, the daily root-zone water balance, irrigation scheduling and soil-moisture sensors, deficit irrigation and the yield-response factor, variable-rate irrigation, nitrogen balances and use efficiency, crop nitrogen sensing, nitrate leaching, Baltic Sea eutrophication and Swedish rules for nitrate-vulnerable zones.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator functions for Lesson 11.3 (FAO-56, Allen et al. 1998). They mirror et0PenmanMonteith() in /assets/js/physics.js. */
+window.FFP_CALC = window.FFP_CALC || {};
+(function (C) {
+  function es(T) { return 0.6108 * Math.exp(17.27 * T / (T + 237.3)); }
+  /* FAO-56 Eq. 6, elevation 20 m (P = 101.06 kPa), G = 0 */
+  C.piET0 = function (v) {
+    var e = es(v.T), ea = e * v.RH / 100, D = 4098 * e / Math.pow(v.T + 237.3, 2), g = 0.000665 * 101.06;
+    return (0.408 * D * v.Rn + g * 900 / (v.T + 273) * v.u2 * (e - ea)) / (D + g * (1 + 0.34 * v.u2));
+  };
+  /* single crop-coefficient curve (FAO-56 Fig. 25) times ET0 */
+  C.piETc = function (v) {
+    var d = v.day, a = v.Li, b = v.Ld, c = v.Lm, kc;
+    if (d < a) kc = v.Ki; else if (d < a + b) kc = v.Ki + (v.Km - v.Ki) * (d - a) / b; else if (d < a + b + c) kc = v.Km; else kc = v.Km + (v.Ke - v.Km) * Math.min(1, (d - a - b - c) / 30);
+    return kc * v.et0;
+  };
+})(window.FFP_CALC);
+</script>
+<style>
+  .pi-grid{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start}
+  @media (max-width:760px){.pi-grid{grid-template-columns:1fr}}
+  .pi-ctl .mc-var{margin-bottom:10px}
+  .pi-ctl .seg{margin-bottom:10px;flex-wrap:wrap}
+  .pi-note{font-size:.8rem;color:var(--muted);margin-top:6px;line-height:1.45}
+  .pi-lab{font-size:.78rem;color:var(--muted);margin:6px 0 4px;font-weight:600}
+</style>
+</head>
+<body data-page="lesson" data-slug="precision-irrigation">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Precision irrigation and nutrient management</h1>
+      <p class="lead">In the summer of 2018 the rain simply stopped over much of Sweden. Farmers with irrigation — mostly potato and vegetable growers in the south — watered day and night; everyone else watched their cereals ripen early and light. Water and nitrogen are the two inputs that most often limit yield, and the two whose excess does most harm: water pumped onto a field that cannot hold it drains away, and nitrogen that the crop does not take up ends its journey in the Baltic Sea. This lesson turns the internationally standard FAO-56 method into a working daily water balance, shows how sensors and models decide when and how much to irrigate, and then applies the same accounting logic to nitrogen — so that you can put numbers on the promise of "the right amount, at the right time".</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Derive the FAO-56 Penman–Monteith equation for reference evapotranspiration, term by term, from the general Penman–Monteith equation, and calculate ET₀ from weather data (LO3).</li>
+        <li>Build a single crop-coefficient curve and calculate crop evapotranspiration at any stage of the season (LO3).</li>
+        <li>Calculate total and readily available water, run the daily root-zone depletion balance with the water-stress coefficient, and schedule irrigation from it (LO3, LO5).</li>
+        <li>Compare calendar, sensor-based and model-based scheduling, soil-moisture sensors, irrigation methods and variable-rate irrigation, and quantify yield loss under deficit irrigation with the yield-response factor Ky (LO3, LO5, LO7).</li>
+        <li>Calculate a field nitrogen balance, nitrogen-use efficiency indicators and the economic optimum nitrogen rate, and explain split application and crop nitrogen sensing (LO3, LO5).</li>
+        <li>Relate nitrogen surplus to nitrate leaching, Baltic Sea eutrophication and the Swedish rules for nitrate-vulnerable zones (LO1, LO6, LO7).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="why">Water and nitrogen: the inputs that matter most</h2>
+      <p class="lede-drop">Globally, agriculture accounts for about 69 % of all freshwater withdrawals; in Western Europe the share is only about 5 %, because most European crops are rain-fed (FAO AQUASTAT). Sweden fits the European pattern: irrigation is used mainly for high-value crops such as potatoes, vegetables and some sugar beet, most of it in the southern and eastern parts of the country. Yet dry summers such as 2018 show that even at 60° N the difference between rainfall and crop water use can be large enough to halve yields. Precision irrigation is about applying water only where and when the crop needs it — and not so much that it drains below the roots, taking nutrients with it.</p>
+      <p>Nitrogen is the other half of the story. Synthetic fertiliser made by the Haber–Bosch process, together with manure and biological fixation, feeds the world's crops (Zhang et al., 2015), but crops use it inefficiently: worldwide, only about a third of the nitrogen applied to cereals ends up in the harvested grain (Raun &amp; Johnson, 1999), and more than half of all nitrogen added to cropland is lost to the environment (Lassaletta et al., 2014). In the Baltic Sea, nutrient inputs from land are the main driver of a roughly ten-fold expansion of oxygen-depleted bottom waters over the last century (Carstensen et al., 2014). Water and nitrogen are coupled: nitrate dissolved in the soil water moves wherever the water goes, so every millimetre of excess drainage carries nitrogen with it.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 360" role="img" aria-label="Water and nitrogen flows of a field: rain, irrigation, evapotranspiration, runoff, deep percolation and capillary rise; nitrogen inputs from fertiliser, manure, deposition, fixation and mineralisation; outputs in harvest, leaching, denitrification and ammonia volatilisation">
+            <defs>
+              <marker id="pi-aw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--water)"/></marker>
+              <marker id="pi-an" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--magenta)"/></marker>
+              <marker id="pi-ak" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+            </defs>
+            <rect x="20" y="170" width="660" height="150" class="fill-sunk" stroke="currentColor" stroke-width="1"/>
+            <line x1="20" y1="260" x2="680" y2="260" class="stroke-muted" stroke-width="1" stroke-dasharray="5 4"/>
+            <text x="30" y="188" class="t-small t-muted">root zone (depth Zᵣ)</text>
+            <text x="30" y="278" class="t-small t-muted">below the root zone</text>
+            <g class="fill-accent" opacity=".9">
+              <path d="M250 170 q10 -70 20 0z"/><path d="M285 170 q10 -80 20 0z"/><path d="M320 170 q10 -64 20 0z"/><path d="M355 170 q10 -78 20 0z"/><path d="M390 170 q10 -70 20 0z"/>
+            </g>
+            <g class="stroke-accent" stroke-width="1.2"><path d="M260 170 v40 M295 170 v58 M330 170 v46 M365 170 v62 M400 170 v44"/></g>
+            <!-- water: blue -->
+            <path d="M70 30 L70 160" class="stroke-water" stroke-width="2.2" marker-end="url(#pi-aw)"/><text x="40" y="24" class="t-small" style="fill:var(--water)">rain P</text>
+            <path d="M150 60 L203 156" class="stroke-water" stroke-width="2.2" marker-end="url(#pi-aw)"/><text x="122" y="54" class="t-small" style="fill:var(--water)">irrigation I</text>
+            <path d="M320 92 L320 20" class="stroke-water" stroke-width="2.2" marker-end="url(#pi-aw)"/><text x="312" y="30" text-anchor="end" class="t-small" style="fill:var(--water)">evapotranspiration ET</text>
+            <path d="M230 166 L110 166" class="stroke-water" stroke-width="1.8" marker-end="url(#pi-aw)"/><text x="112" y="158" class="t-small" style="fill:var(--water)">runoff RO</text>
+            <path d="M190 230 L190 312" class="stroke-water" stroke-width="2.2" marker-end="url(#pi-aw)"/><text x="198" y="300" class="t-small" style="fill:var(--water)">deep percolation DP</text>
+            <path d="M120 312 L120 238" class="stroke-water" stroke-width="1.8" marker-end="url(#pi-aw)"/><text x="40" y="300" class="t-small" style="fill:var(--water)">capillary rise CR</text>
+            <!-- nitrogen: magenta -->
+            <path d="M500 32 L500 160" class="stroke-magenta" stroke-width="2.2" marker-end="url(#pi-an)"/><text x="500" y="24" text-anchor="middle" class="t-small" style="fill:var(--magenta)">fertiliser + manure</text>
+            <path d="M592 32 L566 160" class="stroke-magenta" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#pi-an)"/><text x="562" y="24" class="t-small" style="fill:var(--magenta)">deposition, fixation</text>
+            <path d="M380 112 L380 58" class="stroke-magenta" stroke-width="2.2" marker-end="url(#pi-an)"/><text x="388" y="72" class="t-small" style="fill:var(--magenta)">harvest (output)</text>
+            <path d="M626 166 L656 100" class="stroke-magenta" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#pi-an)"/><text x="600" y="92" class="t-small" style="fill:var(--magenta)">NH₃, N₂O, N₂ to air</text>
+            <path d="M640 226 L640 312" class="stroke-magenta" stroke-width="2.2" marker-end="url(#pi-an)"/><text x="632" y="300" text-anchor="end" class="t-small" style="fill:var(--magenta)">nitrate leaching</text>
+            <path d="M450 214 q30 -18 60 0" class="stroke-magenta" stroke-width="1.4" marker-end="url(#pi-an)"/><text x="440" y="238" class="t-small" style="fill:var(--magenta)">mineralisation ↔ immobilisation</text>
+            <text x="350" y="345" text-anchor="middle" class="t-small t-muted">water (blue) moves nitrate (magenta): drainage below the roots carries NO₃⁻ towards streams, lakes and the Baltic Sea</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The field as a water and nitrogen accounting unit. Precision irrigation manages the water terms so that the root zone neither dries beyond what the crop tolerates nor fills beyond what it can hold; precision nutrient management matches the nitrogen inputs to crop uptake so that little is left in the soil when drainage starts in autumn.</figcaption>
+      </figure>
+
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Both halves of this lesson are <strong>mass balances</strong>: what comes in, what goes out, what is stored. The FAO-56 method (Allen et al., 1998) keeps the books for water in millimetres per day; a nitrogen balance keeps them in kilograms per hectare per year. Precision agriculture adds a spatial dimension — the books are kept for every zone of the field — and sensors that check the books against reality.</p></div>
+
+      <h2 id="et0">Reference evapotranspiration: FAO-56 Penman–Monteith</h2>
+      <p>How much water does a crop use? It depends on the weather (the evaporative demand of the atmosphere), on the crop (its height, leaf area, stomatal behaviour and reflectance) and on the soil (whether water is available). FAO Irrigation and Drainage Paper 56 separates these influences in two steps (Allen et al., 1998). First it defines a <strong>reference evapotranspiration</strong> ET₀: the evapotranspiration of a hypothetical, extensive, well-watered grass surface of height 0.12 m, with a fixed surface resistance of 70 s m⁻¹ and an albedo of 0.23. ET₀ depends only on the weather. Then it multiplies ET₀ by a <strong>crop coefficient</strong> that captures how a given crop differs from the reference grass (next section).</p>
+      <p>ET₀ is calculated with the Penman–Monteith equation, which you met for a single leaf and a crop tier in <a href="/lessons/water-relations/">Lesson 2.2</a> (Eq. 2.2.9). In resistance form, with \(r_a = 1/g_a\) and \(r_s = 1/g_s\):</p>
+      <div class="eq-main">\[ \lambda\,ET = \frac{\Delta\,(R_n-G) + \rho_a\,c_p\,(e_s-e_a)/r_a}{\Delta + \gamma\left(1+r_s/r_a\right)} \]</div>
+      <p>The FAO-56 equation is this same equation with the reference grass inserted and the constants evaluated. The derivation below shows where every number comes from.</p>
+
+      <div class="eq-box" id="eq-pi-et0">
+        <div class="eq-head"><span class="eq-label">FAO-56 Penman–Monteith reference evapotranspiration</span><span class="eq-num">(11.3.1)</span></div>
+        <div class="eq-main">\[ ET_0=\frac{0.408\,\Delta\,(R_n-G)+\gamma\,\dfrac{900}{T+273}\,u_2\,(e_s-e_a)}{\Delta+\gamma\,(1+0.34\,u_2)} \]</div>
+        <p class="eq-read">reference evapotranspiration equals 0.408 times the slope of the saturation vapour pressure curve times the available energy, plus the psychrometric constant times 900 over the air temperature in kelvin times the wind speed at 2 m times the vapour pressure deficit — all divided by the slope plus the psychrometric constant times one plus 0.34 times the wind speed.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical Swedish summer day</th></tr>
+          <tr><td>\(ET_0\)</td><td>reference evapotranspiration</td><td>mm d⁻¹</td><td>2–5</td></tr>
+          <tr><td>\(R_n\)</td><td>net radiation at the grass surface</td><td>MJ m⁻² d⁻¹</td><td>8–15</td></tr>
+          <tr><td>\(G\)</td><td>soil heat flux (≈ 0 for daily steps)</td><td>MJ m⁻² d⁻¹</td><td>0</td></tr>
+          <tr><td>\(T\)</td><td>mean daily air temperature at 2 m</td><td>°C</td><td>12–20</td></tr>
+          <tr><td>\(u_2\)</td><td>wind speed at 2 m height</td><td>m s⁻¹</td><td>1.5–4</td></tr>
+          <tr><td>\(e_s, e_a\)</td><td>saturation and actual vapour pressure; \(e_s-e_a\) = VPD</td><td>kPa</td><td>0.3–1.2 (VPD)</td></tr>
+          <tr><td>\(\Delta\)</td><td>slope of the saturation vapour pressure curve, \(4098\,e_s/(T+237.3)^2\)</td><td>kPa °C⁻¹</td><td>0.09–0.15</td></tr>
+          <tr><td>\(\gamma\)</td><td>psychrometric constant, \(0.665\times10^{-3}P\)</td><td>kPa °C⁻¹</td><td>0.067 at sea level</td></tr>
+        </table>
+        <details><summary>Follow the derivation (6 steps, from Eq. 2.2.9 to Eq. 11.3.1)</summary>
+          <ol class="steps">
+            <li><strong>Aerodynamic resistance of the reference grass.</strong> For neutral stability, momentum and heat are transferred by turbulence with \(r_a=\dfrac{\ln\left[(z_m-d)/z_{om}\right]\,\ln\left[(z_h-d)/z_{oh}\right]}{k^2\,u_z}\), where \(k=0.41\) is von Kármán's constant. For grass of height \(h=0.12\) m: zero-plane displacement \(d=\tfrac23 h=0.08\) m, roughness length for momentum \(z_{om}=0.123h=0.01476\) m and for heat and vapour \(z_{oh}=0.1z_{om}\). With wind, temperature and humidity measured at \(z_m=z_h=2\) m: \(r_a = \dfrac{\ln(1.92/0.01476)\,\ln(1.92/0.001476)}{0.41^2\,u_2}=\dfrac{4.868\times7.171}{0.1681\,u_2}=\dfrac{208}{u_2}\) s m⁻¹.</li>
+            <li><strong>Surface resistance.</strong> A well-watered grass leaf has a stomatal resistance of about \(r_l=100\) s m⁻¹; roughly half of the leaf area (the upper, sunlit half) is active, and for clipped grass \(\text{LAI}=24h=2.88\). So \(r_s=r_l/(0.5\,\text{LAI})=100/1.44=69.4\approx70\) s m⁻¹.</li>
+            <li><strong>The denominator.</strong> \(1+r_s/r_a = 1+70\,u_2/208 = 1+0.337\,u_2\approx 1+0.34\,u_2\). ✓</li>
+            <li><strong>Converting energy to water.</strong> Dividing λET (MJ m⁻² d⁻¹) by the latent heat of vaporisation λ = 2.45 MJ kg⁻¹ gives kg m⁻² d⁻¹ = mm d⁻¹, because 1 kg of water spread over 1 m² is 1 mm deep. So the radiation term becomes \(\Delta(R_n-G)/\lambda = 0.408\,\Delta(R_n-G)\), since \(1/2.45=0.408\). ✓</li>
+            <li><strong>The aerodynamic term.</strong> Air density follows from the gas law, \(\rho_a = P/(1.01\,(T+273)\,R)\) with \(R=0.287\) kJ kg⁻¹ K⁻¹, and the psychrometric constant is \(\gamma = c_pP/(\varepsilon\lambda)\) with \(\varepsilon=0.622\). Eliminating \(P\): \(\rho_ac_p=\gamma\varepsilon\lambda/[1.01(T+273)R]\). Multiplying by 86 400 s d⁻¹ (resistances are in s m⁻¹), dividing by \(r_a=208/u_2\) and by λ gives \(\gamma\,\dfrac{0.622\times86\,400}{1.01\times0.287\times208}\,\dfrac{u_2}{T+273}(e_s-e_a)=\gamma\,\dfrac{891}{T+273}\,u_2\,(e_s-e_a)\). FAO rounded 891 to <strong>900</strong>. ✓</li>
+            <li><strong>Assemble.</strong> Dividing numerator and denominator of the Penman–Monteith equation by λ and inserting steps 1–5 gives Eq. 11.3.1. The same equation is implemented as <code>et0PenmanMonteith</code> in the course physics library, used by the irrigation laboratory.</li>
+          </ol>
+        </details>
+        <details><summary>Net radiation from sunshine and temperature (what weather stations give you)</summary>
+          <p>Stations measure global (shortwave) radiation \(R_s\), not \(R_n\). FAO-56 estimates net shortwave radiation as \(R_{ns}=(1-0.23)R_s\) and net long-wave loss as \(R_{nl}=\sigma\,\tfrac12\left(T_{\max,K}^4+T_{\min,K}^4\right)(0.34-0.14\sqrt{e_a})\left(1.35\,R_s/R_{so}-0.35\right)\), with \(\sigma = 4.903\times10^{-9}\) MJ K⁻⁴ m⁻² d⁻¹ and the clear-sky radiation \(R_{so}=(0.75+2\times10^{-5}z)R_a\) from the extraterrestrial radiation \(R_a\) (Lesson 4.2). Then \(R_n=R_{ns}-R_{nl}\). On 15 July at Västerås (59.6° N) \(R_a = 39.2\) and \(R_{so} = 29.4\) MJ m⁻² d⁻¹; with \(R_s = 20\), \(T_{\max}=23\) °C, \(T_{\min}=13\) °C and \(e_a = 1.44\) kPa, \(R_{nl}=3.45\) and \(R_n=15.4-3.45\approx12.0\) MJ m⁻² d⁻¹.</p>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>ET₀ is defined for a large, uniform, well-watered grass reference, not for your actual field. Weather should be measured over grass, away from buildings; data from dry sites (such as airport tarmac) overestimate ET₀. Daily calculations take \(G\approx 0\). For hourly steps FAO-56 uses different constants (37 instead of 900, and a surface resistance that differs between day and night; Allen et al., 2006). When only temperature data are available, the Hargreaves equation gives a rougher estimate.</p></details>
+        <div class="eq-units">Radiation term: (kPa °C⁻¹)(MJ m⁻² d⁻¹)(kg MJ⁻¹) / (kPa °C⁻¹) = kg m⁻² d⁻¹ = mm d⁻¹ ✓. Aerodynamic term: (kPa °C⁻¹)(K⁻¹ … the constant 900 carries kg K kJ⁻¹ d⁻¹)(m s⁻¹)(kPa) / (kPa °C⁻¹) = mm d⁻¹ ✓.</div>
+        <div class="mini-calc" data-fn="piET0" data-output="ET₀" data-unit="mm d⁻¹" data-digits="2" data-plot="u2" data-title="Try it — ET₀ for one day (elevation 20 m)">
+          <div data-var="T" data-label="Mean temperature T" data-min="0" data-max="30" data-step="0.5" data-value="18" data-unit="°C"></div>
+          <div data-var="RH" data-label="Mean relative humidity" data-min="30" data-max="98" data-step="1" data-value="70" data-unit="%"></div>
+          <div data-var="u2" data-label="Wind speed u₂" data-min="0" data-max="6" data-step="0.1" data-value="2.5" data-unit="m s⁻¹"></div>
+          <div data-var="Rn" data-label="Net radiation Rₙ" data-min="0" data-max="20" data-step="0.5" data-value="13" data-unit="MJ m⁻² d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">ET₀ on a July day in Västerås</span></div>
+        <div class="we-problem"><p>A weather station at 20 m above sea level near Västerås records a mean temperature of 18 °C, a mean relative humidity of 70 %, a wind speed of 2.5 m s⁻¹ at 2 m and a net radiation of 13 MJ m⁻² d⁻¹. Calculate ET₀ and the share of it driven by radiation.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Vapour pressures.</strong> \(e_s = 0.6108\exp[17.27\times18/(18+237.3)] = 2.064\) kPa; \(e_a = 0.70\times2.064 = 1.445\) kPa; VPD \(= 0.619\) kPa.</li>
+              <li><strong>Slope and psychrometric constant.</strong> \(\Delta = 4098\times2.064/255.3^2 = 0.1298\) kPa °C⁻¹. Pressure at 20 m: \(P = 101.3\,[(293-0.0065\times20)/293]^{5.26} = 101.06\) kPa, so \(\gamma = 0.000665\times101.06 = 0.0672\) kPa °C⁻¹.</li>
+              <li><strong>Radiation term:</strong> \(0.408\times0.1298\times13 = 0.688\).</li>
+              <li><strong>Aerodynamic term:</strong> \(0.0672\times\dfrac{900}{291}\times2.5\times0.619 = 0.322\).</li>
+              <li><strong>Denominator:</strong> \(0.1298 + 0.0672\times(1+0.34\times2.5) = 0.1298+0.1243 = 0.2541\).</li>
+              <li><strong>ET₀</strong> \(= (0.688+0.322)/0.2541 = 3.98\) mm d⁻¹. The radiation term alone contributes \(0.688/0.2541 = 2.71\) mm d⁻¹, i.e. 68 %.</li>
+              <li><strong>Sanity check.</strong> About 4 mm d⁻¹ is typical of a sunny Swedish summer day; on hot, dry, windy days in 2018 values of 5–6 mm d⁻¹ occurred. At high latitudes radiation dominates ET₀; in dry, windy climates the aerodynamic term can dominate.</li>
+            </ol>
+            <span class="answer">ET₀ ≈ 3.98 mm d⁻¹ (≈ 68 % radiation-driven)</span>
+          </div>
+        </details>
+      </div>
+
+      <figure class="figure wide" id="et0-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — what drives ET₀ at 59.6° N?</div>
+          <div class="pi-grid">
+            <div id="et-plot" style="min-height:320px"></div>
+            <div class="pi-ctl">
+              <div class="mc-var"><div class="mc-lab"><span>Day of year</span><output id="et-doy-o"></output></div><input id="et-doy" type="range" min="100" max="280" step="1" value="196" aria-label="Day of year"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Sunshine (R<sub>s</sub>/R<sub>so</sub>)</span><output id="et-sun-o"></output></div><input id="et-sun" type="range" min="0.25" max="1" step="0.01" value="0.68" aria-label="Relative radiation"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Mean temperature</span><output id="et-T-o"></output></div><input id="et-T" type="range" min="0" max="28" step="0.5" value="18" aria-label="Mean temperature"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Relative humidity</span><output id="et-RH-o"></output></div><input id="et-RH" type="range" min="35" max="95" step="1" value="70" aria-label="Relative humidity"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Wind speed u₂</span><output id="et-u-o"></output></div><input id="et-u" type="range" min="0.5" max="6" step="0.1" value="2.5" aria-label="Wind speed"></div>
+            </div>
+          </div>
+          <div class="readouts" id="et-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 2.</b> ET₀ (black) as a function of wind speed, split into its radiation-driven part (amber) and its aerodynamic, VPD-driven part (blue), at Västerås (59.6° N, 20 m). Net radiation is computed from the day of year and relative sunshine with the FAO-56 radiation equations (with a 10 °C diurnal range), using the course physics library. Wind increases ET₀ only through the aerodynamic term — and the bigger the VPD, the stronger the effect. Try a humid, calm June day (RH 85 %, u₂ 1 m s⁻¹) and a dry, windy one (RH 45 %, u₂ 5 m s⁻¹).</figcaption>
+      </figure>
+
+      <h2 id="kc">From reference to crop: crop coefficients</h2>
+      <p>A potato field does not evaporate like reference grass. Early in the season most of the ground is bare and only the wet soil surface evaporates; at full cover the crop is taller, rougher and has more leaf area than clipped grass; near maturity leaves senesce and transpiration falls. FAO-56 lumps all these differences into a <strong>crop coefficient</strong> \(K_c\) that changes through the season (Allen et al., 1998):</p>
+
+      <div class="eq-box" id="eq-pi-kc">
+        <div class="eq-head"><span class="eq-label">Crop evapotranspiration and the single crop-coefficient curve</span><span class="eq-num">(11.3.2)</span></div>
+        <div class="eq-main">\[ ET_c = K_c\,ET_0,\qquad K_{c,i}=K_{c,\text{prev}}+\frac{i-\sum L_{\text{prev}}}{L_{\text{stage}}}\left(K_{c,\text{next}}-K_{c,\text{prev}}\right) \]</div>
+        <p class="eq-read">crop evapotranspiration under standard conditions is the crop coefficient times the reference evapotranspiration; during the development and late-season stages the crop coefficient on day i is found by linear interpolation between the values at the start and end of the stage.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Potato (FAO-56)</th></tr>
+          <tr><td>\(K_{c\,\text{ini}}\), \(K_{c\,\text{mid}}\), \(K_{c\,\text{end}}\)</td><td>crop coefficient in the initial stage, at mid-season, at harvest</td><td>–</td><td>0.50, 1.15, 0.75</td></tr>
+          <tr><td>\(L_{\text{ini}}, L_{\text{dev}}, L_{\text{mid}}, L_{\text{late}}\)</td><td>stage lengths</td><td>d</td><td>30, 35, 50, 30 (Europe, April planting)</td></tr>
+          <tr><td>\(i\)</td><td>day since planting</td><td>d</td><td>–</td></tr>
+          <tr><td>\(\sum L_{\text{prev}}\)</td><td>sum of the lengths of all previous stages</td><td>d</td><td>–</td></tr>
+          <tr><td>\(ET_c\)</td><td>crop evapotranspiration without water stress</td><td>mm d⁻¹</td><td>up to 5–6</td></tr>
+        </table>
+        <details><summary>Follow the reasoning: the four stages</summary>
+          <ol class="steps">
+            <li><strong>Initial</strong> (sowing to ≈ 10 % cover): ET is mostly soil evaporation, so \(K_{c\,\text{ini}}\) is low (0.3–0.5) and depends strongly on how often the soil surface is wetted by rain or irrigation.</li>
+            <li><strong>Development</strong> (10 % to effective full cover): \(K_c\) rises linearly as the canopy closes.</li>
+            <li><strong>Mid-season</strong> (full cover to start of maturity): \(K_{c\,\text{mid}}\) is constant, typically 1.05–1.20 for field crops, because a closed, tall canopy is rougher and has more leaf area than the grass reference.</li>
+            <li><strong>Late season</strong> (to harvest): \(K_c\) falls towards \(K_{c\,\text{end}}\) as leaves senesce; for cereals harvested dry it falls to 0.25–0.4.</li>
+            <li><strong>Climate adjustment.</strong> The tabulated \(K_{c\,\text{mid}}\) refers to a sub-humid climate (minimum relative humidity 45 %, \(u_2=2\) m s⁻¹). For other climates FAO-56 adds \([0.04(u_2-2)-0.004(RH_{\min}-45)](h/3)^{0.3}\), where \(h\) is crop height in m. In humid Swedish summers (RH<sub>min</sub> ≈ 55–60 %) this lowers \(K_{c\,\text{mid}}\) by a few hundredths.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The single coefficient combines crop transpiration and soil evaporation; FAO-56 also offers a "dual" approach (\(K_{cb}+K_e\)) for daily calculations after wetting events. Tabulated values assume a healthy, well-fertilised, disease-free crop under standard conditions; a thin or diseased crop uses less. A review of two decades of measurements confirmed the reliability of the tabulated FAO-56 values (Pereira et al., 2021). Stage lengths vary with variety, planting date and latitude; the remote-sensing methods of <a href="/lessons/remote-sensing/">Lesson 11.2</a> can replace fixed stages by observed canopy development.</p></details>
+        <div class="eq-units">(–) × mm d⁻¹ = mm d⁻¹ ✓; the interpolation fraction is d/d = dimensionless ✓</div>
+        <div class="mini-calc" data-fn="piETc" data-output="Crop evapotranspiration ETc" data-unit="mm d⁻¹" data-digits="2" data-plot="day" data-ymin="0" data-ymax="6" data-title="Try it — the potato crop-coefficient curve (FAO-56, Europe)">
+          <div data-var="day" data-label="Day after planting i" data-min="0" data-max="145" data-step="1" data-value="50" data-unit="d"></div>
+          <div data-var="et0" data-label="ET₀ (assumed constant)" data-min="1" data-max="6" data-step="0.1" data-value="4" data-unit="mm d⁻¹"></div>
+          <div data-var="Li" data-label="L<sub>ini</sub>" data-min="10" data-max="45" data-step="1" data-value="30" data-unit="d"></div>
+          <div data-var="Ld" data-label="L<sub>dev</sub>" data-min="15" data-max="50" data-step="1" data-value="35" data-unit="d"></div>
+          <div data-var="Lm" data-label="L<sub>mid</sub>" data-min="20" data-max="70" data-step="1" data-value="50" data-unit="d"></div>
+          <div data-var="Ki" data-label="K<sub>c ini</sub>" data-min="0.2" data-max="0.8" data-step="0.05" data-value="0.5"></div>
+          <div data-var="Km" data-label="K<sub>c mid</sub>" data-min="0.9" data-max="1.3" data-step="0.05" data-value="1.15"></div>
+          <div data-var="Ke" data-label="K<sub>c end</sub>" data-min="0.2" data-max="1.0" data-step="0.05" data-value="0.75"></div>
+        </div>
+      </div>
+
+      <table>
+        <caption>Table 1. FAO-56 crop coefficients, rooting depths and depletion fractions for crops grown in Sweden (Allen et al., 1998, Tables 11, 12 and 22; stage lengths are FAO examples and should be adjusted to local planting dates).</caption>
+        <thead><tr><th>Crop</th><th class="num">K<sub>c ini</sub></th><th class="num">K<sub>c mid</sub></th><th class="num">K<sub>c end</sub></th><th class="num">Max. rooting depth (m)</th><th class="num">Depletion fraction p</th><th>Example stage lengths (d)</th></tr></thead>
+        <tbody>
+          <tr><td>Potato</td><td class="num">0.50</td><td class="num">1.15</td><td class="num">0.75</td><td class="num">0.4–0.6</td><td class="num">0.35</td><td>30/35/50/30 (Europe, April)</td></tr>
+          <tr><td>Sugar beet</td><td class="num">0.35</td><td class="num">1.20</td><td class="num">0.70</td><td class="num">0.7–1.2</td><td class="num">0.55</td><td>50/40/50/40 (Idaho, April)</td></tr>
+          <tr><td>Spring barley, oats, spring wheat</td><td class="num">0.30</td><td class="num">1.15</td><td class="num">0.25</td><td class="num">1.0–1.5</td><td class="num">0.55</td><td>20/25/60/30 (35–45° latitude, spring)</td></tr>
+          <tr><td>Winter wheat (non-frozen soils)</td><td class="num">0.70</td><td class="num">1.15</td><td class="num">0.25–0.4</td><td class="num">1.5–1.8</td><td class="num">0.55</td><td>long, with winter dormancy</td></tr>
+          <tr><td>Rapeseed</td><td class="num">0.35</td><td class="num">1.0–1.15</td><td class="num">0.35</td><td class="num">1.0–1.5</td><td class="num">0.60</td><td>–</td></tr>
+        </tbody>
+      </table>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">How much water does a potato crop use in mid-June?</span></div>
+        <div class="we-problem"><p>Potatoes planted on 1 May follow the FAO-56 European stages (30, 35, 50 and 30 days) with \(K_{c\,\text{ini}}=0.50\), \(K_{c\,\text{mid}}=1.15\). On 20 June (day 50) ET₀ is 4.0 mm d⁻¹. Calculate \(K_c\) and \(ET_c\). How much water does a hectare use that day?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Which stage?</strong> Days 0–30 are initial, days 30–65 development. Day 50 is in the development stage, 20 days into it.</li>
+              <li><strong>Interpolate</strong> (Eq. 11.3.2): \(K_c = 0.50 + \dfrac{50-30}{35}(1.15-0.50) = 0.50+0.371 = 0.871\).</li>
+              <li><strong>Crop ET:</strong> \(ET_c = 0.871\times4.0 = 3.49\) mm d⁻¹.</li>
+              <li><strong>Volume:</strong> 1 mm over 1 ha is \(10^{-3}\ \text{m}\times10^{4}\ \text{m}^2 = 10\) m³, so the crop transpires and evaporates about 35 m³ ha⁻¹ that day.</li>
+              <li><strong>Sanity check.</strong> At full cover (from day 65) the same weather gives \(1.15\times4.0 = 4.6\) mm d⁻¹ — more than the reference grass, because the potato canopy is taller and leafier.</li>
+            </ol>
+            <span class="answer">K<sub>c</sub> ≈ 0.87; ET<sub>c</sub> ≈ 3.5 mm d⁻¹ ≈ 35 m³ ha⁻¹ d⁻¹</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="soil-water">How much water can the crop use? TAW and RAW</h2>
+      <p>The soil in the root zone is the crop's water tank. After a thorough wetting, water drains away by gravity for a day or two until the soil reaches <strong>field capacity</strong> (θ<sub>FC</sub>, a matric potential of about −10 to −33 kPa); this is the most water the tank can hold against gravity. As roots extract water, the remaining water is held ever more tightly, until at the <strong>permanent wilting point</strong> (θ<sub>WP</sub>, conventionally −1500 kPa) plants can extract no more and wilt permanently. The water between the two is available to the crop — but not all of it equally easily. The physics of water potential behind these definitions is in <a href="/lessons/water-relations/">Lesson 2.2</a>.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 700 330" role="img" aria-label="The root zone as a bucket: field capacity at the top, wilting point at the bottom, total available water between them, readily available water in the upper part, root-zone depletion measured downward from field capacity, and the water-stress coefficient Ks falling linearly from 1 to 0 once depletion exceeds readily available water">
+            <defs><marker id="pi-b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+            <rect x="70" y="40" width="190" height="240" class="fill-bg" stroke="currentColor" stroke-width="1.6"/>
+            <rect x="70" y="40" width="190" height="80" class="fill-water" opacity=".55"/>
+            <rect x="70" y="120" width="190" height="120" class="fill-water-soft"/>
+            <rect x="70" y="240" width="190" height="40" class="fill-sunk"/>
+            <line x1="60" y1="40" x2="270" y2="40" class="stroke" stroke-width="2"/>
+            <line x1="60" y1="120" x2="270" y2="120" class="stroke-amber" stroke-width="2" stroke-dasharray="6 4"/>
+            <line x1="60" y1="240" x2="270" y2="240" class="stroke-danger" stroke-width="2"/>
+            <text x="278" y="44" class="t-small" font-weight="600">field capacity θ<tspan baseline-shift="sub" font-size="9">FC</tspan> (Dᵣ = 0)</text>
+            <text x="278" y="124" class="t-small" style="fill:var(--amber)" font-weight="600">Dᵣ = RAW = p·TAW: stress begins</text>
+            <text x="278" y="244" class="t-small" style="fill:var(--danger)" font-weight="600">wilting point θ<tspan baseline-shift="sub" font-size="9">WP</tspan> (Dᵣ = TAW)</text>
+            <text x="165" y="264" text-anchor="middle" class="t-small t-muted">unavailable water</text>
+            <text x="165" y="84" text-anchor="middle" class="t-small" font-weight="600">RAW: easy to extract</text>
+            <text x="165" y="184" text-anchor="middle" class="t-small">harder to extract</text>
+            <path d="M40 40 L40 240" class="stroke" stroke-width="1.4" marker-start="url(#pi-b1)" marker-end="url(#pi-b1)"/>
+            <text x="34" y="146" text-anchor="end" class="t-small" font-weight="600">TAW</text>
+            <path d="M300 60 L300 104" class="stroke-muted" stroke-width="1.4" marker-end="url(#pi-b1)"/>
+            <text x="306" y="80" class="t-small t-muted">depletion Dᵣ grows</text>
+            <text x="306" y="96" class="t-small t-muted">as the crop uses water</text>
+            <g transform="translate(480,60)">
+              <line x1="0" y1="180" x2="190" y2="180" class="stroke" stroke-width="1.2"/><line x1="0" y1="0" x2="0" y2="180" class="stroke" stroke-width="1.2"/>
+              <path d="M0 20 L60 20 L180 180" class="stroke-accent" stroke-width="2.6"/>
+              <text x="-6" y="24" text-anchor="end" class="t-small">1</text><text x="-6" y="184" text-anchor="end" class="t-small">0</text>
+              <text x="60" y="198" text-anchor="middle" class="t-small">RAW</text><text x="180" y="198" text-anchor="middle" class="t-small">TAW</text>
+              <text x="95" y="214" text-anchor="middle" class="t-small">root-zone depletion Dᵣ</text>
+              <text x="12" y="-8" class="t-small" font-weight="600">water-stress coefficient Kₛ</text>
+              <line x1="60" y1="20" x2="60" y2="180" class="stroke-amber" stroke-width="1" stroke-dasharray="3 3"/>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 3.</b> The FAO-56 "bucket". Depletion \(D_r\) is measured downward from field capacity. While \(D_r\le\) RAW the crop transpires at its full rate (\(K_s=1\)); beyond RAW, transpiration falls linearly to zero at the wilting point (Allen et al., 1998, Chapter 8).</figcaption>
+      </figure>
+
+      <div class="eq-box" id="eq-pi-taw">
+        <div class="eq-head"><span class="eq-label">Total and readily available water</span><span class="eq-num">(11.3.3)</span></div>
+        <div class="eq-main">\[ \text{TAW}=1000\,(\theta_{FC}-\theta_{WP})\,Z_r,\qquad \text{RAW}=p\cdot\text{TAW},\qquad p = p_{\text{table}}+0.04\,(5-ET_c) \]</div>
+        <p class="eq-read">the total available water in the root zone, in millimetres, is one thousand times the difference between the volumetric water contents at field capacity and wilting point, times the rooting depth in metres. The readily available water is the fraction p of it, and p increases when the evaporative demand is low.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>TAW</td><td>total available water in the root zone</td><td>mm</td><td>40–250</td></tr>
+          <tr><td>\(\theta_{FC}, \theta_{WP}\)</td><td>volumetric water content at field capacity and at wilting point</td><td>m³ m⁻³</td><td>0.15 / 0.06 (loamy sand) to 0.35 / 0.23 (silty clay)</td></tr>
+          <tr><td>\(Z_r\)</td><td>effective rooting depth</td><td>m</td><td>0.5 (potato) – 1.5 (cereals)</td></tr>
+          <tr><td>RAW</td><td>readily available water</td><td>mm</td><td>15–120</td></tr>
+          <tr><td>\(p\)</td><td>fraction of TAW that can be depleted before stress</td><td>–</td><td>0.30–0.70; 0.35 potato, 0.55 cereals</td></tr>
+          <tr><td>1000</td><td>converts m³ water per m³ soil × m depth into mm (1 m = 1000 mm)</td><td>mm m⁻¹</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Volumetric water content θ is the volume of water per volume of soil (m³ m⁻³). A soil column of 1 m² surface and depth \(Z_r\) holds \(\theta Z_r\) m³ of water.</li>
+            <li>The extractable volume is \((\theta_{FC}-\theta_{WP})Z_r\) m³ per m² of surface — a depth of water in metres. Multiply by 1000 to express it in mm: Eq. 11.3.3. ✓</li>
+            <li>Roots extract water easily only while it is loosely held. FAO-56 approximates this with a fixed fraction \(p\) of TAW, tabulated for \(ET_c\approx5\) mm d⁻¹ (Table 1). At lower demand the crop can deplete more before its roots fall behind the demand, hence the correction \(+0.04(5-ET_c)\), limited to 0.1 ≤ \(p\) ≤ 0.8.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The bucket is uniform with depth, and field capacity is treated as a sharp limit. Real soils are layered; stones, compacted plough pans and shallow groundwater change the effective TAW. Root depth grows during the season, so TAW grows too. Stress really depends on matric potential, not water content: the same \(p\) corresponds to a lower potential in a clay than in a sand — FAO-56 notes that \(p\) should be reduced by 5–10 % for fine soils and increased for coarse ones.</p></details>
+        <div class="eq-units">mm m⁻¹ × (m³ m⁻³) × m = mm ✓; RAW: – × mm = mm ✓</div>
+        <div class="mini-calc" data-formula="p*1000*(fc-wp)*Zr" data-output="Readily available water RAW" data-unit="mm" data-digits="1" data-plot="Zr">
+          <div data-var="fc" data-label="θ at field capacity" data-min="0.08" data-max="0.45" data-step="0.01" data-value="0.15" data-unit="m³ m⁻³"></div>
+          <div data-var="wp" data-label="θ at wilting point" data-min="0.02" data-max="0.3" data-step="0.01" data-value="0.06" data-unit="m³ m⁻³"></div>
+          <div data-var="Zr" data-label="Rooting depth Zᵣ" data-min="0.1" data-max="1.8" data-step="0.05" data-value="0.5" data-unit="m"></div>
+          <div data-var="p" data-label="Depletion fraction p" data-min="0.2" data-max="0.8" data-step="0.01" data-value="0.41"></div>
+        </div>
+      </div>
+
+      <table>
+        <caption>Table 2. Soil water characteristics used in the FAO-56 worked example and in Figure 4 (Allen et al., 1998, Chapter 8). Real values must be measured or estimated from texture and organic matter.</caption>
+        <thead><tr><th>Soil texture</th><th class="num">θ<sub>FC</sub> (m³ m⁻³)</th><th class="num">θ<sub>WP</sub> (m³ m⁻³)</th><th class="num">Available water (mm per m of soil)</th><th>Comment</th></tr></thead>
+        <tbody>
+          <tr><td>Loamy sand</td><td class="num">0.15</td><td class="num">0.06</td><td class="num">90</td><td>small tank: frequent, light irrigations; high leaching risk</td></tr>
+          <tr><td>Silt (silt loam)</td><td class="num">0.32</td><td class="num">0.15</td><td class="num">170</td><td>large tank: the best water-holding soils</td></tr>
+          <tr><td>Silty clay</td><td class="num">0.35</td><td class="num">0.23</td><td class="num">120</td><td>holds much water, but much of it too tightly for roots</td></tr>
+        </tbody>
+      </table>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">Same potatoes, different soils</span></div>
+        <div class="we-problem"><p>Potatoes with a rooting depth of 0.5 m and \(p_{\text{table}} = 0.35\) grow on a loamy sand (θ<sub>FC</sub> = 0.15, θ<sub>WP</sub> = 0.06) and on a silt (0.32, 0.15). In July \(ET_c\) is 3.5 mm d⁻¹. Calculate TAW, the adjusted \(p\), RAW, and how many dry days each soil can supply before the crop is stressed, starting from field capacity.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>TAW</strong> (Eq. 11.3.3): loamy sand \(1000\times(0.15-0.06)\times0.5 = 45\) mm; silt \(1000\times0.17\times0.5 = 85\) mm.</li>
+              <li><strong>Adjusted depletion fraction:</strong> \(p = 0.35+0.04\,(5-3.5) = 0.41\).</li>
+              <li><strong>RAW:</strong> loamy sand \(0.41\times45 = 18.5\) mm; silt \(0.41\times85 = 34.9\) mm.</li>
+              <li><strong>Days without stress:</strong> loamy sand \(18.5/3.5 = 5.3\) days; silt \(34.9/3.5 = 10.0\) days.</li>
+              <li><strong>Consequences.</strong> On the sand, irrigation must come every five days in dry weather, in small doses (at most ≈ 18 mm, or water drains below the roots); on the silt, a 30–35 mm application every ten days does the same job with fewer passes. A field containing both soils — common in glacial landscapes — needs different schedules in different zones: the rationale for variable-rate irrigation.</li>
+            </ol>
+            <span class="answer">Loamy sand: TAW 45 mm, RAW 18.5 mm (≈ 5 days); silt: TAW 85 mm, RAW 35 mm (≈ 10 days)</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="balance">The daily root-zone water balance</h2>
+      <p>With the tank defined, irrigation scheduling becomes bookkeeping. FAO-56 tracks the <strong>root-zone depletion</strong> \(D_r\) — how far the root zone is below field capacity — day by day: rain and irrigation reduce it, evapotranspiration increases it, and any water that would push the soil above field capacity drains away as deep percolation (Allen et al., 1998, Eq. 85).</p>
+
+      <div class="eq-box" id="eq-pi-balance">
+        <div class="eq-head"><span class="eq-label">Daily root-zone depletion and the water-stress coefficient</span><span class="eq-num">(11.3.4)</span></div>
+        <div class="eq-main">\[ D_{r,i}=D_{r,i-1}-(P-RO)_i-I_i-CR_i+ET_{c,\text{adj},i}+DP_i,\qquad ET_{c,\text{adj}}=K_s\,K_c\,ET_0,\qquad K_s=\begin{cases}1, & D_r\le \text{RAW}\\[2pt] \dfrac{\text{TAW}-D_r}{(1-p)\,\text{TAW}}, & D_r>\text{RAW}\end{cases} \]</div>
+        <p class="eq-read">today's depletion is yesterday's depletion minus the rain that infiltrates, minus irrigation and capillary rise, plus the actual crop evapotranspiration, plus any deep percolation. Actual evapotranspiration is the water-stress coefficient times the crop coefficient times reference evapotranspiration, and the stress coefficient is one until the depletion exceeds the readily available water, then falls linearly to zero at the wilting point.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(D_{r,i}\), \(D_{r,i-1}\)</td><td>root-zone depletion at the end of day \(i\) and of the previous day, \(0\le D_r\le\) TAW</td><td>mm</td></tr>
+          <tr><td>\(P_i\), \(RO_i\)</td><td>precipitation and surface runoff on day \(i\)</td><td>mm</td></tr>
+          <tr><td>\(I_i\)</td><td>net irrigation depth that infiltrates</td><td>mm</td></tr>
+          <tr><td>\(CR_i\)</td><td>capillary rise from shallow groundwater (≈ 0 if the water table is deeper than ≈ 1 m below the roots)</td><td>mm</td></tr>
+          <tr><td>\(DP_i\)</td><td>deep percolation below the root zone</td><td>mm</td></tr>
+          <tr><td>\(K_s\)</td><td>water-stress coefficient (0–1)</td><td>–</td></tr>
+          <tr><td>\(ET_{c,\text{adj}}\)</td><td>actual crop evapotranspiration under stress</td><td>mm d⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Conservation of water</strong> in the root zone: change in storage = inputs − outputs, i.e. \(\Delta S = (P-RO) + I + CR - ET - DP\).</li>
+            <li>Depletion is the deficit below field capacity, \(D_r = S_{FC}-S\), so \(\Delta D_r = -\Delta S\). Substituting gives Eq. 11.3.4. ✓</li>
+            <li><strong>Deep percolation</strong> follows from the bound \(D_r\ge0\): if the other terms would make \(D_{r,i}\) negative, the excess is \(DP_i = -D_{r,i}\) and \(D_{r,i}\) is set to 0 (FAO-56 assumes the excess drains within the same day).</li>
+            <li><strong>Stress</strong>: between RAW and TAW the available water left, \(\text{TAW}-D_r\), shrinks from \((1-p)\text{TAW}\) to 0, and \(K_s\) is the fraction remaining, from 1 to 0. ✓</li>
+            <li><strong>Scheduling rule</strong>: to avoid stress, irrigate before \(D_r\) exceeds RAW, with a net depth no larger than \(D_r\) — anything more becomes deep percolation.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A single, well-mixed soil layer; rain and irrigation infiltrate on the day they fall; runoff must be estimated separately (e.g. heavy rain on a crusted or sloping soil). \(K_s\) is evaluated with the depletion at the start of the day. The model ignores the time it takes for water to redistribute and for roots to grow into newly wetted soil — reasons why real fields drift from the model and sensors are needed to correct it.</p></details>
+        <div class="eq-units">every term in mm (per day) ✓; \(K_s\): mm/mm = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="Dr <= p*TAW ? 1 : max(0, (TAW-Dr)/((1-p)*TAW))" data-output="Water-stress coefficient Kₛ" data-digits="3" data-plot="Dr" data-ymin="0" data-ymax="1.1">
+          <div data-var="Dr" data-label="Root-zone depletion Dᵣ" data-min="0" data-max="100" data-step="0.5" data-value="25" data-unit="mm"></div>
+          <div data-var="TAW" data-label="Total available water TAW" data-min="20" data-max="100" data-step="1" data-value="45" data-unit="mm"></div>
+          <div data-var="p" data-label="Depletion fraction p" data-min="0.2" data-max="0.8" data-step="0.01" data-value="0.41"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">Four days of bookkeeping on the loamy sand</span></div>
+        <div class="we-problem"><p>Continue Worked example 3 (loamy sand, TAW = 45 mm, RAW = 18.45 mm). The depletion at the start of day 1 is 12 mm. Crop ET without stress (\(K_cET_0\)) is 3.5, 4.1, 3.9 and 2.2 mm on days 1–4; on day 4 a thunderstorm brings 26 mm of rain (no runoff). No irrigation is given. Track \(D_r\), \(K_s\), actual ET and deep percolation.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Day 1:</strong> \(D_r=12\le18.45\) → \(K_s=1\); \(D_r = 12+3.5 = 15.5\) mm.</li>
+              <li><strong>Day 2:</strong> \(K_s = 1\); \(D_r = 15.5+4.1 = 19.6\) mm — now above RAW.</li>
+              <li><strong>Day 3:</strong> \(K_s = (45-19.6)/(0.59\times45) = 25.4/26.55 = 0.957\); actual ET \(= 0.957\times3.9 = 3.73\) mm; \(D_r = 19.6+3.73 = 23.3\) mm.</li>
+              <li><strong>Day 4:</strong> \(K_s = (45-23.3)/26.55 = 0.816\); actual ET \(=0.816\times2.2 = 1.80\) mm; \(D_r = 23.3-26+1.80 = -0.87\) → the soil is refilled to field capacity (\(D_r=0\)) and \(DP = 0.87\) mm drains below the roots.</li>
+              <li><strong>Lessons.</strong> The crop lost about 4 % of its transpiration on day 3 and 18 % on day 4 — mild stress. Irrigating 20 mm on day 2 would have prevented it, but then most of the thunderstorm would have drained away, carrying nitrate with it. Good scheduling therefore uses the weather forecast as well as the soil status.</li>
+            </ol>
+            <span class="answer">D<sub>r</sub>: 15.5 → 19.6 → 23.3 → 0 mm; K<sub>s</sub> = 1, 1, 0.96, 0.82; DP = 0.9 mm on day 4</span>
+          </div>
+        </details>
+      </div>
+
+      <p>Figure 4 runs this balance for a whole season with synthetic weather for a Mälardalen-like summer, and lets you compare scheduling strategies.</p>
+
+      <figure class="figure wide" id="scheduler">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — a season of irrigation scheduling (FAO-56 daily balance)</div>
+          <div class="pi-grid">
+            <div><div id="sc-plot" style="min-height:360px"></div></div>
+            <div class="pi-ctl">
+              <div class="pi-lab">Soil</div>
+              <div class="seg" id="sc-soil" role="group" aria-label="Soil"><button type="button" data-v="ls" aria-pressed="true">Loamy sand</button><button type="button" data-v="si" aria-pressed="false">Silt</button><button type="button" data-v="sc" aria-pressed="false">Silty clay</button></div>
+              <div class="pi-lab">Crop</div>
+              <div class="seg" id="sc-crop" role="group" aria-label="Crop"><button type="button" data-v="potato" aria-pressed="true">Potato</button><button type="button" data-v="cereal" aria-pressed="false">Spring cereal</button></div>
+              <div class="pi-lab">Summer</div>
+              <div class="seg" id="sc-year" role="group" aria-label="Weather"><button type="button" data-v="normal" aria-pressed="true">Normal</button><button type="button" data-v="dry" aria-pressed="false">Dry (2018-like)</button><button type="button" data-v="wet" aria-pressed="false">Wet</button></div>
+              <div class="pi-lab">Strategy</div>
+              <div class="seg" id="sc-strat" role="group" aria-label="Scheduling strategy"><button type="button" data-v="none" aria-pressed="false">Rain-fed</button><button type="button" data-v="calendar" aria-pressed="false">Calendar</button><button type="button" data-v="sensor" aria-pressed="true">Sensor</button><button type="button" data-v="model" aria-pressed="false">Model</button><button type="button" data-v="deficit" aria-pressed="false">Deficit</button></div>
+              <div class="mc-var"><div class="mc-lab"><span>Sensor error σ</span><output id="sc-noise-o"></output></div><input id="sc-noise" type="range" min="0" max="0.04" step="0.005" value="0.01" aria-label="Sensor error"></div>
+              <div class="pi-lab">Application method</div>
+              <div class="seg" id="sc-meth" role="group" aria-label="Irrigation method"><button type="button" data-v="0.75" aria-pressed="true">Sprinkler</button><button type="button" data-v="0.9" aria-pressed="false">Drip</button><button type="button" data-v="0.6" aria-pressed="false">Surface</button></div>
+              <button class="btn btn-sm" type="button" id="sc-new">New weather sequence</button>
+              <p class="pi-note"><b>Calendar</b>: 20 mm every 7 days. <b>Sensor</b>: irrigate when the measured depletion exceeds RAW, refill to field capacity. <b>Model</b>: water balance with a one-day look-ahead, refilling to leave 5 mm room for rain. <b>Deficit</b>: allow depletion to RAW + 35 % of the remaining water, refill 60 %.</p>
+            </div>
+          </div>
+          <div class="readouts" id="sc-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 4.</b> Available water in the root zone (TAW − Dᵣ, green) against the stress threshold (amber, dashed) and field capacity (blue, dashed), with daily rain (blue bars) and irrigation (magenta bars) on the right axis. Weather is synthetic, generated with statistics resembling a Mälardalen summer (illustrative, not observations); ET₀ is computed with the FAO-56 equations of the physics library. Relative yield uses the yield-response factor (Eq. 11.3.6). Compare calendar and sensor scheduling in a normal year: similar yields, very different drainage.</figcaption>
+      </figure>
+      <a class="lab-link" data-lab="irrigation-scheduling" data-why="Run a full FAO-56 daily soil-water balance with Penman–Monteith ET₀, crop coefficients and real-looking weather, and compare calendar, sensor and model-based irrigation for your own crop and soil."></a>
+
+      <h2 id="scheduling">Scheduling strategies, sensors and application</h2>
+      <p>Three families of scheduling strategy are used in practice (Jones, 2004):</p>
+      <ul>
+        <li><strong>Calendar scheduling</strong> — a fixed amount at fixed intervals, perhaps adjusted by experience. Simple and predictable, but blind to the weather: in a wet spell it causes drainage and leaching, in a heatwave it lets the crop run dry.</li>
+        <li><strong>Soil-based (sensor) scheduling</strong> — irrigate when a soil-moisture sensor shows that the water content or matric potential has reached a threshold corresponding to RAW. It measures the real soil, but only at the sensor's location and depth.</li>
+        <li><strong>Model-based scheduling</strong> — the water balance of Eq. 11.3.4, driven by weather data and forecasts. It covers the whole field and can look ahead, but errors in \(K_c\), rain and runoff accumulate; it drifts unless it is corrected with measurements. The best systems combine models with sensors (data assimilation) and, increasingly, plant-based signals such as canopy temperature (the CWSI of <a href="/lessons/remote-sensing/">Lesson 11.2</a>).</li>
+      </ul>
+      <table>
+        <caption>Table 3. Soil-moisture sensors for irrigation scheduling (physics in <a href="/lessons/sensor-physics/">Lesson 9.1</a>).</caption>
+        <thead><tr><th>Sensor</th><th>Measures</th><th>Principle</th><th>Strengths</th><th>Limitations</th></tr></thead>
+        <tbody>
+          <tr><td>TDR (time-domain reflectometry)</td><td>θ</td><td>travel time of an electromagnetic pulse → permittivity → θ (Topp equation, Eq. 9.1.9; Topp et al., 1980)</td><td>accurate, little soil-specific calibration</td><td>expensive; affected by high salinity</td></tr>
+          <tr><td>Capacitance / FDR probes</td><td>θ</td><td>capacitance of the soil around electrodes → permittivity</td><td>cheap, many depths in one probe, easy logging</td><td>small sensing volume; needs soil-specific calibration; air gaps</td></tr>
+          <tr><td>Tensiometer</td><td>matric potential ψ</td><td>water in a porous ceramic cup equilibrates with the soil; a gauge reads the suction</td><td>measures what roots feel; no calibration</td><td>works only above about −80 kPa; needs refilling</td></tr>
+          <tr><td>Granular matrix / gypsum block</td><td>ψ (via resistance)</td><td>electrical resistance of a porous block in equilibrium with the soil</td><td>cheap, wider range than tensiometers</td><td>slow response, temperature and salinity effects</td></tr>
+          <tr><td>Gravimetric sampling</td><td>θ (via mass)</td><td>weigh, oven-dry at 105 °C, weigh again</td><td>the reference method</td><td>destructive, slow, laborious</td></tr>
+        </tbody>
+      </table>
+      <p>Where should sensors go? At least two depths — typically about one-third and two-thirds of the rooting depth — show whether water is reaching the lower roots or draining past them. Because soils vary, a sensor represents only its own soil type: in a field with sand ridges and clay hollows, one sensor station per management zone (<a href="/lessons/precision-farming/">Lesson 11.1</a>) is the minimum.</p>
+
+      <h3>How much to apply: net and gross depths</h3>
+      <div class="eq-box" id="eq-pi-depth">
+        <div class="eq-head"><span class="eq-label">Net and gross irrigation depth and volume</span><span class="eq-num">(11.3.5)</span></div>
+        <div class="eq-main">\[ d_{\text{net}}\le D_r,\qquad d_{\text{gross}}=\frac{d_{\text{net}}}{e_a},\qquad V = 10\,A\,d_{\text{gross}},\qquad t=\frac{V}{Q} \]</div>
+        <p class="eq-read">the net depth that should reach the root zone is at most the current depletion; the gross depth to pump is the net depth divided by the application efficiency; the volume in cubic metres is ten times the area in hectares times the gross depth in millimetres, and the pumping time is the volume divided by the pump flow.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(d_{\text{net}}\)</td><td>water that must end up in the root zone</td><td>mm</td><td>10–40</td></tr>
+          <tr><td>\(e_a\)</td><td>field application efficiency</td><td>–</td><td>0.60 surface, 0.75 sprinkler, 0.90 drip (FAO default values)</td></tr>
+          <tr><td>\(d_{\text{gross}}\)</td><td>depth that must be pumped</td><td>mm</td><td>–</td></tr>
+          <tr><td>\(A\)</td><td>irrigated area</td><td>ha</td><td>–</td></tr>
+          <tr><td>\(V\)</td><td>volume of water</td><td>m³</td><td>–</td></tr>
+          <tr><td>\(Q\), \(t\)</td><td>pump or system flow; irrigation time</td><td>m³ h⁻¹; h</td><td>30–150 m³ h⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Refilling the root zone to field capacity requires \(D_r\) mm; applying more only feeds deep percolation, so \(d_{\text{net}}\le D_r\) (often a little less, to leave room for forecast rain).</li>
+            <li>Not all pumped water reaches the roots: sprinklers lose some to wind drift and evaporation, surface irrigation loses water to runoff and uneven infiltration, and all methods lose some to percolation where application is non-uniform. The field application efficiency \(e_a\) is the fraction that is stored in the root zone, so \(d_{\text{gross}} = d_{\text{net}}/e_a\) (Brouwer et al., 1989).</li>
+            <li>Unit conversion: 1 mm over 1 ha \(= 0.001\ \text{m}\times10\,000\ \text{m}^2 = 10\ \text{m}^3\), so \(V = 10\,A\,d_{\text{gross}}\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The FAO default efficiencies (60, 75, 90 %) are for use when no local data exist; well-managed systems can do better and poorly managed ones much worse. A lower efficiency does not always mean lost water at catchment scale — drainage may recharge groundwater that is pumped again — but at field scale it always means lost energy and, often, leached nitrate.</p></details>
+        <div class="eq-units">mm / – = mm ✓; ha × mm × (10 m³ ha⁻¹ mm⁻¹) = m³ ✓; m³ / (m³ h⁻¹) = h ✓</div>
+        <div class="mini-calc" data-formula="10*A*dn/(ea/100)" data-output="Water to pump V" data-unit="m³" data-digits="0" data-plot="ea">
+          <div data-var="dn" data-label="Net depth d<sub>net</sub>" data-min="5" data-max="45" data-step="1" data-value="20" data-unit="mm"></div>
+          <div data-var="ea" data-label="Application efficiency eₐ" data-min="40" data-max="95" data-step="1" data-value="75" data-unit="%"></div>
+          <div data-var="A" data-label="Area A" data-min="1" data-max="50" data-step="0.5" data-value="12" data-unit="ha"></div>
+        </div>
+      </div>
+      <table>
+        <caption>Table 4. Irrigation methods and their typical field application efficiencies (FAO default values from Brouwer et al., 1989).</caption>
+        <thead><tr><th>Method</th><th>Examples</th><th class="num">Default eₐ</th><th>Main losses</th><th>Precision potential</th></tr></thead>
+        <tbody>
+          <tr><td>Surface</td><td>furrow, basin, border</td><td class="num">60 %</td><td>runoff, deep percolation near the inlet</td><td>low (water distribution set by soil and slope)</td></tr>
+          <tr><td>Sprinkler</td><td>hose-reel travelling gun, boom, centre pivot, linear move</td><td class="num">75 %</td><td>wind drift, evaporation, uneven overlap</td><td>medium to high (speed and nozzle control, VRI)</td></tr>
+          <tr><td>Drip / micro</td><td>surface or subsurface drip lines, micro-sprinklers</td><td class="num">90 %</td><td>small; clogging and uneven emitters</td><td>high (per plant or per bed, fertigation)</td></tr>
+        </tbody>
+      </table>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">Refilling a 12 ha potato field</span></div>
+        <div class="we-problem"><p>A sensor shows a depletion of 20 mm in a 12 ha potato field; the forecast is dry. The farm uses a hose-reel sprinkler (\(e_a\) = 0.75) with a pump delivering 60 m³ h⁻¹. Calculate the gross depth, the volume to pump and the pumping time. How would drip irrigation (\(e_a\) = 0.90) change the volume?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Net depth:</strong> refill the deficit, \(d_{\text{net}} = 20\) mm.</li>
+              <li><strong>Gross depth</strong> (Eq. 11.3.5): \(20/0.75 = 26.7\) mm.</li>
+              <li><strong>Volume:</strong> \(V = 10\times12\times26.7 = 3\,200\) m³.</li>
+              <li><strong>Time:</strong> \(3\,200/60 = 53\) h — more than two days of continuous pumping, so the irrigation of the last part of the field must start before the first part reaches RAW. Scheduling must look ahead by the irrigation cycle length.</li>
+              <li><strong>Drip:</strong> \(10\times12\times20/0.90 = 2\,667\) m³ — 533 m³ (17 %) less water, and less energy, for the same effect in the root zone.</li>
+            </ol>
+            <span class="answer">26.7 mm gross; 3 200 m³; ≈ 53 h of pumping (drip: 2 667 m³)</span>
+          </div>
+        </details>
+      </div>
+
+      <h3>Variable-rate irrigation</h3>
+      <p>A uniform irrigation system applies the same depth everywhere, although — as Worked example 3 showed — a sand ridge and a silty hollow in the same field may need different amounts at different times. <strong>Variable-rate irrigation</strong> (VRI) makes the application depth site-specific. On centre pivots and linear-move machines this is done either by <em>speed control</em> (the machine moves faster over zones that need less water) or by <em>zone control</em> (individual nozzles or banks of nozzles are pulsed on and off according to a prescription map) (Evans et al., 2013). Prescriptions come from the same layers as in Lesson 11.1 — soil electrical conductivity, yield maps, elevation — plus soil-moisture sensors and, increasingly, thermal and multispectral images. As with variable-rate fertilisation, the hardware is now available; the harder problems are creating good prescriptions and proving that the water, energy and yield gains pay for the investment.</p>
+
+      <h2 id="deficit">Deficit irrigation and the yield-response factor</h2>
+      <p>Full irrigation — keeping \(D_r\) below RAW all season — maximises yield per hectare. Where water is scarce, expensive or restricted by a permit, it can pay to maximise yield <em>per cubic metre</em> instead. <strong>Deficit irrigation</strong> deliberately supplies less than the full crop water requirement. Fereres and Soriano (2007) reviewed its use and concluded that, for many field crops, the supply should still be relatively high — enough to achieve 60–100 % of full evapotranspiration — while regulated deficit irrigation of fruit trees and vines, which stresses the crop only in stages when yield is insensitive, can raise both water productivity and profit. How much yield is lost for a given shortfall of water is captured by the FAO-33 yield-response factor (Doorenbos &amp; Kassam, 1979), which FAO-56 uses to link the water balance to yield:</p>
+
+      <div class="eq-box" id="eq-pi-ky">
+        <div class="eq-head"><span class="eq-label">Yield response to water</span><span class="eq-num">(11.3.6)</span></div>
+        <div class="eq-main">\[ 1-\frac{Y_a}{Y_m} = K_y\left(1-\frac{ET_a}{ET_m}\right) \]</div>
+        <p class="eq-read">the relative yield loss equals the yield-response factor times the relative evapotranspiration deficit.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Value</th></tr>
+          <tr><td>\(Y_a, Y_m\)</td><td>actual and maximum (unstressed) yield</td><td>t ha⁻¹</td><td>–</td></tr>
+          <tr><td>\(ET_a, ET_m\)</td><td>actual and maximum seasonal evapotranspiration (\(\sum ET_{c,\text{adj}}\) and \(\sum ET_c\))</td><td>mm</td><td>–</td></tr>
+          <tr><td>\(K_y\)</td><td>yield-response factor for the whole season</td><td>–</td><td>potato 1.1; spring wheat 1.15; winter wheat 1.05; sugar beet 1.0; maize 1.25; soybean 0.85</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Biomass production is closely proportional to transpiration: when stomata close to save water they also restrict CO₂ uptake (Lesson 2.2).</li>
+            <li>To first order, the relative loss of yield is therefore proportional to the relative loss of evapotranspiration. The proportionality constant is \(K_y\).</li>
+            <li>\(K_y>1\): yield falls proportionally <em>more</em> than water use (sensitive crops such as maize, potato); \(K_y<1\): less (tolerant crops such as soybean, cotton).</li>
+            <li>Water productivity \(Y_a/ET_a\) increases under mild deficit only if \(K_y<1\) over the stages concerned — which is why deficit irrigation is targeted at tolerant crops and stages.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A linear, seasonal relation fitted to experiments, valid for deficits up to about 50 %. Sensitivity differs strongly between growth stages (flowering and tuber initiation are critical), so stage-specific \(K_y\) values exist. Quality effects (tuber size, protein) are not captured.</p></details>
+        <div class="eq-units">dimensionless on both sides ✓</div>
+        <div class="mini-calc" data-formula="100*Ky*(1-r/100)" data-output="Relative yield loss" data-unit="%" data-digits="1" data-plot="r" data-ymin="0" data-ymax="70">
+          <div data-var="Ky" data-label="Yield-response factor K<sub>y</sub>" data-min="0.5" data-max="1.5" data-step="0.05" data-value="1.1"></div>
+          <div data-var="r" data-label="ETₐ / ETₘ" data-min="50" data-max="100" data-step="1" data-value="80" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 6</span><span class="we-title">What does a 20 % water shortfall cost?</span></div>
+        <div class="we-problem"><p>In a drought year a farmer can supply only enough water for 80 % of full seasonal evapotranspiration. Estimate the relative yield loss for potato (\(K_y=1.1\)), spring wheat (1.15), sugar beet (1.0) and maize (1.25). Which crop should get the water first?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Relative ET deficit:</strong> \(1-0.80 = 0.20\).</li>
+              <li><strong>Yield loss</strong> (Eq. 11.3.6): potato \(1.1\times0.20 = 22\) %; spring wheat 23 %; sugar beet 20 %; maize 25 %.</li>
+              <li><strong>Allocation.</strong> The percentages are similar, so the decision is economic: water should go where the <em>value</em> of the avoided loss per cubic metre is highest. A potato crop worth several times more per hectare than a cereal usually wins — which is why irrigation in Sweden concentrates on potatoes and vegetables.</li>
+              <li><strong>Timing matters too.</strong> The same 20 % deficit concentrated at tuber initiation hurts more than one spread over the season; stage-specific \(K_y\) values capture this.</li>
+            </ol>
+            <span class="answer">Losses ≈ 22 % (potato), 23 % (spring wheat), 20 % (sugar beet), 25 % (maize)</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="nitrogen">Nitrogen: balances, efficiency and precision</h2>
+      <p>Nitrogen management follows the same bookkeeping logic as water. The <strong>field nitrogen balance</strong> compares inputs — mineral fertiliser, manure, atmospheric deposition, biological fixation by legumes, seed — with the output in harvested products. The difference, the <strong>nitrogen surplus</strong>, is either stored in soil organic matter or lost: leached as nitrate, emitted as ammonia, nitrous oxide or dinitrogen gas. Nitrogen-use efficiency (NUE) indicators express how well inputs are converted into product (Cassman et al., 2002):</p>
+
+      <div class="eq-box" id="eq-pi-nue">
+        <div class="eq-head"><span class="eq-label">Nitrogen balance and use-efficiency indicators</span><span class="eq-num">(11.3.7)</span></div>
+        <div class="eq-main">\[ S_N=\underbrace{(F+M+D+B+S_d)}_{\text{inputs}}-\underbrace{H}_{\text{output}},\quad \text{NUE}=\frac{H}{F+M+D+B+S_d},\quad \text{AE}_N=\frac{Y-Y_0}{F},\quad \text{RE}_N=\frac{U-U_0}{F} \]</div>
+        <p class="eq-read">the nitrogen surplus is total inputs minus the nitrogen removed in the harvest; the nitrogen-use efficiency is harvested nitrogen divided by inputs; the agronomic efficiency is the extra yield per kilogram of fertiliser nitrogen; the recovery efficiency is the extra crop nitrogen uptake per kilogram of fertiliser nitrogen, both relative to an unfertilised control.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(F, M\)</td><td>mineral fertiliser N; manure N</td><td>kg N ha⁻¹ yr⁻¹</td></tr>
+          <tr><td>\(D, B, S_d\)</td><td>atmospheric deposition; biological N₂ fixation; N in seed</td><td>kg N ha⁻¹ yr⁻¹</td></tr>
+          <tr><td>\(H\)</td><td>N removed in harvested products (yield × N concentration)</td><td>kg N ha⁻¹ yr⁻¹</td></tr>
+          <tr><td>\(S_N\)</td><td>nitrogen surplus</td><td>kg N ha⁻¹ yr⁻¹</td></tr>
+          <tr><td>\(Y, Y_0\)</td><td>grain yield with and without N fertiliser</td><td>kg ha⁻¹</td></tr>
+          <tr><td>\(U, U_0\)</td><td>crop N uptake with and without N fertiliser</td><td>kg N ha⁻¹</td></tr>
+          <tr><td>NUE, AE<sub>N</sub>, RE<sub>N</sub></td><td>use efficiency; agronomic efficiency; recovery efficiency</td><td>–; kg kg⁻¹; –</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li><strong>Conservation of mass</strong> for the soil–crop system: inputs − outputs − losses = change in soil N stock. Over several years the stock changes little, so the surplus approximates the losses.</li>
+            <li><strong>NUE</strong> is the fraction of inputs that leaves in the product. The EU Nitrogen Expert Panel's framework, applied by Quemada et al. (2020) to 1240 European farms, judges NUE together with the N output and the surplus; the median ("modest target") values were NUE 61 % and a surplus of 68 kg N ha⁻¹ for arable farms, but only 30 % and 155 kg N ha⁻¹ for dairy farms.</li>
+            <li><strong>Agronomic and recovery efficiency</strong> need an unfertilised control plot — which is why on-farm strips with zero or reduced N (Lesson 11.1) are so informative. Typical cereal RE<sub>N</sub> values are 0.3–0.6; the world average NUE for cereals has been estimated at about 33 % (Raun &amp; Johnson, 1999).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Field balances depend on estimates (deposition, fixation, manure N content) and ignore changes in soil N stocks — a field converted from grassland mineralises large amounts of N for years. A high NUE is not always good: above 90 % the soil may be mined. Surplus and NUE should be interpreted together, per farm type.</p></details>
+        <div class="eq-units">kg N ha⁻¹ − kg N ha⁻¹ = kg N ha⁻¹ ✓; NUE, RE: kg N/kg N = dimensionless ✓; AE: kg grain/kg N ✓</div>
+        <div class="mini-calc" data-formula="100*Y*1000*0.86*Nc/100/(F+M+Dp)" data-output="NUE (harvest N / inputs)" data-unit="%" data-digits="0" data-plot="F" data-ymin="0" data-ymax="150">
+          <div data-var="F" data-label="Mineral fertiliser N" data-min="20" data-max="250" data-step="5" data-value="160" data-unit="kg N ha⁻¹"></div>
+          <div data-var="M" data-label="Manure N" data-min="0" data-max="170" data-step="5" data-value="0" data-unit="kg N ha⁻¹"></div>
+          <div data-var="Dp" data-label="Deposition + seed" data-min="0" data-max="30" data-step="1" data-value="11" data-unit="kg N ha⁻¹"></div>
+          <div data-var="Y" data-label="Grain yield (14 % moisture)" data-min="2" data-max="12" data-step="0.1" data-value="8" data-unit="t ha⁻¹"></div>
+          <div data-var="Nc" data-label="N in grain dry matter" data-min="1.2" data-max="2.6" data-step="0.05" data-value="1.9" data-unit="%"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 7</span><span class="we-title">A nitrogen balance for winter wheat in Mälardalen</span></div>
+        <div class="we-problem"><p>A winter wheat field receives 160 kg N ha⁻¹ of mineral fertiliser; deposition and seed add about 8 and 3 kg N ha⁻¹. The crop yields 8.0 t ha⁻¹ at 14 % moisture with 1.9 % N in the grain dry matter; the straw stays on the field. An unfertilised strip yielded 4.5 t ha⁻¹; crop N uptake (grain + straw) was 175 kg N ha⁻¹ in the fertilised field and 60 kg N ha⁻¹ in the strip. Calculate the surplus, NUE, AE<sub>N</sub>, RE<sub>N</sub> and the partial factor productivity \(Y/F\).</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Harvested N:</strong> dry matter \(8000\times(1-0.14) = 6\,880\) kg ha⁻¹; N \(= 6\,880\times0.019 = 130.7\) kg N ha⁻¹.</li>
+              <li><strong>Inputs:</strong> \(160+8+3 = 171\) kg N ha⁻¹; <strong>surplus</strong> \(= 171-130.7 = 40\) kg N ha⁻¹.</li>
+              <li><strong>NUE</strong> \(= 130.7/171 = 0.76\) (76 %) — better than the median of 61 % found for European arable farms by Quemada et al. (2020).</li>
+              <li><strong>Agronomic efficiency:</strong> \((8000-4500)/160 = 21.9\) kg grain per kg N. <strong>Recovery efficiency:</strong> \((175-60)/160 = 0.72\). <strong>Partial factor productivity:</strong> \(8000/160 = 50\) kg grain per kg N.</li>
+              <li><strong>Interpretation.</strong> The surplus of 40 kg N ha⁻¹ is not all lost — some is in the straw returned to the soil and in the roots — but it is the pool from which autumn leaching draws. The last kilograms of N applied contribute least to yield and most to the surplus (next equation).</li>
+            </ol>
+            <span class="answer">Surplus ≈ 40 kg N ha⁻¹; NUE ≈ 76 %; AE ≈ 22 kg kg⁻¹; RE ≈ 0.72; PFP = 50 kg kg⁻¹</span>
+          </div>
+        </details>
+      </div>
+
+      <h3>How much nitrogen? The economic optimum</h3>
+      <p>Yield rises with nitrogen, but with diminishing returns. If the response is described by a quadratic curve, the most profitable rate is where the last kilogram of N just pays for itself:</p>
+      <div class="eq-box" id="eq-pi-eonr">
+        <div class="eq-head"><span class="eq-label">Economic optimum nitrogen rate for a quadratic response</span><span class="eq-num">(11.3.8)</span></div>
+        <div class="eq-main">\[ Y(N)=a+bN+cN^{2}\;(c<0),\qquad \frac{dY}{dN}=b+2cN^{*}=\frac{p_N}{p_Y}\;\;\Rightarrow\;\; N^{*}=\frac{p_N/p_Y-b}{2c} \]</div>
+        <p class="eq-read">with yield a quadratic function of the nitrogen rate, profit is maximised where the marginal yield response, b plus 2cN, equals the price ratio of nitrogen to grain; solving gives the economic optimum rate N star.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Illustrative winter-wheat value</th></tr>
+          <tr><td>\(a\)</td><td>yield without fertiliser N</td><td>kg ha⁻¹</td><td>4 500</td></tr>
+          <tr><td>\(b\)</td><td>initial response</td><td>kg grain (kg N)⁻¹</td><td>45</td></tr>
+          <tr><td>\(c\)</td><td>curvature (negative)</td><td>kg grain (kg N)⁻²</td><td>−0.12</td></tr>
+          <tr><td>\(p_N/p_Y\)</td><td>price ratio: kg of grain that pay for 1 kg of N</td><td>kg kg⁻¹</td><td>5–15 in Sweden (Delin &amp; Stenberg, 2014)</td></tr>
+          <tr><td>\(N^*\)</td><td>economic optimum N rate (EONR)</td><td>kg N ha⁻¹</td><td>146 at a ratio of 10</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Profit from N (per ha): \(\Pi(N) = p_Y\,Y(N) - p_N\,N\) (other costs do not depend on N).</li>
+            <li>Maximum where \(d\Pi/dN = p_Y(b+2cN) - p_N = 0\), i.e. \(b+2cN^* = p_N/p_Y\).</li>
+            <li>Solve: \(N^* = (p_N/p_Y - b)/(2c)\). Since \(c<0\), a higher price ratio (expensive N or cheap grain) lowers \(N^*\). ✓</li>
+            <li>The agronomic maximum (\(p_N=0\)) is \(N_{\max}=-b/2c = 187.5\) kg N ha⁻¹ in the example; at a price ratio of 10 the optimum is \((10-45)/(-0.24) = 146\) kg N ha⁻¹ — 42 kg less, for a yield only 0.2 t ha⁻¹ lower.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The response curve differs between fields, zones and years — mainly because soil N mineralisation and water supply differ — and is known only after harvest. Quadratic curves tend to overestimate the optimum compared with "linear-plateau" or "quadratic-plateau" models. Environmental costs of surplus N are not in the profit function; Delin and Stenberg (2014) found in Swedish trials that leaching per kilogram of grain was smallest around the economic optimum and rose steeply above it.</p></details>
+        <div class="eq-units">(kg kg⁻¹ − kg kg⁻¹)/(kg kg⁻²) = kg N ha⁻¹ (per hectare, as Y is per hectare) ✓</div>
+        <div class="mini-calc" data-formula="(r-b)/(2*c)" data-output="Economic optimum N rate N*" data-unit="kg N ha⁻¹" data-digits="0" data-plot="r" data-ymin="0" data-ymax="220">
+          <div data-var="r" data-label="Price ratio p<sub>N</sub>/p<sub>Y</sub>" data-min="0" data-max="20" data-step="0.5" data-value="10" data-unit="kg kg⁻¹"></div>
+          <div data-var="b" data-label="Initial response b" data-min="20" data-max="70" data-step="1" data-value="45" data-unit="kg kg⁻¹"></div>
+          <div data-var="c" data-label="Curvature c" data-min="-0.3" data-max="-0.05" data-step="0.005" data-value="-0.12" data-unit="kg kg⁻²"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="n-response">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — yield, profit and leaching along the nitrogen axis</div>
+          <div class="pi-grid">
+            <div id="nr-plot" style="min-height:330px"></div>
+            <div class="pi-ctl">
+              <div class="mc-var"><div class="mc-lab"><span>Applied N rate</span><output id="nr-N-o"></output></div><input id="nr-N" type="range" min="0" max="250" step="5" value="180" aria-label="Applied nitrogen rate"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Price ratio p<sub>N</sub>/p<sub>Y</sub></span><output id="nr-r-o"></output></div><input id="nr-r" type="range" min="5" max="15" step="0.5" value="10" aria-label="Price ratio"></div>
+              <div class="mc-var"><div class="mc-lab"><span>Zone soil N supply</span><output id="nr-s-o"></output></div><input id="nr-s" type="range" min="-40" max="40" step="5" value="0" aria-label="Soil nitrogen supply offset"></div>
+              <p class="pi-note">"Soil N supply" shifts the response curve: a zone that mineralises 30 kg N ha⁻¹ more needs about 30 kg less fertiliser — the case for variable-rate N.</p>
+            </div>
+          </div>
+          <div class="readouts" id="nr-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 5.</b> An illustrative quadratic yield response of winter wheat (green) and cumulative nitrate leaching (magenta, right axis), with the economic optimum marked. The leaching curve is shaped after the Swedish field results of Delin and Stenberg (2014): below the optimum each extra kilogram of N adds less than 0.04 kg of leaching; beyond it the marginal leaching rises exponentially, reaching about 0.1 kg kg⁻¹ at 35 kg above and 0.5 kg kg⁻¹ at 100 kg above the optimum. The economic loss is expressed in kilograms of grain per hectare.</figcaption>
+      </figure>
+
+      <h3>Split application and crop nitrogen sensing</h3>
+      <p>Because the optimum depends on the season, Swedish winter wheat growers typically split nitrogen into two or three doses between tillering and booting (Söderström et al., 2017), adjusting the later doses to the crop's development and the weather. The question for each dose is: <em>how much nitrogen has the crop already taken up, and how much does it still need?</em> Plant physiology gives a benchmark. As a crop grows, the nitrogen concentration of its biomass falls — structural tissue dilutes the nitrogen-rich photosynthetic machinery. The <strong>critical nitrogen concentration</strong> is the minimum concentration that still allows maximum growth; comparing the actual concentration with it gives the nitrogen nutrition index (NNI):</p>
+
+      <div class="eq-box" id="eq-pi-nni">
+        <div class="eq-head"><span class="eq-label">Critical nitrogen dilution curve for winter wheat and the nitrogen nutrition index</span><span class="eq-num">(11.3.9)</span></div>
+        <div class="eq-main">\[ N_c = 5.35\,W^{-0.442}\quad(1.55\le W\le 12\ \text{t ha}^{-1}),\qquad \text{NNI}=\frac{N_{\text{act}}}{N_c} \]</div>
+        <p class="eq-read">the critical shoot nitrogen concentration, in per cent of dry matter, is 5.35 times the shoot biomass in tonnes per hectare raised to the power minus 0.442; the nitrogen nutrition index is the actual concentration divided by the critical one.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(N_c\)</td><td>critical N concentration of shoots</td><td>% of dry matter</td></tr>
+          <tr><td>\(W\)</td><td>shoot dry biomass</td><td>t ha⁻¹</td></tr>
+          <tr><td>\(N_{\text{act}}\)</td><td>measured N concentration of shoots</td><td>% of dry matter</td></tr>
+          <tr><td>NNI</td><td>&lt; 1: N-limited; ≈ 1: optimal; &gt; 1: luxury uptake</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the reasoning</summary>
+          <ol class="steps">
+            <li>Justes et al. (1994) fertilised winter wheat at several rates and, at each sampling date, found the lowest N concentration that still gave the maximum biomass. Plotted against biomass, these critical points fell on a single power curve with \(r^2 = 0.98\), valid for 1.55–12 t ha⁻¹; below 1.55 t ha⁻¹ a constant value of about 4.4 % applies.</li>
+            <li>The critical N <em>uptake</em> follows by multiplying by biomass: \(N_{\text{upt},c} = 10\,N_c W\) kg N ha⁻¹ (with \(N_c\) in % and \(W\) in t ha⁻¹). At \(W=4\) t ha⁻¹: \(N_c = 5.35\times4^{-0.442} = 2.90\) %, i.e. 116 kg N ha⁻¹.</li>
+            <li>A crop with 2.6 % N at 4 t ha⁻¹ has NNI \(= 2.6/2.90 = 0.90\): slightly deficient.</li>
+            <li>Crop sensors (tractor N-sensors, satellite index maps calibrated with hand-held measurements; Lesson 11.2) estimate biomass and N uptake without sampling, so the NNI concept can be mapped across a field.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The coefficients are specific to winter wheat (other crops have their own curves); the relation applies to shoots, not roots; water stress and disease can lower growth and raise N concentration independently of N supply.</p></details>
+        <div class="eq-units">% × (t ha⁻¹)^(−0.442) is an empirical fit: the coefficient 5.35 carries the unit % (t ha⁻¹)^0.442 so that \(N_c\) is in % ✓</div>
+        <div class="mini-calc" data-formula="Na/(5.35*pow(W,-0.442))" data-output="Nitrogen nutrition index NNI" data-digits="2" data-plot="W" data-ymin="0" data-ymax="2">
+          <div data-var="W" data-label="Shoot biomass W" data-min="1.55" data-max="12" data-step="0.05" data-value="4" data-unit="t ha⁻¹"></div>
+          <div data-var="Na" data-label="Measured N concentration" data-min="0.8" data-max="5" data-step="0.05" data-value="2.6" data-unit="% DM"></div>
+        </div>
+      </div>
+
+      <h2 id="baltic">From field to sea: nitrate leaching, the Baltic and Swedish rules</h2>
+      <p>Most nitrate leaves Swedish fields in autumn and winter, when evapotranspiration is small and precipitation exceeds it: water drains through the soil and carries with it the nitrate left after harvest. What arrives in a drain or groundwater is a concentration:</p>
+
+      <div class="eq-box" id="eq-pi-leach">
+        <div class="eq-head"><span class="eq-label">Nitrate concentration in drainage water</span><span class="eq-num">(11.3.10)</span></div>
+        <div class="eq-main">\[ C_{\text{NO}_3\text{-N}}=\frac{100\,L}{D},\qquad C_{\text{NO}_3}=\frac{62.0}{14.0}\,C_{\text{NO}_3\text{-N}}\approx 4.43\,C_{\text{NO}_3\text{-N}} \]</div>
+        <p class="eq-read">the nitrate-nitrogen concentration of drainage water in milligrams per litre is one hundred times the nitrogen leached in kilograms per hectare divided by the drainage in millimetres; multiplying by the ratio of the molar masses of nitrate and nitrogen converts it to milligrams of nitrate per litre.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(L\)</td><td>nitrogen leached below the root zone</td><td>kg N ha⁻¹ yr⁻¹</td><td>10–60</td></tr>
+          <tr><td>\(D\)</td><td>drainage (percolation) below the root zone</td><td>mm yr⁻¹</td><td>100–400 in southern Sweden</td></tr>
+          <tr><td>\(C_{\text{NO}_3\text{-N}}\), \(C_{\text{NO}_3}\)</td><td>concentration as nitrate-N and as nitrate</td><td>mg L⁻¹</td><td>EU limit 50 mg NO₃ L⁻¹ ≈ 11.3 mg NO₃-N L⁻¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>\(L\) kg N ha⁻¹ = \(L\times10^{6}\) mg per 10 000 m² = \(100\,L\) mg m⁻².</li>
+            <li>\(D\) mm of drainage = \(D\) L m⁻² (1 mm over 1 m² is 1 litre).</li>
+            <li>Concentration = mass/volume = \(100L/D\) mg L⁻¹. ✓</li>
+            <li>A nitrate ion (NO₃⁻, 62.0 g mol⁻¹) contains one N atom (14.0 g mol⁻¹), so mg NO₃ = 4.43 × mg NO₃-N.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The average concentration of the whole drainage volume; the first drainage after harvest is usually much more concentrated. Denitrification in the subsoil and riparian zones removes part of the nitrate before it reaches streams — the "retention" that makes the load reaching the sea smaller than the root-zone leaching.</p></details>
+        <div class="eq-units">(mg m⁻²)/(L m⁻²) = mg L⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="4.43*100*Lk/Dd" data-output="Nitrate concentration" data-unit="mg NO₃ L⁻¹" data-digits="0" data-plot="Dd" data-ymin="0" data-ymax="200">
+          <div data-var="Lk" data-label="N leached L" data-min="5" data-max="80" data-step="1" data-value="35" data-unit="kg N ha⁻¹"></div>
+          <div data-var="Dd" data-label="Drainage D" data-min="50" data-max="500" data-step="10" data-value="200" data-unit="mm"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 8</span><span class="we-title">Is the drainage water drinkable?</span></div>
+        <div class="we-problem"><p>A sandy field in Halland loses 35 kg N ha⁻¹ by leaching over a winter in which 200 mm of water drains below the root zone. What is the average nitrate concentration of the drainage, and how does it compare with the 50 mg L⁻¹ limit for nitrate?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Nitrate-N</strong> (Eq. 11.3.10): \(100\times35/200 = 17.5\) mg NO₃-N L⁻¹.</li>
+              <li><strong>Nitrate:</strong> \(4.43\times17.5 = 77.5\) mg NO₃ L⁻¹ — more than one and a half times the limit.</li>
+              <li><strong>What would it take?</strong> To stay below 50 mg L⁻¹ with 200 mm drainage, leaching must be below \(50/4.43\times200/100 = 22.6\) kg N ha⁻¹ — which is why nitrate-vulnerable zones restrict autumn fertilisation and require green cover in winter.</li>
+            </ol>
+            <span class="answer">≈ 17.5 mg NO₃-N L⁻¹ = 77.5 mg NO₃ L⁻¹, well above 50 mg L⁻¹</span>
+          </div>
+        </details>
+      </div>
+
+      <p>At the scale of the Baltic Sea, the cumulative effect of such losses from nine countries is eutrophication: algal blooms whose decomposition consumes oxygen in the stratified deep water. Reconstructing 115 years of oxygen and salinity profiles, Carstensen et al. (2014) found a roughly ten-fold increase in hypoxia, primarily linked to increased nutrient inputs from land, with warming contributing in recent decades. The Helsinki Commission's Baltic Sea Action Plan (HELCOM, 2021) sets national nutrient input ceilings; the EU Farm to Fork strategy aims to reduce nutrient losses by at least 50 % and fertiliser use by at least 20 % by 2030 (European Commission, 2020); and "zero eutrophication" is one of Sweden's national environmental quality objectives.</p>
+      <p>Under the EU Nitrates Directive (91/676/EEC), member states designate <strong>nitrate-vulnerable zones</strong> and apply action programmes there, including a limit of 170 kg N ha⁻¹ yr⁻¹ from livestock manure. In Sweden the rules are laid down by the Swedish Board of Agriculture (föreskrifterna om miljöhänsyn i jordbruket, SJVFS 2004:62, as amended) and are summarised in Table 5.</p>
+      <table>
+        <caption>Table 5. Selected rules in Swedish nitrate-vulnerable zones (nitratkänsliga områden), as described by the Swedish Board of Agriculture (Jordbruksverket, 2026). Rules differ between Skåne, Blekinge and Halland and the rest of the country; consult the current regulations before applying them.</caption>
+        <thead><tr><th>Topic</th><th>Rule</th></tr></thead>
+        <tbody>
+          <tr><td>Manure N</td><td>at most 170 kg total N ha⁻¹ yr⁻¹ from manure, calculated over the farm's spreading area</td></tr>
+          <tr><td>Before autumn sowing</td><td>readily available N at most 60 kg ha⁻¹ for winter oilseeds and 30 kg ha⁻¹ for other autumn-sown crops</td></tr>
+          <tr><td>Spreading periods</td><td>1 August–31 October: manure only into a growing crop or before autumn sowing (with further limits in Skåne, Blekinge and Halland); <strong>1 November–28 February: spreading prohibited</strong></td></tr>
+          <tr><td>Where not to spread</td><td>not on water-saturated, flooded, snow-covered or frozen land; not within 2 m of a field edge bordering a lake or watercourse; not where the field slopes more than 10 % towards water</td></tr>
+          <tr><td>Incorporation and technique (Skåne, Blekinge, Halland)</td><td>manure spread on bare arable land must be incorporated (≥ 5 cm) within 4 hours; liquid manure in a growing crop must be band-spread, injected, diluted or followed by ≥ 10 mm irrigation</td></tr>
+          <tr><td>Manure storage</td><td>e.g. in Skåne, Halland, Blekinge, Gotland, Öland and sensitive coastal areas: 8 months (cattle, horses, sheep, goats) or 10 months (other livestock) for farms with more than 10 animal units</td></tr>
+          <tr><td>Green land in autumn and winter</td><td>60 % of arable land in Halland, Skåne and Blekinge and 50 % in Östergötland, Jönköping, Kronoberg, Kalmar, Gotland and Västra Götaland counties</td></tr>
+        </tbody>
+      </table>
+      <p>Precision agriculture helps farmers comply and go further: sensor- and satellite-based nitrogen rates avoid over-application in zones that do not respond (Figure 5); split applications match supply to demand; soil-moisture sensors and the water balance prevent irrigation-driven drainage; and nutrient balances computed with advisory tools such as Greppa Näringen's VERA make the surplus visible at farm level.</p>
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"If I apply the recommended rate, nothing leaches." Leaching happens even from unfertilised fields, because soil organic matter mineralises nitrate after harvest when the crop no longer takes it up. The goal is not zero leaching but to keep the <em>extra</em> leaching caused by management small — by not exceeding the economic optimum, by keeping the soil green in autumn with catch crops, and by avoiding drainage from excess irrigation.</p></div>
+      <div class="callout frontier"><div class="callout-title">Frontier (2024–2026)</div><p>Irrigation and nitrogen decisions are converging into <strong>digital advisory systems</strong> that combine satellite canopy maps, soil-moisture sensor networks, weather forecasts and crop models, and send prescriptions directly to variable-rate machines. Research focuses on estimating soil nitrogen mineralisation in-season, on data assimilation that keeps the water balance honest, and on quantifying the environmental benefit — the kilograms of nitrate that did <em>not</em> reach the Baltic — so that it can be rewarded.</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="precision-irrigation-main">
+        <script type="application/json">
+        {"title":"Precision irrigation and nutrient management","questions":[
+          {"type":"mcq","q":"In the FAO-56 equation, where does the number 0.408 come from?","options":["It is the albedo of the reference grass.","It is 1/λ, converting MJ m⁻² d⁻¹ of energy into mm d⁻¹ of water (λ = 2.45 MJ kg⁻¹).","It is the ratio of surface to aerodynamic resistance.","It is von Kármán's constant."],"answer":1,"feedback":["The albedo of the reference is 0.23 and enters the net radiation, not this factor.","","That ratio gives the 0.34 in the denominator.","Von Kármán's constant is 0.41 and enters the aerodynamic resistance."],"explain":"<p>Dividing latent heat flux by λ = 2.45 MJ kg⁻¹ gives kg m⁻² d⁻¹ = mm d⁻¹, and 1/2.45 = 0.408.</p>"},
+          {"type":"numeric","q":"Calculate ET₀ (mm d⁻¹) for T = 15 °C, RH = 75 %, u₂ = 2.0 m s⁻¹, Rₙ = 10 MJ m⁻² d⁻¹, G = 0, P = 101.3 kPa.","answer":2.81,"tol":0.03,"unit":"mm d⁻¹","hint":"eₛ = 0.6108 exp(17.27 T/(T + 237.3)); Δ = 4098 eₛ/(T + 237.3)²; γ = 0.000665 P.","explain":"<p>\\(e_s = 1.705\\), \\(e_a = 1.279\\), VPD = 0.426 kPa, Δ = 0.1098, γ = 0.0674. Numerator: \\(0.408\\times0.1098\\times10 + 0.0674\\times900/288\\times2.0\\times0.426 = 0.448+0.180 = 0.627\\); denominator \\(0.1098+0.0674\\times1.68 = 0.2230\\); ET₀ ≈ 2.81 mm d⁻¹.</p>"},
+          {"type":"numeric","q":"Sugar beet has Kc ini = 0.35 and Kc mid = 1.20. With stage lengths of 50 d (initial) and 40 d (development), what is Kc on day 70 after sowing?","answer":0.775,"tol":0.02,"unit":"","hint":"Day 70 is 20 days into the 40-day development stage.","explain":"<p>\\(K_c = 0.35 + (70-50)/40\\times(1.20-0.35) = 0.35+0.425 = 0.775\\).</p>"},
+          {"type":"numeric","q":"A sandy loam has θ_FC = 0.22 and θ_WP = 0.10. Calculate the total available water (mm) for a spring barley root zone of 0.8 m.","answer":96,"tol":0.02,"unit":"mm","hint":"TAW = 1000 (θ_FC − θ_WP) Zᵣ.","explain":"<p>\\(1000\\times0.12\\times0.8 = 96\\) mm.</p>"},
+          {"type":"numeric","q":"For the soil in the previous question (TAW = 96 mm) and p = 0.55, what is the water-stress coefficient Kₛ when the depletion is 70 mm?","answer":0.602,"tol":0.02,"unit":"","hint":"RAW = p·TAW = 52.8 mm. Beyond RAW, Kₛ = (TAW − Dᵣ)/((1 − p) TAW).","explain":"<p>\\(K_s = (96-70)/(0.45\\times96) = 26/43.2 = 0.60\\): the crop transpires at 60 % of its unstressed rate.</p>"},
+          {"type":"numeric","q":"Yesterday's depletion was 8 mm. Today ETc = 3 mm (no stress), and 17 mm of rain fell with no runoff. How many millimetres drain below the root zone today?","answer":6,"abstol":0.05,"unit":"mm","hint":"Compute Dᵣ = 8 − 17 + 3. A negative value is deep percolation.","explain":"<p>\\(8-17+3 = -6\\) mm → \\(D_r = 0\\) and DP = 6 mm.</p>"},
+          {"type":"numeric","q":"A drip system (eₐ = 0.90) must deliver a net depth of 18 mm to 5 ha. How many cubic metres must be pumped?","answer":1000,"tol":0.01,"unit":"m³","hint":"V = 10 A d_net/eₐ.","explain":"<p>\\(10\\times5\\times18/0.90 = 1000\\) m³.</p>"},
+          {"type":"numeric","q":"Maize (Ky = 1.25) receives water for only 85 % of full seasonal ET. What relative yield loss (%) does FAO-33 predict?","answer":18.75,"tol":0.02,"unit":"%","explain":"<p>\\(1.25\\times(1-0.85) = 0.1875\\) → 18.75 %.</p>"},
+          {"type":"multi","q":"Which of the following statements about soil-moisture sensing are correct? (Select all that apply.)","options":["Tensiometers measure matric potential and stop working below about −80 kPa.","Capacitance probes usually need a soil-specific calibration.","One sensor per field is sufficient because soil water is spatially uniform.","Installing sensors at two depths shows whether water reaches the lower roots or drains past them."],"answer":[0,1,3],"explain":"<p>Soil water varies with texture, topography and crop; sensors represent their own zone, so variable fields need several stations.</p>"},
+          {"type":"numeric","q":"Using a quadratic response Y = 4500 + 45N − 0.12N² (kg ha⁻¹), what is the economic optimum N rate at a price ratio of 8 kg grain per kg N?","answer":154.2,"tol":0.02,"unit":"kg N ha⁻¹","hint":"N* = (p_N/p_Y − b)/(2c).","explain":"<p>\\(N^* = (8-45)/(2\\times-0.12) = -37/-0.24 = 154\\) kg N ha⁻¹.</p>"},
+          {"type":"numeric","q":"A field leaches 28 kg N ha⁻¹ with 250 mm of drainage. What is the nitrate (NO₃) concentration of the drainage in mg L⁻¹?","answer":49.6,"tol":0.02,"unit":"mg NO₃ L⁻¹","hint":"C(NO₃-N) = 100 L/D; multiply by 4.43.","explain":"<p>\\(100\\times28/250 = 11.2\\) mg NO₃-N L⁻¹ → \\(4.43\\times11.2 = 49.6\\) mg NO₃ L⁻¹, just below 50.</p>"},
+          {"type":"tf","q":"In Swedish nitrate-vulnerable zones, spreading of manure is prohibited from 1 November to 28 February.","answer":true,"explain":"<p>According to the Swedish Board of Agriculture's rules for nitrate-vulnerable zones, spreading is prohibited in this period; from August to October it is allowed only into a growing crop or before autumn sowing.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Reference evapotranspiration (ET₀)</dt><dd>Evapotranspiration of a hypothetical well-watered 0.12 m grass surface with a surface resistance of 70 s m⁻¹ and albedo 0.23; computed with the FAO-56 Penman–Monteith equation.</dd>
+        <dt>Crop coefficient (K<sub>c</sub>)</dt><dd>The ratio of crop evapotranspiration under standard conditions to ET₀; varies with growth stage.</dd>
+        <dt>Field capacity</dt><dd>The water content a soil holds after free drainage has largely stopped (matric potential about −10 to −33 kPa).</dd>
+        <dt>Permanent wilting point</dt><dd>The water content at which plants can no longer extract water and wilt permanently (conventionally −1500 kPa).</dd>
+        <dt>Total available water (TAW)</dt><dd>The water between field capacity and wilting point in the root zone, 1000(θ<sub>FC</sub> − θ<sub>WP</sub>)Zᵣ in mm.</dd>
+        <dt>Readily available water (RAW)</dt><dd>The fraction p of TAW that a crop can extract without water stress.</dd>
+        <dt>Root-zone depletion (Dᵣ)</dt><dd>The amount of water (mm) by which the root zone is below field capacity; the state variable of the FAO-56 water balance.</dd>
+        <dt>Water-stress coefficient (Kₛ)</dt><dd>A factor from 1 to 0 that reduces crop ET once depletion exceeds RAW.</dd>
+        <dt>Deep percolation</dt><dd>Water that drains below the root zone, carrying dissolved nitrate with it.</dd>
+        <dt>Application efficiency</dt><dd>The fraction of applied irrigation water that is stored in the root zone.</dd>
+        <dt>Deficit irrigation</dt><dd>Deliberately supplying less water than the full crop requirement to raise water productivity.</dd>
+        <dt>Yield-response factor (K<sub>y</sub>)</dt><dd>The ratio of relative yield loss to relative evapotranspiration deficit (FAO-33).</dd>
+        <dt>Variable-rate irrigation (VRI)</dt><dd>Irrigation systems that vary the applied depth within a field according to a prescription map, by speed or nozzle control.</dd>
+        <dt>Nitrogen-use efficiency (NUE)</dt><dd>Nitrogen in harvested products divided by nitrogen inputs; judged together with N output and N surplus.</dd>
+        <dt>Nitrate-vulnerable zone</dt><dd>An area designated under the EU Nitrates Directive in which stricter rules on manure and fertiliser apply; in Sweden, nitratkänsligt område.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can explain where 0.408, 900 and 0.34 in the FAO-56 equation come from and calculate ET₀ from weather data.</li>
+        <li>I can construct a crop-coefficient curve and compute ETc for any day of the season.</li>
+        <li>I can compute TAW and RAW for a crop and soil and run the daily depletion balance, including stress and deep percolation.</li>
+        <li>I can compare calendar, sensor and model-based scheduling and choose sensor type and placement for a variable field.</li>
+        <li>I can calculate a nitrogen balance, NUE indicators and the economic optimum N rate, and explain why exceeding the optimum increases leaching.</li>
+        <li>I can relate nitrate leaching to drainage concentrations, Baltic Sea eutrophication and the Swedish rules for nitrate-vulnerable zones.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper No. 56). FAO. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">https://www.fao.org/4/x0490e/x0490e00.htm</a><span class="r-why">Read Chapter 2 (the Penman–Monteith derivation), Chapter 6 (single crop coefficient) and Chapter 8 (water stress and the root-zone water balance) — the source of every equation in the irrigation half of this lesson.</span></li>
+        <li><span class="r-type">Required</span>Fereres, E., &amp; Soriano, M. A. (2007). Deficit irrigation for reducing agricultural water use. <em>Journal of Experimental Botany</em>, <em>58</em>(2), 147–159. <a href="https://doi.org/10.1093/jxb/erl165" target="_blank" rel="noopener">doi:10.1093/jxb/erl165</a><span class="r-why">A clear review of when deficit irrigation saves water without costing too much yield.</span></li>
+        <li><span class="r-type">Recommended · Swedish case</span>Delin, S., &amp; Stenberg, M. (2014). Effect of nitrogen fertilization on nitrate leaching in relation to grain yield response on loamy sand in Sweden. <em>European Journal of Agronomy</em>, <em>52</em>, 291–296. <a href="https://doi.org/10.1016/j.eja.2013.08.007" target="_blank" rel="noopener">doi:10.1016/j.eja.2013.08.007</a><span class="r-why">Short and quantitative: why the economic optimum is also close to the environmental optimum.</span></li>
+        <li><span class="r-type">Recommended</span>Cassman, K. G., Dobermann, A., &amp; Walters, D. T. (2002). Agroecosystems, nitrogen-use efficiency, and nitrogen management. <em>Ambio</em>, <em>31</em>(2), 132–140. <a href="https://doi.org/10.1579/0044-7447-31.2.132" target="_blank" rel="noopener">doi:10.1579/0044-7447-31.2.132</a><span class="r-why">The classic framing of NUE indicators and of synchronising N supply with crop demand.</span></li>
+        <li><span class="r-type">Recommended</span>Jones, H. G. (2004). Irrigation scheduling: advantages and pitfalls of plant-based methods. <em>Journal of Experimental Botany</em>, <em>55</em>(407), 2427–2436. <a href="https://doi.org/10.1093/jxb/erh213" target="_blank" rel="noopener">doi:10.1093/jxb/erh213</a><span class="r-why">Compares soil-, weather- and plant-based scheduling, including thermal sensing.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Allen, R. G., Pereira, L. S., Raes, D., &amp; Smith, M. (1998). <em>Crop evapotranspiration — Guidelines for computing crop water requirements</em> (FAO Irrigation and Drainage Paper No. 56). FAO. <a href="https://www.fao.org/4/x0490e/x0490e00.htm" target="_blank" rel="noopener">https://www.fao.org/4/x0490e/x0490e00.htm</a></li>
+        <li>Allen, R. G., Pruitt, W. O., Wright, J. L., Howell, T. A., Ventura, F., Snyder, R., Itenfisu, D., Steduto, P., Berengena, J., Yrisarry, J. B., Smith, M., Pereira, L. S., Raes, D., Perrier, A., Alves, I., Walter, I., &amp; Elliott, R. (2006). A recommendation on standardized surface resistance for hourly calculation of reference ETo by the FAO56 Penman–Monteith method. <em>Agricultural Water Management</em>, <em>81</em>(1–2), 1–22. <a href="https://doi.org/10.1016/j.agwat.2005.03.007" target="_blank" rel="noopener">doi:10.1016/j.agwat.2005.03.007</a></li>
+        <li>Brouwer, C., Prins, K., &amp; Heibloem, M. (1989). <em>Irrigation water management: Irrigation scheduling</em> (Training manual no. 4). FAO. <a href="https://www.fao.org/4/t7202e/t7202e00.htm" target="_blank" rel="noopener">https://www.fao.org/4/t7202e/t7202e00.htm</a></li>
+        <li>Carstensen, J., Andersen, J. H., Gustafsson, B. G., &amp; Conley, D. J. (2014). Deoxygenation of the Baltic Sea during the last century. <em>Proceedings of the National Academy of Sciences</em>, <em>111</em>(15), 5628–5633. <a href="https://doi.org/10.1073/pnas.1323156111" target="_blank" rel="noopener">doi:10.1073/pnas.1323156111</a></li>
+        <li>Cassman, K. G., Dobermann, A., &amp; Walters, D. T. (2002). Agroecosystems, nitrogen-use efficiency, and nitrogen management. <em>Ambio</em>, <em>31</em>(2), 132–140. <a href="https://doi.org/10.1579/0044-7447-31.2.132" target="_blank" rel="noopener">doi:10.1579/0044-7447-31.2.132</a></li>
+        <li>Council of the European Communities. (1991). Council Directive 91/676/EEC of 12 December 1991 concerning the protection of waters against pollution caused by nitrates from agricultural sources. <em>Official Journal of the European Communities</em>, L 375, 1–8. <a href="https://eur-lex.europa.eu/eli/dir/1991/676/oj" target="_blank" rel="noopener">https://eur-lex.europa.eu/eli/dir/1991/676/oj</a></li>
+        <li>Delin, S., &amp; Stenberg, M. (2014). Effect of nitrogen fertilization on nitrate leaching in relation to grain yield response on loamy sand in Sweden. <em>European Journal of Agronomy</em>, <em>52</em>, 291–296. <a href="https://doi.org/10.1016/j.eja.2013.08.007" target="_blank" rel="noopener">doi:10.1016/j.eja.2013.08.007</a></li>
+        <li>Doorenbos, J., &amp; Kassam, A. H. (1979). <em>Yield response to water</em> (FAO Irrigation and Drainage Paper No. 33). FAO.</li>
+        <li>European Commission. (2020). <em>A Farm to Fork Strategy for a fair, healthy and environmentally-friendly food system</em> (COM(2020) 381 final). <a href="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52020DC0381" target="_blank" rel="noopener">https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52020DC0381</a></li>
+        <li>Evans, R. G., LaRue, J., Stone, K. C., &amp; King, B. A. (2013). Adoption of site-specific variable rate sprinkler irrigation systems. <em>Irrigation Science</em>, <em>31</em>(4), 871–887. <a href="https://doi.org/10.1007/s00271-012-0365-x" target="_blank" rel="noopener">doi:10.1007/s00271-012-0365-x</a></li>
+        <li>FAO. (2026). <em>AQUASTAT — Water use</em>. Food and Agriculture Organization of the United Nations. <a href="https://www.fao.org/aquastat/en/overview/methodology/water-use/" target="_blank" rel="noopener">https://www.fao.org/aquastat/en/overview/methodology/water-use/</a></li>
+        <li>Fereres, E., &amp; Soriano, M. A. (2007). Deficit irrigation for reducing agricultural water use. <em>Journal of Experimental Botany</em>, <em>58</em>(2), 147–159. <a href="https://doi.org/10.1093/jxb/erl165" target="_blank" rel="noopener">doi:10.1093/jxb/erl165</a></li>
+        <li>HELCOM. (2021). <em>Baltic Sea Action Plan — 2021 update</em>. Helsinki Commission. <a href="https://helcom.fi/baltic-sea-action-plan/" target="_blank" rel="noopener">https://helcom.fi/baltic-sea-action-plan/</a></li>
+        <li>Jones, H. G. (2004). Irrigation scheduling: advantages and pitfalls of plant-based methods. <em>Journal of Experimental Botany</em>, <em>55</em>(407), 2427–2436. <a href="https://doi.org/10.1093/jxb/erh213" target="_blank" rel="noopener">doi:10.1093/jxb/erh213</a></li>
+        <li>Jordbruksverket [Swedish Board of Agriculture]. (2026). <em>Sprida gödsel; Lagra gödsel; Höst- och vinterbevuxen mark</em> [Rules on spreading and storing manure and on autumn and winter green cover]. <a href="https://jordbruksverket.se/vaxter/odling/vaxtnaring" target="_blank" rel="noopener">https://jordbruksverket.se/vaxter/odling/vaxtnaring</a></li>
+        <li>Justes, E., Mary, B., Meynard, J.-M., Machet, J.-M., &amp; Thelier-Huché, L. (1994). Determination of a critical nitrogen dilution curve for winter wheat crops. <em>Annals of Botany</em>, <em>74</em>(4), 397–407. <a href="https://doi.org/10.1006/anbo.1994.1133" target="_blank" rel="noopener">doi:10.1006/anbo.1994.1133</a></li>
+        <li>Lassaletta, L., Billen, G., Grizzetti, B., Anglade, J., &amp; Garnier, J. (2014). 50 year trends in nitrogen use efficiency of world cropping systems: The relationship between yield and nitrogen input to cropland. <em>Environmental Research Letters</em>, <em>9</em>(10), 105011. <a href="https://doi.org/10.1088/1748-9326/9/10/105011" target="_blank" rel="noopener">doi:10.1088/1748-9326/9/10/105011</a></li>
+        <li>Pereira, L. S., Paredes, P., Hunsaker, D. J., López-Urrea, R., &amp; Mohammadi Shad, Z. (2021). Standard single and basal crop coefficients for field crops. Updates and advances to the FAO56 crop water requirements method. <em>Agricultural Water Management</em>, <em>243</em>, 106466. <a href="https://doi.org/10.1016/j.agwat.2020.106466" target="_blank" rel="noopener">doi:10.1016/j.agwat.2020.106466</a></li>
+        <li>Quemada, M., Lassaletta, L., Jensen, L. S., Godinot, O., Brentrup, F., Buckley, C., Foray, S., Hvid, S. K., Oenema, J., Richards, K. G., &amp; Oenema, O. (2020). Exploring nitrogen indicators of farm performance among farm types across several European case studies. <em>Agricultural Systems</em>, <em>177</em>, 102689. <a href="https://doi.org/10.1016/j.agsy.2019.102689" target="_blank" rel="noopener">doi:10.1016/j.agsy.2019.102689</a></li>
+        <li>Raun, W. R., &amp; Johnson, G. V. (1999). Improving nitrogen use efficiency for cereal production. <em>Agronomy Journal</em>, <em>91</em>(3), 357–363. <a href="https://doi.org/10.2134/agronj1999.00021962009100030001x" target="_blank" rel="noopener">doi:10.2134/agronj1999.00021962009100030001x</a></li>
+        <li>Söderström, M., Piikki, K., Stenberg, M., Stadig, H., &amp; Martinsson, J. (2017). Producing nitrogen (N) uptake maps in winter wheat by combining proximal crop measurements with Sentinel-2 and DMC satellite images in a decision support system for farmers. <em>Acta Agriculturae Scandinavica, Section B — Soil &amp; Plant Science</em>, <em>67</em>(7), 637–650. <a href="https://doi.org/10.1080/09064710.2017.1324044" target="_blank" rel="noopener">doi:10.1080/09064710.2017.1324044</a></li>
+        <li>Topp, G. C., Davis, J. L., &amp; Annan, A. P. (1980). Electromagnetic determination of soil water content: Measurements in coaxial transmission lines. <em>Water Resources Research</em>, <em>16</em>(3), 574–582. <a href="https://doi.org/10.1029/WR016i003p00574" target="_blank" rel="noopener">doi:10.1029/WR016i003p00574</a></li>
+        <li>Zhang, X., Davidson, E. A., Mauzerall, D. L., Searchinger, T. D., Dumas, P., &amp; Shen, Y. (2015). Managing nitrogen for sustainable development. <em>Nature</em>, <em>528</em>(7580), 51–59. <a href="https://doi.org/10.1038/nature15743" target="_blank" rel="noopener">doi:10.1038/nature15743</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot } from '/assets/js/plot.js';
+import { Readouts } from '/assets/js/ui.js';
+import { svp, svpSlope, psychroConst, pressureAtElevation, clearSkyRadiation, et0PenmanMonteith } from '/assets/js/physics.js';
+import { mulberry32, randn } from '/assets/js/stats.js';
+
+const $ = id => document.getElementById(id);
+const fillRange = el => el.style.setProperty('--fill', ((+el.value - +el.min) / (+el.max - +el.min) * 100) + '%');
+const segVal = (id, cb) => $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; $(id).querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); cb(b.dataset.v); });
+const LAT = 59.6, ELEV = 20, PZ = pressureAtElevation(ELEV);
+
+/* FAO-56 net radiation (Eqs 37-40) from Rs, with Tmax/Tmin = T +/- 5 degC */
+function netRad(Rs, Rso, T, ea) {
+  const s = 4.903e-9, tx = T + 5 + 273.16, tn = T - 5 + 273.16;
+  const Rnl = s * (tx ** 4 + tn ** 4) / 2 * (0.34 - 0.14 * Math.sqrt(ea)) * (1.35 * Math.min(1, Rs / Rso) - 0.35);
+  return 0.77 * Rs - Rnl;
+}
+
+/* ================= Figure 2: ET0 explorer ================= */
+const ep = new Plot('#et-plot', { x: { label: 'Wind speed at 2 m, u₂', unit: 'm s⁻¹', min: 0, max: 6 }, y: { label: 'Evapotranspiration', unit: 'mm d⁻¹', min: 0 }, legend: true });
+const ero = new Readouts('#et-ro');
+ero.add({ id: 'rs', label: 'Global radiation Rₛ', unit: 'MJ m⁻² d⁻¹', digits: 1 }).add({ id: 'rn', label: 'Net radiation Rₙ', unit: 'MJ m⁻² d⁻¹', digits: 1 })
+   .add({ id: 'vpd', label: 'Vapour pressure deficit', unit: 'kPa', digits: 2 }).add({ id: 'et0', label: 'ET₀', unit: 'mm d⁻¹', digits: 2 }).add({ id: 'share', label: 'Radiation-driven share', unit: '%', digits: 0 });
+function etDraw() {
+  ['et-doy', 'et-sun', 'et-T', 'et-RH', 'et-u'].forEach(i => fillRange($(i)));
+  const doy = +$('et-doy').value, sun = +$('et-sun').value, T = +$('et-T').value, RH = +$('et-RH').value, u = +$('et-u').value;
+  const dt = new Date(2026, 0, doy); $('et-doy-o').textContent = `${doy} (${dt.getDate()} ${dt.toLocaleString('en-GB', { month: 'short' })})`;
+  $('et-sun-o').textContent = sun.toFixed(2); $('et-T-o').textContent = T + ' °C'; $('et-RH-o').textContent = RH + ' %'; $('et-u-o').textContent = u.toFixed(1) + ' m s⁻¹';
+  const Rso = clearSkyRadiation(LAT, doy, ELEV), Rs = sun * Rso, es = svp(T), ea = es * RH / 100, Rn = netRad(Rs, Rso, T, ea);
+  const D = svpSlope(T), g = psychroConst(PZ);
+  const parts = uu => { const den = D + g * (1 + 0.34 * uu); return [0.408 * D * Rn / den, g * 900 / (T + 273) * uu * (es - ea) / den]; };
+  const us = []; for (let x = 0.5; x <= 6.0001; x += 0.05) us.push(+x.toFixed(2));
+  const P = us.map(parts);
+  ep.line('tot', us, P.map(p => p[0] + p[1]), { color: 'ink', width: 2.6, label: 'ET₀ total' });
+  ep.line('rad', us, P.map(p => p[0]), { color: 'amber', width: 2, label: 'radiation term' });
+  ep.line('aer', us, P.map(p => p[1]), { color: 'water', width: 2, label: 'aerodynamic (VPD) term' });
+  const et0 = et0PenmanMonteith({ T, Rn, G: 0, u2: u, es, ea, P: PZ }), [pr] = parts(u);
+  ep.point('cur', u, et0, { color: 'magenta', r: 5.5 });
+  const lft = u >= 1.8;   /* ET0 rises with wind, so the space above-left of the point is always clear */
+  ep.text('curT', u, et0, et0.toFixed(2) + ' mm d⁻¹', { color: 'magenta', align: lft ? 'right' : 'left', dx: lft ? -9 : 9, dy: lft ? -12 : -24 });
+  ero.set('rs', Rs); ero.set('rn', Rn); ero.set('vpd', es - ea); ero.set('et0', et0, et0 > 5 ? 'warn' : 'ok'); ero.set('share', 100 * pr / et0);
+}
+['et-doy', 'et-sun', 'et-T', 'et-RH', 'et-u'].forEach(i => $(i).addEventListener('input', etDraw));
+etDraw();
+
+/* ================= Figure 4: season scheduler ================= */
+const SOILS = { ls: { fc: 0.15, wp: 0.06, name: 'loamy sand' }, si: { fc: 0.32, wp: 0.15, name: 'silt' }, sc: { fc: 0.35, wp: 0.23, name: 'silty clay' } };
+const CROPS = {
+  potato: { L: [30, 35, 50, 25], K: [0.5, 1.15, 0.75], zmin: 0.25, zmax: 0.5, p: 0.35, ky: 1.1, doy0: 130 },
+  cereal: { L: [20, 25, 60, 30], K: [0.3, 1.15, 0.25], zmin: 0.3, zmax: 1.0, p: 0.55, ky: 1.15, doy0: 125 }
+};
+const YEARS = { normal: { pr: 0.36, mr: 6.0, dT: 0, cl: 0.55 }, dry: { pr: 0.20, mr: 4.5, dT: 1.8, cl: 0.72 }, wet: { pr: 0.45, mr: 6.5, dT: -0.8, cl: 0.45 } };
+const sc = { soil: 'ls', crop: 'potato', year: 'normal', strat: 'sensor', ea: 0.75, seed: 11 };
+/* synthetic weather with Mälardalen-like statistics (illustrative, not observations) */
+function weather(seed, kind, doy0, n) {
+  const rng = mulberry32(seed * 7 + kind.length), K = YEARS[kind], out = []; let cloud = 0.5;
+  for (let i = 0; i < n; i++) {
+    const doy = doy0 + i;
+    const T = 7 + 10.5 * Math.cos(2 * Math.PI * (doy - 200) / 365) + K.dT + 1.6 * randn(rng);
+    const rain = rng() < K.pr ? -K.mr * Math.log(1 - rng()) : 0;
+    cloud = 0.6 * cloud + 0.4 * (rain > 0 ? 0.35 + 0.3 * rng() : K.cl + 0.25 * (rng() - 0.3));
+    const f = Math.min(1, Math.max(0.25, cloud)), Rso = clearSkyRadiation(LAT, doy, ELEV), Rs = f * Rso;
+    const RH = Math.min(95, Math.max(45, 72 - 25 * (f - 0.55) + (rain > 0 ? 10 : 0) + 5 * randn(rng)));
+    const u2 = Math.max(0.8, 2.6 + 0.9 * randn(rng)), es = svp(T), ea = es * RH / 100;
+    const et0 = Math.max(0.3, et0PenmanMonteith({ T, Rn: netRad(Rs, Rso, T, ea), G: 0, u2, es, ea, P: PZ }));
+    out.push({ rain, et0 });
+  }
+  return out;
+}
+function kcAt(d, L, K) { const [a, b, c, e] = L; if (d < a) return K[0]; if (d < a + b) return K[0] + (K[1] - K[0]) * (d - a) / b; if (d < a + b + c) return K[1]; return K[1] + (K[2] - K[1]) * Math.min(1, (d - a - b - c) / e); }
+function simulate() {
+  const S = SOILS[sc.soil], C = CROPS[sc.crop], n = C.L.reduce((a, b) => a + b, 0);
+  const W = weather(sc.seed, sc.year, C.doy0, n), rng = mulberry32(sc.seed * 13 + 5), noise = +$('sc-noise').value;
+  let Dr = 0; const r = { day: [], aw: [], taw: [], thr: [], rain: [], irr: [] }, s = { P: 0, I: 0, DP: 0, ETc: 0, ETa: 0, n: 0 };
+  for (let i = 0; i < n; i++) {
+    const w = W[i], kc = kcAt(i, C.L, C.K), zr = C.zmin + (C.zmax - C.zmin) * Math.min(1, i / (C.L[0] + C.L[1]));
+    const TAW = 1000 * (S.fc - S.wp) * zr, etc = kc * w.et0, p = Math.min(0.8, Math.max(0.1, C.p + 0.04 * (5 - etc))), RAW = p * TAW;
+    if (Dr > TAW) Dr = TAW;
+    let I = 0;
+    const meas = Math.max(0, Dr + noise * 1000 * zr * randn(rng));      // sensor reading of depletion (theta error x depth)
+    if (sc.strat === 'calendar' && i > 0 && i % 7 === 0) I = 20;
+    else if (sc.strat === 'sensor' && meas >= RAW) I = Math.min(30, meas);
+    else if (sc.strat === 'model' && Dr + etc >= 0.9 * RAW) I = Math.min(30, Math.max(0, Dr + etc - 5));
+    else if (sc.strat === 'deficit' && meas >= RAW + 0.35 * (TAW - RAW)) I = Math.min(30, 0.6 * meas);
+    const ks = Dr <= RAW ? 1 : Math.max(0, (TAW - Dr) / (TAW - RAW)), eta = ks * etc;
+    let Dn = Dr - w.rain - I + eta, DP = 0; if (Dn < 0) { DP = -Dn; Dn = 0; } if (Dn > TAW) Dn = TAW;
+    Dr = Dn;
+    s.P += w.rain; s.I += I; s.DP += DP; s.ETc += etc; s.ETa += eta; if (I > 0) s.n++;
+    r.day.push(i); r.aw.push(TAW - Dr); r.taw.push(TAW); r.thr.push(TAW - RAW); r.rain.push(w.rain); r.irr.push(I);
+  }
+  s.relY = Math.max(0, 1 - C.ky * (1 - s.ETa / s.ETc));
+  return { r, s, n };
+}
+const sp = new Plot('#sc-plot', { x: { label: 'Day after planting', unit: 'd', min: 0, max: 140 }, y: { label: 'Available water in root zone', unit: 'mm', min: 0 }, y2: { label: 'Rain / irrigation', unit: 'mm d⁻¹', min: 0, max: 60 }, legend: true });
+const sro = new Readouts('#sc-ro');
+sro.add({ id: 'P', label: 'Season rain', unit: 'mm', digits: 0 }).add({ id: 'I', label: 'Net irrigation', unit: 'mm', digits: 0 }).add({ id: 'V', label: 'Water pumped', unit: 'm³ ha⁻¹', digits: 0 })
+   .add({ id: 'n', label: 'Irrigation events', digits: 0 }).add({ id: 'DP', label: 'Deep percolation', unit: 'mm', digits: 0 }).add({ id: 'et', label: 'ETₐ / ETₘ', unit: '%', digits: 0 }).add({ id: 'Y', label: 'Relative yield (Kᵧ)', unit: '%', digits: 0 });
+function scDraw() {
+  fillRange($('sc-noise')); $('sc-noise-o').textContent = '± ' + (+$('sc-noise').value).toFixed(3) + ' m³ m⁻³';
+  $('sc-noise').closest('.mc-var').style.opacity = sc.strat === 'sensor' || sc.strat === 'deficit' ? '' : '.45';
+  const { r, s, n } = simulate();
+  sp.setAxis('x', { min: 0, max: n });
+  sp.custom('bars', (ctx, p, P) => {
+    const w = Math.max(1.5, (p.px(1) - p.px(0)) * 0.8);
+    r.day.forEach((d, i) => {
+      if (r.rain[i] > 0.2) { ctx.fillStyle = P.water; const y = p.py(Math.min(60, r.rain[i]), true); ctx.fillRect(p.px(d) - w / 2, y, w, p.py(0, true) - y); }
+      if (r.irr[i] > 0) { ctx.fillStyle = P.magenta; const y = p.py(Math.min(60, r.irr[i]), true); ctx.fillRect(p.px(d) - w / 2, y, w, p.py(0, true) - y); }
+    });
+  });
+  sp.line('taw', r.day, r.taw, { color: 'water', width: 1.6, dash: [6, 4], label: 'field capacity (TAW)' });
+  sp.line('thr', r.day, r.thr, { color: 'amber', width: 1.8, dash: [4, 3], label: 'stress threshold (TAW − RAW)' });
+  sp.line('aw', r.day, r.aw, { color: 'accent', width: 2.4, label: 'available water (TAW − Dᵣ)' });
+  sro.set('P', s.P); sro.set('I', s.I); sro.set('V', 10 * s.I / sc.ea); sro.set('n', s.n);
+  sro.set('DP', s.DP, s.DP < 60 ? 'ok' : s.DP < 150 ? 'warn' : 'bad');
+  const q = 100 * s.ETa / s.ETc; sro.set('et', q, q > 95 ? 'ok' : q > 80 ? 'warn' : 'bad');
+  sro.set('Y', 100 * s.relY, s.relY > 0.95 ? 'ok' : s.relY > 0.8 ? 'warn' : 'bad');
+}
+segVal('sc-soil', v => { sc.soil = v; scDraw(); }); segVal('sc-crop', v => { sc.crop = v; scDraw(); }); segVal('sc-year', v => { sc.year = v; scDraw(); });
+segVal('sc-strat', v => { sc.strat = v; scDraw(); }); segVal('sc-meth', v => { sc.ea = +v; scDraw(); });
+$('sc-noise').addEventListener('input', scDraw); $('sc-new').addEventListener('click', () => { sc.seed++; scDraw(); });
+scDraw();
+
+/* ================= Figure 5: nitrogen response and leaching ================= */
+const A = 4500, B = 45, Cc = -0.12, L0 = 15, KL = Math.log(2.5) / 35;   /* illustrative response; leaching shaped after Delin & Stenberg (2014) */
+const yieldAt = (N, s) => { const x = Math.min(Math.max(0, N + s), -B / (2 * Cc)); return (A + B * x + Cc * x * x) / 1000; };  // quadratic-plateau, t/ha
+const N10 = s => (10 - B) / (2 * Cc) - s;
+function leach(N, s) { const n10 = N10(s); if (N <= n10) return L0 + 0.04 * N; return L0 + 0.04 * n10 + 0.04 / KL * (Math.exp(KL * (N - n10)) - 1); }
+const np = new Plot('#nr-plot', { x: { label: 'Fertiliser N rate', unit: 'kg N ha⁻¹', min: 0, max: 250 }, y: { label: 'Grain yield', unit: 't ha⁻¹', min: 4, max: 10 }, y2: { label: 'Cumulative N leaching', unit: 'kg N ha⁻¹', min: 0, max: 80 }, legend: true });
+const nro = new Readouts('#nr-ro');
+nro.add({ id: 'opt', label: 'Economic optimum N*', unit: 'kg N ha⁻¹', digits: 0 }).add({ id: 'y', label: 'Yield at applied rate', unit: 't ha⁻¹', digits: 2 })
+   .add({ id: 'loss', label: 'Economic loss vs N*', unit: 'kg grain ha⁻¹', digits: 0 }).add({ id: 'L', label: 'N leaching at applied rate', unit: 'kg N ha⁻¹', digits: 1 })
+   .add({ id: 'dL', label: 'Extra leaching vs N*', unit: 'kg N ha⁻¹', digits: 1 }).add({ id: 'mL', label: 'Marginal leaching', unit: 'kg N per kg N', digits: 3 });
+function nrDraw() {
+  ['nr-N', 'nr-r', 'nr-s'].forEach(i => fillRange($(i)));
+  const N = +$('nr-N').value, r = +$('nr-r').value, s = +$('nr-s').value;
+  $('nr-N-o').textContent = N + ' kg ha⁻¹'; $('nr-r-o').textContent = r.toFixed(1) + ' : 1'; $('nr-s-o').textContent = (s > 0 ? '+' : '') + s + ' kg N ha⁻¹';
+  const xs = []; for (let x = 0; x <= 250; x += 2) xs.push(x);
+  np.line('Y', xs, xs.map(x => yieldAt(x, s)), { color: 'accent', width: 2.6, label: 'grain yield' });
+  np.line('L', xs, xs.map(x => leach(x, s)), { color: 'magenta', width: 2.2, label: 'N leaching (right axis)', y2: true });
+  const opt = Math.max(0, (r - B) / (2 * Cc) - s);
+  np.vline('opt', opt, { color: 'amber' });
+  np.vline('cur', N, { color: 'ink', dash: [2, 3] });
+  np.custom('labs', (ctx, p, P) => {   /* labels on two rows, facing away from each other, on a backing box */
+    ctx.font = '600 11px Inter, system-ui, sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    const put = (x, row, text, col, toRight) => {
+      const X = p.px(x), w = ctx.measureText(text).width, Y = p._T + 10 + row * 17;
+      const x0 = Math.max(p._L + 2, Math.min(p._L + p._W - w - 6, toRight ? X + 4 : X - w - 8));
+      ctx.save(); ctx.globalAlpha = 0.9; ctx.fillStyle = P.bgElev; ctx.fillRect(x0, Y - 8, w + 4, 16); ctx.restore();
+      ctx.fillStyle = col; ctx.fillText(text, x0 + 2, Y);
+    };
+    put(opt, 0, 'N* = ' + opt.toFixed(0), P.amber, opt > N);
+    put(N, 1, 'applied ' + N, P.ink, opt <= N);
+  });
+  np.point('pY', N, yieldAt(N, s), { color: 'accent', r: 5 });
+  const profit = x => yieldAt(x, s) * 1000 - r * x;
+  const L = leach(N, s), Lopt = leach(opt, s), n10 = N10(s);
+  nro.set('opt', opt); nro.set('y', yieldAt(N, s));
+  const loss = profit(opt) - profit(N); nro.set('loss', loss, loss < 50 ? 'ok' : loss < 200 ? 'warn' : 'bad');
+  nro.set('L', L, L < 25 ? 'ok' : L < 40 ? 'warn' : 'bad'); nro.set('dL', L - Lopt);
+  const mL = N <= n10 ? 0.04 : 0.04 * Math.exp(KL * (N - n10)); nro.set('mL', mL, mL < 0.06 ? 'ok' : mL < 0.2 ? 'warn' : 'bad');
+}
+['nr-N', 'nr-r', 'nr-s'].forEach(i => $(i).addEventListener('input', nrDraw));
+nrDraw();
+</script>
+</body>
+</html>

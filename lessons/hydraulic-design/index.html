@@ -1,0 +1,1183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hydraulic design and water management · Future Food Production</title>
+<meta name="description" content="Flow requirements per plant and channel, NFT slope and film depth (the Nusselt falling-film equation), residence time and oxygen depletion along channels, pump curves and power, Darcy–Weisbach, Swamee–Jain and Hazen–Williams friction, minor losses, drip-emitter uniformity, reservoir sizing, salt balance and leaching fraction, and closed-loop water accounting.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator functions for this lesson (used by data-fn mini-calcs). SI units inside. */
+window.FFP_CALC = window.FFP_CALC || {};
+/* Dynamic viscosity of water, Pa s (Vogel-type fit; 1.002e-3 at 20 C). */
+FFP_CALC.hdMu = function (T) { return 2.414e-5 * Math.pow(10, 247.8 / (T + 273.15 - 140)); };
+/* Nusselt film thickness, mm: Q in L/min, W in cm, slope 1:n, T in C. */
+FFP_CALC.hdFilm = function (v) {
+  var mu = FFP_CALC.hdMu(v.T), q = v.Q / 60000 / (v.W / 100), s = 1 / Math.sqrt(1 + v.n * v.n);
+  return Math.cbrt(3 * mu * q / (998 * 9.81 * s)) * 1000;
+};
+/* Darcy friction factor: laminar 64/Re, Swamee-Jain for Re >= 4000, linear blend in between. eD = roughness / diameter. */
+FFP_CALC.hdF = function (Re, eD) {
+  var sj = function (R) { return 0.25 / Math.pow(Math.log10(eD / 3.7 + 5.74 / Math.pow(R, 0.9)), 2); };
+  if (Re < 2000) return 64 / Math.max(Re, 1e-9);
+  if (Re < 4000) { var fl = 64 / 2000, ft = sj(4000); return fl + (ft - fl) * (Re - 2000) / 2000; }
+  return sj(Re);
+};
+/* Darcy-Weisbach friction head, m: Q L/min, D mm, L m, eps mm, T C. */
+FFP_CALC.hdDW = function (v) {
+  var Q = v.Q / 60000, D = v.D / 1000, u = Q / (Math.PI * D * D / 4), nu = FFP_CALC.hdMu(v.T) / 998;
+  var f = FFP_CALC.hdF(u * D / nu, v.eps / v.D);
+  return f * v.L / D * u * u / (2 * 9.81);
+};
+/* Total dynamic head, m: static lift dz + friction (smooth plastic, 20 C) + minor losses sum K (incl. exit). */
+FFP_CALC.hdHead = function (v) {
+  var Q = v.Q / 60000, D = v.D / 1000, u = Q / (Math.PI * D * D / 4), f = FFP_CALC.hdF(u * D / 1.004e-6, 0.0015 / v.D);
+  return v.dz + (f * v.L / D + v.K) * u * u / (2 * 9.81);
+};
+/* Outlet dissolved oxygen of an NFT channel, mg/L (Eq. 5.4.3), width 0.10 m. */
+FFP_CALC.hdChannel = function (v) {
+  var Q = v.Q / 60000, KLW = v.KL * 1e-5 * 0.10, rp = v.ppm * v.our / 1000 / 3600;
+  if (KLW <= 0) return Math.max(0, v.Cin - rp * v.L / Q);
+  var lam = Q / KLW, Ceq = v.Cs - rp / KLW;
+  return Math.max(0, Ceq + (v.Cin - Ceq) * Math.exp(-v.L / lam));
+};
+</script>
+<style>
+  .ffp-ctl-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2px 18px; }
+  .ffp-note { font-size:.8rem; color: var(--muted); margin: 6px 0 0; }
+  .hd-two { display:grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .hd-two { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="lesson" data-slug="hydraulic-design">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Hydraulic design and water management</h1>
+      <p class="lead">Every hydroponic system is also a small waterworks. A pump lifts solution against gravity and friction; pipes and valves share it among channels, benches or drippers; a thin film or a trickle carries water, nutrients and oxygen past the roots; and a reservoir buffers everything the crop — and the operator — do wrong. This lesson turns that plumbing into engineering. You will derive how deep and how fast a nutrient film flows, follow oxygen and nutrients along a channel, size a pump from its curve and the pipe friction, check that every plant gets its fair share, and close the books on water with a salt balance and a water account: the calculations you need to build, commission and defend the hydraulics of your own system.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Calculate the flow a channel, bench or plant needs from a steady-state mass balance and compare it with practical design ranges (LO2, LO3).</li>
+        <li>Derive the laminar falling-film (Nusselt) equation and use it to predict film depth, velocity, Reynolds number and residence time in an NFT channel from its slope and flow (LO3).</li>
+        <li>Predict oxygen and nutrient depletion along a channel with a steady-state mass balance, and choose channel length and flow accordingly (LO2, LO3).</li>
+        <li>Size pipes and pumps: compute friction losses with Darcy–Weisbach (Swamee–Jain) and Hazen–Williams, minor losses, the total dynamic head, the operating point and the pump's power and energy use (LO3).</li>
+        <li>Evaluate emitter and channel uniformity, size a reservoir, and apply the salt balance, leaching fraction and a closed-loop water account to calculate water use per kilogram (LO3, LO7).</li>
+        <li>Plan and commission the hydraulics of your project system and document them with measurements (LO4).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="flow">A small waterworks: how much flow does a crop need?</h2>
+      <p class="lede-drop">Water in a soilless system does several jobs at once. It replaces what the crop transpires; it carries dissolved nutrients to the root surface; in nutrient film technique (NFT) and deep-water culture it carries dissolved oxygen; it carries heat — and, unfortunately, pathogens (<a href="/lessons/root-zone/">Lesson 5.3</a>). A hydraulic design must deliver enough flow to every plant, lift the solution with a pump against gravity and friction, share it evenly, and keep enough volume in reserve that a failure is survivable (<a href="/lessons/soilless-systems/#risks">Lesson 5.1</a>). All of this can be calculated before a single pipe is cut, and every result can be checked afterwards with a measuring jug, a stopwatch and a spirit level.</p>
+      <p>Figure 1 shows the hydraulic layout of an NFT system of the kind many project groups build. Follow the water round the loop: the pump lifts it from the reservoir to the top of the channels; a manifold and valves share it between the channels; it runs down each channel as a thin film past the roots; and gravity returns it to the reservoir. Each part of the loop is one section of this lesson.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 420" role="img" aria-label="Hydraulic layout of an NFT system: reservoir with submersible pump, supply line with valve, sloping channel with lettuce, return pipe, static lift, and a bar showing the head budget of the pump">
+            <defs>
+              <marker id="hd-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--water)"/></marker>
+              <marker id="hd-a1k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <text x="12" y="20" style="font-weight:700">A · Layout (side view, slope exaggerated)</text>
+            <!-- reservoir -->
+            <rect x="40" y="236" width="190" height="84" rx="4" class="fill-bg" stroke="currentColor" stroke-width="1.6"/>
+            <rect x="42" y="254" width="186" height="64" class="fill-water-soft"/>
+            <line x1="42" y1="254" x2="228" y2="254" class="stroke-water" stroke-width="1.5"/>
+            <rect x="80" y="284" width="30" height="24" rx="3" class="fill-sunk" stroke="currentColor" stroke-width="1.2"/>
+            <text x="118" y="300" class="t-small">submersible pump</text>
+            <text x="46" y="334" class="t-small t-muted">reservoir: working volume + drain-back space</text>
+            <!-- supply line -->
+            <path d="M95 284 V64 H282 V106 H300" class="stroke-water" stroke-width="3.2" fill="none" marker-end="url(#hd-a1)"/>
+            <g transform="translate(282,86)"><path d="M-7 -6 L7 6 L7 -6 L-7 6 Z" class="fill-bg" stroke="currentColor" stroke-width="1.2"/></g>
+            <text x="120" y="56" class="t-small">supply line: friction h<tspan dy="3" font-size="8.5">f</tspan></text>
+            <text x="292" y="72" class="t-small">valve / manifold</text>
+            <text x="292" y="85" class="t-small t-muted">(one branch per channel)</text>
+            <!-- channel -->
+            <path d="M300 104 L640 134 L640 147 L300 117 Z" class="fill-bg" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M302 113 L638 142.5 L638 145.5 L302 116 Z" class="fill-water"/>
+            <g class="fill-accent">
+              <ellipse cx="345" cy="98" rx="18" ry="10" opacity=".85"/><ellipse cx="405" cy="103" rx="18" ry="10" opacity=".85"/><ellipse cx="465" cy="108" rx="18" ry="10" opacity=".85"/><ellipse cx="525" cy="114" rx="18" ry="10" opacity=".85"/><ellipse cx="585" cy="119" rx="18" ry="10" opacity=".85"/>
+            </g>
+            <g class="stroke-amber" stroke-width="1.1" opacity=".8" fill="none">
+              <path d="M345 110 q-3 5 -8 7 M345 110 q4 5 9 7"/><path d="M405 115 q-3 5 -8 7 M405 115 q4 5 9 7"/><path d="M465 120 q-3 5 -8 7 M465 120 q4 5 9 7"/><path d="M525 126 q-3 5 -8 7 M525 126 q4 5 9 7"/><path d="M585 131 q-3 5 -8 7 M585 131 q4 5 9 7"/>
+            </g>
+            <text x="318" y="160" class="t-small">NFT channel: film 1–3 mm deep, 1–2 L min⁻¹ per channel</text>
+            <path d="M420 184 L520 184 L520 175 Z" class="stroke-muted" stroke-width="1" fill="none"/>
+            <text x="528" y="186" class="t-small t-muted">slope 1:30–1:100</text>
+            <!-- return -->
+            <path d="M640 147 V214 H206 V240" class="stroke-water" stroke-width="3" fill="none" stroke-dasharray="7 4" marker-end="url(#hd-a1)"/>
+            <text x="420" y="230" class="t-small">return: gravity flow back to the reservoir</text>
+            <!-- static lift -->
+            <line x1="255" y1="252" x2="255" y2="112" class="stroke" stroke-width="1.2" marker-start="url(#hd-a1k)" marker-end="url(#hd-a1k)"/>
+            <text x="262" y="180" class="t-small" style="font-weight:600">static lift Δz</text>
+            <text x="262" y="194" class="t-small t-muted">water level → inlet</text>
+            <!-- head budget -->
+            <text x="12" y="366" style="font-weight:700">B · Head budget of the pump (Worked example 4)</text>
+            <rect x="40" y="378" width="500" height="22" class="fill-accent-soft" stroke="currentColor" stroke-width="1"/>
+            <rect x="540" y="378" width="43" height="22" class="fill-amber-soft" stroke="currentColor" stroke-width="1"/>
+            <rect x="583" y="378" width="26" height="22" class="fill-magenta-soft" stroke="currentColor" stroke-width="1"/>
+            <text x="290" y="393" text-anchor="middle" class="t-small">static lift Δz = 1.00 m</text>
+            <text x="561" y="414" text-anchor="middle" class="t-small">h<tspan dy="3" font-size="8.5">f</tspan><tspan dy="-3"> 0.09 m</tspan></text>
+            <text x="617" y="393" class="t-small">h<tspan dy="3" font-size="8.5">m</tspan><tspan dy="-3"> 0.05 m</tspan></text>
+            <text x="690" y="393" class="t-small" style="font-weight:600">H = 1.14 m</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> (A) The hydraulic loop of an NFT system. The pump must supply the static lift from the reservoir water level to the channel inlets plus the friction and fitting losses of the supply line; the return flows by gravity. (B) For a small project system the static lift dominates the pump's head; friction (h<sub>f</sub>) and minor losses (h<sub>m</sub>, fittings and exit) add little — until the tubes are too narrow (Section 5.4.4).</figcaption>
+      </figure>
+
+      <p>How much flow is "enough"? An engineer answers with a <strong>mass balance</strong>. Take a whole channel at steady state: whatever the plants remove from the passing solution per hour must be carried in by the flow, and the solution leaving the last plant must still be good enough. Whichever substance runs short first — oxygen, a nutrient, or water itself — sets the minimum flow.</p>
+
+      <div class="eq-box" id="eq-hd-flow">
+        <div class="eq-head"><span class="eq-label">Minimum flow from a steady-state mass balance</span><span class="eq-num">(5.4.1)</span></div>
+        <div class="eq-main">\[ Q_{\min} = \frac{N_p\,r}{C_{\text{in}} - C_{\min}}, \qquad q_{\text{plant}} = \frac{Q}{N_p} \]</div>
+        <p class="eq-read">the smallest flow a channel can run at equals the number of plants it feeds times the rate at which each plant removes the limiting substance, divided by how far the concentration may fall between the inlet and the outlet. The flow per plant is the channel flow divided by the number of plants.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(Q_{\min}\)</td><td>minimum channel flow</td><td>L h⁻¹ (÷ 60 for L min⁻¹)</td><td>–</td></tr>
+          <tr><td>\(N_p\)</td><td>plants fed by the channel</td><td>–</td><td>10–60</td></tr>
+          <tr><td>\(r\)</td><td>uptake rate of the limiting substance per plant</td><td>mg h⁻¹</td><td>O₂: 1–8 (lettuce, Lesson 5.3); N: ≈ 1</td></tr>
+          <tr><td>\(C_{\text{in}}\)</td><td>concentration at the channel inlet</td><td>mg L⁻¹</td><td>O₂ ≈ 8 (aerated reservoir); N ≈ 150</td></tr>
+          <tr><td>\(C_{\min}\)</td><td>lowest acceptable concentration at the outlet</td><td>mg L⁻¹</td><td>O₂ ≈ 4 (Lesson 5.3, Table 2)</td></tr>
+          <tr><td>\(q_{\text{plant}}\)</td><td>flow per plant</td><td>L h⁻¹</td><td>2–10 in NFT</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Control volume:</strong> the solution in one channel, from inlet to outlet, at steady state (nothing accumulates).</li>
+            <li><strong>Mass balance</strong> for the limiting substance: in = out + uptake, \(Q\,C_{\text{in}} = Q\,C_{\text{out}} + N_p\,r\), where \(Q\) is the channel flow (L h⁻¹), \(C\) in mg L⁻¹ and \(r\) in mg h⁻¹.</li>
+            <li><strong>Solve for the outlet:</strong> \(C_{\text{out}} = C_{\text{in}} - N_p r/Q\). The drop along the channel is inversely proportional to the flow.</li>
+            <li><strong>Impose the design limit</strong> \(C_{\text{out}}\ge C_{\min}\) and solve for \(Q\): Eq. 5.4.1.</li>
+            <li><strong>Check each substance</strong> and keep the largest \(Q_{\min}\). For oxygen this is conservative, because oxygen also re-dissolves through the film surface on the way (Eq. 5.4.3).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Steady state, uniform plants, and an uptake rate that does not depend on concentration (true for oxygen above a few mg L⁻¹ and for nutrients far above their Michaelis–Menten constants, <a href="/lessons/mineral-nutrition/">Lesson 2.3</a>). The equation says nothing about <em>wetting</em>: below some flow, a film no longer covers the channel floor evenly and roots at the edges dry out — which is why practical flows (Table 1) are several times larger than \(Q_{\min}\).</p></details>
+        <div class="eq-units">(– × mg h⁻¹) ÷ (mg L⁻¹) = L h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="N*r/(Cin-Cmin)/60" data-output="Minimum channel flow Q<sub>min</sub>" data-unit="L min⁻¹" data-digits="2" data-plot="N" data-ymin="0">
+          <div data-var="N" data-label="Plants per channel N<sub>p</sub>" data-min="1" data-max="60" data-step="1" data-value="12"></div>
+          <div data-var="r" data-label="O₂ uptake per plant r" data-min="0.5" data-max="15" data-step="0.1" data-value="8" data-unit="mg h⁻¹"></div>
+          <div data-var="Cin" data-label="Inlet DO C<sub>in</sub>" data-min="4.5" data-max="10" data-step="0.1" data-value="8" data-unit="mg L⁻¹"></div>
+          <div data-var="Cmin" data-label="Lowest outlet DO C<sub>min</sub>" data-min="1" data-max="4.4" data-step="0.1" data-value="4" data-unit="mg L⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">How much flow does your NFT channel need?</span></div>
+        <div class="we-problem"><p>Your group builds three 2 m NFT channels with 12 lettuces each. Near harvest a lettuce's roots consume about 7 mg O₂ h⁻¹ at 20 °C (Lesson 5.3, Worked example 1) and take up roughly 1 mg of nitrogen per hour. The solution is at 22 °C; the aerated reservoir delivers it at 8.0 mg O₂ L⁻¹ and 150 mg N L⁻¹. You accept an outlet DO of 4 mg L⁻¹ and a nitrogen drop of 10 %. What is the minimum flow per channel, and how does it compare with the usual 1 L min⁻¹?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Oxygen demand at 22 °C</strong> (Eq. 5.3.2, Q₁₀ = 2): \(7\times2^{0.2} = 8.0\) mg h⁻¹ per plant.</li>
+              <li><strong>Oxygen-limited flow</strong> (Eq. 5.4.1): \(Q_{\min} = 12\times8.0/(8.0-4.0) = 24\) L h⁻¹ = 0.40 L min⁻¹.</li>
+              <li><strong>Nitrogen-limited flow:</strong> allowed drop 15 mg L⁻¹: \(Q_{\min} = 12\times1/15 = 0.8\) L h⁻¹ — thirty times less. Nutrients are almost never the limiting substance along a channel.</li>
+              <li><strong>Water:</strong> twelve plants transpiring perhaps 10 mL h⁻¹ each remove 0.12 L h⁻¹ from a flow of 60 L h⁻¹ — a 0.2 % concentration change. Negligible.</li>
+              <li><strong>Compare:</strong> the practical 1 L min⁻¹ (Table 1) is 2.5 times the oxygen minimum — a sensible margin for warm days and larger root mats, and enough to wet the channel floor. The pump must therefore deliver at least 3 L min⁻¹ = 180 L h⁻¹ to the channels at their inlet height (Section 5.4.5).</li>
+            </ol>
+            <span class="answer">Q<sub>min</sub> ≈ 0.4 L min⁻¹ (oxygen-limited); design for 1 L min⁻¹ per channel, 3 L min⁻¹ in total</span>
+          </div>
+        </details>
+      </div>
+
+      <table>
+        <caption>Table 1. Practical hydraulic design values for soilless systems (guidelines, not laws — check them against the equations of this lesson).</caption>
+        <thead><tr><th>System</th><th>Parameter</th><th>Typical guidance</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>NFT</td><td>flow per channel</td><td>about 1 L min⁻¹; half of that at planting; about 2 L min⁻¹ as an upper limit</td><td>Graves (1983); Resh (2022)</td></tr>
+          <tr><td>NFT</td><td>channel slope</td><td>1:100 has been recommended, but 1:30–1:40 is often used because a bench true enough for 1:100 is hard to build without local ponding</td><td>Graves (1983); Resh (2022)</td></tr>
+          <tr><td>NFT</td><td>channel length</td><td>growth is depressed in channels longer than about 12 m; keep to 10–15 m or add a second feed point part-way</td><td>Jones (2014)</td></tr>
+          <tr><td>NFT</td><td>film depth</td><td>a few millimetres, so that the upper root mat stays in humid air</td><td>Eq. 5.4.2</td></tr>
+          <tr><td>DWC</td><td>flow</td><td>none needed through the root zone; aeration supplies the oxygen</td><td><a href="/lessons/root-zone/">Lesson 5.3</a></td></tr>
+          <tr><td>Drip on slabs</td><td>supply</td><td>crop water use ÷ (1 − drain fraction), in several pulses per day; drain fraction 10–40 %</td><td><a href="/lessons/soilless-systems/#open-closed">Lesson 5.1</a></td></tr>
+          <tr><td>Kratky</td><td>flow</td><td>none; the tank holds the whole crop's water from the start</td><td>Kratky (2009); Eq. 5.1.2</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="film">The nutrient film: slope, depth and velocity</h2>
+      <p>An NFT channel is a shallow, sloping open channel in which gravity pulls a thin sheet of solution downhill while the channel floor holds it back by friction. The balance between the two forces sets the depth and the speed of the film. The problem was solved in 1916 by the German engineer Wilhelm Nusselt, who needed the thickness of the film of condensate running down a cold, vertical wall (Nusselt, 1916); it is now the standard first example of viscous flow in chemical-engineering textbooks (Bird et al., 2002). Figure 2 shows the geometry and the resulting velocity profile.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 300" role="img" aria-label="A liquid film of thickness h flowing down a plane inclined at angle theta, with the parabolic velocity profile, no-slip wall and shear-free surface">
+            <defs>
+              <marker id="hd-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--water)"/></marker>
+              <marker id="hd-a2k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <g transform="translate(40,60) rotate(12)">
+              <rect x="0" y="0" width="600" height="70" class="fill-water-soft"/>
+              <rect x="0" y="70" width="600" height="16" class="fill-sunk" stroke="currentColor" stroke-width="1.2"/>
+              <g class="stroke-muted" stroke-width="0.8">
+                <path d="M10 86 l10 -16 M40 86 l10 -16 M70 86 l10 -16 M100 86 l10 -16 M130 86 l10 -16 M160 86 l10 -16 M190 86 l10 -16 M220 86 l10 -16 M450 86 l10 -16 M480 86 l10 -16 M510 86 l10 -16 M540 86 l10 -16 M570 86 l10 -16"/>
+              </g>
+              <line x1="0" y1="0" x2="600" y2="0" class="stroke-water" stroke-width="2.2"/>
+              <line x1="260" y1="70" x2="260" y2="0" class="stroke-muted" stroke-width="1" stroke-dasharray="3 3"/>
+              <g stroke="var(--water)" stroke-width="1.6">
+                <line x1="260" y1="58.3" x2="306" y2="58.3" marker-end="url(#hd-a2)"/>
+                <line x1="260" y1="46.7" x2="346" y2="46.7" marker-end="url(#hd-a2)"/>
+                <line x1="260" y1="35" x2="377" y2="35" marker-end="url(#hd-a2)"/>
+                <line x1="260" y1="23.3" x2="399" y2="23.3" marker-end="url(#hd-a2)"/>
+                <line x1="260" y1="11.7" x2="413" y2="11.7" marker-end="url(#hd-a2)"/>
+                <line x1="260" y1="2" x2="417" y2="2" marker-end="url(#hd-a2)"/>
+              </g>
+              <polyline points="260,70 308.9,58.3 348.9,46.7 380,35 402.2,23.3 415.6,11.7 420,0" fill="none" class="stroke" stroke-width="1.4" stroke-dasharray="4 3"/>
+              <text x="432" y="30" class="t-small" style="fill:var(--water);font-weight:600">u(y): parabola</text>
+              <line x1="560" y1="2" x2="560" y2="68" class="stroke" stroke-width="1.1" marker-start="url(#hd-a2k)" marker-end="url(#hd-a2k)"/>
+              <text x="568" y="40" style="font-weight:700">h</text>
+              <line x1="236" y1="68" x2="236" y2="8" class="stroke" stroke-width="1" marker-end="url(#hd-a2k)"/>
+              <text x="222" y="16" class="t-small">y</text>
+              <line x1="60" y1="-24" x2="170" y2="-24" class="stroke" stroke-width="1.2" marker-end="url(#hd-a2k)"/>
+              <text x="60" y="-32" class="t-small">flow direction x</text>
+              <text x="330" y="-14" class="t-small">free surface: no shear, τ = 0</text>
+              <text x="20" y="104" class="t-small">wall: no slip, u = 0</text>
+            </g>
+            <line x1="420" y1="253" x2="700" y2="253" class="stroke-muted" stroke-width="1" stroke-dasharray="5 4"/>
+            <path d="M552 253 A60 60 0 0 1 553.3 240.5" class="stroke" stroke-width="1.2" fill="none"/>
+            <text x="528" y="250" style="font-weight:600">θ</text>
+            <line x1="672" y1="40" x2="672" y2="110" class="stroke" stroke-width="1.6" marker-end="url(#hd-a2k)"/>
+            <text x="680" y="80" style="font-weight:600">g</text>
+            <text x="20" y="276" class="t-small">Force balance on the fluid between y and the surface: τ(y) = ρ g sin θ (h − y).  Newtonian fluid: τ = μ du/dy.</text>
+            <text x="20" y="292" class="t-small">⇒ u(y) = (ρ g sin θ / μ)(h y − y²/2);  flow per unit width q = ρ g sin θ h³ / (3μ).</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> Laminar film of thickness \(h\) on a plane inclined at angle θ (film thickness and angle exaggerated; a real NFT film is 1–3 mm deep on a slope of about 1°). The velocity is zero at the wall and greatest at the free surface, with a parabolic profile in between (after Bird et al., 2002).</figcaption>
+      </figure>
+
+      <div class="eq-box" id="eq-hd-film">
+        <div class="eq-head"><span class="eq-label">Film thickness of a laminar falling film (Nusselt)</span><span class="eq-num">(5.4.2)</span></div>
+        <div class="eq-main">\[ \begin{gathered} h = \left(\frac{3\,\mu\,q}{\rho\,g\,\sin\theta}\right)^{1/3}, \qquad q = \frac{Q}{W} \\[8pt] \bar{u} = \frac{q}{h} = \frac{\rho\,g\,\sin\theta\;h^{2}}{3\,\mu}, \qquad Re_f = \frac{4\,q}{\nu} \end{gathered} \]</div>
+        <p class="eq-read">the depth of the film equals the cube root of three times the viscosity times the flow per unit channel width, divided by the density times gravity times the sine of the slope angle. The mean velocity is the flow per width divided by the depth, and the film Reynolds number is four times the flow per width divided by the kinematic viscosity.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(h\)</td><td>film thickness (depth)</td><td>m (report in mm)</td><td>1–3 mm</td></tr>
+          <tr><td>\(\mu\)</td><td>dynamic viscosity of the solution</td><td>Pa s</td><td>1.00 × 10⁻³ (20 °C); 0.89 × 10⁻³ (25 °C)</td></tr>
+          <tr><td>\(q\)</td><td>volumetric flow per unit channel width</td><td>m² s⁻¹</td><td>1.7 × 10⁻⁴ (1 L min⁻¹ in 10 cm)</td></tr>
+          <tr><td>\(Q,\ W\)</td><td>channel flow; width of the channel floor</td><td>m³ s⁻¹; m</td><td>1 L min⁻¹ = 1.67 × 10⁻⁵ m³ s⁻¹; 0.05–0.3 m</td></tr>
+          <tr><td>\(\rho,\ g\)</td><td>density; gravitational acceleration</td><td>kg m⁻³; m s⁻²</td><td>998; 9.81</td></tr>
+          <tr><td>\(\theta\)</td><td>slope angle; for a slope 1:\(n\), \(\sin\theta\approx1/n\)</td><td>rad</td><td>1:30–1:100 → sin θ = 0.033–0.010</td></tr>
+          <tr><td>\(\bar{u}\)</td><td>mean velocity (surface velocity is \(1.5\,\bar{u}\))</td><td>m s⁻¹</td><td>0.05–0.2</td></tr>
+          <tr><td>\(Re_f,\ \nu\)</td><td>film Reynolds number; kinematic viscosity \(\mu/\rho\)</td><td>–; m² s⁻¹</td><td>hundreds; 1.0 × 10⁻⁶</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Set up.</strong> Take \(x\) down the slope and \(y\) perpendicular to the channel floor, with \(y = 0\) at the floor and \(y = h\) at the free surface. Assume steady, laminar, fully developed flow of constant depth, in a channel much wider than the film is deep, so that the velocity \(u(y)\) depends only on \(y\).</li>
+            <li><strong>Forces on a slab.</strong> Consider the fluid between height \(y\) and the surface, per unit length and width. Its weight is \(\rho g(h-y)\); the component along the slope is \(\rho g\sin\theta\,(h-y)\). Nothing pushes on the free surface (air exerts negligible shear), and the pressure is the same at both ends of a fully developed film. The only force that can hold the slab back is the shear stress \(\tau(y)\) exerted by the slower fluid beneath it.</li>
+            <li><strong>Balance</strong> (no acceleration): \(\tau(y) = \rho g\sin\theta\,(h-y)\). The shear is largest at the wall and zero at the surface.</li>
+            <li><strong>Newton's law of viscosity</strong> links shear to the velocity gradient: \(\tau = \mu\,\mathrm{d}u/\mathrm{d}y\). Hence \(\mathrm{d}u/\mathrm{d}y = (\rho g\sin\theta/\mu)(h-y)\).</li>
+            <li><strong>Integrate</strong> with the no-slip condition \(u(0) = 0\): \(u(y) = \dfrac{\rho g\sin\theta}{\mu}\left(hy - \dfrac{y^2}{2}\right)\) — a parabola with its maximum \(u_s = \rho g\sin\theta\,h^2/(2\mu)\) at the surface.</li>
+            <li><strong>Flow per unit width:</strong> \(q = \int_0^h u\,\mathrm{d}y = \dfrac{\rho g\sin\theta}{\mu}\left(\dfrac{h^3}{2} - \dfrac{h^3}{6}\right) = \dfrac{\rho g\sin\theta\,h^3}{3\mu}\).</li>
+            <li><strong>Invert</strong> for the depth: \(h = \big(3\mu q/(\rho g\sin\theta)\big)^{1/3}\). The mean velocity follows as \(\bar{u} = q/h = \rho g\sin\theta\,h^2/(3\mu) = \tfrac{2}{3}u_s\).</li>
+            <li><strong>Small slopes.</strong> For a slope of 1:\(n\), \(\tan\theta = 1/n\) and \(\sin\theta = 1/\sqrt{1+n^2}\approx1/n\) — for 1:50 the approximation errs by 0.02 %.</li>
+            <li><strong>Regime.</strong> The film Reynolds number \(Re_f = 4q/\nu\) (four times the flow per width over the kinematic viscosity) decides the regime: smooth laminar below about 20, laminar with surface ripples up to about 1500, turbulent above (Bird et al., 2002). NFT films are typically rippled-laminar; Eq. 5.4.2 remains a good estimate of the mean depth.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The equation describes an empty or young channel with a flat floor. A mature root mat is a porous dam: the solution flows through and under it, deeper and slower than Eq. 5.4.2 predicts, and ponds behind any low spot in the channel. Many commercial channels also have ribbed floors that spread the film. Surface tension can make a very thin film break up into rivulets that leave parts of the floor dry — another reason not to run channels at very low flows. Viscosity falls by about 2 % per °C, so warm solution runs slightly thinner and faster.</p></details>
+        <div class="eq-units">\(\left(\dfrac{\text{Pa s}\cdot\text{m}^2\,\text{s}^{-1}}{\text{kg m}^{-3}\cdot\text{m s}^{-2}}\right)^{1/3} = \left(\dfrac{\text{kg m}^{-1}\text{s}^{-2}\cdot\text{s}\cdot\text{m}^2\text{s}^{-1}}{\text{kg m}^{-2}\text{s}^{-2}}\right)^{1/3} = (\text{m}^3)^{1/3} = \text{m}\) ✓; \(Re_f\): (m² s⁻¹)/(m² s⁻¹), dimensionless ✓</div>
+        <div class="mini-calc" data-fn="hdFilm" data-output="Film thickness h" data-unit="mm" data-digits="2" data-plot="Q" data-ymin="0">
+          <div data-var="Q" data-label="Channel flow Q" data-min="0.1" data-max="4" data-step="0.05" data-value="1" data-unit="L min⁻¹"></div>
+          <div data-var="n" data-label="Slope 1 : n" data-min="20" data-max="200" data-step="1" data-value="50" data-scale="log"></div>
+          <div data-var="W" data-label="Channel floor width W" data-min="4" data-max="30" data-step="0.5" data-value="10" data-unit="cm"></div>
+          <div data-var="T" data-label="Solution temperature T" data-min="5" data-max="35" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <p>Three consequences are worth remembering. First, the depth depends on the <strong>cube root</strong> of the flow: doubling the flow deepens the film by only 26 % (\(2^{1/3}\)) while the mean velocity rises by 59 % (\(2^{2/3}\)). Second, the depth depends on the cube root of the <em>inverse</em> slope: going from 1:100 to 1:30 thins the film by a third. Third, every NFT film is a matter of millimetres — which is exactly why the roots in its upper layers can breathe (Lesson 5.3) and why a few millimetres of sag in a channel create a pond.</p>
+
+      <figure class="figure wide" id="film-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the nutrient-film explorer</div>
+          <div class="ffp-ctl-grid">
+            <div class="mc-var"><div class="mc-lab"><span>Channel flow Q</span><output id="fe-Q-out"></output></div><input id="fe-Q" type="range" min="0.1" max="4" step="0.05" value="1" aria-label="Channel flow"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Slope</span><output id="fe-n-out"></output></div><input id="fe-n" type="range" min="0" max="1" step="0.001" value="0.398" aria-label="Slope"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Floor width W</span><output id="fe-W-out"></output></div><input id="fe-W" type="range" min="4" max="30" step="0.5" value="10" aria-label="Channel floor width"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Channel length L</span><output id="fe-L-out"></output></div><input id="fe-L" type="range" min="1" max="20" step="0.5" value="2" aria-label="Channel length"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Solution temperature</span><output id="fe-T-out"></output></div><input id="fe-T" type="range" min="5" max="35" step="0.5" value="20" aria-label="Solution temperature"></div>
+          </div>
+          <div class="hd-two">
+            <div id="fe-plot" style="height:300px"></div>
+            <div id="fe-prof" style="height:300px"></div>
+          </div>
+          <div class="readouts" id="fe-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 3.</b> Left: film thickness versus flow (Eq. 5.4.2) for the chosen slope (solid) and for the practical limits 1:30 and 1:100 (dashed); the point is the current setting. Right: the velocity profile across the film at the current setting, with the mean velocity marked. Readouts give the residence time of the solution in an empty channel of length L and the volume of solution held as film — the water that drains back to the reservoir when the pump stops (Section 5.4.7).</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Film depth and residence time in your channel</span></div>
+        <div class="we-problem"><p>Your 2.0 m NFT channels have a flat floor 10 cm wide, a slope of 1:50 and a flow of 1.0 L min⁻¹ of solution at 20 °C (\(\mu\) = 1.00 × 10⁻³ Pa s, \(\rho\) = 998 kg m⁻³). Calculate the film thickness, the mean velocity, the film Reynolds number and the residence time. What happens if you halve the flow, or build the bench at 1:100?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Flow per width:</strong> \(Q = 1.0/60\,000 = 1.667\times10^{-5}\) m³ s⁻¹; \(q = Q/W = 1.667\times10^{-4}\) m² s⁻¹.</li>
+              <li><strong>Slope:</strong> \(\sin\theta\approx1/50 = 0.020\).</li>
+              <li><strong>Depth</strong> (Eq. 5.4.2): \(h = \big(3\times1.00\times10^{-3}\times1.667\times10^{-4}/(998\times9.81\times0.020)\big)^{1/3} = (2.55\times10^{-9})^{1/3} = 1.37\times10^{-3}\) m = <strong>1.37 mm</strong>.</li>
+              <li><strong>Mean velocity:</strong> \(\bar{u} = q/h = 1.667\times10^{-4}/1.37\times10^{-3} = 0.122\) m s⁻¹ (surface 0.18 m s⁻¹).</li>
+              <li><strong>Regime:</strong> \(Re_f = 4q/\nu = 4\times1.667\times10^{-4}/1.00\times10^{-6} = 667\) — laminar with ripples.</li>
+              <li><strong>Residence time:</strong> \(t = L/\bar{u} = 2.0/0.122 = 16\) s. The solution reaches the last plant 16 s after the first: nothing can be depleted much in that time (Section 5.4.3).</li>
+              <li><strong>Variations.</strong> Half the flow: \(h = 1.37\times0.5^{1/3} = 1.09\) mm, \(\bar{u}\) = 0.077 m s⁻¹. Slope 1:100: \(h = 1.37\times2^{1/3} = 1.72\) mm, \(\bar{u}\) = 0.097 m s⁻¹.</li>
+            </ol>
+            <span class="answer">h ≈ 1.4 mm; ū ≈ 0.12 m s⁻¹; Re<sub>f</sub> ≈ 670 (rippled laminar); t ≈ 16 s</span>
+          </div>
+        </details>
+      </div>
+
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"If the roots look dry at the top of the channel, double the flow and the film will be twice as deep." The depth grows with the <em>cube root</em> of the flow: doubling it adds only a quarter to the depth (1.37 → 1.72 mm in Worked example 2), while the pump's head and energy use grow. Dry patches are usually caused by an uneven floor, a twisted channel or a root mat that diverts the flow — fix the geometry first, then check the flow.</p></div>
+
+      <div class="callout history"><div class="callout-title">History</div><p>Wilhelm Nusselt (1882–1957) published the falling-film solution in 1916 to predict how fast steam condenses on a cold wall: the condensate film is the main resistance to heat transfer, and its thickness follows exactly Eq. 5.4.2 (Nusselt, 1916). The same result now sizes falling-film evaporators in sugar and dairy factories — and NFT channels. Allen Cooper, who developed NFT in the 1960s–70s, relied on the practical insight behind it: keep the film shallow enough for the roots to stay in air (Cooper, 1979).</p></div>
+
+      <h2 id="depletion">Residence time and depletion along the channel</h2>
+      <p>As the film flows past plant after plant, the roots remove oxygen and nutrients and the leaves remove water, so the last plant in a long channel sees a different solution from the first — the physical reason behind the channel-length limit of Table 1. A mass balance on a thin slice of the channel (Figure 4) turns this into an equation, and also shows how oxygen re-dissolving through the film surface fights the depletion.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 220" role="img" aria-label="Control volume of thickness dx in an NFT channel with flow in and out, oxygen transfer from the air through the surface and uptake by the roots">
+            <defs>
+              <marker id="hd-a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--water)"/></marker>
+              <marker id="hd-a3m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--magenta)"/></marker>
+              <marker id="hd-a3k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <text x="360" y="22" text-anchor="middle" class="t-small t-muted">air above the film: O₂ at the surface is at equilibrium, C*</text>
+            <rect x="40" y="96" width="640" height="28" class="fill-water-soft" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="330" y="96" width="70" height="28" class="fill-water" opacity=".35" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3"/>
+            <line x1="262" y1="110" x2="326" y2="110" stroke="var(--water)" stroke-width="2.2" marker-end="url(#hd-a3)"/>
+            <line x1="404" y1="110" x2="468" y2="110" stroke="var(--water)" stroke-width="2.2" marker-end="url(#hd-a3)"/>
+            <line x1="365" y1="40" x2="365" y2="93" stroke="var(--water)" stroke-width="2" marker-end="url(#hd-a3)"/>
+            <line x1="365" y1="127" x2="365" y2="182" stroke="var(--magenta)" stroke-width="2" marker-end="url(#hd-a3m)"/>
+            <text x="375" y="64" class="t-small" style="fill:var(--water)">surface transfer: K<tspan dy="3" font-size="8.5">L</tspan><tspan dy="-3"> W dx (C* − C)</tspan></text>
+            <text x="375" y="170" class="t-small" style="fill:var(--magenta)">uptake by the roots: r′ dx</text>
+            <text x="252" y="146" text-anchor="end" class="t-small">in: Q C(x)</text>
+            <text x="478" y="146" class="t-small">out: Q C(x + dx)</text>
+            <line x1="331" y1="136" x2="399" y2="136" class="stroke" stroke-width="1" marker-start="url(#hd-a3k)" marker-end="url(#hd-a3k)"/>
+            <text x="326" y="140" text-anchor="end" class="t-small">dx</text>
+            <text x="44" y="90" class="t-small">inlet, x = 0: C<tspan dy="3" font-size="8.5">in</tspan></text>
+            <text x="676" y="90" text-anchor="end" class="t-small">outlet, x = L: C(L)</text>
+            <text x="360" y="206" text-anchor="middle" class="t-small">Steady state: Q dC/dx = K<tspan dy="3" font-size="8.5">L</tspan><tspan dy="-3"> W (C* − C) − r′</tspan></text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 4.</b> Mass balance on a slice of channel of length dx: dissolved oxygen enters and leaves with the flow \(Q\), dissolves through the film surface of width \(W\), and is taken up by the roots at \(r'\) per metre of channel (plants per metre × uptake per plant).</figcaption>
+      </figure>
+
+      <div class="eq-box" id="eq-hd-depletion">
+        <div class="eq-head"><span class="eq-label">Residence time and oxygen profile along an NFT channel</span><span class="eq-num">(5.4.3)</span></div>
+        <div class="eq-main">\[ \begin{gathered} t_{\text{res}} = \frac{L}{\bar{u}} = \frac{L\,W\,h}{Q} \\[6pt] C(x) = C_{\text{eq}} + \big(C_{\text{in}} - C_{\text{eq}}\big)\,e^{-x/\lambda} \\[6pt] \lambda = \frac{Q}{K_L\,W}, \qquad C_{\text{eq}} = C^{*} - \frac{r'}{K_L\,W} \end{gathered} \]</div>
+        <p class="eq-read">the residence time is the channel length divided by the mean velocity, which equals the volume of the film divided by the flow. Along the channel, the dissolved-oxygen concentration relaxes exponentially from its inlet value towards an equilibrium value, over a characteristic length equal to the flow divided by the surface-transfer coefficient times the channel width. The equilibrium lies below saturation by the root uptake per metre divided by the same product.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(t_{\text{res}}\)</td><td>time the solution spends in the channel</td><td>s</td><td>10–150 (empty channel)</td></tr>
+          <tr><td>\(L,\ x\)</td><td>channel length; distance from the inlet</td><td>m</td><td>2–15</td></tr>
+          <tr><td>\(C(x),\ C_{\text{in}}\)</td><td>DO at distance \(x\); at the inlet</td><td>mg L⁻¹ = g m⁻³</td><td>\(C_{\text{in}}\) ≈ 8</td></tr>
+          <tr><td>\(C^{*}\)</td><td>saturation concentration (Lesson 5.3, Eq. 5.3.4)</td><td>g m⁻³</td><td>8.7 at 22 °C</td></tr>
+          <tr><td>\(K_L\)</td><td>liquid-film transfer coefficient at the film surface</td><td>m s⁻¹</td><td>≈ 10⁻⁵–10⁻⁴ (order of magnitude; see derivation)</td></tr>
+          <tr><td>\(W\)</td><td>width of the free surface</td><td>m</td><td>0.1</td></tr>
+          <tr><td>\(r'\)</td><td>root O₂ uptake per metre of channel = plants per metre × uptake per plant</td><td>g m⁻¹ s⁻¹</td><td>1.1 × 10⁻⁵ (5 plants m⁻¹ × 8 mg h⁻¹)</td></tr>
+          <tr><td>\(\lambda,\ C_{\text{eq}}\)</td><td>relaxation length; long-channel equilibrium DO</td><td>m; g m⁻³</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Residence time.</strong> A parcel of solution moves at the mean velocity \(\bar{u}\), so it needs \(L/\bar{u}\) to pass. Since \(\bar{u} = Q/(Wh)\) (Eq. 5.4.2), \(t_{\text{res}} = LWh/Q\): film volume over flow.</li>
+            <li><strong>Slice balance</strong> (Figure 4), steady state, per unit time: \(Q\,C(x) - Q\,C(x+\mathrm{d}x) + K_LW\,\mathrm{d}x\,(C^{*}-C) - r'\,\mathrm{d}x = 0\).</li>
+            <li><strong>Divide by dx</strong> and let it shrink: \(Q\,\mathrm{d}C/\mathrm{d}x = K_LW\,(C^{*}-C) - r'\).</li>
+            <li><strong>Equilibrium.</strong> Far down a long channel the concentration stops changing when surface transfer equals uptake: \(K_LW(C^{*}-C_{\text{eq}}) = r'\), i.e. \(C_{\text{eq}} = C^{*} - r'/(K_LW)\).</li>
+            <li><strong>Solve.</strong> With \(y = C - C_{\text{eq}}\): \(\mathrm{d}y/\mathrm{d}x = -y/\lambda\), \(\lambda = Q/(K_LW)\), hence the exponential profile — the spatial twin of the time behaviour in Lesson 5.3 (Eq. 5.3.5).</li>
+            <li><strong>No surface transfer</strong> (\(K_L\to0\)): expanding the exponential gives \(C(L) = C_{\text{in}} - r'L/Q\) — the whole-channel balance of Eq. 5.4.1. The same linear form applies to nutrients, which have no surface source.</li>
+            <li><strong>The size of \(K_L\).</strong> Penetration theory (Higbie, 1935) gives \(K_L\approx2\sqrt{D\,u_s/(\pi\ell)}\), where \(\ell\) is the distance over which the surface is renewed. With \(D = 2\times10^{-9}\) m² s⁻¹ and \(u_s\approx0.18\) m s⁻¹, a surface renewed every metre gives \(2\times10^{-5}\) m s⁻¹ and ripples every 5 cm about \(10^{-4}\) m s⁻¹ — hence the order-of-magnitude range in the table.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Plug flow (no mixing along the channel), uniform plants and a constant uptake rate. The surface-transfer coefficient is the least certain number: ripples, falling water at inlets and gaps between plants increase it; a dense root mat that covers the surface decreases it. The oxygen supply through the humid air above the root mat — the main oxygen route in mature NFT — is not part of this model, so it is pessimistic for well-aerated root mats and optimistic for waterlogged ones. Treat it as a design tool for comparing flows and lengths, not as a precise prediction.</p></details>
+        <div class="eq-units">\(r'/(K_LW)\): (g m⁻¹ s⁻¹)/(m s⁻¹ × m) = g m⁻³ = mg L⁻¹ ✓; \(\lambda\): (m³ s⁻¹)/(m s⁻¹ × m) = m ✓</div>
+        <div class="mini-calc" data-fn="hdChannel" data-output="DO at the channel outlet" data-unit="mg L⁻¹" data-digits="2" data-plot="L" data-ymin="0">
+          <div data-var="L" data-label="Channel length L" data-min="1" data-max="25" data-step="0.5" data-value="12" data-unit="m"></div>
+          <div data-var="Q" data-label="Channel flow Q" data-min="0.2" data-max="3" data-step="0.05" data-value="1" data-unit="L min⁻¹"></div>
+          <div data-var="ppm" data-label="Plants per metre" data-min="2" data-max="8" data-step="0.5" data-value="5"></div>
+          <div data-var="our" data-label="O₂ uptake per plant" data-min="1" data-max="15" data-step="0.1" data-value="8" data-unit="mg h⁻¹"></div>
+          <div data-var="KL" data-label="Surface K<sub>L</sub> (× 10⁻⁵ m s⁻¹)" data-min="0" data-max="10" data-step="0.1" data-value="2"></div>
+          <div data-var="Cin" data-label="Inlet DO C<sub>in</sub>" data-min="4" data-max="10" data-step="0.1" data-value="8" data-unit="mg L⁻¹"></div>
+          <div data-var="Cs" data-label="Saturation C*" data-min="6.5" data-max="11" data-step="0.01" data-value="8.74" data-unit="mg L⁻¹"></div>
+        </div>
+      </div>
+
+      <figure class="figure" id="channel-profile">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — oxygen and nitrogen along an NFT channel</div>
+          <div class="ffp-ctl-grid">
+            <div class="mc-var"><div class="mc-lab"><span>Channel length L</span><output id="cp-L-out"></output></div><input id="cp-L" type="range" min="2" max="25" step="0.5" value="12" aria-label="Channel length"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Flow per channel</span><output id="cp-Q-out"></output></div><input id="cp-Q" type="range" min="0.2" max="3" step="0.05" value="1" aria-label="Flow per channel"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Plants per metre</span><output id="cp-ppm-out"></output></div><input id="cp-ppm" type="range" min="2" max="8" step="0.5" value="5" aria-label="Plants per metre"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Root O₂ use per plant (20 °C)</span><output id="cp-our-out"></output></div><input id="cp-our" type="range" min="1" max="12" step="0.1" value="7" aria-label="Root oxygen use per plant"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Solution temperature</span><output id="cp-T-out"></output></div><input id="cp-T" type="range" min="15" max="30" step="0.5" value="22" aria-label="Solution temperature"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Surface K<sub>L</sub></span><output id="cp-kl-out"></output></div><input id="cp-kl" type="range" min="0" max="10" step="0.1" value="2" aria-label="Surface transfer coefficient"></div>
+            <div class="mc-var"><div class="mc-lab"><span>N uptake per plant</span><output id="cp-un-out"></output></div><input id="cp-un" type="range" min="0" max="3" step="0.05" value="1" aria-label="Nitrogen uptake per plant"></div>
+          </div>
+          <div id="cp-plot" style="height:310px"></div>
+          <div class="readouts" id="cp-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 5.</b> Eq. 5.4.3 along the channel. Blue: DO with surface re-aeration; grey dashed: without it (Eq. 5.4.1); red dashed: 4 mg L⁻¹. Magenta (right axis): nitrogen, starting at 150 mg L⁻¹. The inlet solution is assumed to leave an aerated reservoir at 0.7 mg L⁻¹ below saturation; root uptake scales with Q₁₀ = 2. Oxygen, not nitrogen, limits channel length.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">How long may a channel be?</span></div>
+        <div class="we-problem"><p>A commercial grower plans 12 m NFT channels with 5 lettuces per metre, each consuming 8.0 mg O₂ h⁻¹ at 22 °C near harvest. Solution enters at 8.0 mg L⁻¹ (C* = 8.74 mg L⁻¹) at 1 L min⁻¹; the floor is 10 cm wide. (a) Without any re-aeration, what DO reaches the last plant? (b) With \(K_L\) = 2 × 10⁻⁵ m s⁻¹? (c) What does doubling the flow achieve?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Uptake per metre:</strong> \(r' = 5\times8.0 = 40\) mg h⁻¹ m⁻¹ = \(1.11\times10^{-5}\) g s⁻¹ m⁻¹. Flow: \(Q = 1.667\times10^{-5}\) m³ s⁻¹.</li>
+              <li><strong>(a) No re-aeration:</strong> \(C(L) = 8.0 - r'L/Q = 8.0 - 1.11\times10^{-5}\times12/1.667\times10^{-5} = 8.0 - 8.0 = 0\) mg L⁻¹. The 60 plants consume 480 mg h⁻¹ — exactly the 480 mg h⁻¹ that 60 L h⁻¹ of solution at 8 mg L⁻¹ carries in. The last plants would be anoxic.</li>
+              <li><strong>(b) With re-aeration:</strong> \(K_LW = 2\times10^{-6}\) m² s⁻¹; \(\lambda = Q/(K_LW) = 8.33\) m; \(C_{\text{eq}} = 8.74 - 1.11\times10^{-5}/2\times10^{-6} = 3.18\) mg L⁻¹; \(C(12) = 3.18 + (8.0-3.18)\,e^{-12/8.33} = 3.18 + 4.82\times0.237 = 4.3\) mg L⁻¹ — just above the 4 mg L⁻¹ limit.</li>
+              <li><strong>(c) Double the flow</strong> (2 L min⁻¹): \(\lambda\) = 16.7 m, \(C(12) = 3.18 + 4.82\,e^{-0.72} = 5.5\) mg L⁻¹; even without re-aeration the outlet would be 4.0 mg L⁻¹.</li>
+              <li><strong>Interpretation.</strong> This is why growth falls in channels longer than about 12 m (Jones, 2014), and why the remedies are more flow, shorter channels, a second feed point half-way (which halves the effective length), cooler solution (less uptake, higher C*) and a well-aerated reservoir (higher \(C_{\text{in}}\)). For your 2 m project channels, the same calculation gives an outlet DO within a few tenths of the inlet.</li>
+            </ol>
+            <span class="answer">(a) ≈ 0 mg L⁻¹; (b) ≈ 4.3 mg L⁻¹; (c) ≈ 5.5 mg L⁻¹ at 2 L min⁻¹</span>
+          </div>
+        </details>
+      </div>
+
+      <p>The same balance applied to <strong>nutrients</strong> has no surface term. With about 1 mg of nitrogen taken up per plant per hour, 60 plants remove 60 mg h⁻¹ from 60 L h⁻¹ of solution — a drop of 1 mg L⁻¹ out of 150 (Figure 5). <strong>Water</strong> uptake concentrates the solution by an even smaller fraction. <strong>Temperature</strong> is different: a film only millimetres deep has almost no heat capacity and follows air and radiation within minutes, so in a sunlit greenhouse the solution can warm noticeably along the channel — with the consequences for oxygen and <em>Pythium</em> described in <a href="/lessons/root-zone/#temperature">Lesson 5.3</a>. In NFT, oxygen and temperature, not nutrients, set the limits of a channel.</p>
+
+      <h2 id="pipes">Moving water through pipes: head, friction and fittings</h2>
+      <p>To push the flow of Eq. 5.4.1 up to the channel inlets, the pump must give the water energy. Hydraulic engineers express energy per unit weight of water as a height — the <strong>head</strong>, in metres — because a head is easy to picture: lifting 1 kg of water by 1 m needs 9.81 J, and a pump that delivers "1.5 m of head" could lift water 1.5 m up an open tube. Part of the head the pump supplies is stored as height (the static lift); the rest is lost to friction along the pipe walls and to turbulence in fittings, and ends up as a small amount of heat in the water.</p>
+
+      <div class="eq-box" id="eq-hd-head">
+        <div class="eq-head"><span class="eq-label">Energy equation: total dynamic head and minor losses</span><span class="eq-num">(5.4.4)</span></div>
+        <div class="eq-main">\[ H = \Delta z + \frac{p_2 - p_1}{\rho g} + \frac{v_2^{2} - v_1^{2}}{2g} + h_f + h_m, \qquad h_m = \Big(\sum_i K_i\Big)\,\frac{v^{2}}{2g} \]</div>
+        <p class="eq-read">the head the pump must supply equals the rise in elevation, plus the rise in pressure head, plus the rise in velocity head, plus the friction loss along the pipes and the minor losses in the fittings. Each fitting loses a multiple K of the velocity head.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(H\)</td><td>total dynamic head the pump must deliver</td><td>m</td><td>0.5–3 in project systems</td></tr>
+          <tr><td>\(\Delta z\)</td><td>static lift: from the reservoir water level to the outlet</td><td>m</td><td>0.3–1.5</td></tr>
+          <tr><td>\(p_1,\ p_2\)</td><td>pressures at the start and end; both atmospheric for a tank feeding an open channel</td><td>Pa</td><td>\(p_2 - p_1 = 0\)</td></tr>
+          <tr><td>\(v\)</td><td>mean velocity in the pipe, \(Q/(\pi D^2/4)\)</td><td>m s⁻¹</td><td>0.3–1.5</td></tr>
+          <tr><td>\(v^2/2g\)</td><td>velocity head</td><td>m</td><td>0.005–0.1</td></tr>
+          <tr><td>\(h_f\)</td><td>friction loss along straight pipe (Eqs. 5.4.5–5.4.6)</td><td>m</td><td>–</td></tr>
+          <tr><td>\(h_m,\ K_i\)</td><td>minor losses; loss coefficient of fitting \(i\) (Table 2)</td><td>m; –</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Energy per unit weight.</strong> A kilogram of water at height \(z\), pressure \(p\) and speed \(v\) carries potential energy \(gz\), "flow work" \(p/\rho\) and kinetic energy \(v^2/2\) (J kg⁻¹). Dividing by \(g\) gives heads in metres: \(z + p/(\rho g) + v^2/(2g)\) — Bernoulli's sum.</li>
+            <li><strong>Losses.</strong> For a real, viscous flow between points 1 and 2 the sum falls by the losses: \((z + p/\rho g + v^2/2g)_1 + H = (z + p/\rho g + v^2/2g)_2 + h_f + h_m\), where \(H\) is the head added by a pump in between.</li>
+            <li><strong>Rearrange</strong> for \(H\): the first form of Eq. 5.4.4.</li>
+            <li><strong>Reservoir to open channel.</strong> Point 1 on the reservoir surface (\(p_1\) atmospheric, \(v_1\approx0\)), point 2 in the jet leaving the pipe (\(p_2\) atmospheric, \(v_2 = v\)): \(H = \Delta z + v^2/2g + h_f + h_m\). The kinetic energy of the jet is lost in the channel, so it is conveniently counted as an "exit loss" with \(K = 1\) inside \(\sum K\).</li>
+            <li><strong>Minor losses.</strong> Bends, tees, valves, entrances and exits create eddies whose dissipation scales with the kinetic energy of the flow, hence \(h_m = K\,v^2/2g\) with an experimentally determined \(K\) for each fitting (Çengel &amp; Cimbala, 2018).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Steady, incompressible flow with a single mean velocity per pipe (for several pipe sizes, sum the losses of each section with its own velocity). Tabulated \(K\) values are for fully turbulent flow and vary with size and manufacturer; small plastic push-fit and barbed fittings, whose bore is narrower than the tube, can have much larger \(K\) — measure or be generous. A partly closed valve is simply a fitting with a large \(K\): that is how a valve controls flow.</p></details>
+        <div class="eq-units">m + Pa/(kg m⁻³ × m s⁻²) + (m s⁻¹)²/(m s⁻²) = m + m + m ✓</div>
+        <div class="mini-calc" data-fn="hdHead" data-output="Total dynamic head H" data-unit="m" data-digits="3" data-plot="Q" data-ymin="0">
+          <div data-var="Q" data-label="Flow Q" data-min="0.2" data-max="15" data-step="0.1" data-value="3" data-unit="L min⁻¹"></div>
+          <div data-var="D" data-label="Pipe inner diameter D" data-min="6" data-max="32" data-step="0.5" data-value="13" data-unit="mm"></div>
+          <div data-var="L" data-label="Pipe length L" data-min="0.5" data-max="30" data-step="0.5" data-value="4" data-unit="m"></div>
+          <div data-var="dz" data-label="Static lift Δz" data-min="0" data-max="3" data-step="0.05" data-value="1" data-unit="m"></div>
+          <div data-var="K" data-label="Sum of loss coefficients ΣK (incl. exit)" data-min="0" data-max="40" data-step="0.05" data-value="7.15"></div>
+        </div>
+      </div>
+
+      <table>
+        <caption>Table 2. Typical loss coefficients K of fittings in turbulent flow (after Çengel &amp; Cimbala, 2018; real values vary with size and design).</caption>
+        <thead><tr><th>Fitting</th><th class="num">K</th><th>Fitting</th><th class="num">K</th></tr></thead>
+        <tbody>
+          <tr><td>entrance from a tank, sharp-edged</td><td class="num">0.5</td><td>ball valve, fully open</td><td class="num">0.05</td></tr>
+          <tr><td>entrance, well rounded</td><td class="num">0.03</td><td>gate valve, fully open / half closed</td><td class="num">0.2 / 2.1</td></tr>
+          <tr><td>exit into a tank or open channel</td><td class="num">1.0</td><td>globe valve, fully open</td><td class="num">10</td></tr>
+          <tr><td>90° smooth bend, threaded</td><td class="num">0.9</td><td>swing check valve</td><td class="num">2</td></tr>
+          <tr><td>90° mitre bend (sharp corner)</td><td class="num">1.1</td><td>tee, branch flow (threaded)</td><td class="num">2.0</td></tr>
+          <tr><td>90° smooth bend, flanged</td><td class="num">0.3</td><td>tee, line flow (threaded)</td><td class="num">0.9</td></tr>
+        </tbody>
+      </table>
+
+      <p>Friction along straight pipe is the other loss. Its standard, physically based expression is the Darcy–Weisbach equation, with a friction factor that depends on whether the flow is laminar or turbulent.</p>
+
+      <div class="eq-box" id="eq-hd-darcy">
+        <div class="eq-head"><span class="eq-label">Pipe friction: Darcy–Weisbach with the Swamee–Jain friction factor</span><span class="eq-num">(5.4.5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} h_f = f\,\frac{L}{D}\,\frac{v^{2}}{2g}, \qquad Re = \frac{v\,D}{\nu} \\[8pt] f = \frac{64}{Re}\quad (Re &lt; 2000) \\[8pt] f = \frac{0.25}{\left[\log_{10}\!\left(\dfrac{\varepsilon}{3.7\,D} + \dfrac{5.74}{Re^{0.9}}\right)\right]^{2}}\quad (Re \gtrsim 4000) \end{gathered} \]</div>
+        <p class="eq-read">the friction head loss equals the Darcy friction factor times the pipe length over its diameter times the velocity head. The friction factor depends on the Reynolds number: in laminar flow it is 64 over the Reynolds number; in turbulent flow it is given explicitly by the Swamee–Jain formula from the relative roughness and the Reynolds number.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(f\)</td><td>Darcy friction factor</td><td>–</td><td>0.015–0.05</td></tr>
+          <tr><td>\(L,\ D\)</td><td>pipe length; inner diameter</td><td>m</td><td>D: 4–50 mm in project and greenhouse systems</td></tr>
+          <tr><td>\(Re\)</td><td>Reynolds number</td><td>–</td><td>10³–10⁵</td></tr>
+          <tr><td>\(\nu\)</td><td>kinematic viscosity of water</td><td>m² s⁻¹</td><td>1.00 × 10⁻⁶ (20 °C)</td></tr>
+          <tr><td>\(\varepsilon\)</td><td>absolute wall roughness</td><td>m</td><td>≈ 1.5 × 10⁻⁶ for drawn plastic (PE, PVC) tubing</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Force balance</strong> on the water in a straight pipe of length \(L\): the pressure force \(\Delta p\,\pi D^2/4\) balances the wall shear \(\tau_w\,\pi D L\), so \(\Delta p = 4\tau_wL/D\).</li>
+            <li><strong>Define</strong> the Darcy friction factor as a dimensionless wall shear, \(f = 8\tau_w/(\rho v^2)\). Substituting: \(\Delta p = f\,(L/D)\,\rho v^2/2\), and in head form \(h_f = \Delta p/(\rho g) = f(L/D)\,v^2/2g\).</li>
+            <li><strong>Laminar flow</strong> (\(Re &lt;\) about 2000): the Hagen–Poiseuille solution for a parabolic pipe profile gives \(\Delta p = 32\mu vL/D^2\); equating with step 2 gives \(f = 64/Re\) exactly.</li>
+            <li><strong>Turbulent flow:</strong> \(f\) depends on \(Re\) and on the relative roughness \(\varepsilon/D\). Colebrook (1939) fitted experiments with an implicit equation, \(1/\sqrt{f} = -2\log_{10}\!\big(\varepsilon/(3.7D) + 2.51/(Re\sqrt{f})\big)\), which Moody (1944) plotted as his famous diagram.</li>
+            <li><strong>Explicit form.</strong> Swamee and Jain (1976) replaced the iteration with the explicit formula of Eq. 5.4.5, accurate to about 1 % of Colebrook for \(10^{-6}\le\varepsilon/D\le10^{-2}\) and \(5000\le Re\le10^8\) — ideal for a calculator or spreadsheet.</li>
+            <li><strong>Scaling.</strong> At constant flow, \(v\propto1/D^2\), so \(h_f\propto f/D^5\); in smooth turbulent flow \(f\) rises only slightly as \(D\) falls, giving \(h_f\propto D^{-4.75}\) roughly: halving the diameter multiplies friction by about 27.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Fully developed flow of a Newtonian liquid in a round pipe. Between \(Re\approx2000\) and 4000 the flow is transitional and \(f\) is uncertain; the calculators of this lesson interpolate linearly. Nutrient solutions have practically the viscosity of water; viscosity rises about 2 % per °C of cooling. Biofilm and precipitates roughen and narrow old pipes (<a href="/lessons/root-zone/#pathogens">Lesson 5.3</a>) — clean them between crops.</p></details>
+        <div class="eq-units">\(h_f\): (–) × (m/m) × (m² s⁻²)/(m s⁻²) = m ✓; \(Re\): (m s⁻¹ × m)/(m² s⁻¹), dimensionless ✓</div>
+        <div class="mini-calc" data-fn="hdDW" data-output="Friction loss h<sub>f</sub>" data-unit="m" data-digits="3" data-plot="D" data-ymin="0">
+          <div data-var="D" data-label="Inner diameter D" data-min="4" data-max="32" data-step="0.5" data-value="13" data-unit="mm"></div>
+          <div data-var="Q" data-label="Flow Q" data-min="0.2" data-max="20" data-step="0.1" data-value="3" data-unit="L min⁻¹"></div>
+          <div data-var="L" data-label="Pipe length L" data-min="0.5" data-max="50" data-step="0.5" data-value="4" data-unit="m"></div>
+          <div data-var="eps" data-label="Roughness ε" data-min="0.0015" data-max="0.5" data-step="0.0005" data-value="0.0015" data-unit="mm" data-scale="log" data-digits="4"></div>
+          <div data-var="T" data-label="Water temperature" data-min="5" data-max="35" data-step="0.5" data-value="20" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <p>Irrigation engineers also use an older, purely empirical formula, which avoids the Reynolds number altogether and is still common in design tables and software for water mains.</p>
+
+      <div class="eq-box" id="eq-hd-hazen">
+        <div class="eq-head"><span class="eq-label">Pipe friction: the Hazen–Williams formula (SI units)</span><span class="eq-num">(5.4.6)</span></div>
+        <div class="eq-main">\[ h_f = 10.67\,\frac{L\;Q^{1.852}}{C^{1.852}\;D^{4.87}} \]</div>
+        <p class="eq-read">the friction head loss equals 10.67 times the pipe length times the flow to the power 1.852, divided by the Hazen–Williams roughness coefficient to the power 1.852 and by the diameter to the power 4.87 — with the flow in cubic metres per second and lengths in metres.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(h_f\)</td><td>friction head loss</td><td>m</td><td>–</td></tr>
+          <tr><td>\(L,\ D\)</td><td>pipe length; inner diameter</td><td>m</td><td>–</td></tr>
+          <tr><td>\(Q\)</td><td>flow</td><td>m³ s⁻¹</td><td>–</td></tr>
+          <tr><td>\(C\)</td><td>Hazen–Williams coefficient (higher = smoother)</td><td>–</td><td>140–150 plastic; ≈ 100 old steel</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Empirical start.</strong> Williams and Hazen fitted measured pipe flows with \(v = 0.849\,C\,R^{0.63}S^{0.54}\) (SI), where \(R = D/4\) is the hydraulic radius of a full pipe and \(S = h_f/L\) the friction slope (Williams &amp; Hazen, 1920).</li>
+            <li><strong>Substitute</strong> \(v = 4Q/(\pi D^2)\) and \(R = D/4\) and solve for \(S\): \(S = \big[4Q/(0.849\,\pi\,C\,D^{2}(D/4)^{0.63})\big]^{1/0.54}\).</li>
+            <li><strong>Exponents:</strong> \(1/0.54 = 1.852\); the diameter exponent is \((2+0.63)\times1.852 = 4.87\).</li>
+            <li><strong>Constant:</strong> \(\big[4\cdot4^{0.63}/(0.849\pi)\big]^{1.852}\approx10.7\), conventionally rounded to 10.67. Multiply \(S\) by \(L\) to obtain Eq. 5.4.6.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Hazen–Williams holds only for water at ordinary temperatures in turbulent flow, and was fitted on fairly large pipes. For a 50 mm main carrying 3 L s⁻¹ it agrees with Darcy–Weisbach within about 1 % (4.6 m per 100 m either way); for the 13 mm tube of Worked example 4 at \(Re\approx4900\) it underestimates friction by about a fifth. Use Darcy–Weisbach for small tubes, low flows or other liquids; use Hazen–Williams where design tables give \(C\) values.</p></details>
+        <div class="eq-units">\(L\,Q^{1.852}/D^{4.87}\) has units m × (m³ s⁻¹)<sup>1.852</sup> ÷ m<sup>4.87</sup> = m<sup>1.686</sup> s<sup>−1.852</sup>, so the constant 10.67 must carry the odd unit s<sup>1.852</sup> m<sup>−0.686</sup> for the result to be in metres — the mark of an empirical, dimensionally inconsistent formula. Use it only in the SI units it was converted for.</div>
+        <div class="mini-calc" data-formula="10.67*L*pow(Q/60000,1.852)/(pow(C,1.852)*pow(D/1000,4.87))" data-output="Friction loss h<sub>f</sub> (Hazen–Williams)" data-unit="m" data-digits="3" data-plot="Q" data-ymin="0">
+          <div data-var="Q" data-label="Flow Q" data-min="0.5" data-max="300" data-step="0.5" data-value="180" data-unit="L min⁻¹"></div>
+          <div data-var="D" data-label="Inner diameter D" data-min="10" data-max="110" data-step="1" data-value="50" data-unit="mm"></div>
+          <div data-var="L" data-label="Pipe length L" data-min="1" data-max="500" data-step="1" data-value="100" data-unit="m"></div>
+          <div data-var="C" data-label="Hazen–Williams C" data-min="80" data-max="150" data-step="1" data-value="150"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">The head budget of the project NFT</span></div>
+        <div class="we-problem"><p>The pump of Worked example 1 must deliver 3 L min⁻¹ through 4.0 m of polyethylene tube with an inner diameter of 13 mm (ε = 0.0015 mm) at 20 °C, lifting the solution 1.00 m from the reservoir water level to the channel inlets. The fittings are a sharp entrance (0.5), four threaded 90° bends (0.9 each), one tee in branch flow (2.0), a fully open ball valve (0.05) and the exit into the channel (1.0). Calculate the total dynamic head. How would Hazen–Williams (C = 150) have estimated the friction? And what if the group had used 6.5 mm tube?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Velocity:</strong> \(Q = 3/60\,000 = 5.0\times10^{-5}\) m³ s⁻¹; \(A = \pi\times0.013^2/4 = 1.327\times10^{-4}\) m²; \(v = 0.377\) m s⁻¹; velocity head \(v^2/2g = 0.00723\) m.</li>
+              <li><strong>Regime:</strong> \(Re = 0.377\times0.013/1.004\times10^{-6} = 4880\): turbulent, just above transition.</li>
+              <li><strong>Friction factor</strong> (Swamee–Jain): \(\varepsilon/(3.7D) = 3.1\times10^{-5}\); \(5.74/Re^{0.9} = 5.74/2088 = 2.75\times10^{-3}\); \(\log_{10}(2.78\times10^{-3}) = -2.556\); \(f = 0.25/2.556^2 = 0.0383\) (Colebrook gives 0.0378).</li>
+              <li><strong>Friction</strong> (Eq. 5.4.5): \(h_f = 0.0383\times(4.0/0.013)\times0.00723 = 0.085\) m.</li>
+              <li><strong>Minor losses</strong> (Eq. 5.4.4): \(\sum K = 0.5 + 4\times0.9 + 2.0 + 0.05 + 1.0 = 7.15\); \(h_m = 7.15\times0.00723 = 0.052\) m.</li>
+              <li><strong>Total head:</strong> \(H = 1.00 + 0.085 + 0.052 = 1.14\) m (Figure 1B). Hydraulic power: \(\rho gQH = 998\times9.81\times5.0\times10^{-5}\times1.14 = 0.56\) W.</li>
+              <li><strong>Hazen–Williams</strong> (Eq. 5.4.6): \(h_f = 10.67\times4.0\times(5.0\times10^{-5})^{1.852}/(150^{1.852}\times0.013^{4.87}) = 0.066\) m — 22 % below Darcy–Weisbach, as expected for a small tube at low Reynolds number.</li>
+              <li><strong>6.5 mm tube:</strong> \(v\) quadruples to 1.51 m s⁻¹, \(Re\) = 9760, \(f\) = 0.0316, \(h_f\) = 2.25 m (26 times more) and \(h_m\) = 0.83 m: \(H\) = 4.1 m — more than most small fountain pumps can produce. The tube diameter matters far more than its length.</li>
+            </ol>
+            <span class="answer">H ≈ 1.14 m (lift 1.00 + friction 0.09 + fittings 0.05); with 6.5 mm tube H ≈ 4.1 m</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="pumps">Pumps: curves, operating point and power</h2>
+      <p>Small hydroponic systems use centrifugal pumps: a spinning impeller flings water outwards and raises its pressure. The head such a pump produces is highest when no water flows (the <strong>shut-off head</strong>) and falls as the flow increases, until at zero head it delivers its maximum flow. This relation is the <strong>pump curve</strong>, printed on every datasheet. The pipework has its own curve: the <strong>system curve</strong> \(H_{\text{sys}}(Q)\) of Eq. 5.4.4 — the static lift plus losses that grow roughly with \(Q^2\). The pump cannot choose its flow: it settles at the <strong>operating point</strong>, where the head it can produce equals the head the system demands.</p>
+
+      <div class="eq-box" id="eq-hd-pump">
+        <div class="eq-head"><span class="eq-label">Pump power and the operating point</span><span class="eq-num">(5.4.7)</span></div>
+        <div class="eq-main">\[ \begin{gathered} P_h = \rho\,g\,Q\,H, \qquad P_{\text{el}} = \frac{P_h}{\eta} \\[6pt] H_{\text{pump}}(Q) \approx H_0\left[1 - \left(\frac{Q}{Q_{\max}}\right)^{2}\right], \qquad H_{\text{sys}}(Q) \approx \Delta z + k_s\,Q^{2} \\[6pt] H_{\text{pump}}(Q_{\text{op}}) = H_{\text{sys}}(Q_{\text{op}}) \;\;\Longrightarrow\;\; Q_{\text{op}} = \sqrt{\frac{H_0 - \Delta z}{H_0/Q_{\max}^{2} + k_s}} \end{gathered} \]</div>
+        <p class="eq-read">the hydraulic power given to the water is density times gravity times flow times head, and the electrical power is that divided by the pump's overall (wire-to-water) efficiency. If the pump curve falls parabolically from its shut-off head and the system curve rises parabolically from the static lift, the flow at which they meet follows from equating the two.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(P_h,\ P_{\text{el}}\)</td><td>hydraulic power; electrical power drawn</td><td>W</td><td>\(P_h\) 0.5–5; \(P_{\text{el}}\) 5–50</td></tr>
+          <tr><td>\(\eta\)</td><td>wire-to-water efficiency (motor × pump)</td><td>–</td><td>only ≈ 0.05–0.15 for small synchronous fountain pumps at typical duty (Worked example 5)</td></tr>
+          <tr><td>\(H_0,\ Q_{\max}\)</td><td>shut-off head; flow at zero head (datasheet)</td><td>m; L h⁻¹</td><td>1–3 m; 500–3000 L h⁻¹</td></tr>
+          <tr><td>\(k_s\)</td><td>system coefficient, \((fL/D + \sum K)/(2gA^2)\)</td><td>m (m³ s⁻¹)⁻²</td><td>–</td></tr>
+          <tr><td>\(Q_{\text{op}}\)</td><td>operating flow</td><td>m³ s⁻¹</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Power = force × velocity.</strong> A pump raising the pressure of the flow by \(\Delta p\) pushes a volume \(Q\) per second through that pressure difference: \(P = \Delta p\,Q\). With \(\Delta p = \rho gH\): \(P_h = \rho gQH\).</li>
+            <li><strong>Efficiency.</strong> Motor and impeller losses mean the electricity drawn is larger: \(P_{\text{el}} = P_h/\eta\). All of \(P_{\text{el}}\) ends up as heat — in the motor, in the water by friction, and in the channels — which is why a submersible pump warms the reservoir (<a href="/lessons/root-zone/#temperature">Lesson 5.3</a>, Eq. 5.3.8).</li>
+            <li><strong>Pump curve.</strong> The ideal (Euler) head of a centrifugal pump falls linearly with flow; internal losses bend it downward. A parabola through the shut-off head \(H_0\) and the maximum flow \(Q_{\max}\) is a common approximation of a datasheet curve.</li>
+            <li><strong>System curve.</strong> From Eq. 5.4.4 with \(v = Q/A\): \(H_{\text{sys}} = \Delta z + (fL/D+\sum K)\,Q^2/(2gA^2) = \Delta z + k_sQ^2\) (treating \(f\) as constant).</li>
+            <li><strong>Operating point.</strong> Equate: \(H_0 - (H_0/Q_{\max}^2)Q^2 = \Delta z + k_sQ^2\) and solve for \(Q\). If \(\Delta z\ge H_0\) there is no flow at all.</li>
+            <li><strong>Energy.</strong> Energy per period = \(P_{\text{el}}\times t\): a 20 W pump running continuously uses 0.48 kWh per day, 14 kWh per month.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The parabolic pump curve is only an approximation — use the manufacturer's curve when you have it; the interactive figure below solves the full system curve with a flow-dependent friction factor. Small synchronous pumps draw roughly constant electrical power whatever their flow, so their efficiency is low when they are throttled or lift little. Pumps must never run dry, and the flow can be reduced with a valve (adding \(K\)) or by returning part of it to the reservoir through a bypass, which also aerates the reservoir.</p></details>
+        <div class="eq-units">\(\rho gQH\): kg m⁻³ × m s⁻² × m³ s⁻¹ × m = kg m² s⁻³ = W ✓</div>
+        <div class="mini-calc" data-formula="998*9.81*(Q/60000)*H/(eta/100)" data-output="Electrical power P<sub>el</sub>" data-unit="W" data-digits="1" data-plot="eta" data-ymin="0">
+          <div data-var="eta" data-label="Wire-to-water efficiency η" data-min="3" data-max="60" data-step="0.5" data-value="10" data-unit="%"></div>
+          <div data-var="Q" data-label="Flow Q" data-min="0.5" data-max="40" data-step="0.1" data-value="7.4" data-unit="L min⁻¹"></div>
+          <div data-var="H" data-label="Head H" data-min="0.1" data-max="5" data-step="0.01" data-value="1.72" data-unit="m"></div>
+        </div>
+      </div>
+
+      <figure class="figure wide" id="pump-explorer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — pump curve, system curve and operating point</div>
+          <div class="seg" id="pp-pump" role="group" aria-label="Pump" style="margin-bottom:10px">
+            <button type="button" data-v="mini">Mini fountain pump (6 W)</button>
+            <button type="button" data-v="small" aria-pressed="true">Small submersible (20 W)</button>
+            <button type="button" data-v="med">Medium submersible (45 W)</button>
+          </div>
+          <div class="ffp-ctl-grid">
+            <div class="mc-var"><div class="mc-lab"><span>Tube inner diameter</span><output id="pp-D-out"></output></div><input id="pp-D" type="range" min="6" max="25" step="0.5" value="13" aria-label="Tube inner diameter"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Tube length</span><output id="pp-L-out"></output></div><input id="pp-L" type="range" min="1" max="20" step="0.5" value="4" aria-label="Tube length"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Static lift Δz</span><output id="pp-dz-out"></output></div><input id="pp-dz" type="range" min="0" max="2.5" step="0.05" value="1" aria-label="Static lift"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Fittings and valves ΣK</span><output id="pp-K-out"></output></div><input id="pp-K" type="range" min="1" max="150" step="0.05" value="7.15" aria-label="Sum of loss coefficients"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Channels fed</span><output id="pp-n-out"></output></div><input id="pp-n" type="range" min="1" max="8" step="1" value="3" aria-label="Number of channels"></div>
+          </div>
+          <div id="pp-plot" style="height:320px"></div>
+          <div class="readouts" id="pp-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 6.</b> The pump settles where its curve (green) meets the system curve (blue, Eqs. 5.4.4–5.4.5 with a flow-dependent friction factor). The three pumps are <em>illustrative</em>, with parabolic curves typical of small synchronous pumps (shut-off heads 1.2, 2.0 and 3.0 m; maximum flows 600, 1200 and 2500 L h⁻¹) and constant electrical power — always use the datasheet of your own pump. Raise ΣK to see how a partly closed valve throttles the flow; shrink the tube to see friction take over.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">Choosing the pump for the project NFT</span></div>
+        <div class="we-problem"><p>For the system of Worked example 4 (13 mm tube, 4 m, lift 1.0 m, ΣK = 7.15, three channels that should each receive about 1 L min⁻¹), compare the three illustrative pumps of Figure 6. Which would you buy, how would you set it up, and what does it cost to run?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Mini pump</strong> (H₀ = 1.2 m, 600 L h⁻¹, 6 W): operating point ≈ 162 L h⁻¹ at 1.11 m, i.e. 2.7 L min⁻¹ — only 0.9 L min⁻¹ per channel, with no reserve for a partly clogged tube or a higher lift. Too small.</li>
+              <li><strong>Small submersible</strong> (H₀ = 2.0 m, 1200 L h⁻¹, 20 W): ≈ 446 L h⁻¹ at 1.72 m = 7.4 L min⁻¹, 2.5 L min⁻¹ per channel — too much for the channels, but with reserve. Hydraulic power \(998\times9.81\times(446/3.6\times10^{6})\times1.72 = 2.1\) W: the wire-to-water efficiency is only 2.1/20 ≈ 10 %.</li>
+              <li><strong>Set it up:</strong> reduce the channel flow to 1 L min⁻¹ each with the ball valves (at 180 L h⁻¹ the pump produces 1.96 m, so the valves must dissipate about 0.8 m of head), or better, fit a bypass tee that returns the surplus to the reservoir and aerates it.</li>
+              <li><strong>Medium pump</strong> (45 W): ≈ 12 L min⁻¹ — wasteful; more than twice the energy and heat for no benefit.</li>
+              <li><strong>Running cost and heat of the small pump:</strong> 20 W × 24 h = 0.48 kWh per day, 14.4 kWh per month (≈ 29 SEK per month at an assumed 2 SEK per kWh). All 20 W end up as heat; in a 60 L tank with UA ≈ 6 W K⁻¹ that warms the solution by about 3 K (Eq. 5.3.8) — consider an inline pump outside the tank or a timer for systems that tolerate pauses.</li>
+            </ol>
+            <span class="answer">Buy the small submersible, throttle or bypass to 1 L min⁻¹ per channel; ≈ 0.5 kWh d⁻¹ and ≈ 3 K of tank warming</span>
+          </div>
+        </details>
+      </div>
+
+      <div class="callout note"><div class="callout-title">Note · the affinity laws</div><p>Variable-speed pumps change the whole pump curve instead of throttling against a valve. For a given pump, flow scales with rotational speed \(N\), head with \(N^2\) and power with \(N^3\) (the affinity laws; Çengel &amp; Cimbala, 2018). In a system dominated by friction, running at 80 % speed delivers 80 % of the flow for about half the power. In a small hydroponic system dominated by static lift, however, the head cannot fall much before the flow stops — one more reason why the static lift, not friction, is the key number of small systems.</p></div>
+
+      <h2 id="distribution">Uniform distribution: manifolds and drip emitters</h2>
+      <p>A system with a perfect pump can still fail its plants if the water is shared unevenly. In an NFT system, three channels fed from one supply line receive equal flows only if the path to each offers the same resistance. The practical rule is to make the resistance of each branch — its valve, inlet tube and outlet — large compared with the head differences along the manifold: then small differences in manifold pressure hardly matter. Fit a valve to every channel and <em>measure</em> each channel's flow with a jug and a stopwatch until they agree within about 10 %.</p>
+      <p>In drip irrigation the same problem appears at every plant. Each emitter delivers a flow that depends on the pressure at its position, and pressure falls along a lateral because of friction and changes with elevation (Figure 7). How strongly the flow reacts depends on the emitter design, summarised by its <strong>emitter exponent</strong> (Keller &amp; Karmeli, 1974).</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 280" role="img" aria-label="A drip lateral with emitters along a substrate slab, the pressure falling along the lateral, and emitter flow-pressure curves for exponents 1, 0.5 and 0">
+            <defs>
+              <marker id="hd-a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--water)"/></marker>
+              <marker id="hd-a7k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <text x="20" y="22" style="font-weight:700">A · Pressure along a drip lateral</text>
+            <line x1="60" y1="40" x2="60" y2="96" class="stroke" stroke-width="1"/>
+            <path d="M60 46 C 190 62, 350 76, 520 82" class="stroke-magenta" stroke-width="2.4" fill="none"/>
+            <text x="68" y="42" class="t-small" style="fill:var(--magenta)">pressure head H(x): H₀ at the inlet</text>
+            <text x="524" y="80" class="t-small" style="fill:var(--magenta)">≈ 0.8 H₀</text>
+            <text x="190" y="100" class="t-small t-muted">steepest near the inlet, where the flow in the lateral is largest</text>
+            <line x1="20" y1="122" x2="56" y2="122" stroke="var(--water)" stroke-width="3" marker-end="url(#hd-a7)"/>
+            <line x1="58" y1="122" x2="530" y2="122" stroke="var(--water)" stroke-width="4"/>
+            <g class="fill-sunk" stroke="currentColor" stroke-width="1">
+              <rect x="86" y="118" width="10" height="9" rx="2"/><rect x="146" y="118" width="10" height="9" rx="2"/><rect x="206" y="118" width="10" height="9" rx="2"/><rect x="266" y="118" width="10" height="9" rx="2"/>
+              <rect x="326" y="118" width="10" height="9" rx="2"/><rect x="386" y="118" width="10" height="9" rx="2"/><rect x="446" y="118" width="10" height="9" rx="2"/><rect x="506" y="118" width="10" height="9" rx="2"/>
+            </g>
+            <g class="fill-water"><circle cx="91" cy="138" r="3.2"/><circle cx="151" cy="138" r="3.1"/><circle cx="211" cy="138" r="3"/><circle cx="271" cy="138" r="2.95"/><circle cx="331" cy="138" r="2.9"/><circle cx="391" cy="138" r="2.85"/><circle cx="451" cy="138" r="2.85"/><circle cx="511" cy="138" r="2.8"/></g>
+            <rect x="70" y="160" width="460" height="24" rx="4" class="fill-amber-soft" stroke="currentColor" stroke-width="1.2"/>
+            <g class="fill-accent" opacity=".85"><ellipse cx="121" cy="154" rx="14" ry="8"/><ellipse cx="241" cy="154" rx="14" ry="8"/><ellipse cx="361" cy="154" rx="14" ry="8"/><ellipse cx="481" cy="154" rx="14" ry="8"/></g>
+            <text x="91" y="206" text-anchor="middle" class="t-small">q₁</text><text x="511" y="206" text-anchor="middle" class="t-small">q₈</text>
+            <text x="300" y="206" text-anchor="middle" class="t-small">each emitter: q = k Hˣ</text>
+            <text x="70" y="232" class="t-small t-muted">substrate slab; drip lateral with 8 emitters (1 per plant or per slab position)</text>
+            <text x="560" y="22" style="font-weight:700">B · Emitter curves</text>
+            <line x1="580" y1="200" x2="712" y2="200" class="stroke" stroke-width="1" marker-end="url(#hd-a7k)"/>
+            <line x1="580" y1="200" x2="580" y2="44" class="stroke" stroke-width="1" marker-end="url(#hd-a7k)"/>
+            <text x="712" y="228" text-anchor="end" class="t-small">H / H<tspan dy="3" font-size="8.5">nom</tspan></text>
+            <text x="586" y="48" class="t-small">q / q<tspan dy="3" font-size="8.5">nom</tspan></text>
+            <line x1="660" y1="196" x2="660" y2="204" class="stroke" stroke-width="1"/><text x="660" y="214" text-anchor="middle" class="t-small t-mono">1</text>
+            <line x1="576" y1="120" x2="584" y2="120" class="stroke" stroke-width="1"/><text x="572" y="124" text-anchor="end" class="t-small t-mono">1</text>
+            <line x1="580" y1="200" x2="692" y2="88" class="stroke-accent" stroke-width="2.2"/>
+            <polyline points="580,200 588,174.7 600,160 620,143.4 640,130.5 660,120 680,110.6 700,102" class="stroke-water" stroke-width="2.2" fill="none"/>
+            <path d="M580 200 L 604 120 L 700 120" class="stroke-magenta" stroke-width="2.2" fill="none"/>
+            <circle cx="660" cy="120" r="3" fill="currentColor"/>
+            <text x="548" y="244" class="t-small" style="fill:var(--accent)">— x = 1: laminar long-path</text>
+            <text x="548" y="258" class="t-small" style="fill:var(--water)">— x = 0.5: orifice, turbulent</text>
+            <text x="548" y="272" class="t-small" style="fill:var(--magenta)">— x ≈ 0: compensating (PC)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 7.</b> (A) Friction lowers the pressure along a drip lateral, so the last emitters deliver less (drop size exaggerated). (B) Emitter flow versus pressure (both relative to nominal): laminar long-path emitters (exponent \(x\approx1\)) react proportionally, orifice and turbulent emitters (\(x\approx0.5\)) with the square root, and pressure-compensating emitters (\(x\approx0\)) hardly at all above their minimum operating pressure (after Keller &amp; Karmeli, 1974).</figcaption>
+      </figure>
+
+      <div class="eq-box" id="eq-hd-uniformity">
+        <div class="eq-head"><span class="eq-label">Emitter discharge and irrigation uniformity</span><span class="eq-num">(5.4.8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} q = k\,H^{x}, \qquad \frac{\Delta q}{q} \approx x\,\frac{\Delta H}{H} \\[8pt] \text{CU} = 100\left(1 - \frac{\sum_i |q_i - \bar{q}|}{n\,\bar{q}}\right), \qquad \text{DU}_{lq} = 100\,\frac{\bar{q}_{lq}}{\bar{q}} \end{gathered} \]</div>
+        <p class="eq-read">an emitter's flow is a constant times the pressure head raised to the emitter exponent, so a small relative change in pressure changes the flow by the exponent times that relative change. Christiansen's uniformity coefficient is one hundred times one minus the mean absolute deviation of the measured flows divided by their mean; the low-quarter distribution uniformity is one hundred times the mean of the lowest quarter of the flows divided by the overall mean.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(q\)</td><td>emitter flow</td><td>L h⁻¹</td><td>1–4</td></tr>
+          <tr><td>\(k\)</td><td>emitter coefficient (from the datasheet)</td><td>L h⁻¹ m⁻ˣ</td><td>–</td></tr>
+          <tr><td>\(H\)</td><td>pressure head at the emitter</td><td>m</td><td>5–20 (0.5–2 bar)</td></tr>
+          <tr><td>\(x\)</td><td>emitter exponent</td><td>–</td><td>≈ 1 laminar; ≈ 0.5 orifice / turbulent; ≈ 0 pressure-compensating</td></tr>
+          <tr><td>\(\bar{q},\ \bar{q}_{lq}\)</td><td>mean of all measured flows; mean of the lowest quarter</td><td>L h⁻¹</td><td>–</td></tr>
+          <tr><td>CU, DU<sub>lq</sub></td><td>Christiansen uniformity coefficient; low-quarter distribution uniformity</td><td>%</td><td>≥ 90 good</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Orifice emitter.</strong> Water accelerates through a small opening: Bernoulli gives jet velocity \(\sqrt{2gH}\), so \(q = C_dA\sqrt{2gH}\propto H^{0.5}\): \(x = 0.5\).</li>
+            <li><strong>Laminar long-path emitter.</strong> Flow through a long, narrow channel is laminar; Hagen–Poiseuille gives \(q\propto\Delta p\propto H\): \(x = 1\).</li>
+            <li><strong>Pressure-compensating emitter.</strong> A flexible membrane narrows the passage as pressure rises, keeping \(q\) almost constant: \(x\approx0\) over its working range.</li>
+            <li><strong>Sensitivity.</strong> Take logarithms, \(\ln q = \ln k + x\ln H\), and differentiate: \(\mathrm{d}q/q = x\,\mathrm{d}H/H\). For finite changes, \(q_2/q_1 = (H_2/H_1)^x\).</li>
+            <li><strong>Uniformity indices.</strong> Christiansen (1942) introduced CU for sprinklers from the mean absolute deviation; DU<sub>lq</sub> compares the worst-watered quarter with the mean (Burt et al., 1997). Keller and Karmeli (1974) combined emitter manufacturing variation and pressure variation into a design "emission uniformity".</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Emitters of the same model also differ from each other through manufacturing variation (the coefficient of variation declared by the manufacturer), and partial clogging by particles, precipitates or biofilm is the most common cause of poor uniformity in practice (<a href="/lessons/root-zone/#pathogens">Lesson 5.3</a>). A catch-can test with at least 8–16 emitters spread over the system is the honest measurement.</p></details>
+        <div class="eq-units">\(\Delta q/q\) and \(\Delta H/H\) dimensionless ✓; CU, DU: L h⁻¹/L h⁻¹ × 100 = % ✓</div>
+        <div class="mini-calc" data-formula="100*(pow(1+dH/100, x)-1)" data-output="Change in emitter flow" data-unit="%" data-digits="1" data-plot="dH">
+          <div data-var="dH" data-label="Change in pressure head ΔH/H" data-min="-50" data-max="50" data-step="1" data-value="-20" data-unit="%"></div>
+          <div data-var="x" data-label="Emitter exponent x" data-min="0" data-max="1" data-step="0.01" data-value="0.5"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 6</span><span class="we-title">A catch-can test of a drip system</span></div>
+        <div class="we-problem"><p>A group collects the output of eight drippers for 10 minutes and finds 320, 300, 290, 310, 270, 330, 300 and 280 mL. Calculate the flows, CU and DU<sub>lq</sub>. The drippers are orifice-type (\(x\) = 0.5); the pressure at the far end of the lateral is 20 % lower than at the inlet. How much of the variation could that explain?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Flows</strong> (mL min⁻¹): 32, 30, 29, 31, 27, 33, 30, 28; mean \(\bar{q}\) = 30.0 mL min⁻¹ = 1.8 L h⁻¹.</li>
+              <li><strong>Absolute deviations:</strong> 2, 0, 1, 1, 3, 3, 0, 2 → sum 12. CU = \(100\,(1 - 12/(8\times30.0)) = 95.0\) %.</li>
+              <li><strong>Low quarter:</strong> the lowest two of eight are 27 and 28 → \(\bar{q}_{lq}\) = 27.5; DU<sub>lq</sub> = \(100\times27.5/30.0 = 91.7\) %.</li>
+              <li><strong>Pressure effect</strong> (Eq. 5.4.8): \(0.8^{0.5} = 0.894\) — the last dripper should give about 10.6 % less than the first. The measured range (27–33) is ±10 % around the mean, so the pressure gradient and manufacturing variation together explain it.</li>
+              <li><strong>Judgement.</strong> CU = 95 % and DU = 92 % are good. With pressure-compensating drippers (\(x\approx0\)) the pressure part would vanish: \(0.8^{0.05}\approx0.99\).</li>
+            </ol>
+            <span class="answer">CU = 95 %; DU<sub>lq</sub> ≈ 92 %; the 20 % pressure drop explains ≈ 11 % lower flow at the far end</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="reservoir">Reservoirs: sizing and buffering</h2>
+      <p>The reservoir is the system's memory. It must hold (1) the <strong>drain-back volume</strong>: everything in the channels, pipes and root mats that runs back when the pump stops — if the reservoir is full to the brim, a power cut floods the floor; (2) a <strong>minimum volume</strong> that keeps the pump submerged and prevents it from sucking air; and (3) a <strong>buffer volume</strong> that absorbs the crop's water uptake between top-ups without letting concentration, pH and temperature drift too far. A larger buffer also buys time after a failure (Eq. 5.1.8 of <a href="/lessons/soilless-systems/#risks">Lesson 5.1</a>).</p>
+
+      <div class="eq-box" id="eq-hd-reservoir">
+        <div class="eq-head"><span class="eq-label">Reservoir sizing for drain-back, pump submergence and buffering</span><span class="eq-num">(5.4.9)</span></div>
+        <div class="eq-main">\[ \begin{gathered} V_{\text{res}} \ge V_{\text{db}} + V_{\min} + V_{\text{buf}} \\[6pt] V_{\text{buf}} = E\,\Delta t\;\frac{1 + \delta - \rho_u}{\delta}, \qquad t_{\text{aut}} = \frac{V_{\text{res}} - V_{\min}}{E} \end{gathered} \]</div>
+        <p class="eq-read">the reservoir must be at least as large as the drain-back volume plus the minimum pump volume plus the buffer volume. The buffer equals the water the crop takes up between two top-ups times a factor that depends on how much concentration drift is allowed and on how the crop's uptake concentration compares with the solution. The autonomy of the system is the usable volume divided by the daily uptake.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(V_{\text{res}}\)</td><td>reservoir working capacity</td><td>L</td><td>–</td></tr>
+          <tr><td>\(V_{\text{db}}\)</td><td>drain-back volume (films, pipes, root mats)</td><td>L</td><td>0.3 L per empty 2 m channel (Worked example 2) + pipes + root mats</td></tr>
+          <tr><td>\(V_{\min}\)</td><td>minimum volume to keep the pump submerged</td><td>L</td><td>5–15</td></tr>
+          <tr><td>\(E\)</td><td>crop water uptake</td><td>L d⁻¹</td><td>≈ 0.1–0.3 per lettuce</td></tr>
+          <tr><td>\(\Delta t\)</td><td>interval between top-ups</td><td>d</td><td>1–3</td></tr>
+          <tr><td>\(\delta\)</td><td>allowed fractional rise of concentration (EC) between top-ups</td><td>–</td><td>0.1–0.2</td></tr>
+          <tr><td>\(\rho_u\)</td><td>uptake-concentration ratio \(c_u/c\) (Lesson 5.2, Eq. 5.2.10)</td><td>–</td><td>0 for Na⁺, Cl⁻; ≈ 0.7–0.9 for EC as a whole (assumption)</td></tr>
+          <tr><td>\(t_{\text{aut}}\)</td><td>autonomy: days until the usable volume is gone</td><td>d</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Drift between top-ups.</strong> In Lesson 5.2 (Eq. 5.2.10) the concentration after a fraction \(f = E\Delta t/V\) of the solution is used is \(c/c_0 = (1-\rho_uf)/(1-f)\).</li>
+            <li><strong>Limit the drift:</strong> require \(c/c_0\le1+\delta\): \(1-\rho_uf\le(1+\delta)(1-f)\), i.e. \(f\,(1+\delta-\rho_u)\le\delta\).</li>
+            <li><strong>Solve for the volume:</strong> \(V\ge E\Delta t\,(1+\delta-\rho_u)/\delta\) — the buffer volume.</li>
+            <li><strong>Special cases.</strong> For ions the crop ignores (\(\rho_u = 0\)) the factor is \((1+\delta)/\delta\): 7.7 for 15 % drift. For EC, which falls partly with uptake (\(\rho_u\approx0.8\)), it is only 2.3.</li>
+            <li><strong>Autonomy.</strong> Without top-ups the usable volume \(V_{\text{res}}-V_{\min}\) lasts \(t_{\text{aut}}\) days — for a Kratky tank the "reservoir days" are the whole crop cycle (Eq. 5.1.2).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A well-mixed reservoir and a constant uptake ratio. In reality \(\rho_u\) changes with light, humidity and crop age — measure it from your own EC and level records as suggested in Lesson 5.2. Larger reservoirs also smooth temperature (Eq. 5.3.8) and pH, but take longer to mix after stock additions and cost more to replace.</p></details>
+        <div class="eq-units">L d⁻¹ × d × (–) = L ✓; L ÷ (L d⁻¹) = d ✓</div>
+        <div class="mini-calc" data-formula="Eu*dt*(1+d/100-rho)/(d/100)" data-output="Buffer volume V<sub>buf</sub>" data-unit="L" data-digits="0" data-plot="dt" data-ymin="0">
+          <div data-var="Eu" data-label="Crop water uptake E" data-min="0.5" data-max="40" data-step="0.5" data-value="9" data-unit="L d⁻¹"></div>
+          <div data-var="dt" data-label="Top-up interval Δt" data-min="0.5" data-max="7" data-step="0.5" data-value="2" data-unit="d"></div>
+          <div data-var="d" data-label="Allowed drift δ" data-min="5" data-max="40" data-step="1" data-value="15" data-unit="%"></div>
+          <div data-var="rho" data-label="Uptake ratio ρ<sub>u</sub>" data-min="0" data-max="0.95" data-step="0.01" data-value="0.8"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 7</span><span class="we-title">Sizing the reservoir of the project NFT</span></div>
+        <div class="we-problem"><p>The three-channel NFT of Worked examples 1–5 holds 36 lettuces. Near harvest, assume each takes up 0.25 L of water per day. You top up every second day and accept a 15 % EC drift between top-ups; assume an uptake ratio of 0.8. The pump needs 10 L to stay submerged. The empty channels hold 0.27 L of film each, the supply tube 0.53 L, and you estimate that mature root mats hold another 2 L in total. How large should the reservoir be, and what is its autonomy over a weekend without top-up?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Uptake:</strong> \(E = 36\times0.25 = 9\) L d⁻¹; between top-ups \(E\Delta t = 18\) L.</li>
+              <li><strong>Buffer</strong> (Eq. 5.4.9): \(V_{\text{buf}} = 18\times(1+0.15-0.8)/0.15 = 18\times2.33 = 42\) L.</li>
+              <li><strong>Drain-back:</strong> \(3\times0.27 + 0.53 + 2 = 3.3\) L.</li>
+              <li><strong>Reservoir:</strong> \(V_{\text{res}}\ge3.3 + 10 + 42 = 55\) L → a 60–70 L opaque tote, filled to about 55 L so that the drain-back still fits.</li>
+              <li><strong>Autonomy:</strong> \((55-10)/9 = 5\) days before the pump runs dry — the weekend is safe for water, but EC will have risen by more than 15 % by Monday. Sodium and chloride from tap water (\(\rho_u = 0\)) rise faster: for them the same 18 L drawdown in 55 L raises the concentration by \(55/37 - 1 = 49\) %.</li>
+            </ol>
+            <span class="answer">≈ 55 L working volume (60–70 L tote); ≈ 5 days of water autonomy</span>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="water">Salt balance, leaching fraction and the closed-loop water account</h2>
+      <p>Water leaves a soilless system in only a few ways: as vapour through the leaves (transpiration, which carries no salt), inside the harvested product, as drain or bleed, as solution thrown away at the end of a crop, and through leaks. Salts, on the other hand, leave only with liquid water. That asymmetry is the root of every salinity problem in irrigation, from desert fields to greenhouse slabs, and it leads to one of the most useful equations in water management (Figure 8).</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 240" role="img" aria-label="Salt balance of a root zone: irrigation water with salt enters, transpired water leaves without salt, and drain water leaves with concentrated salt">
+            <defs>
+              <marker id="hd-a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--water)"/></marker>
+              <marker id="hd-a8k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <rect x="230" y="84" width="220" height="86" rx="10" class="fill-amber-soft" stroke="currentColor" stroke-width="1.4"/>
+            <text x="340" y="122" text-anchor="middle" style="font-weight:600">root zone</text>
+            <text x="340" y="140" text-anchor="middle" class="t-small">(slab, substrate or solution)</text>
+            <g class="fill-accent" opacity=".85"><ellipse cx="290" cy="78" rx="16" ry="9"/><ellipse cx="340" cy="78" rx="16" ry="9"/><ellipse cx="390" cy="78" rx="16" ry="9"/></g>
+            <line x1="40" y1="112" x2="226" y2="112" stroke="var(--water)" stroke-width="3" marker-end="url(#hd-a8)"/>
+            <text x="40" y="100" class="t-small" style="font-weight:600">irrigation: V<tspan dy="3" font-size="8.5">i</tspan><tspan dy="-3">, concentration c</tspan><tspan dy="3" font-size="8.5">i</tspan></text>
+            <line x1="340" y1="64" x2="340" y2="18" class="stroke-muted" stroke-width="2.4" stroke-dasharray="5 4" marker-end="url(#hd-a8k)"/>
+            <text x="352" y="30" class="t-small" style="font-weight:600">transpiration V<tspan dy="3" font-size="8.5">ET</tspan></text>
+            <text x="352" y="44" class="t-small t-muted">pure water — the salts stay behind</text>
+            <line x1="340" y1="172" x2="340" y2="222" stroke="var(--water)" stroke-width="3" marker-end="url(#hd-a8)"/>
+            <text x="352" y="208" class="t-small" style="font-weight:600">drain: V<tspan dy="3" font-size="8.5">d</tspan><tspan dy="-3">, concentration c</tspan><tspan dy="3" font-size="8.5">d</tspan><tspan dy="-3"> &gt; c</tspan><tspan dy="3" font-size="8.5">i</tspan></text>
+            <rect x="480" y="72" width="226" height="110" rx="9" class="fill-bg" stroke="currentColor" stroke-width="1"/>
+            <text x="492" y="94" class="t-small" style="font-weight:700">steady state</text>
+            <text x="492" y="114" class="t-small">salt:  V<tspan dy="3" font-size="8.5">i</tspan><tspan dy="-3"> c</tspan><tspan dy="3" font-size="8.5">i</tspan><tspan dy="-3"> = V</tspan><tspan dy="3" font-size="8.5">d</tspan><tspan dy="-3"> c</tspan><tspan dy="3" font-size="8.5">d</tspan></text>
+            <text x="492" y="134" class="t-small">water:  V<tspan dy="3" font-size="8.5">i</tspan><tspan dy="-3"> = V</tspan><tspan dy="3" font-size="8.5">ET</tspan><tspan dy="-3"> + V</tspan><tspan dy="3" font-size="8.5">d</tspan></text>
+            <text x="492" y="154" class="t-small">⇒ LF = V<tspan dy="3" font-size="8.5">d</tspan><tspan dy="-3">/V</tspan><tspan dy="3" font-size="8.5">i</tspan><tspan dy="-3"> = c</tspan><tspan dy="3" font-size="8.5">i</tspan><tspan dy="-3">/c</tspan><tspan dy="3" font-size="8.5">d</tspan></text>
+            <text x="492" y="174" class="t-small">⇒ V<tspan dy="3" font-size="8.5">i</tspan><tspan dy="-3"> = V</tspan><tspan dy="3" font-size="8.5">ET</tspan><tspan dy="-3"> / (1 − LF)</tspan></text>
+            <text x="20" y="232" class="t-small t-muted">for salts the crop does not take up</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 8.</b> The steady-state salt balance of a root zone. Because transpiration removes water but no salt, whatever salt arrives must leave with the drain, which is therefore more concentrated than the supply by the factor 1/LF (after Ayers &amp; Westcot, 1985).</figcaption>
+      </figure>
+
+      <div class="eq-box" id="eq-hd-salt">
+        <div class="eq-head"><span class="eq-label">Salt balance, leaching fraction and the water account</span><span class="eq-num">(5.4.10)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{LF} = \frac{V_d}{V_i} = \frac{c_i}{c_d} \;\;\big(=\tfrac{\text{EC}_i}{\text{EC}_d}\ \text{for non-absorbed salts}\big), \qquad V_i = \frac{V_{ET}}{1-\text{LF}} \\[6pt] \text{WU} = \frac{V_{\text{in}}}{Y}, \qquad V_{\text{in}} = V_{T} + V_{P} + V_{D} + V_{R} + V_{L} \end{gathered} \]</div>
+        <p class="eq-read">at steady state the leaching (drain) fraction — the drained volume over the applied volume — equals the concentration of a non-absorbed salt in the irrigation water divided by its concentration in the drain; the water applied equals the crop's water use divided by one minus the leaching fraction. Water use per kilogram is the total water input divided by the yield, and the input is the sum of everything that leaves: transpired, contained in the product, drained or bled, discarded and lost.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>LF</td><td>leaching fraction (in substrate culture the drain fraction, DF)</td><td>–</td><td>0.1–0.4 open substrate systems</td></tr>
+          <tr><td>\(V_i,\ V_d,\ V_{ET}\)</td><td>water applied, drained, and used by the crop (per m² and day, or per crop)</td><td>L m⁻² d⁻¹ or L</td><td>–</td></tr>
+          <tr><td>\(c_i,\ c_d\)</td><td>concentration of a salt the crop does not take up, in supply and drain</td><td>mmol L⁻¹ (or EC, dS m⁻¹)</td><td>Na⁺ 0.1 (rain) … 3 (brackish well)</td></tr>
+          <tr><td>WU</td><td>water use per unit of marketable yield</td><td>L kg⁻¹</td><td>11–20 Kratky lettuce (Kratky, 2009); ≈ 20 NFT greenhouse (Barbosa et al., 2015)</td></tr>
+          <tr><td>\(V_T,\ V_P\)</td><td>transpired water; water inside the harvested product (lettuce is about 95 % water)</td><td>L</td><td>–</td></tr>
+          <tr><td>\(V_D,\ V_R,\ V_L\)</td><td>drain or bleed discharged; solution discarded at the end; leaks and spills</td><td>L</td><td>–</td></tr>
+          <tr><td>\(Y\)</td><td>marketable fresh-weight yield</td><td>kg</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Salt balance</strong> of the root zone over a period long enough that its salt content does not change: salt in = salt out. Salt enters only with the irrigation, \(V_ic_i\), and leaves only with the drain, \(V_dc_d\) (transpiration carries none; the crop takes up none of this salt; nothing precipitates).</li>
+            <li><strong>Therefore</strong> \(V_ic_i = V_dc_d\), and \(\text{LF} = V_d/V_i = c_i/c_d\): the drain is concentrated by the factor 1/LF.</li>
+            <li><strong>Water balance:</strong> \(V_i = V_{ET} + V_d = V_{ET} + \text{LF}\,V_i\), so \(V_i = V_{ET}/(1-\text{LF})\).</li>
+            <li><strong>Design:</strong> to keep the root-zone (drain) concentration at or below a limit \(c_{d,\max}\), the leaching fraction must be at least \(c_i/c_{d,\max}\). For field irrigation, where most salts are not absorbed, FAO expresses the same idea with EC and a crop's salinity tolerance: the leaching requirement \(\text{LR} = \text{EC}_w/(5\,\text{EC}_e-\text{EC}_w)\) and the applied water \(\text{ET}/(1-\text{LR})\) (Ayers &amp; Westcot, 1985).</li>
+            <li><strong>Hydroponic twist.</strong> In a nutrient solution most of the EC <em>is</em> taken up, so apply the balance to a conservative ion — Na⁺ or Cl⁻. In a closed system the drain is reused and only a bleed leaves: the bleed fraction plays the role of LF, which is exactly Eq. 5.2.9 (\(c_{ss} = c_w/b\)) of <a href="/lessons/nutrient-solution-chemistry/#recirculation">Lesson 5.2</a>.</li>
+            <li><strong>Water account.</strong> Conservation of water over a crop cycle (storage change zero): input = sum of all outputs, and WU = input/yield — the definition of Eq. 5.1.7 in <a href="/lessons/soilless-systems/#comparison">Lesson 5.1</a>, now with every term named so that none is forgotten.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Steady state (constant root-zone salt content), no uptake or precipitation of the tracer salt, perfect mixing. Real crops take up some Na⁺ and Cl⁻ (the true requirement is then a little lower), and gypsum or calcium phosphate can precipitate in slabs, removing salt without drainage. In practice, Dutch and Scandinavian growers monitor drain EC and Na⁺ and adjust the drain or bleed accordingly (Sonneveld &amp; Voogt, 2009).</p></details>
+        <div class="eq-units">LF: (L/L) = (mmol L⁻¹)/(mmol L⁻¹), dimensionless ✓; \(V_{ET}/(1-\text{LF})\): L ✓; WU: L ÷ kg = L kg⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="Vet/(1-ci/cd)" data-output="Water to supply V<sub>i</sub>" data-unit="L m⁻² d⁻¹" data-digits="2" data-plot="ci" data-ymin="0">
+          <div data-var="ci" data-label="Na⁺ in supply c<sub>i</sub>" data-min="0.05" data-max="4" data-step="0.05" data-value="1.5" data-unit="mmol L⁻¹"></div>
+          <div data-var="cd" data-label="Highest acceptable Na⁺ in drain c<sub>d</sub>" data-min="4.5" data-max="15" data-step="0.5" data-value="6" data-unit="mmol L⁻¹"></div>
+          <div data-var="Vet" data-label="Crop water use V<sub>ET</sub>" data-min="0.5" data-max="6" data-step="0.1" data-value="3.2" data-unit="L m⁻² d⁻¹"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 8</span><span class="we-title">How much must drain — and what better water is worth</span></div>
+        <div class="we-problem"><p>A tomato grower on stone wool uses well water and fertilisers that together bring 1.5 mmol L⁻¹ of Na⁺ into the supply solution. Suppose the grower wants to keep Na⁺ in the root zone (measured in the drain) at or below 6 mmol L⁻¹. The crop uses 3.2 L m⁻² d⁻¹. (a) What leaching fraction and supply are needed in an open system? (b) How much water and sodium leave per hectare per day? (c) What changes with rain water containing 0.1 mmol L⁻¹ Na⁺?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>(a) Leaching fraction</strong> (Eq. 5.4.10): LF ≥ 1.5/6 = 0.25. Supply \(V_i = 3.2/(1-0.25) = 4.27\) L m⁻² d⁻¹, of which 1.07 L m⁻² d⁻¹ drains.</li>
+              <li><strong>(b) Per hectare</strong> (10 000 m²): drain 10.7 m³ d⁻¹, carrying \(10\,700\ \text{L}\times6\ \text{mmol L}^{-1} = 64\) mol Na⁺ = 1.5 kg of sodium — and all the nutrients dissolved in that drain (<a href="/lessons/soilless-systems/#open-closed">Lesson 5.1</a>, Worked example 3).</li>
+              <li><strong>(c) Rain water:</strong> LF ≥ 0.1/6 = 0.017 — the drain could shrink to about 2 % of the supply, or the system could be closed with a tiny bleed. This is why greenhouse regions collect rain water from roofs and why reverse osmosis is common where only saline water is available.</li>
+            </ol>
+            <span class="answer">(a) LF ≥ 0.25; supply 4.27 L m⁻² d⁻¹; (b) ≈ 10.7 m³ ha⁻¹ d⁻¹ drained; (c) LF ≥ 0.017 with rain water</span>
+          </div>
+        </details>
+      </div>
+
+      <p>The water account is where the whole lesson comes together. Figure 9 builds it for three versions of the project: an open drip system, a closed system with a bleed, and a Kratky tank. Note which flows dominate. Transpiration is the productive use of water; everything else — drain, bleed, discarded solution, leaks — is avoidable, and it is where engineering pays off. Even the product itself contains water: a lettuce is about 95 % water, so a 200 g head carries 0.19 L out of the system.</p>
+
+      <figure class="figure" id="water-account">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the water account of a crop cycle</div>
+          <div class="seg" id="wa-sys" role="group" aria-label="System type" style="margin-bottom:10px">
+            <button type="button" data-v="open" aria-pressed="true">Open drip (drain to waste)</button>
+            <button type="button" data-v="closed">Closed with bleed</button>
+            <button type="button" data-v="kratky">Kratky tank</button>
+          </div>
+          <div class="ffp-ctl-grid">
+            <div class="mc-var"><div class="mc-lab"><span>Plants</span><output id="wa-n-out"></output></div><input id="wa-n" type="range" min="6" max="60" step="1" value="24" aria-label="Number of plants"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Water transpired per plant</span><output id="wa-wp-out"></output></div><input id="wa-wp" type="range" min="1" max="8" step="0.1" value="4" aria-label="Water transpired per plant"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Head mass at harvest</span><output id="wa-m-out"></output></div><input id="wa-m" type="range" min="100" max="400" step="5" value="200" aria-label="Head mass"></div>
+            <div class="mc-var" id="wa-df-box"><div class="mc-lab"><span>Drain fraction</span><output id="wa-df-out"></output></div><input id="wa-df" type="range" min="5" max="50" step="1" value="30" aria-label="Drain fraction"></div>
+            <div class="mc-var" id="wa-b-box"><div class="mc-lab"><span>Bleed (share of input)</span><output id="wa-b-out"></output></div><input id="wa-b" type="range" min="0" max="30" step="1" value="5" aria-label="Bleed fraction"></div>
+            <div class="mc-var" id="wa-r-box"><div class="mc-lab"><span>Solution discarded at the end</span><output id="wa-r-out"></output></div><input id="wa-r" type="range" min="0" max="60" step="1" value="12" aria-label="Solution discarded at the end"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Leaks and spills</span><output id="wa-lk-out"></output></div><input id="wa-lk" type="range" min="0" max="10" step="0.5" value="2" aria-label="Leaks and spills"></div>
+          </div>
+          <div id="wa-sankey" style="height:300px"></div>
+          <div class="readouts" id="wa-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 9.</b> A closed-loop water account (Eq. 5.4.10) for one crop cycle, in litres. Transpiration per plant is an input you should replace with your own measurement (Kratky, 2009, reports 3–6 L per lettuce head in Hawaii); lettuce heads are taken as 95 % water. For comparison: Kratky (2009) reports water use below 20 L kg⁻¹ as common for his non-circulating method, and Barbosa et al. (2015) modelled about 20 L kg⁻¹ for hydroponic greenhouse lettuce against about 250 L kg⁻¹ for field lettuce in Arizona.</figcaption>
+      </figure>
+
+      <h2 id="project">Commissioning the hydraulics of your project system</h2>
+      <p>Engineers do not assume a system works; they <strong>commission</strong> it — test every function with water before the crop depends on it, and record the results. For the course project this takes an afternoon and gives you some of the most useful numbers in your report. Table 3 is a commissioning checklist; run it with plain water a few days before transplanting.</p>
+
+      <table>
+        <caption>Table 3. Commissioning checklist for NFT, DWC and Kratky project systems.</caption>
+        <thead><tr><th>Check</th><th>How</th><th>Pass criterion / use in the report</th></tr></thead>
+        <tbody>
+          <tr><td>Channel slope and straightness</td><td>spirit level and ruler: a 1:50 slope drops 2 cm per metre; sight along the channel for sags</td><td>no ponding; record the slope for Eq. 5.4.2</td></tr>
+          <tr><td>Flow per channel</td><td>time how long a measuring jug takes to fill at each channel outlet</td><td>≈ 1 L min⁻¹ each, within 10 % of each other; adjust the valves</td></tr>
+          <tr><td>Film depth</td><td>ruler or calliper at the channel end (empty channel)</td><td>compare with Eq. 5.4.2 — a good validation plot</td></tr>
+          <tr><td>Drain-back</td><td>switch the pump off, watch the reservoir level</td><td>reservoir must not overflow; note the rise in litres</td></tr>
+          <tr><td>Leaks</td><td>run 24 h with water; paper towel under joints</td><td>dry joints; level loss ≈ evaporation only</td></tr>
+          <tr><td>Level marks</td><td>mark litres on the reservoir (add known volumes)</td><td>daily water-use log → transpiration, WU (Eq. 5.4.10)</td></tr>
+          <tr><td>Energy</td><td>plug-in energy meter on the pump and air pump</td><td>kWh per crop → energy per kg (<a href="/lessons/resource-use-efficiency/">Lesson 8.4</a>)</td></tr>
+          <tr><td>Temperature rise</td><td>log tank temperature for a day with the pump running</td><td>ΔT from Eq. 5.3.8; decide whether the pump belongs outside</td></tr>
+          <tr><td>Failure plan</td><td>simulate: pump off for 30 min in NFT</td><td>how fast do channels drain? who checks, and when? (Eq. 5.1.8)</td></tr>
+        </tbody>
+      </table>
+
+      <a class="lab-link" data-lab="nft-system" data-why="Tilt and feed a 3D NFT gutter of lettuce: tune slope, flow and channel length and watch the film depth, residence time and oxygen and nutrient depletion predicted by Eqs. 5.4.2–5.4.3."></a>
+
+      <div class="callout danger"><div class="callout-title">Safety</div><p>Mains-powered pumps sit in water: use a residual-current device (RCD), give every cable a drip loop below the socket, and never reach into a tank with the pump plugged in. Keep floors dry — drain-back and leaks make them slippery — and secure reservoirs and channels so that a full tank cannot tip.</p></div>
+
+      <div class="callout key"><div class="callout-title">Key idea</div><p>Hydraulic design is a chain of mass and energy balances. <strong>Mass:</strong> the flow must carry what the plants remove (Eq. 5.4.1), a film has a predictable depth (Eq. 5.4.2), concentrations change predictably along a channel (Eq. 5.4.3), and salts leave only with liquid water (Eq. 5.4.10). <strong>Energy:</strong> the pump must supply lift plus losses (Eqs. 5.4.4–5.4.6) at an operating point it cannot choose (Eq. 5.4.7). Get these right and a hydroponic system is quiet, cheap and forgiving.</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="hydraulic-design-main">
+        <script type="application/json">
+        {"title":"Hydraulic design and water management","questions":[
+          {"type":"numeric","q":"An NFT channel with a flat floor 10 cm wide and a slope of 1:40 carries 1.5 L min⁻¹ of solution at 20 °C (μ = 1.00 × 10⁻³ Pa s, ρ = 998 kg m⁻³). What is the film thickness in mm?","answer":1.453,"tol":0.03,"unit":"mm","hint":"\\(h = (3\\mu q/(\\rho g\\sin\\theta))^{1/3}\\) with \\(q = Q/W\\) in m² s⁻¹ and \\(\\sin\\theta\\approx1/40\\).","explain":"<p>\\(q = 2.5\\times10^{-5}/0.10 = 2.5\\times10^{-4}\\) m² s⁻¹; \\(h = (3\\times10^{-3}\\times2.5\\times10^{-4}/(998\\times9.81\\times0.025))^{1/3} = (3.06\\times10^{-9})^{1/3} = 1.45\\) mm.</p>"},
+          {"type":"mcq","q":"You double the flow in an NFT channel. By how much does the laminar film get deeper?","options":["It doubles.","It increases by about 41 % (square root of 2).","It increases by about 26 % (cube root of 2).","It does not change; only the velocity increases."],"answer":2,"feedback":["Depth depends on the cube root of the flow per width.","That would be a square-root law; the film equation has an exponent of 1/3.","","Both depth and velocity increase: depth with \\(Q^{1/3}\\), velocity with \\(Q^{2/3}\\)."],"explain":"<p>\\(h\\propto q^{1/3}\\): \\(2^{1/3} = 1.26\\). The mean velocity rises by \\(2^{2/3} = 1.59\\).</p>"},
+          {"type":"numeric","q":"A 2.5 m channel, 10 cm wide, carries a film 1.5 mm deep at 1.2 L min⁻¹. How long does the solution take to pass through the channel (residence time, in seconds)?","answer":18.75,"tol":0.02,"unit":"s","hint":"\\(t = LWh/Q\\): film volume divided by flow.","explain":"<p>Film volume = 2.5 × 0.10 × 0.0015 = 3.75 × 10⁻⁴ m³; Q = 2.0 × 10⁻⁵ m³ s⁻¹; t = 18.75 s (mean velocity 0.133 m s⁻¹).</p>"},
+          {"type":"numeric","q":"Fifteen lettuces in one channel each consume 6 mg O₂ h⁻¹. The solution enters at 8.2 mg L⁻¹ and must not fall below 4 mg L⁻¹ at the outlet. Ignoring re-aeration, what is the minimum flow in L h⁻¹?","answer":21.43,"tol":0.02,"unit":"L h⁻¹","hint":"\\(Q_{\\min} = N_pr/(C_{\\text{in}}-C_{\\min})\\).","explain":"<p>\\(Q_{\\min} = 15\\times6/(8.2-4) = 90/4.2 = 21.4\\) L h⁻¹ ≈ 0.36 L min⁻¹ — well below the practical 1 L min⁻¹.</p>"},
+          {"type":"numeric","q":"With a Darcy friction factor of 0.030, what is the friction loss in 5.0 m of 13 mm tube when the mean velocity is 0.50 m s⁻¹? (g = 9.81 m s⁻²)","answer":0.147,"tol":0.02,"unit":"m","hint":"\\(h_f = f(L/D)v^2/2g\\).","explain":"<p>\\(h_f = 0.030\\times(5.0/0.013)\\times0.25/19.62 = 0.030\\times384.6\\times0.01274 = 0.147\\) m.</p>"},
+          {"type":"numeric","q":"Use the Swamee–Jain equation to calculate the Darcy friction factor for Re = 10 000 and relative roughness ε/D = 1.0 × 10⁻⁴.","answer":0.03115,"tol":0.02,"unit":"","hint":"\\(f = 0.25/[\\log_{10}(\\varepsilon/(3.7D) + 5.74/Re^{0.9})]^2\\).","explain":"<p>\\(\\varepsilon/(3.7D) = 2.70\\times10^{-5}\\); \\(5.74/10\\,000^{0.9} = 5.74/3981 = 1.442\\times10^{-3}\\); sum \\(1.469\\times10^{-3}\\); log₁₀ = −2.833; f = 0.25/8.026 = 0.0311.</p>"},
+          {"type":"numeric","q":"A pump delivers 600 L h⁻¹ against a total head of 1.5 m with a wire-to-water efficiency of 10 %. What electrical power does it draw?","answer":24.52,"tol":0.02,"unit":"W","hint":"\\(P_{\\text{el}} = \\rho gQH/\\eta\\) with Q in m³ s⁻¹.","explain":"<p>\\(P_h = 1000\\times9.81\\times(600/3.6\\times10^6)\\times1.5 = 2.45\\) W; \\(P_{\\text{el}} = 2.45/0.10 = 24.5\\) W. Small pumps are inefficient.</p>"},
+          {"type":"mcq","q":"What determines the flow a centrifugal pump actually delivers in your system?","options":["The maximum flow printed on the pump box.","The intersection of the pump curve with the system curve.","The rated electrical power of the pump.","The volume of the reservoir."],"answer":1,"feedback":["The maximum flow is delivered only at zero head, i.e. with no lift and no losses.","","Power alone does not tell you the head–flow relation of the pump or of your pipework.","The reservoir volume affects buffering, not the flow the pump delivers."],"explain":"<p>The pump settles at the operating point where the head it produces equals the static lift plus the losses of the system (Eqs. 5.4.4–5.4.7).</p>"},
+          {"type":"numeric","q":"Orifice-type drippers have an emitter exponent x = 0.5. At the far end of a lateral the pressure is 20 % lower than at the inlet. By how many per cent is the far dripper's flow lower?","answer":10.56,"abstol":0.2,"unit":"%","hint":"\\(q_2/q_1 = (H_2/H_1)^x\\).","explain":"<p>\\(0.8^{0.5} = 0.894\\): 10.6 % less. A pressure-compensating dripper (x ≈ 0) would lose almost nothing.</p>"},
+          {"type":"numeric","q":"Supply water brings 1.5 mmol L⁻¹ Na⁺, which the crop does not take up. The drain must stay at or below 6 mmol L⁻¹ Na⁺. The crop uses 3.2 L m⁻² d⁻¹. How much must be supplied per square metre per day at steady state?","answer":4.267,"tol":0.02,"unit":"L m⁻² d⁻¹","hint":"LF = c_i/c_d, then \\(V_i = V_{ET}/(1-\\text{LF})\\).","explain":"<p>LF = 1.5/6 = 0.25; \\(V_i = 3.2/0.75 = 4.27\\) L m⁻² d⁻¹, of which 1.07 L drains.</p>"},
+          {"type":"numeric","q":"A group's closed system received 110 L of water over a crop cycle and produced 24 heads of 200 g. What was its water use in L kg⁻¹?","answer":22.92,"tol":0.02,"unit":"L kg⁻¹","explain":"<p>Yield 24 × 0.2 = 4.8 kg; 110/4.8 = 22.9 L kg⁻¹ — similar to published hydroponic values (Kratky, 2009; Barbosa et al., 2015).</p>"},
+          {"type":"tf","q":"For the small plastic tubes of a project system at Reynolds numbers of a few thousand, Hazen–Williams is more accurate than Darcy–Weisbach.","answer":false,"explain":"<p>Hazen–Williams is empirical and fitted to larger pipes in fully turbulent water flow; in Worked example 4 it underestimated friction in a 13 mm tube by about a fifth. Darcy–Weisbach with Swamee–Jain (or 64/Re in laminar flow) is physically based and valid for any size.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Falling (Nusselt) film</dt><dd>Laminar liquid film flowing down an inclined surface; depth \(h = (3\mu q/(\rho g\sin\theta))^{1/3}\).</dd>
+        <dt>Film Reynolds number</dt><dd>\(4q/\nu\): smooth laminar below about 20, rippled laminar up to about 1500, turbulent above.</dd>
+        <dt>Residence time</dt><dd>Time the solution spends in a channel, length over mean velocity (film volume over flow).</dd>
+        <dt>Head</dt><dd>Energy per unit weight of liquid expressed as a height in metres (1 m = 9.81 J kg⁻¹).</dd>
+        <dt>Total dynamic head</dt><dd>Head a pump must supply: static lift plus pressure and velocity head changes plus friction and minor losses.</dd>
+        <dt>Darcy friction factor</dt><dd>Dimensionless wall shear in pipe flow; 64/Re in laminar flow, from Colebrook or Swamee–Jain in turbulent flow.</dd>
+        <dt>Minor loss coefficient (K)</dt><dd>Loss of a fitting in multiples of the velocity head, \(h_m = K v^2/2g\).</dd>
+        <dt>Hazen–Williams formula</dt><dd>Empirical pipe-friction formula for water with roughness coefficient C; reliable for larger pipes in turbulent flow.</dd>
+        <dt>Pump curve and system curve</dt><dd>Head a pump produces versus flow; head a pipe system requires versus flow.</dd>
+        <dt>Operating point</dt><dd>Flow and head at which the pump curve meets the system curve.</dd>
+        <dt>Wire-to-water efficiency</dt><dd>Hydraulic power delivered to the water divided by electrical power drawn.</dd>
+        <dt>Emitter exponent</dt><dd>Exponent \(x\) in \(q = kH^x\): about 1 laminar, 0.5 orifice, near 0 pressure-compensating.</dd>
+        <dt>Christiansen uniformity coefficient</dt><dd>100 × (1 − mean absolute deviation / mean) of measured emitter or channel flows.</dd>
+        <dt>Leaching fraction</dt><dd>Fraction of applied water that drains; at steady state equal to \(c_i/c_d\) for salts the crop does not take up.</dd>
+        <dt>Water use (L kg⁻¹)</dt><dd>Total water input of a crop divided by its marketable yield; transpiration, product water, drain, discards and leaks.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can calculate the minimum flow a channel needs and explain why practical NFT flows are larger.</li>
+        <li>I can derive the falling-film equation and predict film depth, velocity and residence time from slope and flow.</li>
+        <li>I can predict oxygen depletion along a channel and choose a channel length or flow that keeps the last plant supplied.</li>
+        <li>I can compute friction and fitting losses, draw a pump and system curve, and find the operating point and energy use.</li>
+        <li>I can measure the uniformity of my system and size a reservoir with room for drain-back and buffering.</li>
+        <li>I can apply the salt balance and build a complete water account to calculate water use per kilogram.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Ayers, R. S., &amp; Westcot, D. W. (1985). <em>Water quality for agriculture</em> (FAO Irrigation and Drainage Paper 29, Rev. 1). FAO, Rome. <a href="https://www.fao.org/4/t0234e/t0234e00.htm" target="_blank" rel="noopener">fao.org/4/t0234e</a><span class="r-why">Read chapter 2 on salinity: the leaching requirement and the salt balance that underlie Eq. 5.4.10, from the classic FAO guide.</span></li>
+        <li><span class="r-type">Required</span>Graves, C. J. (1983). The nutrient film technique. <em>Horticultural Reviews</em>, 5, 1–44. <a href="https://doi.org/10.1002/9781118060728.ch1" target="_blank" rel="noopener">doi:10.1002/9781118060728.ch1</a><span class="r-why">The classic engineering review of NFT: channel slopes, flows, lengths and why they matter.</span></li>
+        <li><span class="r-type">Recommended</span>Çengel, Y. A., &amp; Cimbala, J. M. (2018). <em>Fluid Mechanics: Fundamentals and Applications</em> (4th ed.). McGraw-Hill Education. Chapters 8 (internal flow) and 14 (turbomachinery).<span class="r-why">Pipe friction, minor losses, pump curves and the affinity laws, with many worked problems.</span></li>
+        <li><span class="r-type">Recommended</span>Bird, R. B., Stewart, W. E., &amp; Lightfoot, E. N. (2002). <em>Transport Phenomena</em> (2nd ed.). Wiley. Section 2.2, "Flow of a falling film".<span class="r-why">The textbook derivation of Eq. 5.4.2, including the flow regimes of films.</span></li>
+        <li><span class="r-type">Recommended</span>Burt, C. M., Clemmens, A. J., Strelkoff, T. S., Solomon, K. H., Bliesner, R. D., Hardy, L. A., Howell, T. A., &amp; Eisenhauer, D. E. (1997). Irrigation performance measures: efficiency and uniformity. <em>Journal of Irrigation and Drainage Engineering</em>, 123(6), 423–442. <a href="https://doi.org/10.1061/(ASCE)0733-9437(1997)123:6(423)" target="_blank" rel="noopener">doi:10.1061/(ASCE)0733-9437(1997)123:6(423)</a><span class="r-why">Precise definitions of the efficiency and uniformity indices used in irrigation engineering.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Ayers, R. S., &amp; Westcot, D. W. (1985). <em>Water quality for agriculture</em> (FAO Irrigation and Drainage Paper 29, Rev. 1). Food and Agriculture Organization of the United Nations, Rome. <a href="https://www.fao.org/4/t0234e/t0234e00.htm" target="_blank" rel="noopener">fao.org/4/t0234e</a></li>
+        <li>Barbosa, G. L., Gadelha, F. D. A., Kublik, N., Proctor, A., Reichelm, L., Weissinger, E., Wohlleb, G. M., &amp; Halden, R. U. (2015). Comparison of land, water, and energy requirements of lettuce grown using hydroponic vs. conventional agricultural methods. <em>International Journal of Environmental Research and Public Health</em>, 12(6), 6879–6891. <a href="https://doi.org/10.3390/ijerph120606879" target="_blank" rel="noopener">doi:10.3390/ijerph120606879</a></li>
+        <li>Bird, R. B., Stewart, W. E., &amp; Lightfoot, E. N. (2002). <em>Transport Phenomena</em> (2nd ed.). John Wiley &amp; Sons, New York.</li>
+        <li>Burt, C. M., Clemmens, A. J., Strelkoff, T. S., Solomon, K. H., Bliesner, R. D., Hardy, L. A., Howell, T. A., &amp; Eisenhauer, D. E. (1997). Irrigation performance measures: efficiency and uniformity. <em>Journal of Irrigation and Drainage Engineering</em>, 123(6), 423–442. <a href="https://doi.org/10.1061/(ASCE)0733-9437(1997)123:6(423)" target="_blank" rel="noopener">doi:10.1061/(ASCE)0733-9437(1997)123:6(423)</a></li>
+        <li>Çengel, Y. A., &amp; Cimbala, J. M. (2018). <em>Fluid Mechanics: Fundamentals and Applications</em> (4th ed.). McGraw-Hill Education, New York.</li>
+        <li>Christiansen, J. E. (1942). <em>Irrigation by sprinkling</em> (Bulletin 670). California Agricultural Experiment Station, University of California, Berkeley.</li>
+        <li>Colebrook, C. F. (1939). Turbulent flow in pipes, with particular reference to the transition region between the smooth and rough pipe laws. <em>Journal of the Institution of Civil Engineers</em>, 11(4), 133–156. <a href="https://doi.org/10.1680/ijoti.1939.13150" target="_blank" rel="noopener">doi:10.1680/ijoti.1939.13150</a></li>
+        <li>Cooper, A. J. (1979). <em>The ABC of NFT: Nutrient Film Technique</em>. Grower Books, London.</li>
+        <li>Graves, C. J. (1983). The nutrient film technique. <em>Horticultural Reviews</em>, 5, 1–44. <a href="https://doi.org/10.1002/9781118060728.ch1" target="_blank" rel="noopener">doi:10.1002/9781118060728.ch1</a></li>
+        <li>Higbie, R. (1935). The rate of absorption of a pure gas into a still liquid during short periods of exposure. <em>Transactions of the American Institute of Chemical Engineers</em>, 31, 365–389.</li>
+        <li>Jones, J. B., Jr. (2014). <em>Complete Guide for Growing Plants Hydroponically</em>. CRC Press, Boca Raton.</li>
+        <li>Keller, J., &amp; Karmeli, D. (1974). Trickle irrigation design parameters. <em>Transactions of the ASAE</em>, 17(4), 678–684. <a href="https://doi.org/10.13031/2013.36936" target="_blank" rel="noopener">doi:10.13031/2013.36936</a></li>
+        <li>Kratky, B. A. (2009). Three non-circulating hydroponic methods for growing lettuce. <em>Acta Horticulturae</em>, 843, 65–72. <a href="https://doi.org/10.17660/ActaHortic.2009.843.6" target="_blank" rel="noopener">doi:10.17660/ActaHortic.2009.843.6</a></li>
+        <li>Moody, L. F. (1944). Friction factors for pipe flow. <em>Transactions of the American Society of Mechanical Engineers</em>, 66(8), 671–684.</li>
+        <li>Nusselt, W. (1916). Die Oberflächenkondensation des Wasserdampfes. <em>Zeitschrift des Vereines Deutscher Ingenieure</em>, 60, 541–546 and 569–575.</li>
+        <li>Resh, H. M. (2022). <em>Hydroponic Food Production: A Definitive Guidebook for the Advanced Home Gardener and the Commercial Hydroponic Grower</em> (8th ed.). CRC Press, Boca Raton.</li>
+        <li>Sonneveld, C., &amp; Voogt, W. (2009). <em>Plant Nutrition of Greenhouse Crops</em>. Springer, Dordrecht. <a href="https://doi.org/10.1007/978-90-481-2532-6" target="_blank" rel="noopener">doi:10.1007/978-90-481-2532-6</a></li>
+        <li>Swamee, P. K., &amp; Jain, A. K. (1976). Explicit equations for pipe-flow problems. <em>Journal of the Hydraulics Division (ASCE)</em>, 102(5), 657–664. <a href="https://doi.org/10.1061/JYCEAJ.0004542" target="_blank" rel="noopener">doi:10.1061/JYCEAJ.0004542</a></li>
+        <li>Williams, G. S., &amp; Hazen, A. (1920). <em>Hydraulic Tables</em> (3rd ed.). John Wiley &amp; Sons, New York.</li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, Sankey, linspace } from '/assets/js/plot.js';
+import { doSaturation, q10 } from '/assets/js/physics.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+
+const $ = id => document.getElementById(id);
+function bindRange(id, fmtOut, cb) {
+  const r = $(id), o = $(id + '-out');
+  const upd = () => { r.style.setProperty('--fill', ((+r.value - +r.min) / (+r.max - +r.min) * 100) + '%'); if (o) o.textContent = fmtOut(+r.value); cb && cb(); };
+  r.addEventListener('input', upd); return upd;
+}
+const G = 9.81;
+const muW = T => 2.414e-5 * Math.pow(10, 247.8 / (T + 273.15 - 140));   // Pa s
+const RHO = 998;
+function sj(Re, eD) { return 0.25 / Math.pow(Math.log10(eD / 3.7 + 5.74 / Math.pow(Re, 0.9)), 2); }
+function fDarcy(Re, eD) { if (Re < 2000) return 64 / Math.max(Re, 1e-9); if (Re < 4000) { const fl = 64 / 2000, ft = sj(4000, eD); return fl + (ft - fl) * (Re - 2000) / 2000; } return sj(Re, eD); }
+
+/* ---------------- Figure 3: nutrient-film explorer ---------------- */
+const nOf = s => 20 * Math.pow(10, s);   // slider 0..1 -> slope 1:20 .. 1:200
+function film(Q, n, Wcm, T) {
+  const mu = muW(T), q = Q / 60000 / (Wcm / 100), sn = 1 / Math.sqrt(1 + n * n);
+  const h = Math.cbrt(3 * mu * q / (RHO * G * sn)); const u = q / h;
+  return { h, u, us: 1.5 * u, Re: 4 * q / (mu / RHO), q, sn, mu };
+}
+const fePlot = new Plot('#fe-plot', { x: { label: 'Channel flow', unit: 'L min⁻¹', min: 0, max: 4 }, y: { label: 'Film thickness h', unit: 'mm', min: 0 } });
+const feProf = new Plot('#fe-prof', { x: { label: 'Velocity u(y)', unit: 'cm s⁻¹', min: 0 }, y: { label: 'Height above floor y', unit: 'mm', min: 0 }, legend: false });
+const feRo = new Readouts('#fe-ro');
+feRo.add({ id: 'h', label: 'Film thickness h', unit: 'mm', digits: 2 })
+  .add({ id: 'u', label: 'Mean velocity ū', unit: 'cm s⁻¹', digits: 1 })
+  .add({ id: 'us', label: 'Surface velocity', unit: 'cm s⁻¹', digits: 1 })
+  .add({ id: 're', label: 'Film Reynolds number', unit: '', digits: 0, note: 'regime' })
+  .add({ id: 't', label: 'Residence time', unit: 's', digits: 1 })
+  .add({ id: 'v', label: 'Film volume (drain-back)', unit: 'mL', digits: 0 });
+const QS = linspace(0.1, 4, 80);
+function feUpdate() {
+  const Q = +$('fe-Q').value, n = nOf(+$('fe-n').value), W = +$('fe-W').value, L = +$('fe-L').value, T = +$('fe-T').value;
+  fePlot.line('s30', QS, QS.map(q => film(q, 30, W, T).h * 1000), { color: 'muted', width: 1.4, dash: [5, 4], label: 'slope 1:30' });
+  fePlot.line('s100', QS, QS.map(q => film(q, 100, W, T).h * 1000), { color: 'amber', width: 1.4, dash: [5, 4], label: 'slope 1:100' });
+  fePlot.line('cur', QS, QS.map(q => film(q, n, W, T).h * 1000), { color: 'water', width: 2.8, label: 'slope 1:' + Math.round(n) });
+  const r = film(Q, n, W, T);
+  fePlot.point('p', Q, r.h * 1000, { color: 'water', r: 5, guides: true });
+  const ys = linspace(0, r.h, 40), us = ys.map(y => (RHO * G * r.sn / r.mu) * (r.h * y - y * y / 2) * 100);
+  feProf.line('prof', us, ys.map(y => y * 1000), { color: 'water', width: 2.6, label: 'u(y)' });
+  feProf.custom('arrows', (ctx, pl, P) => { ctx.strokeStyle = P.water; ctx.fillStyle = P.water; ctx.lineWidth = 1.4; for (let k = 1; k <= 6; k++) { const y = r.h * k / 6.4, u = (RHO * G * r.sn / r.mu) * (r.h * y - y * y / 2) * 100; const x0 = pl.px(0), x1 = pl.px(u), yy = pl.py(y * 1000); if (x1 - x0 < 8) continue; ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x1 - 6, yy); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x1, yy); ctx.lineTo(x1 - 7, yy - 3.5); ctx.lineTo(x1 - 7, yy + 3.5); ctx.closePath(); ctx.fill(); } });
+  feProf.vline('mean', r.u * 100, { color: 'accent', dash: [5, 4], label: 'mean ū' });
+  feProf.hline('surf', r.h * 1000, { color: 'ink', dash: [2, 3], label: 'free surface' });
+  feProf.setAxis('x', { min: 0, max: Math.max(5, Math.ceil(r.us * 100 * 1.15)) });
+  feProf.setAxis('y', { min: 0, max: Math.max(1, r.h * 1000 * 1.25) });
+  feRo.set('h', r.h * 1000); feRo.set('u', r.u * 100); feRo.set('us', r.us * 100);
+  feRo.set('re', r.Re, r.Re < 1500 ? 'ok' : 'warn', r.Re < 20 ? 'smooth laminar' : r.Re < 1500 ? 'laminar with ripples' : 'turbulent');
+  feRo.set('t', L / r.u); feRo.set('v', r.h * (W / 100) * L * 1e6);
+}
+[['fe-Q', v => fmt(v, 2) + ' L min⁻¹'], ['fe-n', v => '1 : ' + Math.round(nOf(v))], ['fe-W', v => fmt(v, 1) + ' cm'], ['fe-L', v => fmt(v, 1) + ' m'], ['fe-T', v => fmt(v, 1) + ' °C']].forEach(([id, f]) => bindRange(id, f, feUpdate)());
+
+/* ---------------- Figure 5: oxygen and nitrogen along a channel ---------------- */
+const cpPlot = new Plot('#cp-plot', { x: { label: 'Distance from the inlet', unit: 'm', min: 0 }, y: { label: 'Dissolved oxygen', unit: 'mg L⁻¹', min: 0, max: 10 }, y2: { label: 'Nitrogen', unit: 'mg L⁻¹', min: 100, max: 160 } });
+const cpRo = new Readouts('#cp-ro');
+cpRo.add({ id: 'cin', label: 'Inlet DO', unit: 'mg L⁻¹', digits: 2 })
+  .add({ id: 'cout', label: 'Outlet DO (with re-aeration)', unit: 'mg L⁻¹', digits: 2 })
+  .add({ id: 'c0', label: 'Outlet DO (no re-aeration)', unit: 'mg L⁻¹', digits: 2 })
+  .add({ id: 'lmax', label: 'Longest channel with DO ≥ 4', unit: '', format: v => v === Infinity ? 'unlimited' : fmt(v, 1) + ' m' })
+  .add({ id: 'dn', label: 'N drop along the channel', unit: 'mg L⁻¹', digits: 1 })
+  .add({ id: 'np', label: 'Plants in the channel', unit: '', digits: 0 });
+function cpUpdate() {
+  const L = +$('cp-L').value, Qlm = +$('cp-Q').value, ppm = +$('cp-ppm').value, our20 = +$('cp-our').value, T = +$('cp-T').value, kl = +$('cp-kl').value, un = +$('cp-un').value;
+  const Cs = doSaturation(T), Cin = Cs - 0.7, our = q10(our20, 2, T, 20);
+  const Q = Qlm / 60000, rp = ppm * our / 1000 / 3600, KLW = kl * 1e-5 * 0.10;
+  const xs = linspace(0, L, 101);
+  const C = x => KLW > 0 ? Math.max(0, (Cs - rp / KLW) + (Cin - (Cs - rp / KLW)) * Math.exp(-x * KLW / Q)) : Math.max(0, Cin - rp * x / Q);
+  const C0 = x => Math.max(0, Cin - rp * x / Q);
+  const N = x => 150 - ppm * un * x / (Qlm * 60);
+  cpPlot.setAxis('x', { min: 0, max: L });
+  cpPlot.hline('crit', 4, { color: 'danger', dash: [6, 4] });
+  cpPlot.line('c0', xs, xs.map(C0), { color: 'muted', width: 1.6, dash: [5, 4], label: 'DO, no re-aeration' });
+  cpPlot.line('c', xs, xs.map(C), { color: 'water', width: 2.8, label: 'DO with surface re-aeration' });
+  cpPlot.line('n', xs, xs.map(N), { color: 'magenta', width: 2.2, label: 'nitrogen (right axis)', y2: true });
+  let lmax;
+  if (KLW > 0) { const Ceq = Cs - rp / KLW; lmax = Ceq >= 4 ? Infinity : (Cin <= 4 ? 0 : -(Q / KLW) * Math.log((4 - Ceq) / (Cin - Ceq))); }
+  else lmax = Cin <= 4 ? 0 : (Cin - 4) * Q / rp;
+  cpRo.set('cin', Cin); cpRo.set('cout', C(L), C(L) >= 4 ? 'ok' : C(L) >= 2 ? 'warn' : 'bad'); cpRo.set('c0', C0(L));
+  cpRo.set('lmax', lmax, lmax >= L ? 'ok' : 'bad'); cpRo.set('dn', 150 - N(L)); cpRo.set('np', Math.round(ppm * L));
+}
+[['cp-L', v => fmt(v, 1) + ' m'], ['cp-Q', v => fmt(v, 2) + ' L min⁻¹'], ['cp-ppm', v => fmt(v, 1)], ['cp-our', v => fmt(v, 1) + ' mg h⁻¹'], ['cp-T', v => fmt(v, 1) + ' °C'], ['cp-kl', v => fmt(v, 1) + ' × 10⁻⁵ m s⁻¹'], ['cp-un', v => fmt(v, 2) + ' mg h⁻¹']].forEach(([id, f]) => bindRange(id, f, cpUpdate)());
+
+/* ---------------- Figure 6: pump curve and system curve ---------------- */
+const PUMPS = { mini: { H0: 1.2, Qmax: 600, P: 6 }, small: { H0: 2.0, Qmax: 1200, P: 20 }, med: { H0: 3.0, Qmax: 2500, P: 45 } };
+let pump = 'small';
+const ppPlot = new Plot('#pp-plot', { x: { label: 'Flow', unit: 'L h⁻¹', min: 0 }, y: { label: 'Head', unit: 'm', min: 0 } });
+const ppRo = new Readouts('#pp-ro');
+ppRo.add({ id: 'q', label: 'Operating flow', unit: 'L min⁻¹', digits: 2 })
+  .add({ id: 'qc', label: 'Flow per channel', unit: 'L min⁻¹', digits: 2, note: 'target ≈ 1 (0.5–2)' })
+  .add({ id: 'h', label: 'Operating head', unit: 'm', digits: 2 })
+  .add({ id: 'v', label: 'Pipe velocity', unit: 'm s⁻¹', digits: 2 })
+  .add({ id: 're', label: 'Reynolds number', unit: '', digits: 0, note: 'regime' })
+  .add({ id: 'ph', label: 'Hydraulic power', unit: 'W', digits: 2 })
+  .add({ id: 'eta', label: 'Wire-to-water efficiency', unit: '%', digits: 1 })
+  .add({ id: 'e', label: 'Energy per 30 days', unit: 'kWh', digits: 1 })
+  .add({ id: 'heat', label: 'Heat into the reservoir', unit: 'W', digits: 0 });
+function hSys(Qlh, p) {
+  const Q = Qlh / 3.6e6, D = p.D / 1000, A = Math.PI * D * D / 4, v = Q / A;
+  if (Q <= 0) return { H: p.dz, v: 0, Re: 0 };
+  const Re = v * D / (muW(20) / RHO), f = fDarcy(Re, 0.0015 / p.D);
+  return { H: p.dz + (f * p.L / D + p.K) * v * v / (2 * G), v, Re };
+}
+function ppUpdate() {
+  const pm = PUMPS[pump], p = { D: +$('pp-D').value, L: +$('pp-L').value, dz: +$('pp-dz').value, K: +$('pp-K').value, n: +$('pp-n').value };
+  const Qs = linspace(0, pm.Qmax, 121);
+  ppPlot.setAxis('x', { min: 0, max: pm.Qmax }); ppPlot.setAxis('y', { min: 0, max: Math.max(pm.H0 * 1.25, p.dz + 0.5) });
+  ppPlot.hline('dz', p.dz, { color: 'muted', dash: [4, 4], label: 'static lift' });
+  ppPlot.line('pump', Qs, Qs.map(q => pm.H0 * (1 - (q / pm.Qmax) ** 2)), { color: 'accent', width: 2.8, label: 'pump curve' });
+  ppPlot.line('sys', Qs, Qs.map(q => hSys(q, p).H), { color: 'water', width: 2.8, label: 'system curve' });
+  let lo = 0, hi = pm.Qmax;
+  if (p.dz >= pm.H0) { lo = hi = 0; } else { for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (pm.H0 * (1 - (m / pm.Qmax) ** 2) > hSys(m, p).H) lo = m; else hi = m; } }
+  const Qop = (lo + hi) / 2, s = hSys(Qop, p), Hop = Qop > 0 ? s.H : pm.H0;
+  if (Qop > 0) ppPlot.point('op', Qop, Hop, { color: 'magenta', r: 6, guides: true, label: 'operating point' }); else ppPlot.remove('op');
+  const Ph = RHO * G * Qop / 3.6e6 * Hop, qc = Qop / 60 / p.n;
+  ppRo.set('q', Qop / 60, Qop > 0 ? 'ok' : 'bad');
+  ppRo.set('qc', qc, qc >= 0.8 && qc <= 2 ? 'ok' : qc >= 0.5 && qc <= 3 ? 'warn' : 'bad');
+  ppRo.set('h', Hop);
+  ppRo.set('v', Qop > 0 ? s.v : NaN); ppRo.set('re', Qop > 0 ? s.Re : NaN, s.Re < 2000 ? null : s.Re < 4000 ? 'warn' : null, s.Re < 2000 ? 'laminar' : s.Re < 4000 ? 'transitional' : 'turbulent');
+  ppRo.set('ph', Ph); ppRo.set('eta', 100 * Ph / pm.P); ppRo.set('e', pm.P * 24 * 30 / 1000); ppRo.set('heat', pm.P);
+}
+$('pp-pump').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; $('pp-pump').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); pump = b.dataset.v; ppUpdate(); });
+[['pp-D', v => fmt(v, 1) + ' mm'], ['pp-L', v => fmt(v, 1) + ' m'], ['pp-dz', v => fmt(v, 2) + ' m'], ['pp-K', v => fmt(v, 2)], ['pp-n', v => fmt(v, 0)]].forEach(([id, f]) => bindRange(id, f, ppUpdate)());
+
+/* ---------------- Figure 9: water account ---------------- */
+let sysType = 'open';
+const wa = new Sankey('#wa-sankey', { unit: 'L', height: 300, digits: 1 });
+const waRo = new Readouts('#wa-ro');
+waRo.add({ id: 'in', label: 'Water input', unit: 'L', digits: 1 })
+  .add({ id: 'y', label: 'Yield', unit: 'kg', digits: 2 })
+  .add({ id: 'wu', label: 'Water use', unit: 'L kg⁻¹', digits: 1 })
+  .add({ id: 'tr', label: 'Share transpired', unit: '%', digits: 0 })
+  .add({ id: 'out', label: 'Discharged or lost', unit: 'L', digits: 1 });
+function waUpdate() {
+  const n = +$('wa-n').value, wp = +$('wa-wp').value, m = +$('wa-m').value / 1000, df = +$('wa-df').value / 100, b = +$('wa-b').value / 100, r = +$('wa-r').value, lk = +$('wa-lk').value / 100;
+  $('wa-df-box').style.display = sysType === 'open' ? '' : 'none';
+  $('wa-b-box').style.display = sysType === 'closed' ? '' : 'none';
+  $('wa-r-box').style.display = sysType === 'open' ? 'none' : '';
+  const T = n * wp, P = n * m * 0.95;
+  const D = sysType === 'open' ? (T + P) * df / (1 - df) : 0;
+  const B = sysType === 'closed' ? (T + P) * b / (1 - b) : 0;
+  const R = sysType === 'open' ? 0 : r;
+  const sub = T + P + D + B + R, Lk = sub * lk / (1 - lk), IN = sub + Lk, Y = n * m;
+  const nodes = [
+    { id: 'tap', label: 'Water in', color: 'water' },
+    { id: 'sol', label: 'Solution', color: 'accent' },
+    { id: 'T', label: 'Transpired', color: 'water' },
+    { id: 'P', label: 'In the heads', color: 'accent' },
+    { id: 'D', label: 'Drain', color: 'magenta' },
+    { id: 'B', label: 'Bleed', color: 'magenta' },
+    { id: 'R', label: 'Discarded', color: 'amber' },
+    { id: 'L', label: 'Leaks', color: 'danger' }
+  ];
+  const links = [{ source: 'tap', target: 'sol', value: IN }, { source: 'sol', target: 'T', value: T }, { source: 'sol', target: 'P', value: P }, { source: 'sol', target: 'D', value: D }, { source: 'sol', target: 'B', value: B }, { source: 'sol', target: 'R', value: R }, { source: 'sol', target: 'L', value: Lk }];
+  wa.set({ nodes: nodes.filter(nd => nd.id === 'tap' || nd.id === 'sol' || links.some(l => l.target === nd.id && l.value > 0)), links });
+  const wu = IN / Y;
+  waRo.set('in', IN); waRo.set('y', Y); waRo.set('wu', wu, wu <= 20 ? 'ok' : wu <= 35 ? 'warn' : 'bad'); waRo.set('tr', 100 * T / IN); waRo.set('out', D + B + R + Lk);
+}
+$('wa-sys').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; $('wa-sys').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); sysType = b.dataset.v; waUpdate(); });
+[['wa-n', v => fmt(v, 0)], ['wa-wp', v => fmt(v, 1) + ' L'], ['wa-m', v => fmt(v, 0) + ' g'], ['wa-df', v => fmt(v, 0) + ' %'], ['wa-b', v => fmt(v, 0) + ' %'], ['wa-r', v => fmt(v, 0) + ' L'], ['wa-lk', v => fmt(v, 1) + ' %']].forEach(([id, f]) => bindRange(id, f, waUpdate)());
+</script>
+</body>
+</html>

@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Integrated multi-criteria assessment · Future Food Production</title>
+<meta name="description" content="Multi-criteria decision analysis for food technologies: criteria and double counting, min–max, target and distance-to-target normalisation, direct rating, swing weights and AHP with eigenvector and consistency ratio, weighted sum, weighted product and TOPSIS, outranking, compensation and vetoes, break-even weights and Monte Carlo rank acceptability, FAO SAFA and the triple bottom line, a full worked ranking of four lettuce supply systems, and a synthesis checklist for assessing any emerging food technology.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+window.FFP_CALC = window.FFP_CALC || {};
+/* Eq. 15.4.3–15.4.4 for three criteria: weight of criterion 1 (principal eigenvector, power iteration) and consistency ratio */
+(function () {
+  function ahp3(a, b, c) {
+    const A = [[1, a, b], [1 / a, 1, c], [1 / b, 1 / c, 1]]; let w = [1 / 3, 1 / 3, 1 / 3];
+    for (let it = 0; it < 200; it++) { const v = A.map(r => r[0] * w[0] + r[1] * w[1] + r[2] * w[2]); const s = v[0] + v[1] + v[2]; w = v.map(x => x / s); }
+    const Aw = A.map(r => r[0] * w[0] + r[1] * w[1] + r[2] * w[2]); const lam = (Aw[0] / w[0] + Aw[1] / w[1] + Aw[2] / w[2]) / 3;
+    return { w, lam, CR: (lam - 3) / 2 / 0.58 };
+  }
+  FFP_CALC.mcdaCR3 = v => ahp3(v.a, v.b, v.c).CR;
+  /* Eq. 15.4.7 weighted product of two criteria */
+  FFP_CALC.mcdaWPM2 = v => Math.pow(Math.max(v.v1, 1e-9), v.w) * Math.pow(Math.max(v.v2, 1e-9), 1 - v.w);
+})();
+</script>
+<style>
+.mc-grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 22px}
+@media (max-width:760px){.mc-grid2{grid-template-columns:1fr}}
+.mc-ctl .mc-var{margin-bottom:7px}
+.mc-note{font-size:.8rem;color:var(--muted);margin:.4em 0 0}
+.ahp-row{display:grid;grid-template-columns:minmax(0,1fr);gap:2px;margin-bottom:6px}
+.ahp-row .mc-lab{font-size:.8rem;display:flex;justify-content:space-between;gap:10px;color:var(--ink-2)}
+.ahp-row output{font-family:var(--font-mono);font-size:.78rem}
+.acc-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.acc-table th,.acc-table td{padding:6px 8px;text-align:center;border-bottom:1px solid var(--line)}
+.acc-table td:first-child,.acc-table th:first-child{text-align:left}
+.canvas-wrap{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:860px){.canvas-wrap{grid-template-columns:1fr}}
+.canvas-q{font-size:.8rem;color:var(--muted);margin:-4px 0 8px}
+.canvas-q a{color:var(--accent)}
+</style>
+</head>
+<body data-page="lesson" data-slug="multi-criteria-assessment">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>Integrated multi-criteria assessment</h1>
+      <p class="lead">Which is better: lettuce from a Spanish field, a Swedish greenhouse or a Stockholm vertical farm? After fourteen modules you know that the honest answer is "it depends" — on the grid, the season, the price of capital, the weather, the workers and the weights you give to climate, land, water, cost and resilience. Multi-criteria decision analysis (MCDA) is the discipline of making that dependence explicit and testable. This final lesson teaches you to build a performance matrix without double counting, to normalise and weight criteria defensibly — including the eigenvector method of the analytic hierarchy process — to aggregate them with the weighted sum, the weighted product and TOPSIS, and to check how robust a ranking is with break-even weights and Monte Carlo. It ends where the course began: with a checklist for assessing any emerging food technology.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Describe the steps of an MCDA and structure a technology choice as options, criteria and a performance matrix, checking for dominance (LO7).</li>
+        <li>Select criteria that are complete, operational, preferentially independent and non-redundant, and detect double counting (LO7).</li>
+        <li>Normalise indicators with min–max, target and distance-to-target methods and explain how normalisation can reverse rankings (LO3).</li>
+        <li>Derive weights by direct rating, swing weighting and the analytic hierarchy process, including the principal eigenvector and the consistency ratio (LO3).</li>
+        <li>Aggregate with the weighted sum, weighted product and TOPSIS, explain compensation and outranking, and test robustness with break-even weights and Monte Carlo rank acceptability (LO3, LO7).</li>
+        <li>Apply an integrated checklist — planetary boundaries, resource efficiency, resilience, accessibility, acceptance, regulation — to any emerging food technology (LO1, LO7).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="why-mcda">Why one number is never enough</h2>
+      <p class="lede-drop">Each lesson of this module produced numbers that point in different directions. A vertical farm uses about a thirtieth of the land and less than a hundredth of the water of field lettuce (Table 1, from Zhuang et al., 2022, and Kozai, 2013), but on an average European grid it emits several times more CO₂e per kilogram (Lesson 15.1); it survives droughts but not insolvency (Lesson 15.2); and at about US$7.5 per kilogram its lettuce is a food for the affluent (Lesson 15.3). A decision-maker — a municipality choosing where to site a food hub, a retailer choosing suppliers, a ministry designing subsidies — must nevertheless decide. Collapsing everything into money (cost–benefit analysis) requires prices for carbon, water, biodiversity and resilience that often do not exist; reporting a dashboard of indicators leaves the trade-offs to intuition. <strong>Multi-criteria decision analysis</strong> sits in between: it keeps each criterion in its own unit, makes the value judgements — which criteria matter and how much — explicit, and shows how the conclusion depends on them (Belton &amp; Stewart, 2002).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 250" role="img" aria-label="The steps of a multi-criteria decision analysis in two rows: frame the problem, generate options, select criteria, build the performance matrix, normalise, weight, aggregate, test robustness, deliberate and decide, with feedback loops.">
+            <defs><marker id="mc-ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+            <g class="t-small" text-anchor="middle">
+              <rect x="10" y="30" width="126" height="56" rx="10" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="73" y="53" style="font-weight:600">1 Frame</text><text x="73" y="70" class="t-muted">goal, stakeholders</text>
+              <rect x="152" y="30" width="126" height="56" rx="10" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="215" y="53" style="font-weight:600">2 Options</text><text x="215" y="70" class="t-muted">incl. do-nothing</text>
+              <rect x="294" y="30" width="126" height="56" rx="10" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="357" y="53" style="font-weight:600">3 Criteria</text><text x="357" y="70" class="t-muted">value tree</text>
+              <rect x="436" y="30" width="126" height="56" rx="10" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/><text x="499" y="53" style="font-weight:600">4 Performance</text><text x="499" y="70" class="t-muted">matrix, dominance</text>
+              <rect x="578" y="30" width="132" height="56" rx="10" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/><text x="644" y="53" style="font-weight:600">5 Normalise</text><text x="644" y="70" class="t-muted">common 0–1 scale</text>
+              <rect x="578" y="150" width="132" height="56" rx="10" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/><text x="644" y="173" style="font-weight:600">6 Weight</text><text x="644" y="190" class="t-muted">swing, AHP</text>
+              <rect x="436" y="150" width="126" height="56" rx="10" class="fill-magenta-soft" stroke="currentColor" stroke-width=".8"/><text x="499" y="173" style="font-weight:600">7 Aggregate</text><text x="499" y="190" class="t-muted">WSM, WPM, TOPSIS</text>
+              <rect x="294" y="150" width="126" height="56" rx="10" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="357" y="173" style="font-weight:600">8 Robustness</text><text x="357" y="190" class="t-muted">sensitivity, Monte Carlo</text>
+              <rect x="152" y="150" width="126" height="56" rx="10" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="215" y="173" style="font-weight:600">9 Deliberate</text><text x="215" y="190" class="t-muted">explain, negotiate</text>
+              <rect x="10" y="150" width="126" height="56" rx="10" class="fill-bg" stroke="currentColor" stroke-width="1.4"/><text x="73" y="173" style="font-weight:700">Decide</text><text x="73" y="190" class="t-muted">and monitor</text>
+            </g>
+            <g stroke="currentColor" stroke-width="1.3" fill="none" marker-end="url(#mc-ar1)">
+              <line x1="136" y1="58" x2="150" y2="58"/><line x1="278" y1="58" x2="292" y2="58"/><line x1="420" y1="58" x2="434" y2="58"/><line x1="562" y1="58" x2="576" y2="58"/>
+              <line x1="644" y1="86" x2="644" y2="148"/>
+              <line x1="578" y1="178" x2="564" y2="178"/><line x1="436" y1="178" x2="422" y2="178"/><line x1="294" y1="178" x2="280" y2="178"/><line x1="152" y1="178" x2="138" y2="178"/>
+            </g>
+            <path d="M357 206 L357 224 L4 224 L4 118 L215 118 L215 90" class="stroke-muted" stroke-width="1.2" stroke-dasharray="4 4" fill="none" marker-end="url(#mc-ar1)"/>
+            <text x="400" y="242" text-anchor="middle" class="t-small t-muted">iterate: robustness checks send you back to options, criteria and weights</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The steps of an MCDA (after Belton &amp; Stewart, 2002; Dodgson et al., 2009). Steps 1–4 are facts and structure, steps 5–7 contain value judgements, step 8 tests how much the conclusion depends on those judgements, and step 9 turns a calculation into a legitimate decision. The process is iterative, not a pipeline.</figcaption>
+      </figure>
+      <div class="callout key"><div class="callout-title">Key idea</div><p>MCDA does not make value judgements disappear; it makes them <strong>visible</strong>. Two honest analysts with the same data can reach different rankings because they weight climate against cost differently. The analysis is successful when everyone can see which judgement produces which ranking — and which conclusions hold whatever the weights.</p></div>
+
+      <h2 id="criteria">Criteria and the performance matrix</h2>
+      <p>The running example of this lesson is a question you can now answer quantitatively: <em>how should a Stockholm retailer source lettuce in January?</em> Four options: (A) field lettuce from Almería, trucked 3,500 km; (B) a Swedish greenhouse heated with natural gas; (C) a Swedish greenhouse with a heat pump on the Swedish grid; (D) a Stockholm vertical farm on the Swedish grid. Criteria are organised in a <strong>value tree</strong> that breaks the overall goal into measurable attributes (Figure 2).</p>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 230" role="img" aria-label="Value tree: the goal of sustainable winter lettuce supply splits into environment, economy and society, and resilience, each with measurable attributes.">
+            <g stroke="currentColor" stroke-width="1.1" fill="none" opacity=".75">
+              <path d="M360 52 L150 92"/><path d="M360 52 L360 92"/><path d="M360 52 L570 92"/>
+              <path d="M150 124 L70 164"/><path d="M150 124 L150 164"/><path d="M150 124 L230 164"/>
+              <path d="M360 124 L320 164"/><path d="M360 124 L400 164"/>
+              <path d="M570 124 L520 164"/><path d="M570 124 L620 164"/>
+            </g>
+            <rect x="200" y="14" width="320" height="38" rx="10" class="fill-bg" stroke="currentColor" stroke-width="1.4"/>
+            <text x="360" y="38" text-anchor="middle" style="font-weight:700">Sustainable winter lettuce for Stockholm</text>
+            <g class="t-small" text-anchor="middle">
+              <rect x="80" y="92" width="140" height="32" rx="8" class="fill-accent-soft" stroke="currentColor" stroke-width=".8"/><text x="150" y="112" style="font-weight:600">Environment</text>
+              <rect x="290" y="92" width="140" height="32" rx="8" class="fill-amber-soft" stroke="currentColor" stroke-width=".8"/><text x="360" y="112" style="font-weight:600">Economy &amp; access</text>
+              <rect x="500" y="92" width="140" height="32" rx="8" class="fill-water-soft" stroke="currentColor" stroke-width=".8"/><text x="570" y="112" style="font-weight:600">Resilience</text>
+              <rect x="20" y="164" width="100" height="44" rx="8" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="70" y="182">climate</text><text x="70" y="198" class="t-muted">kg CO₂e kg⁻¹</text>
+              <rect x="126" y="164" width="48" height="44" rx="8" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="150" y="182">land</text><text x="150" y="198" class="t-muted">m²yr</text>
+              <rect x="180" y="164" width="100" height="44" rx="8" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="230" y="182">water</text><text x="230" y="198" class="t-muted">L kg⁻¹</text>
+              <rect x="286" y="164" width="68" height="44" rx="8" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="320" y="182">cost</text><text x="320" y="198" class="t-muted">$ kg⁻¹</text>
+              <rect x="360" y="164" width="80" height="44" rx="8" class="fill-sunk" stroke="currentColor" stroke-width=".8" stroke-dasharray="3 3"/><text x="400" y="182">jobs, price</text><text x="400" y="198" class="t-muted">not scored</text>
+              <rect x="466" y="164" width="108" height="44" rx="8" class="fill-sunk" stroke="currentColor" stroke-width=".8"/><text x="520" y="182">supply security</text><text x="520" y="198" class="t-muted">score 1–5</text>
+              <rect x="580" y="164" width="130" height="44" rx="8" class="fill-sunk" stroke="currentColor" stroke-width=".8" stroke-dasharray="3 3"/><text x="645" y="182">energy use</text><text x="645" y="198" class="t-muted">excluded: double count</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> Value tree for the running example. Solid boxes are the five criteria scored below; dashed boxes are attributes that were considered and deliberately left out — energy use because its effect on the climate criterion would be counted twice, jobs and consumer price because they were not part of this stakeholder's question (they could be added in the MCDA studio).</figcaption>
+      </figure>
+      <p>Good criteria have five properties (Keeney &amp; Raiffa, 1993; Belton &amp; Stewart, 2002): they are <strong>complete</strong> (together they capture everything that matters), <strong>operational</strong> (measurable, with a clear direction of preference), <strong>preferentially independent</strong> (how much you value an improvement in one does not depend on the level of another), <strong>non-redundant</strong> (no aspect is counted twice) and <strong>minimal</strong> (as few as possible). Redundancy is the most common error in food-technology assessments. Energy use and greenhouse-gas emissions of a vertical farm are almost the same information (Lesson 15.1: \(G_{\text{el}} = e_{\text{el}}\,\text{EF}_{\text{grid}}\)); land occupation and biodiversity loss often are too. Including both halves of such a pair silently doubles its weight. A simple check is to compute the correlation of each pair of criteria across the options, and to ask of every highly correlated pair whether the two measure different <em>values</em> or merely the same physical cause.</p>
+      <table>
+        <caption>Table 1. Performance matrix of the running example. Climate values come from the teaching models of Lesson 15.1 (Worked examples 1, 2 and 4); land from yields of 3.3 kg m⁻² yr⁻¹ for a field (Gargaro et al., 2025), about 33 for a greenhouse and 115 per m² of cultivation area for a plant factory (Zhuang et al., 2022); water from Barbosa et al. (2015) for arid-region field and hydroponic greenhouse lettuce and from the 95–98 % water recovery of closed plant factories (Kozai, 2013); cost for D is the levelised cost of Lesson 15.3, for A–C illustrative; supply security is a constructed 1–5 scale (see text). These are teaching values, not measurements of particular farms.</caption>
+        <thead><tr><th>Option</th><th class="num">Climate<br>kg CO₂e kg⁻¹</th><th class="num">Land<br>m²·yr kg⁻¹</th><th class="num">Water<br>L kg⁻¹</th><th class="num">Cost<br>US$ kg⁻¹</th><th class="num">Supply security<br>1–5</th></tr></thead>
+        <tbody>
+          <tr><td>A Field, Almería + 3,500 km truck</td><td class="num">0.62</td><td class="num">0.30</td><td class="num">250</td><td class="num">1.6</td><td class="num">2</td></tr>
+          <tr><td>B Greenhouse, Sweden, natural gas</td><td class="num">2.52</td><td class="num">0.030</td><td class="num">20</td><td class="num">3.2</td><td class="num">2</td></tr>
+          <tr><td>C Greenhouse, Sweden, heat pump</td><td class="num">0.55</td><td class="num">0.030</td><td class="num">20</td><td class="num">3.0</td><td class="num">4</td></tr>
+          <tr><td>D Vertical farm, Stockholm</td><td class="num">0.84</td><td class="num">0.0087</td><td class="num">2</td><td class="num">7.5</td><td class="num">3</td></tr>
+          <tr><td><em>Direction</em></td><td class="num">lower better</td><td class="num">lower better</td><td class="num">lower better</td><td class="num">lower better</td><td class="num">higher better</td></tr>
+        </tbody>
+      </table>
+      <p>"Supply security" is a <strong>constructed scale</strong>, the standard MCDA tool for criteria without a natural unit. Each level is anchored by a description agreed in advance: 1 = long import chain through several borders and exposed to energy and weather shocks; 2 = one major exposure (a long import chain, or dependence on imported fossil gas); 3 = domestic but dependent on one critical input with thin financial margins (electricity for a plant factory, Lesson 15.2); 4 = domestic, diversified energy, moderate margins; 5 = domestic, buffered and redundant. Scoring against anchors, rather than by gut feeling, makes the judgement reviewable.</p>
+      <p>Before any weighting, look for <strong>dominance</strong>: an option is dominated if another is at least as good on every criterion and strictly better on one. Here C dominates B — lower emissions, equal land and water, lower cost, better supply security. A dominated option can be removed from any rational choice, whatever the weights. Keep that in mind: its removal will reveal a weakness of the most popular normalisation method.</p>
+
+      <h2 id="normalisation">Normalisation: putting apples and kilowatt-hours on one scale</h2>
+      <p>Criteria come in different units and directions. <strong>Normalisation</strong> converts each column of the performance matrix into a dimensionless score, usually between 0 (worst) and 1 (best). The choice of method is itself a modelling decision with consequences (OECD &amp; JRC, 2008).</p>
+      <div class="eq-box" id="eq-mc-minmax">
+        <div class="eq-head"><span class="eq-label">Min–max normalisation</span><span class="eq-num">(15.4.1)</span></div>
+        <div class="eq-main">\[ \text{(a) benefit: } v_{ij} = \frac{x_{ij}-\min_i x_{ij}}{\max_i x_{ij}-\min_i x_{ij}} \qquad \text{(b) cost: } v_{ij} = \frac{\max_i x_{ij}-x_{ij}}{\max_i x_{ij}-\min_i x_{ij}} \]</div>
+        <p class="eq-read">the normalised score of option i on criterion j is its distance from the worst value in the set divided by the range between the worst and the best value; for benefit criteria the worst is the minimum, for cost criteria the maximum.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_{ij}\)</td><td>performance of option \(i\) on criterion \(j\)</td><td>unit of criterion \(j\)</td></tr>
+          <tr><td>\(\min_i x_{ij}\), \(\max_i x_{ij}\)</td><td>smallest and largest value of criterion \(j\) among the options</td><td>unit of criterion \(j\)</td></tr>
+          <tr><td>\(v_{ij}\)</td><td>normalised score, 1 = best in the set, 0 = worst</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>We want a linear map \(v=\alpha x+\beta\) that sends the best value to 1 and the worst to 0. For a benefit criterion: \(\alpha\max+\beta=1\), \(\alpha\min+\beta=0\), hence \(\alpha=1/(\max-\min)\), \(\beta=-\min/(\max-\min)\): form (a).</li>
+            <li>For a cost criterion swap the roles of max and min: form (b), equivalent to \(1-\)(a).</li>
+            <li>Linearity preserves ratios of <em>differences</em>: an improvement from 0.62 to 0.55 kg CO₂e kg⁻¹ is worth the same number of points wherever it occurs — an interval scale, which is what the weighted sum requires.</li>
+            <li>Example (climate, cost-type): range 0.55–2.52. Option A: \((2.52-0.62)/1.97=0.964\); option D: \((2.52-0.84)/1.97=0.853\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The scale is defined by the options in the set. Add or remove an option that sets a maximum or minimum and every score in that column changes — and rankings can reverse (Worked example 1). The best option always gets 1 and the worst 0, however small the real difference: a range of 0.55–0.62 kg CO₂e would be stretched to 0–1 just like a range of 0.5–15. Linearity also assumes that each unit of improvement is equally valuable, which fails near thresholds.</p></details>
+        <div class="eq-units">\(\dfrac{\text{unit}}{\text{unit}}\) = dimensionless ✓</div>
+        <div class="mini-calc" data-formula="(xmax-x)/(xmax-xmin)" data-output="Normalised score v (cost criterion)" data-unit="" data-digits="3" data-plot="x" data-ymin="0" data-ymax="1" data-title="Try it — a cost criterion">
+          <div data-var="x" data-label="Value x" data-min="0" data-max="10" data-step="0.05" data-value="3" data-unit="$ kg⁻¹"></div>
+          <div data-var="xmin" data-label="Best (minimum) in the set" data-min="0" data-max="5" data-step="0.05" data-value="1.6" data-unit="$ kg⁻¹"></div>
+          <div data-var="xmax" data-label="Worst (maximum) in the set" data-min="5" data-max="15" data-step="0.05" data-value="7.5" data-unit="$ kg⁻¹"></div>
+        </div>
+      </div>
+      <p>Two alternatives avoid the dependence on the option set. <strong>Target normalisation</strong> divides by an external reference — a policy target, a planetary-boundary share, a best-available-technology value — so that the scale means the same thing whatever options are compared. <strong>Distance-to-target</strong> expresses how far an option is from that reference.</p>
+      <div class="eq-box" id="eq-mc-target">
+        <div class="eq-head"><span class="eq-label">Target and distance-to-target normalisation</span><span class="eq-num">(15.4.2)</span></div>
+        <div class="eq-main">\[ d_{ij} = \frac{x_{ij}-x_j^{\text{target}}}{x_j^{\text{target}}}, \qquad v_{ij} = \min\!\left(1,\ \frac{x_j^{\text{target}}}{x_{ij}}\right)\ \ \text{(cost criteria)} \]</div>
+        <p class="eq-read">the relative distance to target is the difference between the value and the target, divided by the target; a bounded target-based score for a cost criterion is the target divided by the value, capped at one when the target is met.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(x_j^{\text{target}}\)</td><td>externally defined target or reference for criterion \(j\)</td><td>unit of criterion \(j\)</td></tr>
+          <tr><td>\(d_{ij}\)</td><td>relative distance to target: &gt; 0 target exceeded (for a cost criterion: missed), &lt; 0 headroom</td><td>–</td></tr>
+          <tr><td>\(v_{ij}\)</td><td>target-based score</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Divide the gap to the target by the target itself to obtain a unit-free relative distance, as in the transgression ratio of Lesson 1.2.</li>
+            <li>For scoring, the ratio target/value rewards improvement in proportion (halving emissions doubles the score) and stops rewarding once the target is met — a deliberate non-linearity that expresses "good enough".</li>
+            <li>Example: with a target of 0.50 kg CO₂e kg⁻¹, option D (0.84) has \(d=(0.84-0.50)/0.50=0.68\) (68 % above target) and \(v=0.50/0.84=0.60\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The result is only as defensible as the target. Science-based targets (a per-capita share of a planetary boundary, a national climate budget) are preferable to arbitrary round numbers. The EU Environmental Footprint method normalises impact categories by global per-person impacts before weighting — a form of external normalisation.</p></details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-formula="100*(x-t)/t" data-output="Distance to target d" data-unit="%" data-digits="0" data-plot="x" data-title="Try it — how far from the target?">
+          <div data-var="x" data-label="Value x" data-min="0.1" data-max="3" data-step="0.01" data-value="0.84" data-unit="kg CO₂e kg⁻¹"></div>
+          <div data-var="t" data-label="Target" data-min="0.1" data-max="1.5" data-step="0.01" data-value="0.5" data-unit="kg CO₂e kg⁻¹"></div>
+        </div>
+      </div>
+      <p>Other methods you will meet: <strong>vector normalisation</strong>, \(x_{ij}/\sqrt{\sum_i x_{ij}^2}\), used by TOPSIS; <strong>ratio (max) normalisation</strong>, \(x_{ij}/\max_i x_{ij}\) for benefits and \(\min_i x_{ij}/x_{ij}\) for costs, used with the weighted product; and <strong>z-scores</strong> in composite indicators (OECD &amp; JRC, 2008).</p>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">Normalising the matrix — and the vanishing gas greenhouse</span></div>
+        <div class="we-problem"><p>(a) Normalise Table 1 with min–max (cost criteria: climate, land, water, cost; benefit: supply security). (b) Remove the dominated option B and normalise again. Which scores change?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>(a) Ranges:</strong> climate 0.55–2.52; land 0.0087–0.30; water 2–250; cost 1.6–7.5; security 2–4.</li>
+            <li><strong>Scores (climate, land, water, cost, security):</strong> A (0.964, 0, 0, 1, 0); B (0, 0.927, 0.927, 0.729, 0); C (1, 0.927, 0.927, 0.763, 1); D (0.853, 1, 1, 0, 0.5). For example, land for C: \((0.30-0.03)/(0.30-0.0087)=0.927\).</li>
+            <li><strong>(b) Without B</strong> the climate range shrinks to 0.55–0.84: A becomes \((0.84-0.62)/0.29=0.759\) and D becomes 0 — the worst in the set. All other columns are unchanged, because B set none of their extremes.</li>
+            <li><strong>Consequence.</strong> D's climate score fell from 0.853 to 0 although nothing about D changed. With the weights of Worked example 2 this turns the order of A and D around (Worked example 3) — a <em>rank reversal</em> caused by an irrelevant, dominated option.</li>
+          </ol>
+          <span class="answer">Removing B changes only the climate column: A 0.964 → 0.759, D 0.853 → 0</span>
+        </div></details>
+      </div>
+
+      <h2 id="weighting">Weighting: direct rating, swing weights and the AHP</h2>
+      <p>Weights express how much a stakeholder is willing to give up on one criterion to gain on another. The simplest method, <strong>direct rating</strong> or <strong>point allocation</strong> ("distribute 100 points over the criteria"), is quick but has a fatal flaw: people answer "how important is climate?" without thinking about <em>how much</em> climate performance is at stake between the options. If all options emitted between 0.55 and 0.62 kg CO₂e kg⁻¹, climate should get almost no weight in this decision, however important climate change is in general. This is the <strong>range-sensitivity</strong> principle, and <strong>swing weighting</strong> builds it in (von Winterfeldt &amp; Edwards, 1986):</p>
+      <ol>
+        <li>Imagine a hypothetical option that is worst on every criterion.</li>
+        <li>Ask: if you could improve just <em>one</em> criterion from its worst to its best value in this option set, which swing would you choose first? Give it 100 points.</li>
+        <li>Rate every other swing relative to it (a swing half as valuable gets 50).</li>
+        <li>Normalise: \(w_j = s_j/\sum_k s_k\).</li>
+      </ol>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Swing weights of a retailer's sustainability manager</span></div>
+        <div class="we-problem"><p>The ranges of Table 1 are shown to a retailer's sustainability manager. She values the climate swing (2.52 → 0.55 kg CO₂e kg⁻¹) most (100), then the cost swing (7.5 → 1.6 $ kg⁻¹, 80), supply security (2 → 4, 50), water (250 → 2 L kg⁻¹, 40) and land (0.30 → 0.0087 m²·yr kg⁻¹, 30). Compute the weights.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li>Sum of points: \(100+80+50+40+30=300\).</li>
+            <li>Weights: climate \(100/300=0.333\), cost \(0.267\), supply security \(0.167\), water \(0.133\), land \(0.100\); sum = 1.</li>
+            <li><strong>Interpretation.</strong> The weights are trade-offs across <em>these ranges</em>: the full climate swing is worth 1.25 times the full cost swing to her. If a new option widened the climate range, the question would have to be asked again.</li>
+          </ol>
+          <span class="answer">w = (climate 0.333, land 0.100, water 0.133, cost 0.267, security 0.167)</span>
+        </div></details>
+      </div>
+      <p>When criteria are many, or judgements are easier in pairs, the <strong>analytic hierarchy process</strong> (AHP) of Saaty (1977, 1980) asks only pairwise questions — "how much more important is climate than cost?" — on a 1–9 scale (1 equal, 3 moderately, 5 strongly, 7 very strongly, 9 extremely more important; the reciprocal for the reverse). The answers fill a reciprocal matrix \(A\) with \(a_{ij}\) = importance of \(i\) relative to \(j\) and \(a_{ji}=1/a_{ij}\).</p>
+      <div class="eq-box" id="eq-mc-ahp">
+        <div class="eq-head"><span class="eq-label">AHP weights: the principal eigenvector</span><span class="eq-num">(15.4.3)</span></div>
+        <div class="eq-main">\[ A\,\mathbf{w} = \lambda_{\max}\,\mathbf{w}, \qquad \sum_j w_j = 1, \qquad w_i \approx \frac{\left(\prod_{j=1}^{n} a_{ij}\right)^{1/n}}{\sum_k\left(\prod_{j=1}^{n} a_{kj}\right)^{1/n}} \]</div>
+        <p class="eq-read">the weight vector is the principal eigenvector of the pairwise comparison matrix — the vector that the matrix only stretches, by its largest eigenvalue λ<sub>max</sub> — scaled to sum to one; a good approximation is the normalised geometric mean of each row.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(A=[a_{ij}]\)</td><td>pairwise comparison matrix, \(a_{ij}\) = importance of criterion \(i\) over \(j\) (1/9 … 9), \(a_{ji}=1/a_{ij}\)</td><td>–</td></tr>
+          <tr><td>\(\mathbf{w}\)</td><td>weight vector</td><td>–</td></tr>
+          <tr><td>\(\lambda_{\max}\)</td><td>largest (principal) eigenvalue of \(A\); \(\lambda_{\max}\ge n\)</td><td>–</td></tr>
+          <tr><td>\(n\)</td><td>number of criteria</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Suppose the true weights \(w\) exist and the judgements are perfectly consistent: \(a_{ij}=w_i/w_j\). Then row \(i\) of \(A\) times \(w\) is \(\sum_j (w_i/w_j)w_j = n\,w_i\): \(A\mathbf w=n\mathbf w\). The weights are an eigenvector with eigenvalue \(n\).</li>
+            <li>A consistent matrix has rank 1 (every row is a multiple of the first), so \(n\) is its only non-zero eigenvalue. Real judgements contain small errors; Saaty showed that the principal eigenvector of the perturbed matrix is still the best estimate of the weights, and by the Perron–Frobenius theorem a positive matrix has a unique positive principal eigenvector.</li>
+            <li><strong>Computing it</strong> by power iteration: start with \(w=(1/n,\dots)\), repeat \(w\leftarrow Aw/\sum(Aw)\) until it stops changing. The figure below does exactly this.</li>
+            <li><strong>Geometric-mean shortcut:</strong> for consistent \(A\), \(\big(\prod_j a_{ij}\big)^{1/n}=\big(\prod_j w_i/w_j\big)^{1/n} = w_i/(\prod_j w_j)^{1/n}\) — proportional to \(w_i\). For nearly consistent matrices it differs from the eigenvector only in the third decimal.</li>
+            <li>Example: \(a_{12}=3\), \(a_{13}=5\), \(a_{23}=2\). Row geometric means: \((1\cdot3\cdot5)^{1/3}=2.466\), \((\tfrac13\cdot1\cdot2)^{1/3}=0.874\), \((\tfrac15\cdot\tfrac12\cdot1)^{1/3}=0.464\); normalised: \(w=(0.648, 0.230, 0.122)\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>AHP weights answer "how important?" without reference to ranges unless the analyst insists on range-aware questions — the same trap as direct rating. Adding a new option to AHP scoring of alternatives can reverse the ranking of the old ones (Belton &amp; Gear, 1983). Use AHP for criterion weights with range-aware wording, and check consistency.</p></details>
+        <div class="eq-units">all entries are ratios of importance: dimensionless ✓</div>
+      </div>
+      <div class="eq-box" id="eq-mc-cr">
+        <div class="eq-head"><span class="eq-label">Consistency index and consistency ratio</span><span class="eq-num">(15.4.4)</span></div>
+        <div class="eq-main">\[ \text{CI} = \frac{\lambda_{\max}-n}{n-1}, \qquad \text{CR} = \frac{\text{CI}}{\text{RI}_n}, \qquad \lambda_{\max} \approx \frac{1}{n}\sum_{i=1}^{n}\frac{(A\mathbf w)_i}{w_i} \]</div>
+        <p class="eq-read">the consistency index is the excess of the largest eigenvalue over the number of criteria, divided by n − 1; the consistency ratio divides it by the average index of random matrices of the same size; λ<sub>max</sub> can be estimated as the average ratio of A w to w.</p>
+        <table class="symbols">
+          <tr><th>\(n\)</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th></tr>
+          <tr><td>\(\text{RI}_n\) (Saaty, 1980)</td><td>0.58</td><td>0.90</td><td>1.12</td><td>1.24</td><td>1.32</td><td>1.41</td><td>1.45</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The trace of \(A\) (sum of diagonal entries, all 1) equals \(n\) and equals the sum of all eigenvalues: \(\lambda_{\max}+\sum_{\text{others}}\lambda=n\). Inconsistency pushes \(\lambda_{\max}\) above \(n\) and the other eigenvalues below zero in total.</li>
+            <li>\(\text{CI}=(\lambda_{\max}-n)/(n-1)\) is minus the average of the other \(n-1\) eigenvalues: a size-adjusted measure of inconsistency, zero for perfect consistency.</li>
+            <li>Saaty computed the average CI of large samples of randomly filled reciprocal matrices, the random index RI. \(\text{CR}=\text{CI}/\text{RI}\) compares your judgements with random ones; \(\text{CR}\le0.10\) is the usual acceptance threshold.</li>
+            <li>Example above: \(A\mathbf w=(1.947, 0.690, 0.367)\); ratios to \(w\): 3.004, 3.003, 3.004; \(\lambda_{\max}=3.004\), CI = 0.0018, CR = 0.003 — very consistent. Changing \(a_{23}\) from 2 to 5 (cost "strongly" over resilience although climate beats cost only "moderately") gives CR = 0.12: revise the judgements.</li>
+          </ol>
+        </details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-fn="mcdaCR3" data-output="Consistency ratio CR" data-unit="" data-digits="3" data-plot="c" data-ymin="0" data-ymax="0.5" data-title="Try it — three criteria: when do judgements become inconsistent?">
+          <div data-var="a" data-label="a₁₂ climate vs cost" data-min="0.111" data-max="9" data-step="0.001" data-value="3" data-scale="log"></div>
+          <div data-var="b" data-label="a₁₃ climate vs resilience" data-min="0.111" data-max="9" data-step="0.001" data-value="5" data-scale="log"></div>
+          <div data-var="c" data-label="a₂₃ cost vs resilience" data-min="0.111" data-max="9" data-step="0.001" data-value="2" data-scale="log"></div>
+        </div>
+      </div>
+      <figure class="figure wide" id="ahp-fig">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — AHP workbench for the five criteria</div>
+          <div class="mc-grid2 mc-ctl">
+            <div id="ahp-sliders"></div>
+            <div>
+              <div id="ahp-bars" style="height:230px"></div>
+              <div class="readouts" id="ahp-ro" style="margin:8px 0 0"></div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+                <button class="btn btn-sm" type="button" id="ahp-reset">Consistent default judgements</button>
+                <button class="btn btn-sm btn-primary" type="button" id="ahp-send">Use these weights in Figure 5</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Figure 3.</b> Each slider is one pairwise judgement on Saaty's scale (centre = equally important; left favours the first criterion, right the second). Weights are the principal eigenvector (power iteration, Eq. 15.4.3); the readouts give \(\lambda_{\max}\), CI and CR (Eq. 15.4.4, RI = 1.12 for five criteria). Try making one judgement contradict the others and watch CR exceed 0.10.</figcaption>
+      </figure>
+
+      <h2 id="aggregation">Aggregation: weighted sum, TOPSIS and outranking</h2>
+      <p>With normalised scores and weights, the options can be ranked. The most transparent method is the <strong>weighted sum</strong>, also called simple additive weighting or the additive value model.</p>
+      <div class="eq-box" id="eq-mc-wsm">
+        <div class="eq-head"><span class="eq-label">Weighted-sum model</span><span class="eq-num">(15.4.5)</span></div>
+        <div class="eq-main">\[ V_i = \sum_{j=1}^{m} w_j\,v_{ij}, \qquad \sum_j w_j = 1 \]</div>
+        <p class="eq-read">the overall value of option i is the sum over all criteria of the weight times the normalised score.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(V_i\)</td><td>overall value of option \(i\), 0–1</td><td>–</td></tr>
+          <tr><td>\(w_j\)</td><td>weight of criterion \(j\)</td><td>–</td></tr>
+          <tr><td>\(v_{ij}\)</td><td>normalised score (Eq. 15.4.1 or 15.4.2)</td><td>–</td></tr>
+          <tr><td>\(m\)</td><td>number of criteria</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Multi-attribute value theory (Keeney &amp; Raiffa, 1993) shows that if criteria are mutually preferentially independent, preferences can be represented by an additive value function \(V=\sum_j w_j\,v_j(x_j)\).</li>
+            <li>With linear single-criterion value functions (min–max) and swing weights, \(w_j\) is the value of moving criterion \(j\) across its whole range.</li>
+            <li>Running example with the swing weights: \(V_C = 0.333(1)+0.100(0.927)+0.133(0.927)+0.267(0.763)+0.167(1) = 0.920\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Additivity means full compensation: a poor score on one criterion can always be offset by good scores elsewhere (Section 15.4.6). Scores must be on interval scales and weights must match the normalisation (swing weights with min–max).</p></details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-formula="w*v1+(1-w)*v2" data-output="Weighted sum V" data-unit="" data-digits="3" data-plot="w" data-ymin="0" data-ymax="1" data-title="Try it — two criteria">
+          <div data-var="v1" data-label="Score on criterion 1" data-min="0" data-max="1" data-step="0.01" data-value="0.9"></div>
+          <div data-var="v2" data-label="Score on criterion 2" data-min="0" data-max="1" data-step="0.01" data-value="0.2"></div>
+          <div data-var="w" data-label="Weight of criterion 1" data-min="0" data-max="1" data-step="0.01" data-value="0.5"></div>
+        </div>
+      </div>
+      <p><strong>TOPSIS</strong> — the Technique for Order Preference by Similarity to Ideal Solution (Hwang &amp; Yoon, 1981) — ranks options by their geometric position relative to an ideal and an anti-ideal option.</p>
+      <div class="eq-box" id="eq-mc-topsis">
+        <div class="eq-head"><span class="eq-label">TOPSIS closeness coefficient</span><span class="eq-num">(15.4.6)</span></div>
+        <div class="eq-main">\[ u_{ij} = w_j\frac{x_{ij}}{\sqrt{\sum_k x_{kj}^{2}}},\quad D_i^{\pm} = \sqrt{\sum_j\big(u_{ij}-u_j^{\pm}\big)^{2}},\quad C_i = \frac{D_i^{-}}{D_i^{+}+D_i^{-}} \]</div>
+        <p class="eq-read">each value is vector-normalised and weighted; the ideal point takes the best weighted value of every criterion and the anti-ideal the worst; D⁺ and D⁻ are the Euclidean distances of an option from them; the closeness coefficient is the distance from the anti-ideal divided by the sum of both distances.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(u_{ij}\)</td><td>weighted, vector-normalised value</td><td>–</td></tr>
+          <tr><td>\(u_j^{+}\), \(u_j^{-}\)</td><td>ideal and anti-ideal values: best and worst \(u_{ij}\) of criterion \(j\) (min for cost, max for benefit criteria, and vice versa)</td><td>–</td></tr>
+          <tr><td>\(D_i^{+}\), \(D_i^{-}\)</td><td>Euclidean distances to the ideal and anti-ideal points</td><td>–</td></tr>
+          <tr><td>\(C_i\)</td><td>closeness coefficient: 1 = at the ideal, 0 = at the anti-ideal</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Treat each option as a point in an \(m\)-dimensional space of weighted, normalised criteria. Vector normalisation makes each criterion column a unit vector before weighting, so no criterion dominates through its unit.</li>
+            <li>Construct two reference points from the columns: the ideal \(A^{+}\) (best of each) and the anti-ideal \(A^{-}\) (worst of each). Neither need exist as a real option.</li>
+            <li>The best option should be close to \(A^{+}\) <em>and</em> far from \(A^{-}\). These can conflict; the ratio \(C_i=D_i^-/(D_i^++D_i^-)\) balances them and lies between 0 and 1.</li>
+            <li>Running example (swing weights): \(C=\) 0.878 (C), 0.626 (A), 0.586 (D), 0.445 (B) — D and A swap places compared with the weighted sum, because vector normalisation treats D's cost disadvantage and A's land and water disadvantages differently from min–max.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Euclidean distance lets large deviations on one criterion count more than several small ones — partly non-compensatory. Like min–max, the ideal points depend on the option set, so rank reversal is possible (Opricovic &amp; Tzeng, 2004).</p></details>
+        <div class="eq-units">dimensionless ✓</div>
+      </div>
+      <p>A third family, <strong>outranking</strong>, drops the idea of a single value score. ELECTRE (Roy, 1991) asks for each pair of options whether there is enough evidence (concordance: the weight of criteria on which A is at least as good as B) and no strong counter-evidence (discordance, including <em>vetoes</em>) to say "A is at least as good as B". PROMETHEE (Brans &amp; Vincke, 1985) turns each pairwise difference into a preference degree between 0 and 1 via a preference function with indifference and preference thresholds, and ranks options by their net flow — how much they outrank others minus how much they are outranked. Outranking methods accept that some options are incomparable and that a very poor score can block an option, which suits sustainability questions with non-negotiable limits (Cinelli et al., 2014).</p>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">Ranking the four lettuce systems</span></div>
+        <div class="we-problem"><p>Using the min–max scores of Worked example 1 and the swing weights of Worked example 2: (a) compute the weighted sums of all four options; (b) compare with TOPSIS; (c) repeat the weighted sum without the dominated option B.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>(a)</strong> A: \(0.333(0.964)+0.267(1)=0.588\). B: \(0.100(0.927)+0.133(0.927)+0.267(0.729)=0.411\). C: 0.920 (Eq. 15.4.5). D: \(0.333(0.853)+0.100(1)+0.133(1)+0.167(0.5)=0.601\). Ranking C &gt; D &gt; A &gt; B.</li>
+            <li><strong>(b)</strong> TOPSIS: C 0.878 &gt; A 0.626 &gt; D 0.586 &gt; B 0.445. C first and B last in both; A and D swap.</li>
+            <li><strong>(c)</strong> Without B, the climate scores become A 0.759, C 1, D 0: \(V_A = 0.333(0.759)+0.267 = 0.520\), \(V_D = 0.100+0.133+0.083 = 0.317\), \(V_C = 0.920\). Now A &gt; D — removing a dominated option reversed the order of two others.</li>
+            <li><strong>Interpretation.</strong> The heat-pump greenhouse is the robust winner: best or near-best on four of five criteria. The order of the vertical farm and the imported field lettuce is <em>not</em> robust: it depends on the aggregation method and even on which irrelevant options are in the set. Report it as a tie that depends on judgements, not as a result.</li>
+          </ol>
+          <span class="answer">WSM: C 0.92 &gt; D 0.60 &gt; A 0.59 &gt; B 0.41; TOPSIS: C &gt; A &gt; D &gt; B; without B: A 0.52 &gt; D 0.32</span>
+        </div></details>
+      </div>
+
+      <h2 id="compensation">Compensation, strong sustainability and vetoes</h2>
+      <p>The weighted sum is <strong>fully compensatory</strong>: with equal weights, an option scoring 0.95 on cost, 0.9 on resilience and 0.05 on biodiversity gets \(V=0.63\), a respectable score, although it nearly destroys biodiversity. Whether that is acceptable is a question of sustainability philosophy. <strong>Weak sustainability</strong> assumes that natural capital can be substituted by other forms of capital; <strong>strong sustainability</strong> holds that critical natural capital — a stable climate, functioning biosphere — cannot be. The planetary-boundaries framework of Lesson 1.2 is a strong-sustainability idea: a boundary is a limit, not a price. MCDA offers three ways to limit compensation.</p>
+      <div class="eq-box" id="eq-mc-wpm">
+        <div class="eq-head"><span class="eq-label">Weighted-product model</span><span class="eq-num">(15.4.7)</span></div>
+        <div class="eq-main">\[ P_i = \prod_{j=1}^{m} v_{ij}^{\,w_j} \qquad\Longleftrightarrow\qquad \ln P_i = \sum_j w_j\ln v_{ij} \]</div>
+        <p class="eq-read">the overall score is the product of the normalised scores, each raised to the power of its weight — equivalently, the weighted sum of their logarithms.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(P_i\)</td><td>weighted-product score (a weighted geometric mean)</td><td>–</td></tr>
+          <tr><td>\(v_{ij}\)</td><td>strictly positive normalised score, usually ratio-normalised: \(x/\max\) for benefits, \(\min/x\) for costs</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Take logarithms: the product becomes a weighted sum of \(\ln v_{ij}\). Because \(\ln v\to-\infty\) as \(v\to0\), a near-zero score on any criterion drags the whole score towards zero: compensation is limited.</li>
+            <li>Marginal rate of substitution between two criteria: \(\frac{\partial P/\partial v_1}{\partial P/\partial v_2}=\frac{w_1/v_1}{w_2/v_2}\). Gaining on a criterion where you are already good buys less than repairing one where you are poor — unlike the constant trade-off \(w_1/w_2\) of the weighted sum.</li>
+            <li>The WPM compares ratios, so it needs ratio-scale scores with a natural zero; min–max scores of 0 would make the product 0. With ratio normalisation, the WPM ranking is independent of the units of each criterion.</li>
+            <li>The example above: \((0.95\times0.9\times0.05)^{1/3}=0.35\) instead of 0.63.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Ratio normalisation rewards orders-of-magnitude differences strongly: a vertical farm's water use of 2 L kg⁻¹ versus 250 gives field lettuce a water score of 0.008, which the product punishes severely. That may be exactly what a water-scarce region wants — or an exaggeration. Always look at the normalised matrix, not only at the final scores.</p></details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-fn="mcdaWPM2" data-output="Weighted product P" data-unit="" data-digits="3" data-plot="v2" data-ymin="0" data-ymax="1" data-title="Try it — a weak criterion drags the product down">
+          <div data-var="v1" data-label="Score on criterion 1" data-min="0.01" data-max="1" data-step="0.01" data-value="0.95"></div>
+          <div data-var="v2" data-label="Score on criterion 2" data-min="0.01" data-max="1" data-step="0.01" data-value="0.05"></div>
+          <div data-var="w" data-label="Weight of criterion 1" data-min="0" data-max="1" data-step="0.01" data-value="0.5"></div>
+        </div>
+      </div>
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 280" role="img" aria-label="Indifference curves for two criteria under three aggregation rules: straight lines for the weighted sum, hyperbolas for the weighted product, and right angles for the minimum rule.">
+            <g class="t-small" text-anchor="middle">
+              <text x="130" y="20" style="font-weight:600">Weighted sum (full compensation)</text>
+              <text x="370" y="20" style="font-weight:600">Weighted product (partial)</text>
+              <text x="610" y="20" style="font-weight:600">Minimum / veto (none)</text>
+            </g>
+            <g class="stroke" stroke-width="1.2">
+              <line x1="30" y1="240" x2="230" y2="240"/><line x1="30" y1="240" x2="30" y2="40"/>
+              <line x1="270" y1="240" x2="470" y2="240"/><line x1="270" y1="240" x2="270" y2="40"/>
+              <line x1="510" y1="240" x2="710" y2="240"/><line x1="510" y1="240" x2="510" y2="40"/>
+            </g>
+            <g class="stroke-accent" stroke-width="2" fill="none">
+              <line x1="30" y1="120" x2="150" y2="240"/><line x1="30" y1="40" x2="230" y2="240"/><line x1="110" y1="40" x2="230" y2="160"/>
+              <polyline points="288,40 290,60 300,120 310,150 330,180 360,200 390,210 450,220 470,222"/>
+              <polyline points="320,40 330,73 350,115 370,140 395,160 430,177 470,190"/>
+              <polyline points="368,40 380,62 390,77 410,100 433,120 450,131 470,142"/>
+              <polyline points="570,40 570,180 710,180"/><polyline points="610,40 610,140 710,140"/><polyline points="650,40 650,100 710,100"/>
+            </g>
+            <g class="t-small t-muted">
+              <text x="110" y="268" text-anchor="middle">score on criterion 1 →</text><text x="370" y="262" text-anchor="middle">score on criterion 1 →</text><text x="610" y="262" text-anchor="middle">score on criterion 1 →</text>
+              <text x="16" y="140" text-anchor="middle" transform="rotate(-90 16 140)">criterion 2 →</text>
+            </g>
+            <circle cx="220" cy="230" r="5" class="fill-magenta"/><text x="226" y="254" class="t-small" text-anchor="end" style="fill:var(--magenta)">0.95 / 0.05</text>
+            <circle cx="460" cy="230" r="5" class="fill-magenta"/>
+            <circle cx="700" cy="230" r="5" class="fill-magenta"/>
+          </svg>
+        </div>
+        <figcaption><b>Figure 4.</b> Indifference curves (equal overall score) for two equally weighted criteria. Under the weighted sum, the magenta option (0.95 on one criterion, 0.05 on the other) lies on the middle line, as good as a balanced 0.5/0.5 option. Under the weighted product its curves bend towards the axes and the option falls below the lowest curve shown; under a minimum rule or veto it scores only 0.05. The shape of the curves <em>is</em> the sustainability philosophy.</figcaption>
+      </figure>
+      <p>The strongest limit on compensation is a <strong>threshold</strong> or <strong>veto</strong>: options that violate a minimum requirement — exceeding a per-capita share of a planetary boundary, failing a food-safety rule, lacking a legal route to market — are excluded before aggregation. Screening then ranking is common in practice and transparent to stakeholders.</p>
+
+      <h2 id="sensitivity">Sensitivity and robustness</h2>
+      <p>A ranking is only as credible as its robustness. Two questions should accompany every MCDA result: <em>how much would a weight have to change to change the answer?</em> and <em>across all plausible weights, how often does each option come first?</em></p>
+      <div class="eq-box" id="eq-mc-breakeven">
+        <div class="eq-head"><span class="eq-label">Break-even weight between two options</span><span class="eq-num">(15.4.8)</span></div>
+        <div class="eq-main">\[ w^{*} = \frac{b_2-a_2}{(a_1-b_1)+(b_2-a_2)} \qquad\text{(two criteria, weights } w \text{ and } 1-w\text{)} \]</div>
+        <p class="eq-read">with two criteria, option A with scores a₁ and a₂ and option B with scores b₁ and b₂ are equally good when the weight of criterion 1 equals B's advantage on criterion 2 divided by the sum of A's advantage on criterion 1 and B's advantage on criterion 2; above w* option A is preferred.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(a_1, a_2\), \(b_1, b_2\)</td><td>normalised scores of options A and B on criteria 1 and 2 (A better on 1, B better on 2)</td><td>–</td></tr>
+          <tr><td>\(w\), \(1-w\)</td><td>weights of criteria 1 and 2</td><td>–</td></tr>
+          <tr><td>\(w^{*}\)</td><td>break-even (rank-reversal) weight</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>Weighted sums: \(V_A = w a_1+(1-w)a_2\), \(V_B = w b_1+(1-w)b_2\).</li>
+            <li>Set \(V_A=V_B\): \(w(a_1-b_1) = (1-w)(b_2-a_2)\). Collect terms in \(w\): \(w\,[(a_1-b_1)+(b_2-a_2)] = b_2-a_2\). Divide.</li>
+            <li><strong>More criteria:</strong> vary one weight \(w_j\) and rescale the others in proportion, \(w_k' = w_k(1-w_j)/(1-w_j^{0})\). Each \(V_i\) is then linear in \(w_j\): \(V_i = w_j v_{ij} + (1-w_j)R_i\) with \(R_i=\sum_{k\ne j}w_k^{0}v_{ik}/(1-w_j^{0})\), and two options swap where the lines cross — the same algebra.</li>
+            <li>Running example (weighted sum, swing weights): C stays first unless the cost weight rises above 0.695 (then A wins), the land weight above 0.83 or the water weight above 0.84 (then D wins). The original weights were 0.267, 0.100 and 0.133: far from any break-even point — C's lead is robust to one-at-a-time changes.</li>
+          </ol>
+        </details>
+        <div class="eq-units">dimensionless ✓</div>
+        <div class="mini-calc" data-formula="(b2-a2)/((a1-b1)+(b2-a2))" data-output="Break-even weight w*" data-unit="" data-digits="3" data-plot="a1" data-ymin="0" data-ymax="1" data-title="Try it — where do two options swap?">
+          <div data-var="a1" data-label="A on criterion 1" data-min="0.3" data-max="1" data-step="0.01" data-value="0.9"></div>
+          <div data-var="a2" data-label="A on criterion 2" data-min="0" data-max="0.5" data-step="0.01" data-value="0.2"></div>
+          <div data-var="b1" data-label="B on criterion 1" data-min="0" data-max="0.3" data-step="0.01" data-value="0.3"></div>
+          <div data-var="b2" data-label="B on criterion 2" data-min="0.5" data-max="1" data-step="0.01" data-value="0.8"></div>
+        </div>
+      </div>
+      <p>One-at-a-time analysis misses combinations of weight changes. <strong>Stochastic multicriteria acceptability analysis</strong> (SMAA; Lahdelma et al., 1998) explores all of them: sample thousands of weight vectors — uniformly from all possible weights if nothing is known, or from ranges elicited from stakeholders — rank the options for each, and count how often each option attains each rank.</p>
+      <div class="eq-box" id="eq-mc-smaa">
+        <div class="eq-head"><span class="eq-label">Rank acceptability index (Monte Carlo)</span><span class="eq-num">(15.4.9)</span></div>
+        <div class="eq-main">\[ b_i^{r} = \frac{1}{N}\sum_{k=1}^{N}\mathbf 1\!\left[\operatorname{rank}_i\!\big(\mathbf w^{(k)}\big)=r\right], \qquad w_j^{(k)} = \frac{E_j^{(k)}}{\sum_l E_l^{(k)}},\;\; E_j^{(k)} = -\ln U_j^{(k)} \]</div>
+        <p class="eq-read">the acceptability of rank r for option i is the fraction of N sampled weight vectors under which option i attains rank r; uniformly distributed weight vectors are obtained by drawing independent exponential random numbers — minus the logarithm of uniform random numbers — and dividing by their sum.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr>
+          <tr><td>\(b_i^{r}\)</td><td>rank acceptability index; \(b_i^{1}\) = share of weight space in which \(i\) is best</td><td>–</td></tr>
+          <tr><td>\(\mathbf w^{(k)}\)</td><td>\(k\)-th sampled weight vector</td><td>–</td></tr>
+          <tr><td>\(U_j^{(k)}\)</td><td>uniform random number on (0, 1)</td><td>–</td></tr>
+          <tr><td>\(N\)</td><td>number of Monte Carlo draws</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li>The set of valid weight vectors (non-negative, summing to 1) is a simplex. "Uniform over the simplex" is the Dirichlet distribution with all parameters equal to 1.</li>
+            <li>A Dirichlet(1,…,1) vector is obtained by normalising independent Gamma(1) — that is, exponential — random numbers, and an exponential number is \(-\ln U\) for uniform \(U\). Normalising independent uniforms directly would <em>not</em> be uniform on the simplex.</li>
+            <li>Each draw gives a ranking; \(b_i^r\) is a binomial proportion, so its Monte Carlo standard error is \(\sqrt{b(1-b)/N}\) — the formula of Lesson 15.1 (Eq. 15.1.9). With \(N=10{,}000\) the error is below 0.5 percentage points.</li>
+            <li>Uncertain performance values can be sampled in the same loop, giving acceptabilities that combine preference and data uncertainty.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>"Uniform weights" means maximal ignorance about preferences — rarely true. Constrain the sampling with what stakeholders do agree on (e.g. "climate at least as important as land") and report the results for each stakeholder group separately rather than averaging away disagreement.</p></details>
+        <div class="eq-units">dimensionless proportions ✓</div>
+      </div>
+      <figure class="figure wide" id="rob-fig">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the robustness studio</div>
+          <div class="mc-grid2 mc-ctl">
+            <div>
+              <div id="rob-sliders"></div>
+              <div class="mc-lab" style="margin-top:6px"><span>Aggregation method</span></div>
+              <div class="seg" id="rob-method" role="group" aria-label="Aggregation method">
+                <button type="button" data-v="wsm" aria-pressed="true">Weighted sum (min–max)</button>
+                <button type="button" data-v="wpm" aria-pressed="false">Weighted product (ratio)</button>
+                <button type="button" data-v="topsis" aria-pressed="false">TOPSIS (vector)</button>
+              </div>
+              <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:.88rem"><input type="checkbox" id="rob-b" checked> Include the dominated option B</label>
+              <label style="display:flex;gap:8px;align-items:center;margin-top:6px;font-size:.88rem"><input type="checkbox" id="rob-unc"> Monte Carlo also samples ±20 % uncertainty in the performance values</label>
+            </div>
+            <div>
+              <div id="rob-bars" style="height:230px"></div>
+              <div class="readouts" id="rob-ro" style="margin:8px 0 0"></div>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <div class="mc-lab"><span>Rank acceptability over 10,000 random weight vectors (Eq. 15.4.9)</span></div>
+            <div id="rob-acc" style="overflow-x:auto;margin-top:6px"></div>
+            <button class="btn btn-sm btn-primary" type="button" id="rob-run" style="margin-top:8px">Run again (new seed)</button>
+          </div>
+        </div>
+        <figcaption><b>Figure 5.</b> Left: your weights (normalised to sum 1) and the method; right: the scores of the options. Bottom: the share of 10,000 weight vectors, drawn uniformly from all possible weights, under which each option attains each rank. Options: A field + truck, B greenhouse with gas, C greenhouse with heat pump, D vertical farm (Table 1). Uncertainty sampling multiplies every performance value by an independent lognormal factor with a geometric standard deviation of 1.2 before normalising.</figcaption>
+      </figure>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">How robust is the ranking?</span></div>
+        <div class="we-problem"><p>Run the robustness studio with the default settings (all four options). With 10,000 uniformly sampled weight vectors, the weighted sum gives these first-rank acceptabilities: C 97.9 %, D 1.3 %, A 0.7 %, B 0. For TOPSIS: C 92.0 %, D 5.8 %, A 2.2 %. For the weighted product: D 75.5 %, C 22.7 %, A 1.8 %. (a) What is the Monte Carlo standard error of C's 97.9 %? (b) Why does the weighted product favour D so strongly? (c) What should the retailer be told?</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>(a)</strong> \(\sqrt{0.979\times0.021/10{,}000}=0.0014\): ±0.14 percentage points. The sampling error is negligible; the uncertainty lies in the method and the preferences.</li>
+            <li><strong>(b)</strong> Ratio normalisation scores field lettuce 0.029 on land and 0.008 on water (because D uses 1/35 of its land and 1/125 of its water). In a product, such near-zero factors are almost vetoes, so any weight on land or water pushes A and B far down and D up — the orders-of-magnitude advantages of the vertical farm dominate.</li>
+            <li><strong>(c)</strong> Under compensatory aggregation the heat-pump greenhouse is the robust first choice across almost all weights. The vertical farm ranks first only if land and water savings are treated as nearly non-substitutable — a defensible position in a water-scarce, land-scarce region, less so in Sweden. The gas greenhouse is never first and is dominated. The honest recommendation states both the winner and the value judgement on which the runner-up depends.</li>
+          </ol>
+          <span class="answer">(a) ±0.14 pp; (b) near-zero ratio scores of A on land and water act as vetoes in a product; (c) C is robust under compensation; D wins only under strong aversion to land and water use</span>
+        </div></details>
+      </div>
+
+      <h2 id="frameworks">Frameworks for integrated sustainability assessment</h2>
+      <p>MCDA is a method; frameworks tell you <em>what</em> to assess. Four are widely used in food and agriculture.</p>
+      <ul>
+        <li><strong>Triple bottom line.</strong> Elkington (1994) urged companies to account for environmental and social performance alongside profit — "people, planet, profit". It is a reminder of scope, not a method: it says nothing about how to trade the three off.</li>
+        <li><strong>Life cycle sustainability assessment (LCSA).</strong> Kloepffer (2008) proposed LCSA = environmental LCA + life cycle costing + social LCA, all with the same functional unit and system boundary, so that the three pillars are assessed consistently along the life cycle.</li>
+        <li><strong>FAO SAFA.</strong> The Sustainability Assessment of Food and Agriculture systems guidelines (FAO, 2014) define four dimensions — good governance, environmental integrity, economic resilience and social well-being — divided into 21 themes, 58 sub-themes and 116 indicators, assessed in four stages: mapping, contextualisation, selection of tools and indicators, and reporting. Results are shown as sustainability polygons rather than a single score; a simplified smallholder version uses 44 indicators (Pérez-Lombardini et al., 2021).</li>
+        <li><strong>Absolute sustainability.</strong> Planetary boundaries (Richardson et al., 2023; Lesson 1.2) turn part of the assessment into thresholds: a technology is judged by whether its footprint fits within an allocated share of each boundary, not only by whether it beats an alternative.</li>
+      </ul>
+      <table>
+        <caption>Table 2. Frameworks for integrated assessment and how they relate to MCDA.</caption>
+        <thead><tr><th>Framework</th><th>Scope</th><th>How results are combined</th><th>Strength</th><th>Limitation</th></tr></thead>
+        <tbody>
+          <tr><td>Triple bottom line</td><td>economy, environment, society</td><td>not specified</td><td>broad, intuitive</td><td>no method, easily used for reporting only</td></tr>
+          <tr><td>LCSA (Kloepffer, 2008)</td><td>LCA + LCC + S-LCA</td><td>side by side, or MCDA</td><td>consistent functional unit</td><td>social LCA data are scarce</td></tr>
+          <tr><td>FAO SAFA (2014)</td><td>4 dimensions, 116 indicators</td><td>polygon of ratings, no single score</td><td>comprehensive, includes governance</td><td>data-intensive; subjective ratings</td></tr>
+          <tr><td>Composite indicators (OECD &amp; JRC, 2008)</td><td>any</td><td>normalise, weight, aggregate</td><td>explicit methodological guidance</td><td>compensation, weighting controversy</td></tr>
+          <tr><td>Planetary boundaries</td><td>Earth-system processes</td><td>thresholds (vetoes)</td><td>science-based limits</td><td>allocation of the "safe space" is normative</td></tr>
+        </tbody>
+      </table>
+      <p>Reviews of MCDA in environmental science show a steady growth of applications and recommend combining methods with stakeholder deliberation and uncertainty analysis (Huang et al., 2011; Cinelli et al., 2014; Diaz-Balteiro et al., 2017). For vertical farming specifically, Dziumla et al. (2025) conclude that sustainability assessments still rely too heavily on environmental LCA and call for integrating economic and social indicators — precisely what this module has built.</p>
+
+      <h2 id="case">A complete worked example: four ways to supply winter lettuce</h2>
+      <p>Pulling the pieces together, a complete MCDA of the running example reads as follows. Use it as the template for the course project and for the MCDA studio.</p>
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">From question to recommendation</span></div>
+        <div class="we-problem"><p>Write the full MCDA for "How should a Stockholm retailer source lettuce in January?" with the data of Table 1 and the swing weights of Worked example 2, including robustness, and state a recommendation.</p></div>
+        <details><summary>Reveal the reasoning</summary><div class="we-solution">
+          <ol class="steps">
+            <li><strong>Frame.</strong> Decision-maker: retailer; stakeholders: consumers, growers, the municipality. Functional unit: 1 kg of lettuce delivered to Stockholm stores in January.</li>
+            <li><strong>Options.</strong> A field + truck, B gas greenhouse, C heat-pump greenhouse, D vertical farm.</li>
+            <li><strong>Criteria.</strong> Climate, land, water, cost, supply security (Figure 2); energy use excluded to avoid double counting with climate; jobs and consumer price flagged for a second round.</li>
+            <li><strong>Performance and dominance.</strong> Table 1; B is dominated by C.</li>
+            <li><strong>Normalise.</strong> Min–max (Worked example 1), checked against ratio and vector normalisation.</li>
+            <li><strong>Weight.</strong> Swing weights (0.333, 0.100, 0.133, 0.267, 0.167); an AHP check with range-aware questions gives similar weights (0.32, 0.09, 0.14, 0.29, 0.15; CR = 0.01, Figure 3).</li>
+            <li><strong>Aggregate.</strong> Weighted sum: C 0.92 &gt; D 0.60 ≈ A 0.59 &gt; B 0.41. TOPSIS: C 0.88 &gt; A 0.63 &gt; D 0.59 &gt; B 0.45. Weighted product: C 0.550 ≈ D 0.548 &gt; A 0.32 &gt; B 0.29.</li>
+            <li><strong>Robustness.</strong> One-at-a-time: C first unless cost weight &gt; 0.70 or land/water weight &gt; 0.83. SMAA: C first in 98 % (WSM) and 92 % (TOPSIS) of weight space; under the weighted product, D in 76 %. Removing B reverses A and D under min–max.</li>
+            <li><strong>Recommend.</strong> Source from Swedish greenhouses heated by heat pumps (or renewable heat) as the robust first choice; treat vertical-farm lettuce as a premium, low-land, low-water complement whose case rests on how strongly land and water are valued and on grid and cost developments; phase out fossil-heated supply. Revisit when the grid factor, LED efficacy or vertical-farm costs change (Lessons 15.1–15.3).</li>
+          </ol>
+          <span class="answer">Robust winner: heat-pump greenhouse (C). Runner-up depends on method and values (D or A). Gas greenhouse dominated.</span>
+        </div></details>
+      </div>
+      <a class="lab-link" data-lab="mcda-studio" data-why="Weight environmental, economic and social criteria to rank food technologies of your choice, and stress-test the ranking with sensitivity analysis — the full workflow of this lesson in one tool."></a>
+
+      <h2 id="synthesis">Synthesis: how to assess any emerging food technology</h2>
+      <p>This is the last lesson of the course, so let us step back. You have met vertical farms and aquaponics, gene-edited crops and robots, precision fermentation and insects, sensors and neural networks. New ones will appear every year of your career, each with a confident pitch. The course has given you the tools to answer the only question that matters: <em>is this technology actually better — and for whom?</em> The checklist below condenses the modules into eight lenses. Use it as a structure for the course project, for reviewing a scientific paper or a business plan, and for your own MCDA.</p>
+      <table>
+        <caption>Table 3. An environmental engineer's checklist for assessing an emerging food technology.</caption>
+        <thead><tr><th>Lens</th><th>Key questions</th><th>Quantitative tools</th><th>Where in the course</th></tr></thead>
+        <tbody>
+          <tr><td><strong>1 Planetary boundaries</strong></td><td>Which boundaries does it press on — climate, land, freshwater, nitrogen and phosphorus, biosphere integrity, novel entities? Does it fit a fair share of the safe operating space?</td><td>transgression ratio; footprint per functional unit; break-even grid intensity</td><td><a href="/lessons/planetary-boundaries/">1.2</a>, <a href="/lessons/life-cycle-thinking/">1.3</a>, <a href="/lessons/lca-emerging-systems/">15.1</a></td></tr>
+          <tr><td><strong>2 Resource efficiency</strong></td><td>How many kWh, litres, m², kg N and photons per kg — or per unit of nutrition? Compared with what, delivered where?</td><td>energy, water, land, light and nutrient-use efficiency; mass and energy balances</td><td>Modules <a href="/lessons/radiation-physics/">4</a>, <a href="/lessons/soilless-systems/">5</a>, <a href="/lessons/energy-balance/">8</a></td></tr>
+          <tr><td><strong>3 Resilience</strong></td><td>What shocks does it absorb, and which does it create? Energy and input dependencies, diversity, buffers, financial margins?</td><td>resilience triangle; H, HHI; buffer duration; energy-price break-even</td><td><a href="/lessons/resilience/">15.2</a></td></tr>
+          <tr><td><strong>4 Accessibility and equity</strong></td><td>What does a kilogram cost, who can afford it, who owns the technology, who gains and loses jobs, who decides?</td><td>LCOF; affordability; Gini; rebound and distributional effects</td><td><a href="/lessons/accessibility-equity/">15.3</a></td></tr>
+          <tr><td><strong>5 Acceptance</strong></td><td>Will people eat it? Neophobia, trust, naturalness, sensory quality, culture</td><td>acceptance models; sensory tests and statistics</td><td>Module <a href="/lessons/food-choice/">13</a></td></tr>
+          <tr><td><strong>6 Regulation and governance</strong></td><td>Is it a novel food, a GMO or NGT product? Can it be labelled as intended or certified organic? How long is the path to market?</td><td>regulatory decision trees; authorisation timelines</td><td>Module <a href="/lessons/eu-novel-food/">14</a></td></tr>
+          <tr><td><strong>7 Readiness and uncertainty</strong></td><td>How mature is it (TRL)? Are the numbers from a pilot or a plant? Prospective or current? How uncertain?</td><td>prospective LCA; learning curves; Monte Carlo</td><td><a href="/lessons/lca-emerging-systems/">15.1</a>, <a href="/lessons/accessibility-equity/">15.3</a></td></tr>
+          <tr><td><strong>8 Evidence and responsibility</strong></td><td>Who funded the study? Are data open? Were affected groups involved? Can course be corrected once the technology is entrenched?</td><td>critical reading; responsible innovation: anticipation, inclusion, reflexivity, responsiveness</td><td>this lesson</td></tr>
+        </tbody>
+      </table>
+      <p>The last lens deserves emphasis. Collingridge (1980) described the dilemma at the heart of technology assessment: early on, a technology is easy to change but its impacts are hard to foresee; once its impacts are clear, it is entrenched and hard to change. Responsible innovation answers with four habits (Stilgoe et al., 2013): <strong>anticipation</strong> (ask "what if?" early), <strong>inclusion</strong> (involve those affected), <strong>reflexivity</strong> (question your own assumptions and interests) and <strong>responsiveness</strong> (be willing to change direction). An MCDA done well is an instrument for all four.</p>
+      <figure class="figure wide" id="canvas-fig">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — technology assessment canvas</div>
+          <div class="canvas-wrap">
+            <div>
+              <div class="mc-var"><div class="mc-lab"><span>Technology assessed</span></div><input id="cv-name" type="text" value="My technology" aria-label="Name of the technology" style="width:100%;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-elev);color:var(--ink);font:500 .9rem var(--font-sans)"></div>
+              <div id="cv-sliders" class="mc-ctl" style="margin-top:8px"></div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                <button class="btn btn-sm" type="button" id="cv-example">Illustrative example: vertical farm, Stockholm</button>
+                <button class="btn btn-sm" type="button" id="cv-clear">Reset to neutral</button>
+                <button class="btn btn-sm btn-primary" type="button" id="cv-save">Save to my notebook</button>
+              </div>
+            </div>
+            <div>
+              <svg class="dg" id="cv-radar" viewBox="-50 0 520 420" role="img" aria-label="Radar chart of the eight assessment lenses"></svg>
+              <div class="readouts" id="cv-ro" style="margin:6px 0 0"></div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Figure 6.</b> Rate a technology on each lens from 0 (serious problems) to 5 (clearly favourable), using the questions and tools of Table 3 — and write down the evidence behind each rating in your notebook. The polygon is deliberately <em>not</em> reduced to one number: its lowest spoke is often the most important (a strong-sustainability reading). The example ratings for a Stockholm vertical farm summarise the analysis of this module and are illustrative, not a verdict.</figcaption>
+      </figure>
+      <div class="callout key"><div class="callout-title">The whole course in one sentence</div><p>A new food technology is better only if it delivers more nutrition within planetary boundaries, uses resources efficiently, makes the food system more resilient, is accessible and fair, is accepted and legal — and if you can show, with numbers and their uncertainty, which of these holds, for whom, and under which assumptions.</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="multi-criteria-assessment-main">
+        <script type="application/json">
+        {"title":"Integrated multi-criteria assessment","questions":[
+          {"type":"numeric","q":"Four lettuce options cost 1.6, 3.2, 3.0 and 7.5 $ kg⁻¹. Treating cost as a cost criterion, what is the min–max normalised score of the option costing 3.0 $ kg⁻¹?","answer":0.763,"abstol":0.01,"unit":"","hint":"Eq. 15.4.1b: \\((x_{\\max}-x)/(x_{\\max}-x_{\\min})\\).","explain":"<p>\\((7.5-3.0)/(7.5-1.6) = 4.5/5.9 = 0.763\\).</p>"},
+          {"type":"numeric","q":"A climate target for leafy vegetables is 0.50 kg CO₂e kg⁻¹. A product emits 0.84 kg CO₂e kg⁻¹. What is its relative distance to target \\(d\\)?","answer":0.68,"abstol":0.01,"unit":"","explain":"<p>Eq. 15.4.2: \\((0.84-0.50)/0.50 = 0.68\\): 68 % above the target.</p>"},
+          {"type":"numeric","q":"An option has normalised scores 0.8, 0.2 and 0.6 on three criteria with weights 0.5, 0.3 and 0.2. What is its weighted-sum score?","answer":0.58,"abstol":0.005,"unit":"","explain":"<p>\\(0.5(0.8)+0.3(0.2)+0.2(0.6) = 0.40+0.06+0.12 = 0.58\\).</p>"},
+          {"type":"numeric","q":"Same option and weights as the previous question. What is its weighted-product score \\(\\prod v_j^{w_j}\\)?","answer":0.498,"abstol":0.005,"unit":"","hint":"Use logarithms: \\(\\ln P = \\sum w_j \\ln v_j\\).","explain":"<p>\\(0.8^{0.5}\\times0.2^{0.3}\\times0.6^{0.2} = 0.894\\times0.617\\times0.903 = 0.498\\) — lower than the weighted sum because the weak criterion (0.2) is penalised more.</p>"},
+          {"type":"numeric","q":"A 3 × 3 AHP pairwise comparison matrix has \\(\\lambda_{\\max} = 3.10\\). What is its consistency ratio (RI = 0.58)?","answer":0.0862,"abstol":0.005,"unit":"","explain":"<p>\\(\\text{CI} = (3.10-3)/2 = 0.05\\); \\(\\text{CR} = 0.05/0.58 = 0.086\\) — just acceptable (≤ 0.10).</p>"},
+          {"type":"numeric","q":"In TOPSIS, an option lies at distance 0.12 from the ideal point and 0.08 from the anti-ideal point. What is its closeness coefficient?","answer":0.40,"abstol":0.005,"unit":"","explain":"<p>\\(C = D^-/(D^++D^-) = 0.08/0.20 = 0.40\\).</p>"},
+          {"type":"numeric","q":"Two options have normalised scores A = (0.9, 0.2) and B = (0.3, 0.8) on criteria 1 and 2, aggregated with weights w and 1 − w. Above which weight w of criterion 1 is A preferred?","answer":0.5,"abstol":0.005,"unit":"","explain":"<p>Eq. 15.4.8: \\(w^* = (0.8-0.2)/[(0.9-0.3)+(0.8-0.2)] = 0.6/1.2 = 0.5\\).</p>"},
+          {"type":"numeric","q":"In 10,000 Monte Carlo weight draws an option ranks first 6,200 times. What is the standard error of its first-rank acceptability, in percentage points?","answer":0.485,"tol":0.03,"unit":"percentage points","explain":"<p>\\(\\sqrt{0.62\\times0.38/10{,}000} = 0.00485\\), i.e. 0.49 percentage points.</p>"},
+          {"type":"mcq","q":"You assess vertical farms against greenhouses. Which pair of criteria is most likely to double-count the same information?","options":["Electricity use (kWh kg⁻¹) and greenhouse-gas emissions (kg CO₂e kg⁻¹)","Water use (L kg⁻¹) and consumer acceptance (score)","Land occupation (m²·yr kg⁻¹) and labour cost ($ kg⁻¹)","Supply security (score) and water use (L kg⁻¹)"],"answer":0,"feedback":["","These measure different things and are unlikely to be correlated.","Different physical causes; no redundancy.","Different causes; not redundant."],"explain":"<p>For an electricity-driven system, emissions are electricity use times the grid factor (Eq. 15.1.2), so the two criteria largely carry the same information and including both doubles its weight.</p>"},
+          {"type":"mcq","q":"Why does swing weighting ask about the change from the worst to the best value <em>in the option set</em>, rather than asking how important each criterion is?","options":["Because weights in an additive model are trade-offs across the ranges being compared; a criterion on which all options are nearly equal should carry little weight in this decision.","Because swing weights are always equal to AHP weights.","Because importance cannot be expressed in numbers.","Because it removes the need for normalisation."],"answer":0,"feedback":["","AHP weights are often elicited without reference to ranges and can differ substantially.","Both methods express importance as numbers; the point is what the numbers refer to.","Swing weighting is designed to be used together with min–max normalisation, not instead of it."],"explain":"<p>This is the range-sensitivity principle (von Winterfeldt &amp; Edwards, 1986).</p>"},
+          {"type":"multi","q":"Which of the following limit compensation, so that a very poor score on one criterion cannot be fully offset by good scores elsewhere? Select all that apply.","options":["The weighted-product model","A veto threshold excluding options that exceed a planetary-boundary share","ELECTRE outranking with discordance and veto thresholds","The weighted-sum model with equal weights"],"answer":[0,1,2],"explain":"<p>The weighted sum is fully compensatory. Products, vetoes and outranking with discordance all limit compensation — the logic of strong sustainability.</p>"},
+          {"type":"tf","q":"Removing an option that no one would ever choose (a dominated option) cannot change the ranking of the remaining options under min–max normalisation.","answer":false,"explain":"<p>If the dominated option set the maximum or minimum of a criterion, removing it changes the normalisation range and therefore the scores of all other options. In Worked example 3, removing the gas greenhouse reversed the order of the vertical farm and the imported lettuce.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Multi-criteria decision analysis (MCDA)</dt><dd>A family of methods that evaluate options on several criteria in their own units, make value judgements explicit and show how conclusions depend on them.</dd>
+        <dt>Performance matrix</dt><dd>A table of options × criteria containing the measured or estimated performance of each option on each criterion.</dd>
+        <dt>Dominance</dt><dd>Option A dominates B if it is at least as good on every criterion and strictly better on at least one; dominated options can be discarded whatever the weights.</dd>
+        <dt>Double counting</dt><dd>Including two criteria that measure the same underlying effect (e.g. electricity use and emissions of an electric system), which silently doubles its weight.</dd>
+        <dt>Min–max normalisation</dt><dd>Linear rescaling of a criterion so that the best option in the set scores 1 and the worst 0; sensitive to the option set (rank reversal).</dd>
+        <dt>Distance to target</dt><dd>The relative gap between a value and an external target, \((x-x_{\text{target}})/x_{\text{target}}\).</dd>
+        <dt>Swing weighting</dt><dd>Eliciting weights by valuing the improvement from the worst to the best value of each criterion in the option set.</dd>
+        <dt>Analytic hierarchy process (AHP)</dt><dd>Deriving weights from pairwise comparisons on a 1–9 scale as the principal eigenvector of the comparison matrix.</dd>
+        <dt>Consistency ratio</dt><dd>\(\text{CR} = [(\lambda_{\max}-n)/(n-1)]/\text{RI}\); judgements with CR ≤ 0.10 are considered acceptably consistent.</dd>
+        <dt>Weighted-sum model</dt><dd>Overall score \(\sum w_j v_j\); transparent and fully compensatory.</dd>
+        <dt>Weighted-product model</dt><dd>Overall score \(\prod v_j^{w_j}\); penalises weak criteria and limits compensation.</dd>
+        <dt>TOPSIS</dt><dd>Ranking by relative closeness to an ideal point and distance from an anti-ideal point in weighted, vector-normalised criterion space.</dd>
+        <dt>Outranking</dt><dd>Methods such as ELECTRE and PROMETHEE that compare options pairwise with concordance, discordance and preference functions instead of a single value score.</dd>
+        <dt>Compensation</dt><dd>The extent to which poor performance on one criterion can be offset by good performance on others; limited compensation reflects strong sustainability.</dd>
+        <dt>Rank acceptability index</dt><dd>The share of sampled weight vectors (and data scenarios) under which an option attains a given rank (SMAA).</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can structure a technology choice as options, criteria and a performance matrix, check for dominance and avoid double counting.</li>
+        <li>I can normalise criteria with min–max and distance-to-target methods and explain why min–max can cause rank reversal.</li>
+        <li>I can elicit swing weights and derive AHP weights with the eigenvector or geometric-mean method, and check the consistency ratio.</li>
+        <li>I can rank options with the weighted sum, the weighted product and TOPSIS, and explain why the rankings differ.</li>
+        <li>I can compute a break-even weight and interpret Monte Carlo rank acceptabilities with their standard errors.</li>
+        <li>I can use the eight-lens checklist to assess any emerging food technology and name its weakest spoke.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Dodgson, J. S., Spackman, M., Pearman, A., &amp; Phillips, L. D. (2009). <em>Multi-criteria analysis: A manual</em>. Department for Communities and Local Government. <a href="https://eprints.lse.ac.uk/12761/1/Multi-criteria_Analysis.pdf" target="_blank" rel="noopener">eprints.lse.ac.uk</a><span class="r-why">Read chapters 5 and 6: a practical, government-tested guide to performance matrices, swing weights and the weighted sum, with worked cases.</span></li>
+        <li><span class="r-type">Required · open access</span>OECD &amp; JRC. (2008). <em>Handbook on constructing composite indicators: Methodology and user guide</em>. OECD Publishing. <a href="https://doi.org/10.1787/9789264043466-en" target="_blank" rel="noopener">doi:10.1787/9789264043466-en</a><span class="r-why">Read the sections on normalisation, weighting and aggregation, including compensability — the pitfalls of this lesson in one reference work.</span></li>
+        <li><span class="r-type">Recommended</span>Cinelli, M., Coles, S. R., &amp; Kirwan, K. (2014). Analysis of the potentials of multi criteria decision analysis methods to conduct sustainability assessment. <em>Ecological Indicators</em>, 46, 138–148. <a href="https://doi.org/10.1016/j.ecolind.2014.06.011" target="_blank" rel="noopener">doi:10.1016/j.ecolind.2014.06.011</a><span class="r-why">A comparison of MAUT, AHP, PROMETHEE, ELECTRE and DRSA against sustainability-assessment requirements.</span></li>
+        <li><span class="r-type">Recommended</span>Dziumla, J., Guenther, E., Karthe, D., &amp; Dijkstra-Silva, S. (2025). Sustainability assessment for novel approaches in the agri-food industry: The example of vertical farming. <em>Journal of Cleaner Production</em>, 495, 145036. <a href="https://doi.org/10.1016/j.jclepro.2025.145036" target="_blank" rel="noopener">doi:10.1016/j.jclepro.2025.145036</a><span class="r-why">How integrated assessments of vertical farming are done — and what is still missing.</span></li>
+        <li><span class="r-type">Recommended</span>Stilgoe, J., Owen, R., &amp; Macnaghten, P. (2013). Developing a framework for responsible innovation. <em>Research Policy</em>, 42(9), 1568–1580. <a href="https://doi.org/10.1016/j.respol.2013.05.008" target="_blank" rel="noopener">doi:10.1016/j.respol.2013.05.008</a><span class="r-why">Anticipation, inclusion, reflexivity and responsiveness — the habits behind lens 8 of the checklist.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Barbosa, G. L., Gadelha, F. D. A., Kublik, N., Proctor, A., Reichelm, L., Weissinger, E., Wohlleb, G. M., &amp; Halden, R. U. (2015). Comparison of land, water, and energy requirements of lettuce grown using hydroponic vs. conventional agricultural methods. <em>International Journal of Environmental Research and Public Health</em>, 12(6), 6879–6891. <a href="https://doi.org/10.3390/ijerph120606879" target="_blank" rel="noopener">doi:10.3390/ijerph120606879</a></li>
+        <li>Belton, V., &amp; Gear, T. (1983). On a short-coming of Saaty's method of analytic hierarchies. <em>Omega</em>, 11(3), 228–230. <a href="https://doi.org/10.1016/0305-0483(83)90047-6" target="_blank" rel="noopener">doi:10.1016/0305-0483(83)90047-6</a></li>
+        <li>Belton, V., &amp; Stewart, T. J. (2002). <em>Multiple criteria decision analysis: An integrated approach</em>. Springer. <a href="https://doi.org/10.1007/978-1-4615-1495-4" target="_blank" rel="noopener">doi:10.1007/978-1-4615-1495-4</a></li>
+        <li>Brans, J. P., &amp; Vincke, P. (1985). A preference ranking organisation method (The PROMETHEE method for multiple criteria decision-making). <em>Management Science</em>, 31(6), 647–656. <a href="https://doi.org/10.1287/mnsc.31.6.647" target="_blank" rel="noopener">doi:10.1287/mnsc.31.6.647</a></li>
+        <li>Cinelli, M., Coles, S. R., &amp; Kirwan, K. (2014). Analysis of the potentials of multi criteria decision analysis methods to conduct sustainability assessment. <em>Ecological Indicators</em>, 46, 138–148. <a href="https://doi.org/10.1016/j.ecolind.2014.06.011" target="_blank" rel="noopener">doi:10.1016/j.ecolind.2014.06.011</a></li>
+        <li>Collingridge, D. (1980). <em>The social control of technology</em>. Frances Pinter.</li>
+        <li>Diaz-Balteiro, L., González-Pachón, J., &amp; Romero, C. (2017). Measuring systems sustainability with multi-criteria methods: A critical review. <em>European Journal of Operational Research</em>, 258(2), 607–616. <a href="https://doi.org/10.1016/j.ejor.2016.08.075" target="_blank" rel="noopener">doi:10.1016/j.ejor.2016.08.075</a></li>
+        <li>Dodgson, J. S., Spackman, M., Pearman, A., &amp; Phillips, L. D. (2009). <em>Multi-criteria analysis: A manual</em>. Department for Communities and Local Government. <a href="https://eprints.lse.ac.uk/12761/1/Multi-criteria_Analysis.pdf" target="_blank" rel="noopener">eprints.lse.ac.uk</a></li>
+        <li>Dziumla, J., Guenther, E., Karthe, D., &amp; Dijkstra-Silva, S. (2025). Sustainability assessment for novel approaches in the agri-food industry: The example of vertical farming. <em>Journal of Cleaner Production</em>, 495, 145036. <a href="https://doi.org/10.1016/j.jclepro.2025.145036" target="_blank" rel="noopener">doi:10.1016/j.jclepro.2025.145036</a></li>
+        <li>Elkington, J. (1994). Towards the sustainable corporation: Win-win-win business strategies for sustainable development. <em>California Management Review</em>, 36(2), 90–100. <a href="https://doi.org/10.2307/41165746" target="_blank" rel="noopener">doi:10.2307/41165746</a></li>
+        <li>FAO. (2014). <em>SAFA: Sustainability assessment of food and agriculture systems — Guidelines</em> (Version 3.0). Food and Agriculture Organization of the United Nations. <a href="https://www.fao.org/3/i3957e/i3957e.pdf" target="_blank" rel="noopener">fao.org</a></li>
+        <li>Gargaro, M., Hastings, A., Murphy, R. J., &amp; Harris, Z. M. (2025). A comparative LCA of field grown lettuce versus vertically farmed lettuce. <em>Food and Energy Security</em>, 14(4), e70117. <a href="https://doi.org/10.1002/fes3.70117" target="_blank" rel="noopener">doi:10.1002/fes3.70117</a></li>
+        <li>Huang, I. B., Keisler, J., &amp; Linkov, I. (2011). Multi-criteria decision analysis in environmental sciences: Ten years of applications and trends. <em>Science of the Total Environment</em>, 409(19), 3578–3594. <a href="https://doi.org/10.1016/j.scitotenv.2011.06.022" target="_blank" rel="noopener">doi:10.1016/j.scitotenv.2011.06.022</a></li>
+        <li>Hwang, C.-L., &amp; Yoon, K. (1981). <em>Multiple attribute decision making: Methods and applications</em> (Lecture Notes in Economics and Mathematical Systems, Vol. 186). Springer. <a href="https://doi.org/10.1007/978-3-642-48318-9" target="_blank" rel="noopener">doi:10.1007/978-3-642-48318-9</a></li>
+        <li>Keeney, R. L., &amp; Raiffa, H. (1993). <em>Decisions with multiple objectives: Preferences and value trade-offs</em> (reissue of the 1976 Wiley edition). Cambridge University Press. <a href="https://doi.org/10.1017/CBO9781139174084" target="_blank" rel="noopener">doi:10.1017/CBO9781139174084</a></li>
+        <li>Kloepffer, W. (2008). Life cycle sustainability assessment of products. <em>The International Journal of Life Cycle Assessment</em>, 13(2), 89–95. <a href="https://doi.org/10.1065/lca2008.02.376" target="_blank" rel="noopener">doi:10.1065/lca2008.02.376</a></li>
+        <li>Kozai, T. (2013). Resource use efficiency of closed plant production system with artificial light: Concept, estimation and application to plant factory. <em>Proceedings of the Japan Academy, Series B</em>, 89(10), 447–461. <a href="https://doi.org/10.2183/pjab.89.447" target="_blank" rel="noopener">doi:10.2183/pjab.89.447</a></li>
+        <li>Lahdelma, R., Hokkanen, J., &amp; Salminen, P. (1998). SMAA — Stochastic multiobjective acceptability analysis. <em>European Journal of Operational Research</em>, 106(1), 137–143. <a href="https://doi.org/10.1016/S0377-2217(97)00163-X" target="_blank" rel="noopener">doi:10.1016/S0377-2217(97)00163-X</a></li>
+        <li>OECD &amp; JRC. (2008). <em>Handbook on constructing composite indicators: Methodology and user guide</em>. OECD Publishing. <a href="https://doi.org/10.1787/9789264043466-en" target="_blank" rel="noopener">doi:10.1787/9789264043466-en</a></li>
+        <li>Opricovic, S., &amp; Tzeng, G.-H. (2004). Compromise solution by MCDM methods: A comparative analysis of VIKOR and TOPSIS. <em>European Journal of Operational Research</em>, 156(2), 445–455. <a href="https://doi.org/10.1016/S0377-2217(03)00020-1" target="_blank" rel="noopener">doi:10.1016/S0377-2217(03)00020-1</a></li>
+        <li>Pérez-Lombardini, F., Mancera, K. F., Suzán, G., Campo, J., Solorio, J., &amp; Galindo, F. (2021). Assessing sustainability in cattle silvopastoral systems in the Mexican tropics using the SAFA framework. <em>Animals</em>, 11(1), 109. <a href="https://doi.org/10.3390/ani11010109" target="_blank" rel="noopener">doi:10.3390/ani11010109</a></li>
+        <li>Richardson, K., Steffen, W., Lucht, W., Bendtsen, J., Cornell, S. E., Donges, J. F., … Rockström, J. (2023). Earth beyond six of nine planetary boundaries. <em>Science Advances</em>, 9(37), eadh2458. <a href="https://doi.org/10.1126/sciadv.adh2458" target="_blank" rel="noopener">doi:10.1126/sciadv.adh2458</a></li>
+        <li>Roy, B. (1991). The outranking approach and the foundations of ELECTRE methods. <em>Theory and Decision</em>, 31(1), 49–73. <a href="https://doi.org/10.1007/BF00134132" target="_blank" rel="noopener">doi:10.1007/BF00134132</a></li>
+        <li>Saaty, T. L. (1977). A scaling method for priorities in hierarchical structures. <em>Journal of Mathematical Psychology</em>, 15(3), 234–281. <a href="https://doi.org/10.1016/0022-2496(77)90033-5" target="_blank" rel="noopener">doi:10.1016/0022-2496(77)90033-5</a></li>
+        <li>Saaty, T. L. (1980). <em>The analytic hierarchy process: Planning, priority setting, resource allocation</em>. McGraw-Hill.</li>
+        <li>Stilgoe, J., Owen, R., &amp; Macnaghten, P. (2013). Developing a framework for responsible innovation. <em>Research Policy</em>, 42(9), 1568–1580. <a href="https://doi.org/10.1016/j.respol.2013.05.008" target="_blank" rel="noopener">doi:10.1016/j.respol.2013.05.008</a></li>
+        <li>von Winterfeldt, D., &amp; Edwards, W. (1986). <em>Decision analysis and behavioral research</em>. Cambridge University Press.</li>
+        <li>Zhuang, Y., Lu, N., Shimamura, S., Maruyama, A., Kikuchi, M., &amp; Takagaki, M. (2022). Economies of scale in constructing plant factories with artificial lighting and the economic viability of crop production. <em>Frontiers in Plant Science</em>, 13, 992194. <a href="https://doi.org/10.3389/fpls.2022.992194" target="_blank" rel="noopener">doi:10.3389/fpls.2022.992194</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { BarChart } from '/assets/js/plot.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+import { mulberry32, randn } from '/assets/js/stats.js';
+
+const $ = id => document.getElementById(id);
+const fill = el => el.style.setProperty('--fill', ((+el.value - +el.min) / (+el.max - +el.min) * 100) + '%');
+const segValue = el => { const b = el.querySelector('[aria-pressed="true"]'); return b ? b.dataset.v : null; };
+function bindSeg(el, cb) { el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); cb(b.dataset.v); }); }
+const sum = a => a.reduce((s, x) => s + x, 0);
+
+/* ---------------- data of Table 1 ---------------- */
+const CRIT = ['Climate', 'Land', 'Water', 'Cost', 'Supply security'];
+const TYPE = ['c', 'c', 'c', 'c', 'b'];
+const OPT = ['A Field + truck', 'B Greenhouse, gas', 'C Greenhouse, heat pump', 'D Vertical farm'];
+const X = [[0.62, 0.30, 250, 1.6, 2], [2.52, 0.030, 20, 3.2, 2], [0.55, 0.030, 20, 3.0, 4], [0.84, 0.0087, 2, 7.5, 3]];
+
+function minmax(M) { const m = M[0].length, lo = [], hi = []; for (let j = 0; j < m; j++) { lo[j] = Math.min(...M.map(r => r[j])); hi[j] = Math.max(...M.map(r => r[j])); } return M.map(r => r.map((x, j) => hi[j] === lo[j] ? 1 : TYPE[j] === 'b' ? (x - lo[j]) / (hi[j] - lo[j]) : (hi[j] - x) / (hi[j] - lo[j]))); }
+function ratio(M) { const m = M[0].length, lo = [], hi = []; for (let j = 0; j < m; j++) { lo[j] = Math.min(...M.map(r => r[j])); hi[j] = Math.max(...M.map(r => r[j])); } return M.map(r => r.map((x, j) => TYPE[j] === 'b' ? x / hi[j] : lo[j] / x)); }
+const wsm = (M, w) => minmax(M).map(r => sum(r.map((v, j) => v * w[j])));
+const wpm = (M, w) => ratio(M).map(r => r.reduce((p, v, j) => p * Math.pow(v, w[j]), 1));
+function topsis(M, w) {
+  const m = M[0].length, nrm = []; for (let j = 0; j < m; j++) nrm[j] = Math.sqrt(sum(M.map(r => r[j] * r[j])));
+  const V = M.map(r => r.map((x, j) => w[j] * x / nrm[j])); const best = [], worst = [];
+  for (let j = 0; j < m; j++) { const col = V.map(r => r[j]); best[j] = TYPE[j] === 'b' ? Math.max(...col) : Math.min(...col); worst[j] = TYPE[j] === 'b' ? Math.min(...col) : Math.max(...col); }
+  return V.map(r => { const dp = Math.hypot(...r.map((v, j) => v - best[j])), dm = Math.hypot(...r.map((v, j) => v - worst[j])); return dm / (dp + dm); });
+}
+const METHODS = { wsm, wpm, topsis };
+
+/* ================= Figure 3: AHP workbench ================= */
+const PAIRS = []; for (let i = 0; i < 5; i++) for (let j = i + 1; j < 5; j++) PAIRS.push([i, j]);
+const AHP_DEFAULT = { '0-1': -2, '0-2': -2, '0-3': 0, '0-4': -1, '1-2': 1, '1-3': 2, '1-4': 1, '2-3': 1, '2-4': 0, '3-4': -1 };
+const RI5 = 1.12;
+$('ahp-sliders').innerHTML = PAIRS.map(([i, j]) => `<div class="ahp-row"><div class="mc-lab"><span>${CRIT[i]} vs ${CRIT[j]}</span><output id="ahp-o-${i}-${j}"></output></div><input id="ahp-${i}-${j}" type="range" min="-8" max="8" step="1" value="${AHP_DEFAULT[i + '-' + j]}" aria-label="${CRIT[i]} versus ${CRIT[j]}"></div>`).join('');
+const ahpBars = new BarChart('#ahp-bars', { y: { label: 'AHP weight', unit: '', min: 0 }, height: 210, legend: false });
+const aro = new Readouts('#ahp-ro');
+aro.add({ id: 'lam', label: 'λ<sub>max</sub>', unit: '', digits: 3 }).add({ id: 'ci', label: 'CI', unit: '', digits: 4 }).add({ id: 'cr', label: 'CR', unit: '', digits: 3 });
+const sv2a = s => s <= 0 ? 1 - s : 1 / (1 + s);
+let ahpW = null;
+function ahpUpdate() {
+  const A = [...Array(5)].map(() => Array(5).fill(1));
+  PAIRS.forEach(([i, j]) => { const s = +$(`ahp-${i}-${j}`).value; const a = sv2a(s); A[i][j] = a; A[j][i] = 1 / a; fill($(`ahp-${i}-${j}`));
+    $(`ahp-o-${i}-${j}`).textContent = s === 0 ? 'equally important' : s < 0 ? `${CRIT[i].split(' ')[0]} ${1 - s}× more` : `${CRIT[j].split(' ')[0]} ${1 + s}× more`; });
+  let w = Array(5).fill(0.2);
+  for (let it = 0; it < 300; it++) { const v = A.map(r => sum(r.map((x, k) => x * w[k]))); const s = sum(v); w = v.map(x => x / s); }
+  const Aw = A.map(r => sum(r.map((x, k) => x * w[k]))); const lam = sum(Aw.map((x, i) => x / w[i])) / 5;
+  const CI = (lam - 5) / 4, CR = CI / RI5; ahpW = w;
+  ahpBars.set(CRIT, [{ label: 'Weight', values: w, colors: ['c0', 'c1', 'c2', 'c3', 'c4'], format: v => fmt(v, 3) }]);
+  aro.set('lam', lam, null); aro.set('ci', CI, null); aro.set('cr', CR, CR <= 0.1 ? 'ok' : CR <= 0.2 ? 'warn' : 'bad', CR <= 0.1 ? 'acceptably consistent' : 'revise the judgements');
+}
+PAIRS.forEach(([i, j]) => $(`ahp-${i}-${j}`).addEventListener('input', ahpUpdate));
+$('ahp-reset').addEventListener('click', () => { PAIRS.forEach(([i, j]) => { $(`ahp-${i}-${j}`).value = AHP_DEFAULT[i + '-' + j]; }); ahpUpdate(); });
+ahpUpdate();
+
+/* ================= Figure 5: robustness studio ================= */
+const SWING = [100, 30, 40, 80, 50];
+$('rob-sliders').innerHTML = CRIT.map((c, j) => `<div class="mc-var"><div class="mc-lab"><span>Weight: ${c}</span><output id="rw-o${j}"></output></div><input id="rw${j}" type="range" min="0" max="100" step="1" value="${SWING[j]}" aria-label="Raw weight of ${c}"></div>`).join('');
+const robBars = new BarChart('#rob-bars', { y: { label: 'Score', unit: '', min: 0, max: 1 }, horizontal: true, height: 210, legend: false });
+const rro = new Readouts('#rob-ro');
+rro.add({ id: 'best', label: 'First with your weights', unit: '', format: v => v }).add({ id: 'acc1', label: 'Its first-rank acceptability', unit: '%', digits: 1 });
+let robSeed = 2026, lastAcc = null;
+function robState() { const raw = CRIT.map((_, j) => +$('rw' + j).value); const s = sum(raw) || 1; return { w: raw.map(x => x / s), method: segValue($('rob-method')), incB: $('rob-b').checked, unc: $('rob-unc').checked }; }
+function robScores() {
+  const st = robState(); const idx = st.incB ? [0, 1, 2, 3] : [0, 2, 3]; const M = idx.map(i => X[i]);
+  CRIT.forEach((_, j) => { $('rw-o' + j).textContent = fmt(st.w[j], 3); fill($('rw' + j)); });
+  const sc = METHODS[st.method](M, st.w); const names = idx.map(i => OPT[i]);
+  const bi = sc.indexOf(Math.max(...sc));
+  robBars.set(names, [{ label: 'Score', values: sc, colors: idx.map(i => ['c3', 'c5', 'c0', 'c2'][i]), format: v => fmt(v, 3) }]);
+  rro.set('best', names[bi], null);
+  if (lastAcc) { const k = lastAcc.idx.indexOf(idx[bi]); rro.set('acc1', k >= 0 ? lastAcc.acc[k][0] : NaN, null, 'over uniformly sampled weights'); }
+}
+function robMC() {
+  const st = robState(); const idx = st.incB ? [0, 1, 2, 3] : [0, 2, 3]; const M0 = idx.map(i => X[i]); const n = idx.length, N = 10000;
+  const rng = mulberry32(robSeed); const acc = idx.map(() => Array(n).fill(0));
+  for (let k = 0; k < N; k++) {
+    const e = CRIT.map(() => -Math.log(1 - rng())); const s = sum(e); const w = e.map(x => x / s);
+    let M = M0; if (st.unc) M = M0.map(r => r.map(x => x * Math.exp(Math.log(1.2) * randn(rng))));
+    const sc = METHODS[st.method](M, w); const order = [...Array(n).keys()].sort((a, b) => sc[b] - sc[a]);
+    order.forEach((opt, rank) => acc[opt][rank]++);
+  }
+  const pct = acc.map(r => r.map(c => c / N * 100)); lastAcc = { idx, acc: pct };
+  const head = `<tr><th>Option</th>${[...Array(n).keys()].map(r => `<th>Rank ${r + 1}</th>`).join('')}</tr>`;
+  const rows = idx.map((i, a) => `<tr><td>${OPT[i]}</td>${pct[a].map(v => `<td style="background:color-mix(in srgb, var(--accent) ${Math.round(v * 0.55)}%, transparent)">${fmt(v, 1)} %</td>`).join('')}</tr>`).join('');
+  $('rob-acc').innerHTML = `<table class="acc-table">${head}${rows}</table>`;
+  robScores();
+}
+CRIT.forEach((_, j) => $('rw' + j).addEventListener('input', robScores));
+bindSeg($('rob-method'), robMC); $('rob-b').addEventListener('change', robMC); $('rob-unc').addEventListener('change', robMC);
+$('rob-run').addEventListener('click', () => { robSeed = (robSeed * 1103515245 + 12345) >>> 0; robMC(); });
+$('ahp-send').addEventListener('click', () => { if (!ahpW) return; ahpW.forEach((w, j) => { $('rw' + j).value = Math.round(w * 100); }); robScores(); $('rob-fig').scrollIntoView({ behavior: 'smooth', block: 'start' }); window.FFP && FFP.toast && FFP.toast('AHP weights copied to Figure 5'); });
+robMC();
+
+/* ================= Figure 6: assessment canvas ================= */
+const LENSES = [
+  { n: 'Planetary boundaries', s: 'Planet', q: 'Footprint per functional unit within a fair share of the safe operating space?', l: '/lessons/planetary-boundaries/' },
+  { n: 'Resource efficiency', s: 'Resources', q: 'kWh, L, m², kg N and photons per kg — or per unit of nutrition?', l: '/lessons/energy-balance/' },
+  { n: 'Resilience', s: 'Resilience', q: 'Four Rs, diversity, buffers, energy and financial margins?', l: '/lessons/resilience/' },
+  { n: 'Accessibility & equity', s: 'Access', q: 'LCOF, affordability, ownership, jobs, just transition?', l: '/lessons/accessibility-equity/' },
+  { n: 'Acceptance', s: 'Acceptance', q: 'Neophobia, trust, naturalness, taste, culture?', l: '/lessons/food-choice/' },
+  { n: 'Regulation', s: 'Regulation', q: 'Novel food, NGT, labelling, organic — and how long to market?', l: '/lessons/eu-novel-food/' },
+  { n: 'Readiness & uncertainty', s: 'Readiness', q: 'TRL, pilot versus plant data, prospective uncertainty?', l: '/lessons/lca-emerging-systems/' },
+  { n: 'Evidence & responsibility', s: 'Evidence', q: 'Independent, open data? Anticipation, inclusion, reflexivity, responsiveness?', l: '/lessons/multi-criteria-assessment/#synthesis' }
+];
+const EXAMPLE = [2.5, 3, 2.5, 1.5, 3.5, 4, 3.5, 2.5];
+$('cv-sliders').innerHTML = LENSES.map((L, k) => `<div class="mc-var"><div class="mc-lab"><span>${k + 1} ${L.n}</span><output id="cv-o${k}"></output></div><input id="cv${k}" type="range" min="0" max="5" step="0.5" value="2.5" aria-label="${L.n} rating"><div class="canvas-q">${L.q} <a href="${L.l}">→</a></div></div>`).join('');
+const cro = new Readouts('#cv-ro');
+cro.add({ id: 'mean', label: 'Mean rating', unit: '/ 5', digits: 1 }).add({ id: 'min', label: 'Weakest lens', unit: '', format: v => v });
+function cvUpdate() {
+  const r = LENSES.map((_, k) => +$('cv' + k).value); LENSES.forEach((_, k) => { $('cv-o' + k).textContent = fmt(r[k], 1); fill($('cv' + k)); });
+  const cx = 210, cy = 205, R = 140, n = LENSES.length; const ang = k => -Math.PI / 2 + 2 * Math.PI * k / n;
+  const pt = (k, v) => [cx + R * v / 5 * Math.cos(ang(k)), cy + R * v / 5 * Math.sin(ang(k))];
+  let s = '';
+  for (let ring = 1; ring <= 5; ring++) s += `<polygon points="${LENSES.map((_, k) => pt(k, ring).join(',')).join(' ')}" fill="none" class="stroke-muted" stroke-width="${ring === 5 ? 1.2 : 0.6}" opacity=".7"/>`;
+  LENSES.forEach((L, k) => { const [x, y] = pt(k, 5); s += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" class="stroke-muted" stroke-width=".6" opacity=".7"/>`;
+    const [lx, ly] = pt(k, 6.05); const anchor = Math.abs(lx - cx) < 12 ? 'middle' : lx > cx ? 'start' : 'end';
+    s += `<text x="${lx}" y="${ly + 5}" text-anchor="${anchor}" class="t-small" style="font-weight:600;font-size:14px">${k + 1} ${L.s}</text>`; });
+  s += `<polygon points="${r.map((v, k) => pt(k, v).join(',')).join(' ')}" class="stroke-accent" style="fill:var(--accent-soft);fill-opacity:.85" stroke-width="2.2"/>`;
+  r.forEach((v, k) => { const [x, y] = pt(k, v); s += `<circle cx="${x}" cy="${y}" r="4" class="fill-accent"/>`; });
+  [1, 3, 5].forEach(v => { const [x, y] = pt(0, v); s += `<text x="${x + 5}" y="${y + 4}" class="t-small t-muted" style="font-size:12px">${v}</text>`; });
+  $('cv-radar').innerHTML = s;
+  const mn = Math.min(...r), mx = Math.max(...r); cro.set('mean', sum(r) / n, null);
+  cro.set('min', (mn === mx ? 'All lenses equal' : LENSES[r.indexOf(mn)].n) + ' (' + fmt(mn, 1) + ')', mn < 2 ? 'bad' : mn < 3 ? 'warn' : 'ok');
+}
+LENSES.forEach((_, k) => $('cv' + k).addEventListener('input', cvUpdate));
+$('cv-example').addEventListener('click', () => { EXAMPLE.forEach((v, k) => { $('cv' + k).value = v; }); $('cv-name').value = 'Vertical farm, Stockholm (illustrative)'; cvUpdate(); });
+$('cv-clear').addEventListener('click', () => { LENSES.forEach((_, k) => { $('cv' + k).value = 2.5; }); $('cv-name').value = 'My technology'; cvUpdate(); });
+$('cv-save').addEventListener('click', () => {
+  const r = LENSES.map((_, k) => +$('cv' + k).value);
+  const txt = `### Technology assessment canvas — ${$('cv-name').value} (${new Date().toLocaleDateString('en-GB')})\n` + LENSES.map((L, k) => `- ${L.n}: ${r[k]} / 5`).join('\n') + '\n';
+  if (window.FFP && FFP.store) { const prev = FFP.store.note(location.pathname); FFP.store.setNote(location.pathname, (prev ? prev + '\n\n' : '') + txt); FFP.toast && FFP.toast('Saved to your notebook (press N to open)'); }
+});
+cvUpdate();
+</script>
+</body>
+</html>

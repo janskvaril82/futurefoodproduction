@@ -1,0 +1,1235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The root zone: oxygen, temperature and microbiology · Future Food Production</title>
+<meta name="description" content="Root respiration and oxygen demand, dissolved oxygen and Henry's law, the Benson–Krause temperature dependence, oxygen transfer and aeration design (kLa), hypoxia, root-zone temperature, Pythium root rot, beneficial microbes, biofilms, root exudates and disinfection of recirculating nutrient solution.">
+<script>try{var t=localStorage.getItem('ffp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400..800;1,400..600&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script src="/assets/js/course-data.js" defer></script>
+<script src="/assets/js/site.js" defer></script>
+<script>
+/* Live-calculator functions for this lesson (used by data-fn mini-calcs). */
+window.FFP_CALC = window.FFP_CALC || {};
+/* Dissolved-oxygen saturation, mg L-1: Benson & Krause (1984) / APHA 4500-O, fresh water, pressure from altitude z (m).
+   Same formula as doSaturation() in /assets/js/physics.js. */
+FFP_CALC.rzDoSat = function (v) {
+  var T = v.T, z = v.z || 0, Tk = T + 273.15;
+  var lnC = -139.34411 + 1.575701e5 / Tk - 6.642308e7 / (Tk * Tk) + 1.2438e10 / Math.pow(Tk, 3) - 8.621949e11 / Math.pow(Tk, 4);
+  var P = Math.pow(1 - 2.25577e-5 * z, 5.25588);            /* total pressure, atm (standard atmosphere) */
+  var u = Math.exp(11.8571 - 3840.70 / Tk - 216961 / (Tk * Tk)); /* water vapour pressure, atm */
+  var th = 0.000975 - 1.426e-5 * T + 6.436e-8 * T * T;
+  return Math.exp(lnC) * P * ((1 - u / P) * (1 - th * P)) / ((1 - u) * (1 - th));
+};
+/* Volume-average UV fluence (mJ cm-2) of a line lamp in an annular reactor: D = P_UV * l_eff / Q. */
+FFP_CALC.rzUV = function (v) {
+  var A = -Math.log10(v.uvt / 100);
+  var le = A > 1e-9 ? (1 - Math.pow(10, -A * v.d)) / (A * Math.LN10) : v.d;
+  return v.P * 1000 * le / (v.Q * 1000 / 60);
+};
+</script>
+<style>
+  .ffp-ctl-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2px 18px; }
+  .ffp-note { font-size:.8rem; color: var(--muted); margin: 6px 0 0; }
+  .rz-two { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+</style>
+</head>
+<body data-page="lesson" data-slug="root-zone">
+<div data-site-header></div>
+<div class="lesson-layout">
+  <aside class="lesson-side" data-lesson-side aria-label="Module navigation"></aside>
+  <main id="main">
+    <header class="lesson-head" data-lesson-head>
+      <h1>The root zone: oxygen, temperature and microbiology</h1>
+      <p class="lead">Lift the raft of a healthy lettuce pond and you see a curtain of white, fine roots. Lift the raft of a warm tank whose air pump failed two days ago and you find brown, slimy roots that smell of fermentation. The difference is a few milligrams of oxygen per litre and a few degrees Celsius. This lesson follows oxygen from the air into the solution and into the root, shows how temperature squeezes the supply while it raises the demand, and opens the door to the microbial world — <em>Pythium</em> and the beneficial microbes that keep it in check — that lives in every recirculating system. You will leave with the equations to design and test the aeration of your own system, and a practical routine to keep its root zone healthy.</p>
+    </header>
+
+    <section class="objectives">
+      <h2>What you will be able to do</h2>
+      <ul>
+        <li>Explain why roots need a continuous supply of oxygen, and estimate the oxygen uptake rate of a crop from respiration stoichiometry, root mass and temperature (Q₁₀) (LO2, LO3).</li>
+        <li>Calculate dissolved-oxygen saturation with Henry's law and the Benson–Krause equation, and predict the effects of temperature, altitude, salinity and pure oxygen (LO2, LO3).</li>
+        <li>Derive the tank oxygen balance \(\mathrm{d}C/\mathrm{d}t = k_La(C^{*}-C)-\text{OUR}\), use it to size aeration and to predict hypoxia after a failure, and measure \(k_La\) and OUR in your own system (LO3, LO4).</li>
+        <li>Recognise hypoxia and <em>Pythium</em> root rot, explain the physiology behind their symptoms, and justify a root-zone temperature target for lettuce (LO2).</li>
+        <li>Compare heat, UV, ozone and slow sand filtration for disinfecting recirculating solution — including a UV-dose calculation — and explain the roles of beneficial microbes, biofilms and root exudates (LO2, LO3, LO7).</li>
+        <li>Plan root-zone monitoring, hygiene and a failure plan for your project system (LO4).</li>
+      </ul>
+    </section>
+
+    <article class="prose" data-lesson-body>
+      <h2 id="breathing">Roots breathe: the oxygen demand of the root zone</h2>
+      <p class="lede-drop">A root is a living, non-photosynthetic organ that runs entirely on imported sugar. Sucrose made in the leaves travels down the phloem, and the root burns it in its mitochondria to make ATP. That ATP drives almost everything a root does: the proton pumps (H⁺-ATPases) that energise the uptake of nitrate, phosphate and potassium against their concentration gradients; cell division and elongation at the root tips; the synthesis of proteins, membranes and cell walls; and the maintenance of the living cells whose aquaporins let water into the root. Burning sugar efficiently requires oxygen, and a root cannot make its own: every molecule must arrive from outside (Drew, 1997).</p>
+      <p>In soil, oxygen reaches roots through the network of air-filled pores (<a href="/lessons/soilless-systems/">Lesson 5.1</a>), where it diffuses about ten thousand times faster than in water. In solution culture the roots sit in water. Oxygen must first <em>dissolve</em> in the solution, then be <em>carried</em> towards the root by mixing, and finally <em>diffuse</em> through a thin, nearly stagnant layer of water at the root surface before the root cells can use it. Figure 1 shows this oxygen cascade. Each step can limit the supply, and this lesson quantifies every one of them — starting with the demand.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 335" role="img" aria-label="The oxygen cascade: from air, through the bulk solution and the unstirred layer at the root surface, to the mitochondria of root cells, with a schematic profile of oxygen availability">
+            <defs>
+              <marker id="rz-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <g stroke="currentColor" stroke-width="1.2">
+              <rect x="10" y="30" width="165" height="100" rx="10" class="fill-sunk"/>
+              <rect x="200" y="30" width="165" height="100" rx="10" class="fill-water-soft"/>
+              <rect x="390" y="30" width="165" height="100" rx="10" class="fill-bg"/>
+              <rect x="580" y="30" width="170" height="100" rx="10" class="fill-accent-soft"/>
+            </g>
+            <g text-anchor="middle">
+              <text x="92" y="54" style="font-weight:700">Air</text>
+              <text x="92" y="76" class="t-small">20.95 % O₂ by volume</text>
+              <text x="92" y="94" class="t-small">p(O₂) ≈ 21 kPa</text>
+              <text x="92" y="112" class="t-small t-muted">≈ 8.7 mol O₂ m⁻³</text>
+              <text x="282" y="54" style="font-weight:700">Bulk solution</text>
+              <text x="282" y="76" class="t-small">C* ≈ 9.1 mg L⁻¹ at 20 °C</text>
+              <text x="282" y="94" class="t-small">= 0.28 mol m⁻³</text>
+              <text x="282" y="112" class="t-small t-muted">≈ 30 × less than air</text>
+              <text x="472" y="54" style="font-weight:700">Unstirred layer</text>
+              <text x="472" y="76" class="t-small">diffusion only</text>
+              <text x="472" y="94" class="t-small">D ≈ 2 × 10⁻⁹ m² s⁻¹</text>
+              <text x="472" y="112" class="t-small t-muted">≈ 10 000 × slower than air</text>
+              <text x="665" y="54" style="font-weight:700">Root cells</text>
+              <text x="665" y="76" class="t-small">mitochondria consume O₂</text>
+              <text x="665" y="94" class="t-small">ATP → ion pumps, growth,</text>
+              <text x="665" y="112" class="t-small t-muted">water uptake</text>
+            </g>
+            <g stroke="currentColor" stroke-width="1.6">
+              <line x1="176" y1="80" x2="198" y2="80" marker-end="url(#rz-a1)"/>
+              <line x1="366" y1="80" x2="388" y2="80" marker-end="url(#rz-a1)"/>
+              <line x1="556" y1="80" x2="578" y2="80" marker-end="url(#rz-a1)"/>
+            </g>
+            <g text-anchor="middle" class="t-small">
+              <text x="187" y="150">① dissolves</text><text x="187" y="164" class="t-muted">(Henry's law)</text>
+              <text x="377" y="150">② is mixed</text><text x="377" y="164" class="t-muted">(bubbles, flow)</text>
+              <text x="567" y="150">③ diffuses</text><text x="567" y="164" class="t-muted">(Fick's law)</text>
+            </g>
+            <text x="12" y="192" class="t-small t-muted">O₂ availability along the path (schematic, not to scale)</text>
+            <line x1="30" y1="200" x2="30" y2="316" class="stroke" stroke-width="1"/>
+            <line x1="30" y1="316" x2="750" y2="316" class="stroke" stroke-width="1"/>
+            <g class="stroke-muted" stroke-width="1" stroke-dasharray="4 3">
+              <line x1="187" y1="198" x2="187" y2="316"/><line x1="377" y1="198" x2="377" y2="316"/><line x1="567" y1="198" x2="567" y2="316"/>
+            </g>
+            <path d="M30 210 H187 V268 H377 L567 292 L745 311" class="stroke-water" stroke-width="3" fill="none"/>
+            <text x="194" y="236" class="t-small">partition: water holds</text>
+            <text x="194" y="250" class="t-small">≈ 1/30 of the air's O₂</text>
+            <text x="398" y="262" class="t-small">gradient drives diffusion</text>
+            <text x="584" y="280" class="t-small">consumed by respiration</text>
+            <text x="40" y="328" class="t-small t-muted">air</text><text x="200" y="328" class="t-small t-muted">bulk solution</text><text x="390" y="328" class="t-small t-muted">unstirred layer</text><text x="580" y="328" class="t-small t-muted">cortex → mitochondria</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The oxygen cascade in solution culture. Oxygen dissolves at a gas–liquid interface (bubble, tank surface or the humid air gap of a Kratky tank), is carried to the root by mixing, crosses the unstirred water layer at the root surface by diffusion and is consumed in the mitochondria. Values for 20 °C and sea-level pressure; air O₂ concentration as in <a href="/lessons/aeroponics/">Lesson 7.1</a>. Aeroponics removes step ①–② almost entirely: its roots sit in air.</figcaption>
+      </figure>
+
+      <p>How much oxygen does a root need? The chemistry of aerobic respiration gives the exchange rate between sugar and oxygen, and the root mass and its specific activity give the rate:</p>
+
+      <div class="eq-box" id="eq-rz-respiration">
+        <div class="eq-head"><span class="eq-label">Root respiration: stoichiometry and oxygen demand</span><span class="eq-num">(5.3.1)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \mathrm{C_6H_{12}O_6 + 6\,O_2 \longrightarrow 6\,CO_2 + 6\,H_2O} \\[8pt] \text{OUR}_{\text{tank}} = \frac{n\;q_{\mathrm{O_2}}\;m_{\text{root}}}{V} \end{gathered} \]</div>
+        <p class="eq-read">one molecule of glucose is oxidised by six molecules of oxygen to six of carbon dioxide and six of water. The oxygen uptake rate of a whole tank, per litre of solution, is the number of plants times the specific respiration rate of their roots times the root dry mass per plant, divided by the solution volume.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(\text{OUR}_{\text{tank}}\)</td><td>volumetric oxygen uptake rate of the roots in a tank</td><td>mg O₂ L⁻¹ h⁻¹</td><td>0.1–2 (hydroponic lettuce)</td></tr>
+          <tr><td>\(n\)</td><td>number of plants sharing the solution</td><td>–</td><td>1–30 in a project tank</td></tr>
+          <tr><td>\(q_{\mathrm{O_2}}\)</td><td>specific root respiration rate (per gram of root dry mass)</td><td>mg O₂ g⁻¹ h⁻¹</td><td>≈ 2–7 (order-of-magnitude estimate, Worked example 1)</td></tr>
+          <tr><td>\(m_{\text{root}}\)</td><td>root dry mass per plant</td><td>g</td><td>0.05 (seedling) to ≈ 1–1.5 (lettuce at harvest)</td></tr>
+          <tr><td>\(V\)</td><td>volume of nutrient solution</td><td>L</td><td>5–20 per plant (DWC)</td></tr>
+          <tr><td>RQ</td><td>respiratory quotient, mol CO₂ released per mol O₂ consumed</td><td>–</td><td>≈ 1 for carbohydrate</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Balance the reaction.</strong> Glucose contains 6 C, 12 H and 6 O. Six CO₂ take 12 O atoms and six H₂O take 6 O atoms: 18 O atoms in total, of which 6 come from glucose, so 12 atoms = 6 O₂ molecules must be supplied.</li>
+            <li><strong>Mass ratio.</strong> \(6\times32.00/180.16 = 1.066\) g of O₂ per g of glucose respired. Because one CO₂ is released for each O₂ consumed, the respiratory quotient RQ = 6/6 = 1: measuring CO₂ release or O₂ uptake is equivalent for carbohydrate substrates.</li>
+            <li><strong>Why oxygen matters so much.</strong> With oxygen as the final electron acceptor, one glucose yields about 30 ATP (older textbooks quote 36–38); without oxygen, glycolysis followed by fermentation yields only 2 ATP (Drew, 1997). A root that loses its oxygen supply therefore loses about 93 % of its energy supply at once (Section 5.3.4).</li>
+            <li><strong>Scale up.</strong> Respiration per plant is proportional to how much active root tissue there is: \(\text{OUR}_{\text{plant}} = q_{\mathrm{O_2}}\,m_{\text{root}}\) (mg h⁻¹). All \(n\) plants draw on the same solution, so the tank loses \(n\,q_{\mathrm{O_2}}\,m_{\text{root}}\) mg of O₂ per hour.</li>
+            <li><strong>Per litre.</strong> Dividing by the volume gives the rate at which the dissolved-oxygen concentration would fall if nothing replaced it — the quantity that aeration must balance in Eq. 5.3.5.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>\(q_{\mathrm{O_2}}\) is not a constant: it is highest in young, fast-growing root tips, depends on the growth rate of the plant and on how much nitrate and potassium the roots are pumping, and rises with temperature (Eq. 5.3.2). Microorganisms living in the solution and in biofilms also consume oxygen — a biochemical oxygen demand that becomes important when root debris, algae or organic fertilisers are present. The range in the table is an order-of-magnitude estimate for lettuce; Worked example 4 shows how to measure the real OUR of your own tank.</p></details>
+        <div class="eq-units">(– × mg O₂ g⁻¹ h⁻¹ × g) ÷ L = mg O₂ L⁻¹ h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="n*q*m/V" data-output="Tank oxygen uptake OUR" data-unit="mg L⁻¹ h⁻¹" data-digits="3" data-plot="m" data-ymin="0">
+          <div data-var="n" data-label="Plants n" data-min="1" data-max="30" data-step="1" data-value="6"></div>
+          <div data-var="q" data-label="Specific rate q<sub>O₂</sub>" data-min="0.5" data-max="8" data-step="0.1" data-value="5" data-unit="mg g⁻¹ h⁻¹"></div>
+          <div data-var="m" data-label="Root dry mass per plant" data-min="0.05" data-max="2" data-step="0.05" data-value="1" data-unit="g"></div>
+          <div data-var="V" data-label="Solution volume V" data-min="5" data-max="200" data-step="1" data-value="40" data-unit="L"></div>
+        </div>
+      </div>
+
+      <p>The specific respiration rate \(q_{\mathrm{O_2}}\) is the uncertain number. Before you have a measurement, you can estimate it from the plant's carbon budget — the kind of order-of-magnitude reasoning an engineer uses to size equipment before the data exist.</p>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 1</span><span class="we-title">How much oxygen does a lettuce take from the solution?</span></div>
+        <div class="we-problem"><p>A butterhead lettuce close to harvest adds about 0.6 g of dry matter per day (≈ 12 g of fresh weight at 5 % dry matter). Plant dry matter is about 42 % carbon. Assume that the plant respires about as much carbon as it builds into new biomass — a carbon-use efficiency of about one half, typical of fast-growing plants (Lambers et al., 2008) — and that its roots account for a quarter of whole-plant respiration. Estimate the root oxygen uptake rate in mg O₂ h⁻¹. Repeat for a young plant that grows 0.15 g of dry matter per day.</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Carbon built into new growth:</strong> \(0.6\ \text{g d}^{-1}\times0.42 = 0.252\) g C d⁻¹.</li>
+              <li><strong>Whole-plant respiration</strong> ≈ the same amount of carbon: \(0.252/12.01 = 21.0\) mmol CO₂ d⁻¹.</li>
+              <li><strong>Root share:</strong> \(0.25\times21.0 = 5.25\) mmol CO₂ d⁻¹. With RQ = 1 (Eq. 5.3.1) the roots consume 5.25 mmol O₂ d⁻¹ = \(5.25\times32.00 = 168\) mg O₂ d⁻¹.</li>
+              <li><strong>Per hour:</strong> \(168/24 = 7.0\) mg O₂ h⁻¹ per plant. The young plant grows four times more slowly: ≈ 1.75 mg O₂ h⁻¹.</li>
+              <li><strong>Sanity checks.</strong> A lettuce root system near harvest weighs perhaps 1–1.5 g of dry matter, so \(q_{\mathrm{O_2}}\approx\) 5–7 mg O₂ g⁻¹ h⁻¹ — inside the range of Eq. 5.3.1. Six such plants in a 40 L tank consume 42 mg h⁻¹, i.e. 1.05 mg L⁻¹ h⁻¹: without aeration, air-saturated solution (≈ 9 mg L⁻¹) would fall to 4 mg L⁻¹ in under five hours. The same order of magnitude — 1 to 8 mg O₂ h⁻¹ per plant — was used for the power-cut analysis of <a href="/lessons/soilless-systems/#risks">Lesson 5.1</a>.</li>
+            </ol>
+            <span class="answer">≈ 7 mg O₂ h⁻¹ per plant near harvest; ≈ 2 mg O₂ h⁻¹ for a young plant (order of magnitude)</span>
+          </div>
+        </details>
+      </div>
+
+      <p>Respiration, like most enzyme-driven processes, speeds up with temperature. Physiologists summarise this with the temperature coefficient \(Q_{10}\), the factor by which the rate increases for a 10 °C rise:</p>
+
+      <div class="eq-box" id="eq-rz-q10">
+        <div class="eq-head"><span class="eq-label">Temperature scaling of root respiration (Q₁₀ rule)</span><span class="eq-num">(5.3.2)</span></div>
+        <div class="eq-main">\[ \text{OUR}(T) = \text{OUR}_{20}\;Q_{10}^{\,(T-20)/10} \]</div>
+        <p class="eq-read">the oxygen uptake rate at solution temperature T equals the rate at 20 °C multiplied by Q₁₀ raised to the power of the temperature difference from 20 °C divided by ten.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(\text{OUR}(T)\)</td><td>root oxygen uptake rate at temperature \(T\) (per plant or per litre)</td><td>mg h⁻¹ or mg L⁻¹ h⁻¹</td><td>–</td></tr>
+          <tr><td>\(\text{OUR}_{20}\)</td><td>the same rate at the reference temperature 20 °C</td><td>same</td><td>1–8 mg h⁻¹ per lettuce</td></tr>
+          <tr><td>\(Q_{10}\)</td><td>factor by which the rate changes per 10 °C</td><td>–</td><td>≈ 2 (Atkin &amp; Tjoelker, 2003)</td></tr>
+          <tr><td>\(T\)</td><td>root-zone (solution) temperature</td><td>°C</td><td>15–30</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Definition.</strong> \(Q_{10} = R(T+10)/R(T)\): the rate ratio for a 10 °C step.</li>
+            <li><strong>Many small steps.</strong> If each 10 °C multiplies the rate by \(Q_{10}\), then each 1 °C multiplies it by \(Q_{10}^{1/10}\), and \(\Delta T\) degrees multiply it by \(Q_{10}^{\Delta T/10}\). With \(\Delta T = T-20\) this is Eq. 5.3.2.</li>
+            <li><strong>Per degree.</strong> For \(Q_{10}=2\): \(2^{0.1} = 1.072\), i.e. respiration rises by about 7 % per °C. From 20 to 27 °C it rises by \(2^{0.7} = 1.62\), i.e. by 62 %.</li>
+            <li><strong>Link to Arrhenius.</strong> The Arrhenius law \(R\propto e^{-E_a/(RT)}\) gives \(Q_{10} = \exp\!\big(10E_a/(RT(T+10))\big)\) with \(T\) in kelvin: \(Q_{10}\) is not a fundamental constant but declines slowly as temperature rises.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A \(Q_{10}\) of about 2 is a good default between 15 and 30 °C, but measured values vary, \(Q_{10}\) tends to decline at higher temperatures, and plants partly acclimate their respiration to a new temperature within days (Atkin &amp; Tjoelker, 2003). Above about 30–35 °C, damage to membranes and enzymes dominates and the rule no longer applies. The course library implements the rule as <code>q10()</code>.</p></details>
+        <div class="eq-units">The exponent \((T-20)/10\) is °C divided by °C — dimensionless, as an exponent must be — so \(Q_{10}^{(T-20)/10}\) is a pure number and mg h⁻¹ × (–) = mg h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="our*pow(Q,(T-20)/10)" data-output="OUR at T" data-unit="mg O₂ h⁻¹ per plant" data-digits="2" data-plot="T" data-ymin="0">
+          <div data-var="our" data-label="OUR<sub>20</sub> per plant" data-min="0.5" data-max="10" data-step="0.1" data-value="3" data-unit="mg h⁻¹"></div>
+          <div data-var="Q" data-label="Q<sub>10</sub>" data-min="1.5" data-max="3" data-step="0.05" data-value="2"></div>
+          <div data-var="T" data-label="Solution temperature T" data-min="5" data-max="35" data-step="0.5" data-value="26" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="callout key"><div class="callout-title">Key idea · a race between supply and demand</div><p>Almost everything in this lesson follows from one comparison: the rate at which oxygen can be <em>delivered</em> to the root surface versus the rate at which roots <em>consume</em> it. Warm water holds less oxygen <em>and</em> roots consume it faster; a failed air pump removes the delivery but not the consumption; a stagnant root mat lengthens the diffusion path. When demand wins, roots become hypoxic — and hypoxic roots are an open door for pathogens.</p></div>
+
+      <h2 id="henry">How much oxygen can water hold? Henry's law and temperature</h2>
+      <p>Oxygen is a sparingly soluble gas. Dry air contains 20.95 % oxygen by volume; at sea level this is a partial pressure of about 21 kPa and 8.7 mol of O₂ per cubic metre of air. Water in equilibrium with that air at 20 °C holds only 0.28 mol m⁻³, or 9.1 mg L⁻¹ — about thirty times less oxygen per unit volume than the air above it. The link between the gas phase and the dissolved concentration was found experimentally by William Henry in 1803: at a given temperature, the amount of a gas dissolved in a liquid is proportional to its partial pressure above the liquid.</p>
+
+      <div class="eq-box" id="eq-rz-henry">
+        <div class="eq-head"><span class="eq-label">Henry's law for dissolved oxygen</span><span class="eq-num">(5.3.3)</span></div>
+        <div class="eq-main">\[ C^{*} = k_H\,p_{\mathrm{O_2}} = k_H\;x_{\mathrm{O_2}}\,\big(P - p_w(T)\big) \]</div>
+        <p class="eq-read">the saturation (equilibrium) concentration of dissolved oxygen equals Henry's solubility constant times the partial pressure of oxygen in the gas. The partial pressure is the mole fraction of oxygen in the dry gas times the total pressure minus the pressure of water vapour, because the gas right above the water is saturated with vapour.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(C^{*}\)</td><td>dissolved-oxygen concentration at equilibrium with the gas ("saturation")</td><td>mol m⁻³ (× 32.00 = mg L⁻¹)</td><td>0.284 mol m⁻³ = 9.09 mg L⁻¹ (air, 20 °C)</td></tr>
+          <tr><td>\(k_H\)</td><td>Henry's law solubility constant of O₂ in water</td><td>mol m⁻³ Pa⁻¹</td><td>1.37 × 10⁻⁵ (20 °C); 1.26 × 10⁻⁵ (25 °C)</td></tr>
+          <tr><td>\(p_{\mathrm{O_2}}\)</td><td>partial pressure of oxygen in the gas at the interface</td><td>Pa</td><td>20.7 kPa (moist air, 20 °C)</td></tr>
+          <tr><td>\(x_{\mathrm{O_2}}\)</td><td>mole (volume) fraction of O₂ in the dry gas</td><td>–</td><td>0.2095 (air); 1 (pure oxygen)</td></tr>
+          <tr><td>\(P\)</td><td>total (barometric) pressure</td><td>Pa</td><td>101 325 at sea level; ≈ 89 900 at 1000 m</td></tr>
+          <tr><td>\(p_w(T)\)</td><td>saturation vapour pressure of water</td><td>Pa</td><td>2 340 (20 °C); 3 170 (25 °C)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>A dynamic equilibrium.</strong> O₂ molecules from the gas continually strike the water surface and some dissolve; dissolved molecules continually escape. By kinetic theory, the entry rate is proportional to the number of gas molecules hitting the surface, i.e. to \(p_{\mathrm{O_2}}\); the escape rate is proportional to the dissolved concentration \(C\).</li>
+            <li><strong>Equal rates.</strong> At equilibrium, \(k_{\text{in}}\,p_{\mathrm{O_2}} = k_{\text{out}}\,C^{*}\), hence \(C^{*} = (k_{\text{in}}/k_{\text{out}})\,p_{\mathrm{O_2}} = k_H\,p_{\mathrm{O_2}}\). Thermodynamics gives the same linear law from the equality of chemical potentials of O₂ in the gas and in a dilute solution.</li>
+            <li><strong>The partial pressure.</strong> Dalton's law: \(p_{\mathrm{O_2}} = x_{\mathrm{O_2}}\times\) (pressure of the dry part of the gas). The air touching the water is saturated with vapour, so the dry part is \(P - p_w(T)\).</li>
+            <li><strong>Units.</strong> 1 mol m⁻³ = 1 mmol L⁻¹, and O₂ has a molar mass of 32.00 g mol⁻¹, so mol m⁻³ × 32.00 = g m⁻³ = mg L⁻¹. Constants are also tabulated as mol L⁻¹ atm⁻¹: 1.37 × 10⁻⁵ mol m⁻³ Pa⁻¹ = 1.39 × 10⁻³ mol L⁻¹ atm⁻¹.</li>
+            <li><strong>Check at 20 °C.</strong> \(p_{\mathrm{O_2}} = 0.2095\times(101\,325 - 2\,340) = 20\,740\) Pa; \(C^{*} = 1.37\times10^{-5}\times20\,740 = 0.284\) mol m⁻³ = 9.09 mg L⁻¹ ✓ (the \(k_H\) values in the table are back-calculated from the Benson–Krause equation, Eq. 5.3.4, and agree with the compilation of Sander, 2023).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Henry's law holds for dilute solutions of gases that do not react with water — an excellent approximation for O₂. <strong>Salinity</strong> lowers solubility ("salting out"), but a nutrient solution of EC ≈ 2 dS m⁻¹ contains only about 1 g of salts per kg, which lowers \(C^{*}\) by about 0.6 % (Benson–Krause salinity term) — negligible. <strong>Hydrostatic pressure</strong> at the bottom of a 30 cm tank adds only 2.9 kPa (+3 %) to the gas pressure in a bubble there. <strong>Altitude</strong> matters more: at 1000 m the total pressure is 11 % lower and so is \(C^{*}\).</p></details>
+        <div class="eq-units">mol m⁻³ Pa⁻¹ × (–) × Pa = mol m⁻³ ✓; × 32.00 g mol⁻¹ = g m⁻³ = mg L⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="kh*1e-5*x*(P-pw)*1000*32" data-output="Saturation C*" data-unit="mg L⁻¹" data-digits="2" data-plot="x" data-ymin="0">
+          <div data-var="x" data-label="O₂ fraction in the gas x<sub>O₂</sub>" data-min="0.05" data-max="1" data-step="0.005" data-value="0.2095" data-digits="4"></div>
+          <div data-var="kh" data-label="k<sub>H</sub> (× 10⁻⁵ mol m⁻³ Pa⁻¹)" data-min="1.0" data-max="1.8" data-step="0.01" data-value="1.37" data-digits="2"></div>
+          <div data-var="P" data-label="Total pressure P" data-min="60" data-max="105" data-step="0.1" data-value="101.3" data-unit="kPa"></div>
+          <div data-var="pw" data-label="Water vapour pressure p<sub>w</sub>" data-min="0.6" data-max="5.7" data-step="0.01" data-value="2.34" data-unit="kPa"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 2</span><span class="we-title">Air, pure oxygen and altitude</span></div>
+        <div class="we-problem"><p>(a) Calculate the dissolved-oxygen saturation of a nutrient solution at 20 °C in contact with air at sea level (\(k_H\) = 1.389 mmol L⁻¹ atm⁻¹, \(p_w\) = 2.34 kPa). (b) Commercial raft systems such as the Cornell lettuce system dissolve pure oxygen (Brechner &amp; Both, 2013). What is the saturation concentration with pure O₂ at the same temperature? (c) What would air saturation be in a greenhouse at 1000 m altitude (P = 89.9 kPa)?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>(a) Partial pressure.</strong> \(p_{\mathrm{O_2}} = 0.2095\times(101.325-2.34)/101.325\) atm = \(0.2095\times0.9769 = 0.2047\) atm.</li>
+              <li><strong>Concentration.</strong> \(C^{*} = 1.389\times0.2047 = 0.2843\) mmol L⁻¹; × 32.00 mg mmol⁻¹ = <strong>9.10 mg L⁻¹</strong> — the Benson–Krause value 9.09 mg L⁻¹ ✓.</li>
+              <li><strong>(b) Pure oxygen:</strong> \(x_{\mathrm{O_2}} = 1\), so \(p_{\mathrm{O_2}} = 0.9769\) atm and \(C^{*} = 1.389\times0.9769\times32.00 = 43.4\) mg L⁻¹ — 4.8 times more than with air (the ratio is simply 1/0.2095). This is why commercial ponds use oxygen injection or oxygen cones: they can hold DO well above air saturation, although in an open pond it slowly degasses back towards 9 mg L⁻¹.</li>
+              <li><strong>(c) Altitude.</strong> \(p_{\mathrm{O_2}}\) scales with \(P - p_w\): \(9.09\times(89.9-2.34)/(101.325-2.34) = 8.04\) mg L⁻¹ — 11.5 % less than at sea level (the course function <code>doSaturation(20, 0, 89.9)</code> gives the same 8.04).</li>
+            </ol>
+            <span class="answer">(a) 9.1 mg L⁻¹; (b) 43 mg L⁻¹ with pure O₂; (c) 8.0 mg L⁻¹ at 1000 m</span>
+          </div>
+        </details>
+      </div>
+
+      <p>The strongest effect on \(C^{*}\) in a hydroponic system is temperature. Dissolving oxygen releases heat — about 12 kJ per mole — so, by Le Chatelier's principle, warming the water pushes the equilibrium back towards the gas. Warm water holds less oxygen.</p>
+
+      <div class="eq-box" id="eq-rz-benson">
+        <div class="eq-head"><span class="eq-label">Temperature dependence of oxygen solubility</span><span class="eq-num">(5.3.4)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \ln\frac{k_H(T)}{k_H(T^{\circ})} = B\left(\frac{1}{T} - \frac{1}{T^{\circ}}\right) \\[6pt] \ln C^{*}_{\text{air, 1 atm}} = a_0 + \frac{a_1}{T} + \frac{a_2}{T^{2}} + \frac{a_3}{T^{3}} + \frac{a_4}{T^{4}} \end{gathered} \]</div>
+        <p class="eq-read">the logarithm of the ratio of Henry's constant at temperature T to its value at a reference temperature equals a constant B times the difference of the reciprocal absolute temperatures (the van 't Hoff form). For practical work, the natural logarithm of the air-saturation concentration of fresh water at one atmosphere, in milligrams per litre, is given by the Benson–Krause polynomial in 1/T with the five coefficients listed below.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(T,\ T^{\circ}\)</td><td>absolute temperature and a reference temperature</td><td>K</td><td>\(T^{\circ}\) = 298.15 K (25 °C)</td></tr>
+          <tr><td>\(B\)</td><td>temperature-dependence constant, \(-\Delta_{\text{sol}}H/R\)</td><td>K</td><td>≈ 1500 (≈ 1500–1700 in the compilation of Sander, 2023)</td></tr>
+          <tr><td>\(\Delta_{\text{sol}}H\)</td><td>enthalpy of dissolution of O₂</td><td>J mol⁻¹</td><td>≈ −12 000 (exothermic)</td></tr>
+          <tr><td>\(C^{*}_{\text{air, 1 atm}}\)</td><td>DO saturation of fresh water with moist air at 1 atm</td><td>mg L⁻¹</td><td>11.29 (10 °C), 9.09 (20 °C), 8.26 (25 °C), 7.56 (30 °C)</td></tr>
+          <tr><td>\(a_0\)</td><td>Benson–Krause constant term</td><td>–</td><td>−139.34411</td></tr>
+          <tr><td>\(a_1\)</td><td>coefficient of \(1/T\)</td><td>K</td><td>1.575701 × 10⁵</td></tr>
+          <tr><td>\(a_2\)</td><td>coefficient of \(1/T^2\)</td><td>K²</td><td>−6.642308 × 10⁷</td></tr>
+          <tr><td>\(a_3\)</td><td>coefficient of \(1/T^3\)</td><td>K³</td><td>1.243800 × 10¹⁰</td></tr>
+          <tr><td>\(a_4\)</td><td>coefficient of \(1/T^4\)</td><td>K⁴</td><td>−8.621949 × 10¹¹</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Van 't Hoff.</strong> For any equilibrium constant \(K\), \(\mathrm{d}\ln K/\mathrm{d}(1/T) = -\Delta H/R\). Henry's constant is the equilibrium constant of O₂(g) ⇌ O₂(aq), so \(\mathrm{d}\ln k_H/\mathrm{d}(1/T) = -\Delta_{\text{sol}}H/R = B\).</li>
+            <li><strong>Integrate</strong> between \(T^{\circ}\) and \(T\), treating \(\Delta_{\text{sol}}H\) as constant: the first line of Eq. 5.3.4. Because \(\Delta_{\text{sol}}H &lt; 0\), \(B &gt; 0\): when \(T\) rises, \(1/T\) falls and \(k_H\) falls.</li>
+            <li><strong>Numbers.</strong> Between 20 and 30 °C the Benson–Krause data give \(B\approx1470\) K, i.e. \(\Delta_{\text{sol}}H\approx-12\) kJ mol⁻¹, and a fall in solubility of about 1.7–2 % per °C.</li>
+            <li><strong>Why a polynomial?</strong> \(\Delta_{\text{sol}}H\) itself changes with temperature, so a single \(B\) is only accurate over about ±10 °C. Benson and Krause (1984) fitted a polynomial in \(1/T\) to very precise measurements. It already includes the vapour-pressure correction of Eq. 5.3.3 at 1 atm; separate terms correct for salinity and for pressure. It is the equation of the <em>Standard Methods</em> for water analysis and is implemented in the course library as <code>doSaturation(T, salinity, P)</code>.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The Benson–Krause equation is valid for 0–40 °C; the calculator below applies its pressure correction for a standard atmosphere at altitude \(z\). It gives <em>equilibrium</em> values: a real tank is below saturation whenever roots consume oxygen faster than it dissolves (Section 5.3.3), and above it only when pure oxygen is injected or algae photosynthesise in a translucent tank.</p></details>
+        <div class="eq-units">\(B\) (K) × \(1/T\) (K⁻¹) is dimensionless, as the change of a logarithm must be ✓; each term \(a_k/T^k\) is dimensionless because \(a_k\) carries the unit Kᵏ ✓ — the polynomial returns ln of the concentration expressed in mg L⁻¹.</div>
+        <div class="mini-calc" data-fn="rzDoSat" data-output="DO saturation C*" data-unit="mg L⁻¹" data-digits="2" data-plot="T">
+          <div data-var="T" data-label="Solution temperature T" data-min="0" data-max="40" data-step="0.5" data-value="22" data-unit="°C"></div>
+          <div data-var="z" data-label="Altitude z" data-min="0" data-max="3000" data-step="50" data-value="0" data-unit="m"></div>
+        </div>
+      </div>
+
+      <table>
+        <caption>Table 1. Dissolved-oxygen saturation of fresh water in contact with air at 1 atm (Benson &amp; Krause, 1984; computed with <code>doSaturation</code>), and root respiration relative to 20 °C for Q₁₀ = 2 (Eq. 5.3.2).</caption>
+        <thead><tr><th>Temperature (°C)</th><th class="num">C* (mg L⁻¹)</th><th class="num">C* change vs 20 °C</th><th class="num">Relative root O₂ demand</th><th>Comment</th></tr></thead>
+        <tbody>
+          <tr><td>10</td><td class="num">11.29</td><td class="num">+24 %</td><td class="num">0.50</td><td>cold: plenty of O₂, but slow growth and uptake</td></tr>
+          <tr><td>15</td><td class="num">10.08</td><td class="num">+11 %</td><td class="num">0.71</td><td></td></tr>
+          <tr><td>18</td><td class="num">9.47</td><td class="num">+4 %</td><td class="num">0.87</td><td></td></tr>
+          <tr><td>20</td><td class="num">9.09</td><td class="num">0</td><td class="num">1.00</td><td>reference</td></tr>
+          <tr><td>22</td><td class="num">8.74</td><td class="num">−4 %</td><td class="num">1.15</td><td></td></tr>
+          <tr><td>24</td><td class="num">8.42</td><td class="num">−7 %</td><td class="num">1.32</td><td>upper end of the recommended range for lettuce (Section 5.3.5)</td></tr>
+          <tr><td>26</td><td class="num">8.11</td><td class="num">−11 %</td><td class="num">1.52</td><td></td></tr>
+          <tr><td>28</td><td class="num">7.83</td><td class="num">−14 %</td><td class="num">1.74</td><td></td></tr>
+          <tr><td>30</td><td class="num">7.56</td><td class="num">−17 %</td><td class="num">2.00</td><td>half the O₂ margin, twice the demand</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"Bubbling air through the tank supersaturates it with oxygen." Aeration can only drive the dissolved oxygen <em>towards</em> the saturation value \(C^{*}\) set by air — it never pushes it beyond. A DO meter reading well above 100 % in an air-aerated tank usually means an uncalibrated sensor or a temperature mismatch between probe and solution — or algae photosynthesising in a translucent container. Only pure oxygen (Worked example 2b) or photosynthesis raises DO above air saturation.</p></div>
+
+      <h2 id="transfer">Getting oxygen in: mass transfer and aeration design</h2>
+      <p>The saturation concentration is the ceiling. How fast a tank approaches it — and where it settles while roots consume oxygen — is a question of <strong>mass transfer</strong>. Oxygen crosses a gas–liquid interface wherever the solution touches air: at the surface of rising bubbles, at the free surface of the tank or channel, and at the surface of the thin film that covers the roots in the humid air gap of a Kratky tank. Lewis and Whitman's (1924) <strong>two-film theory</strong> pictures each interface as two thin, stagnant films — one in the gas and one in the liquid — across which molecules can move only by diffusion, while the bulk phases on either side are well mixed (Figure 2).</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 280" role="img" aria-label="Two-film theory of oxygen transfer: gas phase, gas film, interface, liquid film and bulk solution with the oxygen profiles">
+            <defs>
+              <marker id="rz-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <rect x="20" y="44" width="220" height="176" class="fill-sunk"/>
+            <rect x="240" y="44" width="40" height="176" class="fill-bg"/>
+            <rect x="280" y="44" width="110" height="176" class="fill-water-soft"/>
+            <rect x="390" y="44" width="310" height="176" class="fill-water-soft" opacity=".5"/>
+            <line x1="280" y1="38" x2="280" y2="226" class="stroke" stroke-width="2.2"/>
+            <line x1="240" y1="44" x2="240" y2="220" class="stroke-muted" stroke-width="1" stroke-dasharray="4 3"/>
+            <line x1="390" y1="44" x2="390" y2="220" class="stroke-muted" stroke-width="1" stroke-dasharray="4 3"/>
+            <g text-anchor="middle" class="t-small">
+              <text x="126" y="34" style="font-weight:600">gas (bubble or air)</text>
+              <text x="260" y="21">gas</text>
+              <text x="260" y="34">film</text>
+              <text x="335" y="34">liquid film</text>
+              <text x="545" y="34" style="font-weight:600">bulk solution (well mixed)</text>
+            </g>
+            <path d="M20 72 H240 L280 78" class="stroke-magenta" stroke-width="2.6" fill="none"/>
+            <text x="30" y="64" class="t-small" style="fill:var(--magenta)">partial pressure p(O₂) in the gas</text>
+            <path d="M280 96 L390 188 H700" class="stroke-water" stroke-width="2.8" fill="none"/>
+            <text x="288" y="90" class="t-small" style="fill:var(--water)">C at interface = k<tspan dy="3" font-size="8.5">H</tspan><tspan dy="-3"> p ≈ C*</tspan></text>
+            <text x="560" y="180" class="t-small" style="fill:var(--water)">C (bulk) &lt; C*</text>
+            <line x1="286" y1="206" x2="384" y2="206" class="stroke" stroke-width="1.8" marker-end="url(#rz-a2)"/>
+            <text x="300" y="200" class="t-small">O₂ flux</text>
+            <line x1="283" y1="56" x2="387" y2="56" class="stroke-muted" stroke-width="1" marker-start="url(#rz-a2)" marker-end="url(#rz-a2)"/>
+            <text x="336" y="72" text-anchor="middle" class="t-small">δ<tspan dy="3" font-size="8.5">L</tspan></text>
+            <text x="20" y="246" class="t-small t-muted">For a sparingly soluble gas such as O₂ the gas film offers almost no resistance: the liquid film controls transfer.</text>
+            <text x="20" y="264" class="t-small">Flux per area: N = K<tspan dy="3" font-size="8.5">L</tspan><tspan dy="-3"> (C* − C), with K</tspan><tspan dy="3" font-size="8.5">L</tspan><tspan dy="-3"> ≈ D/δ</tspan><tspan dy="3" font-size="8.5">L</tspan><tspan dy="-3">.  Per unit volume: N·a = k</tspan><tspan dy="3" font-size="8.5">L</tspan><tspan dy="-3">a (C* − C), where a = interface area / volume.</tspan></text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> The two-film model of Lewis and Whitman (1924). Oxygen partial pressure (magenta) barely drops across the gas film; at the interface the liquid is at equilibrium with the gas (Henry's law); across the liquid film of thickness δ<sub>L</sub> the dissolved concentration (blue) falls to the bulk value. Bubbles make many small interfaces (large area per volume \(a\)) and stir the liquid (thin films): that is why an air stone works.</figcaption>
+      </figure>
+
+      <p>Combining the two-film flux with a mass balance of the tank gives the central equation of aeration engineering — the same equation used for fish tanks, wastewater aeration basins and bioreactors (<a href="/lessons/cultivated-meat/">Lesson 12.4</a>):</p>
+
+      <div class="eq-box" id="eq-rz-mass-balance">
+        <div class="eq-head"><span class="eq-label">Oxygen mass balance of a hydroponic tank</span><span class="eq-num">(5.3.5)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \frac{\mathrm{d}C}{\mathrm{d}t} = k_La\,\big(C^{*} - C\big) - \text{OUR}_{\text{tank}} \\[8pt] C_{ss} = C^{*} - \frac{\text{OUR}_{\text{tank}}}{k_La}, \qquad C(t) = C_{ss} + \big(C_0 - C_{ss}\big)\,e^{-k_La\,t} \end{gathered} \]</div>
+        <p class="eq-read">the rate of change of the dissolved-oxygen concentration equals the transfer into the solution — the volumetric mass-transfer coefficient times the distance from saturation — minus the consumption by the roots. At steady state the concentration settles below saturation by the uptake rate divided by the transfer coefficient; after any disturbance it approaches that steady state exponentially.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(C\)</td><td>dissolved-oxygen concentration in the (well-mixed) solution</td><td>mg L⁻¹</td><td>4–9</td></tr>
+          <tr><td>\(t\)</td><td>time</td><td>h</td><td>–</td></tr>
+          <tr><td>\(k_La\)</td><td>volumetric mass-transfer coefficient (liquid-film coefficient × interface area per volume)</td><td>h⁻¹</td><td>≈ 0.01–0.1 still tank with lid; ≈ 1–10 with an air stone</td></tr>
+          <tr><td>\(C^{*}\)</td><td>saturation concentration (Eqs. 5.3.3–5.3.4)</td><td>mg L⁻¹</td><td>8.4 at 24 °C</td></tr>
+          <tr><td>\(\text{OUR}_{\text{tank}}\)</td><td>volumetric oxygen uptake rate (Eqs. 5.3.1–5.3.2)</td><td>mg L⁻¹ h⁻¹</td><td>0.1–2</td></tr>
+          <tr><td>\(C_{ss}\)</td><td>steady-state concentration while aeration runs</td><td>mg L⁻¹</td><td>–</td></tr>
+          <tr><td>\(C_0\)</td><td>concentration at \(t = 0\)</td><td>mg L⁻¹</td><td>–</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Control volume.</strong> Take the solution in the tank, volume \(V\), well mixed so that it has one concentration \(C\). Mass of dissolved O₂ = \(VC\).</li>
+            <li><strong>Balance.</strong> Accumulation = transfer in − consumption: \(\mathrm{d}(VC)/\mathrm{d}t = N\,A - V\,\text{OUR}_{\text{tank}}\), where \(N\) is the flux per unit interface area and \(A\) the total interface area (bubbles + surface).</li>
+            <li><strong>Two-film flux.</strong> For a sparingly soluble gas the liquid film controls: \(N = K_L(C^{*}-C)\), with \(K_L\approx D/\delta_L\) (m s⁻¹). Dividing by the constant \(V\): \(\mathrm{d}C/\mathrm{d}t = K_L\,(A/V)\,(C^{*}-C) - \text{OUR}_{\text{tank}}\).</li>
+            <li><strong>Lump the unknowns.</strong> \(K_L\) and \(a = A/V\) are hard to measure separately (who can count the bubbles?), so they are combined into one measurable coefficient \(k_La\) (s⁻¹ or h⁻¹). This gives the first form of Eq. 5.3.5.</li>
+            <li><strong>Steady state.</strong> Set \(\mathrm{d}C/\mathrm{d}t = 0\): \(k_La(C^{*}-C_{ss}) = \text{OUR}_{\text{tank}}\), so \(C_{ss} = C^{*} - \text{OUR}_{\text{tank}}/k_La\). The "oxygen deficit" \(C^{*}-C_{ss}\) is the price paid to drive the flux.</li>
+            <li><strong>Transient.</strong> Let \(y = C - C_{ss}\). Then \(\mathrm{d}y/\mathrm{d}t = -k_La\,y\), whose solution is \(y = y_0e^{-k_La\,t}\): the third form. After a time \(1/k_La\) the remaining deficit has fallen to 37 %, after \(3/k_La\) to 5 %.</li>
+            <li><strong>Aeration failure.</strong> With the air pump off, \(k_La\) drops to the small surface value and \(\mathrm{d}C/\mathrm{d}t\approx-\text{OUR}_{\text{tank}}\): the concentration falls linearly and reaches a critical value \(C_{\text{crit}}\) after \(\tau = (C_0 - C_{\text{crit}})/\text{OUR}_{\text{tank}}\) — exactly the "buffer over rate" estimate of Eq. 5.1.8 in <a href="/lessons/soilless-systems/#risks">Lesson 5.1</a>.</li>
+            <li><strong>Design rule.</strong> To keep \(C \ge C_{\text{target}}\), the aeration must provide \(k_La \ge \text{OUR}_{\text{tank}}/(C^{*}-C_{\text{target}})\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The tank is assumed perfectly mixed; in a real tank DO is lowest in dense root masses far from the air stone, so measure at several positions. OUR is taken as constant, whereas roots slow their respiration when DO becomes very low (the simulator below includes this). \(k_La\) depends on air flow, bubble size, depth, diffuser fouling, surfactants and temperature (it rises about 2.4 % per °C, \(\theta\) = 1.024; ASCE, 2007), and a small extra \(k_La\) comes from the free surface.</p></details>
+        <div class="eq-units">\(k_La\,(C^{*}-C)\): h⁻¹ × mg L⁻¹ = mg L⁻¹ h⁻¹, the same unit as \(\mathrm{d}C/\mathrm{d}t\) and OUR ✓; \(\text{OUR}/k_La\): (mg L⁻¹ h⁻¹)/h⁻¹ = mg L⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="max(0, Cs - our/kla)" data-output="Steady-state DO C<sub>ss</sub>" data-unit="mg L⁻¹" data-digits="2" data-plot="kla" data-ymin="0">
+          <div data-var="kla" data-label="Aeration k<sub>L</sub>a" data-min="0.02" data-max="10" data-step="0.01" data-value="2" data-unit="h⁻¹" data-scale="log"></div>
+          <div data-var="our" data-label="Tank uptake OUR" data-min="0.05" data-max="3" data-step="0.01" data-value="1.0" data-unit="mg L⁻¹ h⁻¹"></div>
+          <div data-var="Cs" data-label="Saturation C*" data-min="6.5" data-max="11.5" data-step="0.01" data-value="8.74" data-unit="mg L⁻¹"></div>
+        </div>
+      </div>
+
+      <p>How large is \(k_La\) for the aquarium air pump and air stone that most project groups will use? The answer follows from how much oxygen the pump pushes into the tank and what fraction of it dissolves before the bubbles burst at the surface.</p>
+
+      <div class="eq-box" id="eq-rz-aeration">
+        <div class="eq-head"><span class="eq-label">Aeration capacity of an air pump and air stone</span><span class="eq-num">(5.3.6)</span></div>
+        <div class="eq-main">\[ \begin{gathered} \text{OTR}_{\max} = E_{\mathrm{O_2}}\;\rho_{\mathrm{O_2,air}}\;Q_{\text{air}}, \qquad k_La \approx \frac{\text{OTR}_{\max}}{V\,C^{*}} \\[8pt] k_La(T) = k_La(20)\;\theta^{\,T-20} \end{gathered} \]</div>
+        <p class="eq-read">the maximum oxygen transfer rate — into oxygen-free water — equals the fraction of the pumped oxygen that dissolves, times the concentration of oxygen in air, times the air flow. Dividing by the tank volume and the saturation concentration gives the volumetric transfer coefficient. The coefficient increases by a factor θ per degree of warming.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(\text{OTR}_{\max}\)</td><td>oxygen transfer rate into water at \(C = 0\)</td><td>mg h⁻¹</td><td>–</td></tr>
+          <tr><td>\(E_{\mathrm{O_2}}\)</td><td>transfer efficiency: fraction of the O₂ in the air that dissolves</td><td>–</td><td>≈ 0.01–0.05 in 15–30 cm deep tanks (order of magnitude)</td></tr>
+          <tr><td>\(\rho_{\mathrm{O_2,air}}\)</td><td>mass concentration of O₂ in air, \(x_{\mathrm{O_2}}PM/(RT)\)</td><td>mg L⁻¹ of air</td><td>279 (20 °C, 1 atm)</td></tr>
+          <tr><td>\(Q_{\text{air}}\)</td><td>air flow delivered by the pump at the working depth</td><td>L h⁻¹</td><td>60–300 (1–5 L min⁻¹, aquarium pumps)</td></tr>
+          <tr><td>\(V,\ C^{*}\)</td><td>solution volume; saturation concentration</td><td>L; mg L⁻¹</td><td>–</td></tr>
+          <tr><td>\(\theta\)</td><td>temperature-correction factor for \(k_La\)</td><td>–</td><td>1.024 (ASCE, 2007)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Oxygen in the air stream.</strong> Ideal gas: \(\rho_{\mathrm{O_2}} = x_{\mathrm{O_2}}PM/(RT) = 0.2095\times101\,325\times0.032/(8.314\times293.15) = 0.279\) kg m⁻³ = 279 mg per litre of air. A pump delivering 2 L min⁻¹ = 120 L h⁻¹ therefore sends 33.4 g of O₂ into the tank every hour.</li>
+            <li><strong>Only a few per cent dissolves.</strong> A bubble spends less than a second rising through 20 cm of water. Penetration theory (Higbie, 1935) estimates the liquid-side coefficient of a 2 mm bubble rising at about 0.25 m s⁻¹ as \(K_L\approx2\sqrt{Du_b/(\pi d_b)}\approx5\times10^{-4}\) m s⁻¹. With the bubble's area-to-volume ratio \(6/d_b\), it loses roughly \(K_L(6/d_b)C^{*}/c_{\text{gas}}\approx\) 5 % of its oxygen per second (\(c_{\text{gas}}\) = 8.7 mol m⁻³, \(C^{*}\) = 0.28 mol m⁻³): about 4 % during its rise. Coarser bubbles and shallower tanks give less.</li>
+            <li><strong>Maximum rate.</strong> Into oxygen-free water: \(\text{OTR}_{\max} = E\,\rho_{\mathrm{O_2}}\,Q_{\text{air}}\).</li>
+            <li><strong>Link to Eq. 5.3.5.</strong> At \(C = 0\) the transfer term is \(k_La\,C^{*}\) per litre, i.e. \(k_La\,C^{*}V\) for the tank. Equating: \(k_La = \text{OTR}_{\max}/(VC^{*})\).</li>
+            <li><strong>Temperature.</strong> Diffusivity rises and viscosity falls with temperature, so \(k_La\) increases by about 2.4 % per °C (\(\theta\) = 1.024 in the ASCE clean-water standard) — partly compensating the fall of \(C^{*}\).</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>\(E_{\mathrm{O_2}}\) is the most uncertain number: it depends on the stone's pore size (bubble diameter), depth, fouling and on how strongly the bubble plume circulates the tank and renews the free surface (which adds transfer). Use this equation to choose a pump, then <em>measure</em> \(k_La\) with the dynamic method of Worked example 4. The pump's rated flow is at zero depth; at 20–30 cm submergence small diaphragm pumps deliver noticeably less.</p></details>
+        <div class="eq-units">(–) × mg L⁻¹ × L h⁻¹ = mg h⁻¹ ✓; mg h⁻¹ ÷ (L × mg L⁻¹) = h⁻¹ ✓</div>
+        <div class="mini-calc" data-formula="eff/100*279*Qa*60/(V*Cs)" data-output="Aeration k<sub>L</sub>a" data-unit="h⁻¹" data-digits="2" data-plot="Qa" data-ymin="0">
+          <div data-var="Qa" data-label="Air flow Q<sub>air</sub>" data-min="0.2" data-max="10" data-step="0.1" data-value="2" data-unit="L min⁻¹"></div>
+          <div data-var="eff" data-label="Transfer efficiency E<sub>O₂</sub>" data-min="0.5" data-max="6" data-step="0.1" data-value="2" data-unit="%"></div>
+          <div data-var="V" data-label="Solution volume V" data-min="5" data-max="200" data-step="1" data-value="40" data-unit="L"></div>
+          <div data-var="Cs" data-label="Saturation C*" data-min="6.5" data-max="11.5" data-step="0.01" data-value="8.42" data-unit="mg L⁻¹"></div>
+        </div>
+      </div>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 720 340" role="img" aria-label="Cross-section of a deep-water-culture tank with air pump above the water level, check valve, airline, air stone, bubble plume, circulation, roots, raft and dissolved-oxygen probe">
+            <defs>
+              <marker id="rz-a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--water)"/></marker>
+              <marker id="rz-a3k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <!-- shelf and pump -->
+            <line x1="20" y1="94" x2="150" y2="94" class="stroke" stroke-width="2"/>
+            <rect x="30" y="52" width="100" height="42" rx="7" class="fill-bg" stroke="currentColor" stroke-width="1.4"/>
+            <text x="80" y="72" text-anchor="middle" style="font-weight:600">air pump</text>
+            <text x="80" y="87" text-anchor="middle" class="t-small t-muted">1–5 L min⁻¹</text>
+            <text x="20" y="112" class="t-small t-muted">placed above the</text>
+            <text x="20" y="125" class="t-small t-muted">water level</text>
+            <!-- airline with check valve -->
+            <path d="M130 72 H163" class="stroke" stroke-width="2.4"/>
+            <rect x="163" y="64" width="26" height="16" rx="4" class="fill-amber-soft" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M170 67 L182 72 L170 77 Z" fill="currentColor"/>
+            <text x="176" y="56" text-anchor="middle" class="t-small">check valve</text>
+            <!-- tank -->
+            <rect x="200" y="118" width="380" height="184" rx="6" class="fill-sunk" stroke="currentColor" stroke-width="2"/>
+            <rect x="203" y="136" width="374" height="163" class="fill-water-soft"/>
+            <rect x="192" y="112" width="396" height="17" rx="3" class="fill-bg" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M189 72 H222 V286 H330" class="stroke" stroke-width="2.4"/>
+            <text x="213" y="215" transform="rotate(-90 213 215)" text-anchor="middle" class="t-small">airline</text>
+            <!-- plants: net pots + heads -->
+            <g stroke="currentColor" stroke-width="1.1">
+              <path d="M266 129 L294 129 L290 154 L270 154 Z" class="fill-bg"/>
+              <path d="M386 129 L414 129 L410 154 L390 154 Z" class="fill-bg"/>
+              <path d="M506 129 L534 129 L530 154 L510 154 Z" class="fill-bg"/>
+            </g>
+            <g class="fill-accent">
+              <ellipse cx="266" cy="100" rx="22" ry="13" opacity=".7"/><ellipse cx="294" cy="100" rx="22" ry="13" opacity=".7"/><ellipse cx="280" cy="90" rx="24" ry="15" opacity=".9"/>
+              <ellipse cx="386" cy="100" rx="22" ry="13" opacity=".7"/><ellipse cx="414" cy="100" rx="22" ry="13" opacity=".7"/><ellipse cx="400" cy="90" rx="24" ry="15" opacity=".9"/>
+              <ellipse cx="506" cy="100" rx="22" ry="13" opacity=".7"/><ellipse cx="534" cy="100" rx="22" ry="13" opacity=".7"/><ellipse cx="520" cy="90" rx="24" ry="15" opacity=".9"/>
+            </g>
+            <!-- roots -->
+            <g class="stroke-amber" stroke-width="1.3" fill="none" opacity=".85">
+              <path d="M280 154 q-8 40 -3 96 M280 154 q7 38 13 88 M280 154 q-20 30 -30 76 M280 154 q20 30 28 70 M280 154 q-2 50 4 110"/>
+              <path d="M400 154 q-8 40 -3 96 M400 154 q7 38 13 88 M400 154 q-20 30 -30 76 M400 154 q20 30 28 70 M400 154 q-2 50 4 110"/>
+              <path d="M520 154 q-8 40 -3 96 M520 154 q7 38 13 88 M520 154 q-20 30 -30 76 M520 154 q20 30 28 70 M520 154 q-2 50 4 110"/>
+            </g>
+            <!-- air stone and bubbles -->
+            <rect x="330" y="280" width="84" height="13" rx="6.5" class="fill-bg" stroke="currentColor" stroke-width="1.3"/>
+            <g class="fill-bg" stroke="var(--water)" stroke-width="1.1">
+              <circle cx="344" cy="268" r="3"/><circle cx="362" cy="256" r="3.4"/><circle cx="380" cy="266" r="3"/><circle cx="398" cy="252" r="3"/>
+              <circle cx="352" cy="234" r="3.5"/><circle cx="386" cy="226" r="3"/><circle cx="368" cy="208" r="3.8"/><circle cx="350" cy="190" r="3"/>
+              <circle cx="392" cy="186" r="3.4"/><circle cx="364" cy="168" r="3"/><circle cx="378" cy="150" r="3.5"/><circle cx="356" cy="144" r="2.8"/>
+            </g>
+            <!-- circulation -->
+            <g class="stroke-water" stroke-width="1.6" fill="none" stroke-dasharray="5 4">
+              <path d="M348 150 C 300 140, 238 170, 238 222 C 238 262, 280 284, 322 276" marker-end="url(#rz-a3)"/>
+              <path d="M396 150 C 450 140, 560 168, 560 222 C 560 262, 470 292, 424 280" marker-end="url(#rz-a3)"/>
+            </g>
+            <!-- DO probe -->
+            <rect x="552" y="96" width="11" height="120" rx="3" class="fill-bg" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="552" y="206" width="11" height="10" class="fill-magenta"/>
+            <path d="M557 96 C 557 70, 600 70, 612 60" class="stroke" stroke-width="1.4" fill="none"/>
+            <!-- labels -->
+            <text x="598" y="124" class="t-small">opaque lid / raft</text>
+            <text x="598" y="160" class="t-small">DO + temperature</text>
+            <text x="598" y="174" class="t-small">probe (mid-depth)</text>
+            <text x="598" y="222" class="t-small">roots hang in</text>
+            <text x="598" y="236" class="t-small">aerated solution</text>
+            <text x="598" y="268" class="t-small t-muted">depth 15–25 cm</text>
+            <text x="598" y="282" class="t-small t-muted">5–20 L per plant</text>
+            <text x="372" y="318" text-anchor="middle" class="t-small">air stone: fine bubbles (large area per volume)</text>
+            <text x="372" y="334" text-anchor="middle" class="t-small t-muted">the rising plume circulates the tank and renews the surface (dashed arrows)</text>
+            <text x="30" y="160" class="t-small">The check valve stops</text>
+            <text x="30" y="174" class="t-small">solution siphoning back</text>
+            <text x="30" y="188" class="t-small">into the pump in a</text>
+            <text x="30" y="202" class="t-small">power cut.</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 3.</b> Aeration hardware of a deep-water-culture (DWC) tank drawn roughly to scale for a 40 L storage tote. The pump sits above the water level (or the airline makes an upward loop) and a one-way check valve protects it; the air stone lies at the bottom centre so that the bubble plume sweeps through the root mass. Measure DO at mid-depth, away from the plume, where it is lowest.</figcaption>
+      </figure>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 3</span><span class="we-title">Sizing the air pump for a deep-water-culture tote</span></div>
+        <div class="we-problem"><p>Your group grows six lettuces in a 40 L DWC tote (Figure 3). Near harvest each plant respires 7.0 mg O₂ h⁻¹ at 20 °C (Worked example 1, \(Q_{10}\) = 2). In a warm week the solution reaches 24 °C. You want DO to stay at or above 6 mg L⁻¹. (a) What \(k_La\) is required? (b) Does a small aquarium pump delivering 2 L min⁻¹ through an air stone suffice, if about 2 % of the oxygen dissolves? (c) How long would the crop have if the pump failed?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Demand at 24 °C</strong> (Eq. 5.3.2): \(7.0\times2^{0.4} = 9.24\) mg h⁻¹ per plant; six plants: 55.4 mg h⁻¹; per litre: \(\text{OUR}_{\text{tank}} = 55.4/40 = 1.39\) mg L⁻¹ h⁻¹.</li>
+              <li><strong>Saturation at 24 °C</strong> (Table 1): \(C^{*}\) = 8.42 mg L⁻¹.</li>
+              <li><strong>(a) Required transfer</strong> (Eq. 5.3.5, design rule): \(k_La \ge 1.39/(8.42-6) = 0.57\) h⁻¹.</li>
+              <li><strong>(b) Pump capacity</strong> (Eq. 5.3.6): \(\text{OTR}_{\max} = 0.02\times279\ \text{mg L}^{-1}\times120\ \text{L h}^{-1} = 669\) mg h⁻¹; \(k_La = 669/(40\times8.42) = 1.99\) h⁻¹ — 3.5 times the requirement. Steady state: \(C_{ss} = 8.42 - 1.39/1.99 = 7.7\) mg L⁻¹ ✓.</li>
+              <li><strong>(c) Failure.</strong> Starting from 7.7 mg L⁻¹, DO falls at ≈ 1.39 mg L⁻¹ h⁻¹ and reaches 4 mg L⁻¹ after \((7.7-4)/1.39 = 2.7\) h. An evening pump failure will be found in the morning with a hypoxic crop.</li>
+              <li><strong>Interpretation.</strong> Aeration capacity is rarely the problem — even a cheap pump provides a large margin. The <em>reliability</em> of aeration is the problem: add a second air stone on a second pump, a DO or flow alarm, or more solution per plant (doubling \(V\) doubles the time in step c).</li>
+            </ol>
+            <span class="answer">(a) k<sub>L</sub>a ≥ 0.57 h⁻¹; (b) yes: ≈ 2 h⁻¹, DO ≈ 7.7 mg L⁻¹; (c) only ≈ 2.7 h to 4 mg L⁻¹ after a failure</span>
+          </div>
+        </details>
+      </div>
+
+      <figure class="figure wide" id="do-sim">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — dissolved oxygen in a deep-water-culture tank</div>
+          <div class="seg" id="ds-pre" role="group" aria-label="Scenario" style="margin-bottom:10px">
+            <button type="button" data-v="mid" aria-pressed="true">Project tote, mid-crop</button>
+            <button type="button" data-v="late">Near harvest, warm</button>
+            <button type="button" data-v="big">Near harvest, 3 × volume</button>
+            <button type="button" data-v="weak">Weak aeration</button>
+          </div>
+          <div class="ffp-ctl-grid">
+            <div class="mc-var"><div class="mc-lab"><span>Solution volume V</span><output id="ds-V-out"></output></div><input id="ds-V" type="range" min="10" max="200" step="1" value="40" aria-label="Solution volume"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Plants n</span><output id="ds-n-out"></output></div><input id="ds-n" type="range" min="1" max="20" step="1" value="6" aria-label="Number of plants"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Root O₂ use per plant (20 °C)</span><output id="ds-our-out"></output></div><input id="ds-our" type="range" min="0.5" max="10" step="0.1" value="3" aria-label="Root oxygen use per plant"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Solution temperature T</span><output id="ds-T-out"></output></div><input id="ds-T" type="range" min="12" max="32" step="0.5" value="21" aria-label="Solution temperature"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Aeration k<sub>L</sub>a at 20 °C</span><output id="ds-kla-out"></output></div><input id="ds-kla" type="range" min="0.1" max="8" step="0.05" value="2" aria-label="Aeration kLa"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Air pump fails at</span><output id="ds-tf-out"></output></div><input id="ds-tf" type="range" min="2" max="40" step="0.5" value="12" aria-label="Failure time"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Failure lasts</span><output id="ds-dur-out"></output></div><input id="ds-dur" type="range" min="0" max="36" step="0.5" value="10" aria-label="Failure duration"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Critical DO</span><output id="ds-cc-out"></output></div><input id="ds-cc" type="range" min="2" max="6" step="0.1" value="4" aria-label="Critical dissolved oxygen"></div>
+          </div>
+          <div id="ds-plot" style="height:330px"></div>
+          <div class="readouts" id="ds-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 4.</b> Eq. 5.3.5 integrated in time (fourth-order Runge–Kutta). The blue curve starts at steady state with the air pump running; the amber band marks the failure. The dashed grey curve is a tank that was never aerated (starting saturated). Model: \(k_La\) corrected with θ = 1.024 per °C; surface re-aeration under a lid assumed \(k_La\) = 0.03 h⁻¹; respiration scaled with Q₁₀ = 2 and slowed at very low DO by a Michaelis–Menten factor \(C/(0.3+C)\) (half-saturation 0.3 mg L⁻¹, an assumption that only prevents negative concentrations). Try "Near harvest, warm": the crop reaches the critical level within about three hours of the failure.</figcaption>
+      </figure>
+
+      <p>Every number in these calculations — \(q_{\mathrm{O_2}}\), \(E_{\mathrm{O_2}}\), \(k_La\) — was an estimate. In your project you can measure the two that matter directly, with nothing more than a DO meter, a clock and the air pump's plug. This <strong>dynamic method</strong> is the same principle as the standard clean-water test for aerators (ASCE, 2007), applied with the crop in place.</p>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 4</span><span class="we-title">Measure OUR and k<sub>L</sub>a in your own tank</span></div>
+        <div class="we-problem"><p>At 24 °C (C* = 8.42 mg L⁻¹) a group switches off the air pump of their 40 L tank (six lettuces) with the lid on and logs DO every 10 minutes at mid-depth: 7.80, 7.58, 7.37, 7.15, 6.93, 6.72, 6.50 mg L⁻¹. They then switch the pump on again and log: 6.50, 6.86, 7.12, 7.30, 7.43, 7.53, 7.60 mg L⁻¹. Determine the tank OUR, the OUR per plant, and \(k_La\).</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>OUR from the decline.</strong> With aeration off (and only a small surface transfer under the lid), \(\mathrm{d}C/\mathrm{d}t\approx-\text{OUR}_{\text{tank}}\). The decline is linear: \((7.80-6.50)\) mg L⁻¹ in 1 h, so \(\text{OUR}_{\text{tank}} = 1.30\) mg L⁻¹ h⁻¹ (a least-squares slope of all seven points gives the same). Per plant: \(1.30\times40/6 = 8.7\) mg O₂ h⁻¹ — consistent with the estimate of Worked example 1 scaled to 24 °C (9.2 mg h⁻¹).</li>
+              <li><strong>\(k_La\) from the recovery.</strong> Rearranging Eq. 5.3.5: \(k_La = (\mathrm{d}C/\mathrm{d}t + \text{OUR}_{\text{tank}})/(C^{*}-C)\). In the first 10 minutes DO rose by 0.36 mg L⁻¹: \(\mathrm{d}C/\mathrm{d}t\approx0.36/(1/6\ \text{h}) = 2.16\) mg L⁻¹ h⁻¹ at a mean \(C\approx6.68\) mg L⁻¹.</li>
+              <li><strong>Insert:</strong> \(k_La = (2.16+1.30)/(8.42-6.68) = 3.46/1.74 = 1.99\) h⁻¹.</li>
+              <li><strong>Check with the steady state.</strong> \(C_{ss} = 8.42 - 1.30/1.99 = 7.77\) mg L⁻¹; the recovery curve is levelling off towards 7.7–7.8 ✓. A more precise estimate fits \(\ln\big((C_{ss}-C)/(C_{ss}-C_0)\big)\) against time: the slope is \(-k_La\).</li>
+              <li><strong>Good practice.</strong> Stir gently before each reading, keep the probe at one position, let optical or galvanic sensors equilibrate (see <a href="/lessons/electrochemical-sensors/">Lesson 9.2</a>), and repeat the test weekly: OUR grows with the crop — a data set for your report.</li>
+            </ol>
+            <span class="answer">OUR ≈ 1.3 mg L⁻¹ h⁻¹ (≈ 8.7 mg O₂ h⁻¹ per plant); k<sub>L</sub>a ≈ 2.0 h⁻¹</span>
+          </div>
+        </details>
+      </div>
+
+      <h3>The last millimetre: why mixing matters at the root surface</h3>
+      <p>Even in a well-aerated tank, the water touching a root is not well mixed. Friction slows the flow near any surface, leaving an <strong>unstirred (diffusion boundary) layer</strong> through which oxygen moves only by molecular diffusion — the third step of the cascade in Figure 1. Fick's first law, already met for aeroponic root films in <a href="/lessons/aeroponics/">Lesson 7.1</a> (Eq. 7.1.9), tells us how thick this layer may be before it limits the root:</p>
+
+      <div class="eq-box" id="eq-rz-boundary">
+        <div class="eq-head"><span class="eq-label">Oxygen supply through the unstirred layer at the root</span><span class="eq-num">(5.3.7)</span></div>
+        <div class="eq-main">\[ J = D_{\mathrm{O_2}}\,\frac{C_b - C_s}{\delta} \qquad\Longrightarrow\qquad \delta_{\max} = \frac{D_{\mathrm{O_2}}\,\big(C_b - C_{s,\min}\big)\,A_{\text{root}}}{\text{OUR}_{\text{plant}}} \]</div>
+        <p class="eq-read">the oxygen flux per unit root area equals the diffusion coefficient times the concentration difference between the bulk solution and the root surface, divided by the thickness of the unstirred layer. Setting this supply equal to the demand per unit root area gives the thickest layer the root can tolerate.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(J\)</td><td>O₂ flux per unit root surface area</td><td>mol m⁻² s⁻¹</td><td>–</td></tr>
+          <tr><td>\(D_{\mathrm{O_2}}\)</td><td>diffusion coefficient of O₂ in water</td><td>m² s⁻¹</td><td>≈ 2.0 × 10⁻⁹ at 20 °C</td></tr>
+          <tr><td>\(C_b,\ C_s\)</td><td>O₂ concentration in the bulk and at the root surface</td><td>mol m⁻³ (mg L⁻¹ ÷ 32)</td><td>\(C_b\) 0.2–0.28</td></tr>
+          <tr><td>\(C_{s,\min}\)</td><td>lowest surface concentration at which root respiration is not limited</td><td>mol m⁻³</td><td>assumed ≈ 1 mg L⁻¹ = 0.03</td></tr>
+          <tr><td>\(\delta,\ \delta_{\max}\)</td><td>unstirred-layer thickness; its largest tolerable value</td><td>m</td><td>≈ 10 µm (fast flow) to ≈ 1 mm (stagnant)</td></tr>
+          <tr><td>\(A_{\text{root}}\)</td><td>root surface area per plant</td><td>m²</td><td>≈ 0.1–0.3 for lettuce near harvest (estimate)</td></tr>
+          <tr><td>\(\text{OUR}_{\text{plant}}\)</td><td>root O₂ uptake per plant</td><td>mol s⁻¹ (mg h⁻¹ ÷ 32 000 ÷ 3600)</td><td>≈ 6 × 10⁻⁸ (7 mg h⁻¹)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Fick's first law:</strong> \(J = -D\,\mathrm{d}C/\mathrm{d}x\). Across a thin layer at steady state, the profile is linear, \(\mathrm{d}C/\mathrm{d}x = -(C_b-C_s)/\delta\).</li>
+            <li><strong>Demand per area:</strong> the whole root system consumes \(\text{OUR}_{\text{plant}}\) spread over \(A_{\text{root}}\): \(J_{\text{req}} = \text{OUR}_{\text{plant}}/A_{\text{root}}\).</li>
+            <li><strong>Supply = demand</strong> with \(C_s = C_{s,\min}\) and solve for \(\delta\): the second form of Eq. 5.3.7.</li>
+            <li><strong>Numbers.</strong> OUR = 7 mg h⁻¹ = \(6.1\times10^{-8}\) mol s⁻¹; \(A_{\text{root}}\) = 0.2 m² → \(J_{\text{req}} = 3.0\times10^{-7}\) mol m⁻² s⁻¹. With \(C_b - C_{s,\min}\) = 8 − 1 = 7 mg L⁻¹ = 0.219 mol m⁻³: \(\delta_{\max} = 2.0\times10^{-9}\times0.219/3.0\times10^{-7} = 1.4\times10^{-3}\) m ≈ 1.4 mm.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>The average hides the extremes. Root tips and young root-hair zones respire far faster per unit area than old roots, and in a dense root mat the roots share the same slowly renewed water, so the effective stagnant layer can be many millimetres. That is why DWC roots deep inside a mat, or at the bottom of a sluggish NFT channel, can be hypoxic although the bulk DO looks fine — and why bubbles and flow, which thin the boundary layer, matter beyond their contribution to \(k_La\). The root area is an order-of-magnitude estimate (root length of the order of a hundred metres at a fraction of a millimetre in diameter).</p></details>
+        <div class="eq-units">\(\text{m}^2\text{s}^{-1}\times\text{mol m}^{-3}\times\text{m}^2 \,/\, \text{mol s}^{-1} = \text{m}\) ✓</div>
+        <div class="mini-calc" data-formula="2.0e-9*(dC/32)*A/(our/32000/3600)*1000" data-output="Largest tolerable unstirred layer δ<sub>max</sub>" data-unit="mm" data-digits="2" data-plot="our" data-ymin="0">
+          <div data-var="our" data-label="Root O₂ uptake per plant" data-min="0.5" data-max="15" data-step="0.1" data-value="7" data-unit="mg h⁻¹"></div>
+          <div data-var="dC" data-label="C<sub>b</sub> − C<sub>s,min</sub>" data-min="0.5" data-max="9" data-step="0.1" data-value="7" data-unit="mg L⁻¹"></div>
+          <div data-var="A" data-label="Root surface area A<sub>root</sub>" data-min="0.02" data-max="0.5" data-step="0.01" data-value="0.2" data-unit="m²"></div>
+        </div>
+      </div>
+
+      <p>This last millimetre explains why the three project systems solve the oxygen problem so differently. <strong>DWC</strong> relies on bubbles to keep \(C_b\) high and to stir the root mass. <strong>NFT</strong> keeps the water layer around the roots thin and moving, and the upper part of the root mat is in humid air (the along-channel oxygen balance is derived in <a href="/lessons/hydraulic-design/#depletion">Lesson 5.4</a>). The <strong>Kratky</strong> method needs no aeration at all because, as the solution level falls, an expanding humid air gap opens under the lid, and the roots that grow into it — Kratky's "oxygen roots" — take oxygen from air through films only micrometres thick (Kratky, 2009). That is also why a Kratky tank must never be topped up: raising the level drowns the oxygen roots.</p>
+
+      <h2 id="hypoxia">When oxygen runs out: hypoxia and its symptoms</h2>
+      <p>Plant physiologists distinguish three states of the root: <strong>normoxia</strong>, in which oxygen is sufficient for full aerobic respiration; <strong>hypoxia</strong>, in which oxygen partly limits ATP production; and <strong>anoxia</strong>, in which there is no oxygen and only fermentation remains (Drew, 1997). The transitions are gradual and happen at different times in different tissues: because every cell on the way consumes oxygen, the centre of a thick root, a dense root mat or a root tip becomes hypoxic while its surface still looks fine. Figure 5 follows a root cell as its oxygen runs out.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 740 332" role="img" aria-label="Metabolism of a root cell with and without oxygen: aerobic respiration yields about 30 ATP per glucose; fermentation yields 2 ATP and causes cytosolic acidosis, aquaporin closure, reduced uptake and root death">
+            <defs>
+              <marker id="rz-a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            </defs>
+            <text x="20" y="22" style="font-weight:700">Enough oxygen (normoxia)</text>
+            <text x="390" y="22" style="font-weight:700">Too little oxygen (hypoxia → anoxia)</text>
+            <line x1="370" y1="10" x2="370" y2="326" class="stroke-muted" stroke-width="1" stroke-dasharray="4 4"/>
+            <g stroke="currentColor" stroke-width="1.1">
+              <rect x="20" y="36" width="160" height="28" rx="7" class="fill-amber-soft"/>
+              <rect x="20" y="84" width="160" height="28" rx="7" class="fill-bg"/>
+              <rect x="20" y="132" width="160" height="28" rx="7" class="fill-bg"/>
+              <rect x="20" y="180" width="330" height="44" rx="9" class="fill-accent-soft"/>
+              <rect x="390" y="36" width="160" height="28" rx="7" class="fill-amber-soft"/>
+              <rect x="390" y="84" width="160" height="28" rx="7" class="fill-bg"/>
+              <rect x="390" y="132" width="160" height="28" rx="7" class="fill-bg"/>
+              <rect x="390" y="186" width="120" height="30" rx="7" class="fill-magenta-soft"/>
+              <rect x="530" y="186" width="190" height="30" rx="7" class="fill-magenta-soft"/>
+            </g>
+            <g text-anchor="middle" class="t-small">
+              <text x="100" y="54">glucose (from phloem)</text>
+              <text x="100" y="102">glycolysis: 2 ATP</text>
+              <text x="100" y="150">pyruvate</text>
+              <text x="185" y="198" style="font-weight:600">mitochondrion: TCA cycle + electron transport</text>
+              <text x="185" y="215">O₂ + electrons → H₂O   ⇒   ≈ 30 ATP per glucose</text>
+              <text x="470" y="54">glucose (from phloem)</text>
+              <text x="470" y="102">glycolysis: 2 ATP</text>
+              <text x="470" y="150">pyruvate</text>
+              <text x="450" y="206">lactate</text>
+              <text x="625" y="206">acetaldehyde → ethanol + CO₂</text>
+            </g>
+            <g stroke="currentColor" stroke-width="1.4">
+              <line x1="100" y1="64" x2="100" y2="82" marker-end="url(#rz-a5)"/>
+              <line x1="100" y1="112" x2="100" y2="130" marker-end="url(#rz-a5)"/>
+              <line x1="100" y1="160" x2="100" y2="178" marker-end="url(#rz-a5)"/>
+              <line x1="470" y1="64" x2="470" y2="82" marker-end="url(#rz-a5)"/>
+              <line x1="470" y1="112" x2="470" y2="130" marker-end="url(#rz-a5)"/>
+              <line x1="455" y1="160" x2="450" y2="184" marker-end="url(#rz-a5)"/>
+              <line x1="500" y1="160" x2="600" y2="184" marker-end="url(#rz-a5)"/>
+            </g>
+            <text x="560" y="116" class="t-small" style="fill:var(--danger)">✕ no O₂: electron</text>
+            <text x="560" y="130" class="t-small" style="fill:var(--danger)">transport stops</text>
+            <text x="390" y="238" class="t-small" style="font-weight:600">only 2 ATP per glucose — about 15 × less energy</text>
+            <g class="t-small">
+              <text x="20" y="250">→ H⁺-ATPases energise nutrient uptake</text>
+              <text x="20" y="267">→ open aquaporins let water in</text>
+              <text x="20" y="284">→ root tips divide, root hairs form</text>
+              <text x="20" y="306" class="t-muted">healthy roots: white to cream,</text>
+              <text x="20" y="320" class="t-muted">many fine laterals</text>
+              <text x="390" y="258" style="fill:var(--danger)">→ cytosol acidifies → aquaporins close</text>
+              <text x="404" y="272" style="fill:var(--danger)">→ water uptake falls → wilting</text>
+              <text x="390" y="289" style="fill:var(--danger)">→ ion pumps slow: uptake falls, K⁺ leaks</text>
+              <text x="390" y="306" style="fill:var(--danger)">→ root tips die: an entry for Pythium</text>
+              <text x="390" y="323" class="t-muted">hypoxic roots: tan to brown, sour smell</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 5.</b> The metabolic switch of a root cell. With oxygen, pyruvate is oxidised in the mitochondria; without it, the cell ferments pyruvate to lactate and ethanol, regenerating the NAD⁺ that glycolysis needs but gaining only 2 ATP per glucose (Drew, 1997). The acidification of the cytosol closes aquaporins and cuts root water transport (Tournaire-Roux et al., 2003).</figcaption>
+      </figure>
+
+      <p>The energy crisis explains the symptoms a grower sees — including the most confusing one, <strong>wilting in the middle of water</strong>. A lettuce with its roots in solution can wilt at midday when its roots are hypoxic. Tournaire-Roux et al. (2003) showed that anoxia acidifies the cytosol of root cells and that this acidosis closes (gates) the aquaporins — the water channels of the cell membranes — so that the hydraulic conductivity of the root falls. Water can no longer enter fast enough to match transpiration, and the leaves lose turgor: the soil–plant–atmosphere chain of <a href="/lessons/water-relations/">Lesson 2.2</a> breaks at the root. At the same time the proton pumps slow, uptake of nitrate and potassium falls and roots can leak potassium; growth stalls within hours, root tips die first, and longer episodes kill whole roots, which turn brown and soft and invite infection (Section 5.3.6). Morard and Silvestre (1996) review how quickly these injuries develop in soilless crops.</p>
+
+      <table>
+        <caption>Table 2. Dissolved oxygen in the root zone of hydroponic lettuce and leafy herbs: an interpretation guide assembled from experiments and grower guidance.</caption>
+        <thead><tr><th>DO at mid-depth (mg L⁻¹)</th><th>Interpretation</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td>≥ 8 (near air saturation)</td><td>Optimal. The Cornell raft system keeps about 8 mg L⁻¹ (7–10) using pure oxygen (Brechner &amp; Both, 2013).</td><td>none — record it</td></tr>
+          <tr><td>6–8</td><td>Good; meets the recommendation of more than 6 mg L⁻¹, ideally saturation, of Mattson (2018).</td><td>check the trend weekly</td></tr>
+          <tr><td>4–6</td><td>Usually adequate in well-mixed solution: Goto et al. (1996) found no difference in lettuce growth between 2.1, 4.2, 8.4 and 16.8 mg L⁻¹ at 24 °C in a well-controlled floating system. Little margin, however, in dense root mats, at high temperature or when a pump fails.</td><td>improve aeration; check temperature</td></tr>
+          <tr><td>2–4</td><td>Risky: roots inside the mat and near the bottom are probably hypoxic, and low DO favours <em>Pythium</em> infection (Mattson, 2018).</td><td>act today: aerate, cool, check the pump</td></tr>
+          <tr><td>&lt; 2</td><td>Hypoxic to anoxic; root damage within hours.</td><td>restore aeration immediately; inspect roots</td></tr>
+        </tbody>
+      </table>
+
+      <p>Notice how the experimental and practical thresholds differ. Goto et al. (1996) concluded that the critical DO for vigorous lettuce growth in their system was below 2.1 mg L⁻¹ — in a <em>well-mixed</em> tank with pure-gas control and no disease pressure. Growers recommend a margin of safety above that, because commercial and student tanks are not perfectly mixed, temperatures fluctuate, pumps fail and pathogens exploit stressed roots. A threshold is not a law of nature; it is a design choice that should state its assumptions.</p>
+
+      <div class="callout misconception"><div class="callout-title">Common misconception</div><p>"My plants are wilting, so they need more water." In soil that is often true. In hydroponics the roots are already in water — wilting of a hydroponic crop is a symptom of a <em>root</em> problem: hypoxia, root rot, a very high EC, or cold solution that lowers root conductance. Check DO, temperature and the roots before you touch anything else. And in a Kratky tank, never "fix" wilting by raising the solution level: that drowns the oxygen roots and makes it worse (Kratky, 2009).</p></div>
+
+      <h2 id="temperature">Root-zone temperature: the master variable</h2>
+      <p>Solution temperature touches every part of this lesson at once. It sets the oxygen ceiling (Table 1: about −1.8 % per °C near 20 °C) and the roots' oxygen demand (about +7 % per °C for \(Q_{10}\) = 2); it controls the speed of nutrient uptake and root growth and the viscosity of water; and it sets the growth rate of the pathogens that attack stressed roots (Section 5.3.6). Because a tank of water has a large heat capacity, root-zone temperature is also the environmental variable that is easiest to hold steady — which makes it a powerful lever for the grower.</p>
+      <p>What is the right temperature for lettuce? In the Cornell floating system, Thompson et al. (1998) crossed three pond temperatures (17, 24 and 31 °C) with three air temperatures for 35 days. Maximum dry mass was produced at 24 °C air with a 24 °C pond, and a 24 °C pond maintained marketable heads even in 31 °C air — cooling only the roots compensated for hot shoots. Levine et al. (2023) held the root zone of red-leaf lettuce at 15, 25 or 35 °C under 25/22 °C air: growth was greatest at 25 °C; 35 °C reduced biomass but strongly increased anthocyanins, carotenoids and chlorophyll; 15 °C gave intermediate growth. Extension guidance for hydroponic leafy greens recommends a root-zone target of 20–24 °C, partly for disease reasons: lower temperatures favour <em>Pythium dissotocum</em>, higher temperatures <em>P. aphanidermatum</em> (Mattson, 2018). For lettuce, therefore: aim for about 20–24 °C, avoid sustained temperatures much above that, and remember that cold solution slows growth and water uptake.</p>
+
+      <figure class="figure" id="o2-squeeze">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — the oxygen squeeze</div>
+          <div class="ffp-ctl-grid">
+            <div class="mc-var"><div class="mc-lab"><span>Temperature marker</span><output id="sq-T-out"></output></div><input id="sq-T" type="range" min="10" max="34" step="0.5" value="24" aria-label="Solution temperature"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Root O₂ use per plant (20 °C)</span><output id="sq-our-out"></output></div><input id="sq-our" type="range" min="0.5" max="10" step="0.1" value="5" aria-label="Root oxygen use per plant at 20 degrees"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Solution per plant</span><output id="sq-vp-out"></output></div><input id="sq-vp" type="range" min="2" max="30" step="0.5" value="7" aria-label="Solution volume per plant"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Aeration k<sub>L</sub>a at 20 °C</span><output id="sq-kla-out"></output></div><input id="sq-kla" type="range" min="0.1" max="5" step="0.05" value="1.2" aria-label="Aeration kLa at 20 degrees"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Critical DO</span><output id="sq-cc-out"></output></div><input id="sq-cc" type="range" min="2" max="6" step="0.1" value="4" aria-label="Critical dissolved oxygen"></div>
+          </div>
+          <div id="sq-plot" style="height:320px"></div>
+          <div class="readouts" id="sq-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 6.</b> Supply falls while demand rises. Blue: air saturation \(C^{*}(T)\) (Eq. 5.3.4). Green: steady-state DO with the air pump running, \(C_{ss} = C^{*} - \text{OUR}/k_La\) (Eq. 5.3.5), with OUR scaled by Q₁₀ = 2 and \(k_La\) by θ = 1.024 plus 0.03 h⁻¹ of surface transfer. Magenta (right axis): hours from an aeration failure until DO reaches the critical level, \((C_{ss}-C_{\text{crit}})/\text{OUR}\). Warming from 18 to 28 °C typically cuts the survival time by more than half.</figcaption>
+      </figure>
+
+      <p>Why does the tank drift away from the air temperature at all? Because energy flows in and out. A <strong>submersible pump</strong> turns all of its electrical power into heat inside the water — in a small tank it is often the largest heat source. Lamps warm the lid and any exposed solution, heaters and chillers add or remove heat deliberately, and evaporation cools open surfaces. A simple energy balance predicts the result.</p>
+
+      <div class="eq-box" id="eq-rz-heat">
+        <div class="eq-head"><span class="eq-label">Heat balance and thermal time constant of a solution tank</span><span class="eq-num">(5.3.8)</span></div>
+        <div class="eq-main">\[ \begin{gathered} m\,c_p\,\frac{\mathrm{d}T}{\mathrm{d}t} = P_{\text{in}} - UA\,\big(T - T_{\text{air}}\big) \\[8pt] T_{ss} = T_{\text{air}} + \frac{P_{\text{in}}}{UA}, \qquad \tau_{th} = \frac{m\,c_p}{UA} \end{gathered} \]</div>
+        <p class="eq-read">the heat stored in the solution changes at a rate equal to the heat put in (pump, light, heater) minus the heat lost to the room, which is the overall heat-transfer coefficient times the tank area times the temperature difference. At steady state the tank sits above room temperature by the heat input divided by UA; it approaches that temperature with a time constant equal to its heat capacity divided by UA.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(m\)</td><td>mass of solution</td><td>kg</td><td>≈ 1 kg per litre</td></tr>
+          <tr><td>\(c_p\)</td><td>specific heat capacity of water</td><td>J kg⁻¹ K⁻¹</td><td>4186</td></tr>
+          <tr><td>\(P_{\text{in}}\)</td><td>heat input: submersible pump, absorbed light, heater (negative for a chiller)</td><td>W</td><td>5–50 in project systems</td></tr>
+          <tr><td>\(UA\)</td><td>overall heat-loss coefficient × surface area of the tank</td><td>W K⁻¹</td><td>≈ 4–10 for a 40–60 L plastic tote (≈ 0.75 m² × 5–12 W m⁻² K⁻¹; estimate)</td></tr>
+          <tr><td>\(T,\ T_{\text{air}},\ T_{ss}\)</td><td>solution, room and steady-state temperatures</td><td>°C</td><td>–</td></tr>
+          <tr><td>\(\tau_{th}\)</td><td>thermal time constant (63 % of a step change)</td><td>s (÷ 3600 for h)</td><td>≈ 10 h for 50 L</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>First law of thermodynamics</strong> for the solution (no work done on it apart from the pump, whose power ends up as heat): rate of change of stored energy = heat in − heat out.</li>
+            <li><strong>Stored energy</strong> \(= m\,c_p\,T\), so its rate of change is \(m\,c_p\,\mathrm{d}T/\mathrm{d}t\).</li>
+            <li><strong>Heat loss</strong> by convection and radiation from the walls and lid is, for small temperature differences, proportional to \(T - T_{\text{air}}\): \(UA(T-T_{\text{air}})\).</li>
+            <li><strong>Steady state</strong> (\(\mathrm{d}T/\mathrm{d}t = 0\)): \(T_{ss} = T_{\text{air}} + P_{\text{in}}/UA\).</li>
+            <li><strong>Dynamics.</strong> With \(y = T - T_{ss}\): \(\mathrm{d}y/\mathrm{d}t = -y/\tau_{th}\), so \(T(t) = T_{ss} + (T_0 - T_{ss})e^{-t/\tau_{th}}\) — the same first-order behaviour as Eq. 5.3.5.</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>A lidded tank loses little heat by evaporation; an open tank or an NFT channel loses much more, and evaporation can hold solution a few degrees <em>below</em> air temperature in dry air. \(UA\) depends on air movement, insulation and whether the tank stands on a cold floor — measure it: switch the pump on in a tank at room temperature, log the temperature rise and fit Eq. 5.3.8. The contrast between systems is the key insight: 50 L of DWC solution responds over about ten hours, whereas the few hundred millilitres of film in an NFT channel follow the air (and the sunshine) within minutes.</p></details>
+        <div class="eq-units">W ÷ (W K⁻¹) = K ✓; kg × J kg⁻¹ K⁻¹ ÷ (W K⁻¹) = J ÷ W = s ✓</div>
+        <div class="mini-calc" data-formula="Ta + P/UA" data-output="Steady-state solution temperature" data-unit="°C" data-digits="1" data-plot="P">
+          <div data-var="P" data-label="Heat input P<sub>in</sub>" data-min="0" data-max="60" data-step="1" data-value="18" data-unit="W"></div>
+          <div data-var="UA" data-label="Heat-loss coefficient UA" data-min="1" data-max="20" data-step="0.5" data-value="6" data-unit="W K⁻¹"></div>
+          <div data-var="Ta" data-label="Room temperature T<sub>air</sub>" data-min="12" data-max="32" data-step="0.5" data-value="21" data-unit="°C"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 5</span><span class="we-title">Will the pump cook your roots?</span></div>
+        <div class="we-problem"><p>A group recirculates 50 L of solution with an 18 W submersible pump that sits in the tank; the LEDs deposit a further 6 W on the tank lid. The tank's heat-loss coefficient is estimated at \(UA\) = 6 W K⁻¹ and the room is at 21 °C. (a) What solution temperature will the tank settle at, and how long does it take to get most of the way there? (b) What does this do to the oxygen margin?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Steady state</strong> (Eq. 5.3.8): \(T_{ss} = 21 + (18+6)/6 = 25\) °C — four degrees above the room.</li>
+              <li><strong>Time constant:</strong> \(\tau_{th} = 50\times4186/6 = 34\,900\) s = 9.7 h. The tank reaches 63 % of the rise in about 10 h and 95 % in about 29 h (three time constants): overnight readings will under-estimate the daytime problem.</li>
+              <li><strong>(b) Oxygen.</strong> From 21 to 25 °C, \(C^{*}\) falls from 8.91 to 8.26 mg L⁻¹ (−7 %) while root respiration rises by \(2^{0.4} = 1.32\) (+32 %). The time the crop survives an aeration failure shrinks by about 30 %, and the solution is now in the temperature range that favours <em>P. aphanidermatum</em>.</li>
+              <li><strong>Fixes:</strong> put the pump outside the tank (an inline pump) or use an air-lift; insulate and shade the tank; use a larger tank (the same heat raises a larger mass more slowly, although the steady state depends only on \(P/UA\)); run the pump on a timer where the system allows it; or cool the room.</li>
+            </ol>
+            <span class="answer">≈ 25 °C after about a day (τ ≈ 10 h); C* −7 %, oxygen demand +32 %</span>
+          </div>
+        </details>
+      </div>
+
+      <div class="callout frontier"><div class="callout-title">Frontier · root-zone temperature as a control lever</div><p>Cooling or warming only the root zone costs far less energy than conditioning a whole greenhouse or grow room, and recent experiments use it deliberately. Levine et al. (2023) showed that a warm root zone (35 °C) applied only for the last eight days before harvest raised pigment contents to the level of a continuous 35 °C treatment while losing less yield — a way to trade a little growth for nutritional and visual quality. Combined with the 1998 Cornell result that a cool pond rescues lettuce in hot air, root-zone temperature control is becoming a precision tool rather than a nuisance to be avoided.</p></div>
+
+      <h2 id="pathogens">Pythium and other root pathogens in recirculating water</h2>
+      <p><em>Pythium</em> root rot is the most common, yield-limiting disease of hydroponic leafy greens and herbs (Amrhein et al., 2025). <em>Pythium</em> species are <strong>oomycetes</strong> ("water moulds"). They look like fungi, with thread-like hyphae, but they are more closely related to brown algae and diatoms, and their cell walls are built from cellulose-like glucans rather than chitin — one reason why many fungicides do not work against them. What makes oomycetes so dangerous in hydroponics is their swimming spore, the <strong>zoospore</strong>.</p>
+      <p>An infected root forms sporangia that release zoospores. Each zoospore swims with two flagella and is attracted chemically to the exudates of young roots (chemotaxis). On contact it encysts, germinates and penetrates the root, and the pathogen spreads through the cortex. Thick-walled <strong>oospores</strong> formed in dead tissue survive in root debris, growing media and dust and restart the cycle later (Sutton et al., 2006). In soil, zoospores depend on thin water films between particles and spread slowly; in a recirculating system the pump carries them to every plant within minutes. Stanghellini and Rasmussen (1994) titled their classic review, ironically, "Hydroponics: a solution for zoosporic pathogens". Figure 7 puts the disease triangle and the life cycle together.</p>
+
+      <figure class="figure wide">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 780 350" role="img" aria-label="Left: the disease triangle of host, pathogen and environment in hydroponics. Right: the Pythium cycle in a recirculating system, with zoospores carried by the solution from an infected plant to healthy plants, and disinfection breaking the loop">
+            <defs>
+              <marker id="rz-a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--water)"/></marker>
+              <g id="rz-zoo"><ellipse cx="0" cy="0" rx="3.6" ry="2.5" style="fill:var(--magenta)"/><path d="M3 -1 q6 -4 10 0 M-3 1 q-6 4 -10 0" style="stroke:var(--magenta);fill:none" stroke-width="1"/></g>
+            </defs>
+            <text x="12" y="22" style="font-weight:700">A · The disease triangle</text>
+            <path d="M150 78 L40 246 L260 246 Z" class="fill-amber-soft" stroke="currentColor" stroke-width="1.5"/>
+            <text x="150" y="190" text-anchor="middle" style="font-weight:700">DISEASE</text>
+            <text x="150" y="206" text-anchor="middle" class="t-small t-muted">needs all three</text>
+            <text x="150" y="42" text-anchor="middle" style="font-weight:700">Host</text>
+            <text x="150" y="56" text-anchor="middle" class="t-small">roots stressed by hypoxia,</text>
+            <text x="150" y="69" text-anchor="middle" class="t-small">heat, high EC or injury</text>
+            <text x="12" y="266" style="font-weight:700">Pathogen</text>
+            <text x="12" y="281" class="t-small">zoospores in the water;</text>
+            <text x="12" y="295" class="t-small">oospores in debris, media,</text>
+            <text x="12" y="309" class="t-small">dust and biofilm</text>
+            <text x="288" y="266" text-anchor="end" style="font-weight:700">Environment</text>
+            <text x="288" y="281" text-anchor="end" class="t-small">warm, low-O₂ solution;</text>
+            <text x="288" y="295" text-anchor="end" class="t-small">recirculation spreads</text>
+            <text x="288" y="309" text-anchor="end" class="t-small">spores to every plant</text>
+            <text x="12" y="330" class="t-small t-muted">Management removes a side of the triangle:</text>
+            <text x="12" y="344" class="t-small t-muted">healthy roots, clean inoculum, cool water.</text>
+            <line x1="305" y1="14" x2="305" y2="340" class="stroke-muted" stroke-width="1" stroke-dasharray="4 4"/>
+            <text x="322" y="22" style="font-weight:700">B · The Pythium cycle in a recirculating system</text>
+            <!-- channel with plants -->
+            <rect x="370" y="92" width="360" height="22" rx="4" class="fill-water-soft" stroke="currentColor" stroke-width="1.3"/>
+            <g class="fill-accent">
+              <ellipse cx="410" cy="82" rx="16" ry="10" opacity=".55"/><ellipse cx="480" cy="80" rx="18" ry="12" opacity=".9"/><ellipse cx="550" cy="80" rx="18" ry="12" opacity=".9"/><ellipse cx="620" cy="80" rx="18" ry="12" opacity=".9"/><ellipse cx="690" cy="80" rx="18" ry="12" opacity=".9"/>
+            </g>
+            <g class="stroke-amber" stroke-width="2" fill="none"><path d="M410 114 q-4 20 -2 36 M410 114 q6 16 8 30"/></g>
+            <g class="stroke-muted" stroke-width="1.1" fill="none"><path d="M480 114 q-4 20 -2 40 M480 114 q6 18 9 34 M550 114 q-4 20 -2 40 M550 114 q6 18 9 34 M620 114 q-4 20 -2 40 M620 114 q6 18 9 34 M690 114 q-4 20 -2 40 M690 114 q6 18 9 34"/></g>
+            <!-- return pipe, tank, pump, supply -->
+            <path d="M730 104 H752 V248" class="stroke-water" stroke-width="3" fill="none" marker-end="url(#rz-a7)"/>
+            <rect x="600" y="252" width="170" height="62" rx="5" class="fill-water-soft" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="616" y="286" width="20" height="20" rx="3" class="fill-sunk" stroke="currentColor"/>
+            <text x="700" y="274" text-anchor="middle" class="t-small">tank</text>
+            <text x="626" y="324" text-anchor="middle" class="t-small">pump</text>
+            <path d="M616 296 H342 V112 H368" class="stroke-water" stroke-width="3" fill="none" marker-end="url(#rz-a7)"/>
+            <!-- disinfection box on supply -->
+            <rect x="455" y="284" width="66" height="24" rx="5" class="fill-bg" stroke="var(--danger)" stroke-width="1.6"/>
+            <text x="488" y="300" text-anchor="middle" class="t-small" style="fill:var(--danger);font-weight:600">UV / heat</text>
+            <!-- zoospores -->
+            <use href="#rz-zoo" x="752" y="150"/><use href="#rz-zoo" x="752" y="200"/><use href="#rz-zoo" x="690" y="298"/><use href="#rz-zoo" x="570" y="296"/>
+            <use href="#rz-zoo" x="342" y="220"/><use href="#rz-zoo" x="342" y="160"/><use href="#rz-zoo" x="425" y="134"/><use href="#rz-zoo" x="498" y="138"/><use href="#rz-zoo" x="566" y="140"/>
+            <!-- captions -->
+            <text x="372" y="48" class="t-small">① infected roots (brown) form sporangia that release</text>
+            <text x="372" y="62" class="t-small">swimming zoospores into the solution</text>
+            <text x="744" y="176" text-anchor="end" class="t-small">② carried by the flow</text>
+            <text x="744" y="190" text-anchor="end" class="t-small">to the tank</text>
+            <text x="592" y="276" text-anchor="end" class="t-small">③ pumped back to every plant</text>
+            <text x="352" y="176" class="t-small">④ attracted to root</text>
+            <text x="352" y="190" class="t-small">exudates: encyst, infect</text>
+            <text x="352" y="238" class="t-small">⑤ oospores persist in</text>
+            <text x="352" y="252" class="t-small">debris and biofilm</text>
+            <text x="488" y="326" text-anchor="middle" class="t-small" style="fill:var(--danger)">⑥ disinfection breaks the loop</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 7.</b> (A) Disease requires a susceptible host, a pathogen and a favourable environment at the same time; in hydroponics all three can be managed. (B) In a recirculating system the solution becomes the vehicle of infection: zoospores released by one diseased plant reach every root within minutes, unless the returning solution is disinfected (Section 5.3.8) (after Stanghellini &amp; Rasmussen, 1994; Sutton et al., 2006).</figcaption>
+      </figure>
+
+      <p>Four species dominate reports from hydroponic leafy greens and herbs: <em>P. aphanidermatum</em>, <em>P. dissotocum</em>, <em>P. myriotylum</em> and <em>P. oopapillum</em> (Amrhein et al., 2025). Their temperature preferences differ, which is why solution temperature is a disease-management tool: lower temperatures favour the establishment of <em>P. dissotocum</em>, higher temperatures the development of <em>P. aphanidermatum</em> (Mattson, 2018). Warm solution attacks from three directions at once — faster pathogen growth, less dissolved oxygen, and roots made more susceptible by hypoxic stress — so the Pythium problem and the oxygen problem of Sections 5.3.1–5.3.5 are the same problem.</p>
+      <p>Early infections are often invisible. Sutton et al. (2006) emphasise that root infection reduces leaf-area growth and carbon accumulation even while photosynthesis per unit leaf area is maintained — a "silent" loss of yield. Visible symptoms follow: roots turn tan to brown and feel soft and water-soaked, lose their fine laterals and root hairs, and the outer cortex slips off when a root is pulled between the fingers, leaving only the thin central strand; shoots are stunted, wilt in the afternoon and may turn yellow. Other water-borne pathogens behave similarly in closed systems — <em>Phytophthora</em> species (also oomycetes), <em>Fusarium</em> species, bacteria, and viruses such as tomato mosaic virus and cucumber green mottle mosaic virus, which are easily transmitted in recirculation water (Runia, 1994a).</p>
+
+      <h3>Biofilms: the slime on every wet surface</h3>
+      <p>Every wet surface of a hydroponic system — tank walls, pipes, channels, emitters, the air stone and the roots themselves — is soon covered by a <strong>biofilm</strong>: a community of bacteria, fungi and algae embedded in a self-produced matrix of extracellular polymeric substances, mostly polysaccharides, proteins and DNA (Flemming &amp; Wingender, 2010). Biofilms matter to the grower in three ways. They consume oxygen, adding a microbial demand to the root demand of Eq. 5.3.1. They clog air stones, filters and drip emitters (<a href="/lessons/hydraulic-design/#distribution">Lesson 5.4</a>). And their matrix shields the embedded cells, including pathogens, from disinfectants that would kill them in suspension (Flemming &amp; Wingender, 2010). Not all biofilms are harmful: the biologically active top layer of a slow sand filter and the microbial coat of a healthy root are biofilms too (Section 5.3.7). The practical rule is to clean and disinfect equipment <em>between</em> crops, when the system is empty, because a running system cannot be sterilised without harming the crop.</p>
+
+      <h2 id="microbiome">The helpful majority: beneficial microbes, suppressiveness and root exudates</h2>
+      <p>A running hydroponic system is never sterile, and it should not be. Within days of planting, the solution, the roots and the growing medium host large and diverse microbial communities, fed by root exudates (Vallance et al., 2011). Most are harmless, many are beneficial, and together they can make a system <strong>suppressive</strong>: a pathogen introduced into it causes less disease than it would in a sterile system. Postma et al. (2000) demonstrated this for cucumber on stone wool. Used, non-sterilised stone wool reduced root and crown rot caused by <em>P. aphanidermatum</em> by 52–100 % compared with the same stone wool after autoclaving; suppressiveness was associated with the fungal community and with distinct bacterial community structures, not with the total number of bacteria. Sterile is fragile: a pathogen that arrives in an empty microbial niche meets no competition.</p>
+      <p>Three groups of microorganisms are used deliberately as biological control agents in soilless culture (Table 3; Vallance et al., 2011; Lee &amp; Lee, 2015). They work best preventively, colonising roots and media before a pathogen arrives. In the EU, a microorganism sold to control plant disease is a plant protection product: its active substance must be approved under Regulation (EC) No 1107/2009 and the product authorised nationally — in Sweden by the Swedish Chemicals Agency (KemI) — so use only authorised products, according to the label.</p>
+
+      <table>
+        <caption>Table 3. Beneficial microorganisms used against root pathogens in soilless culture (after Vallance et al., 2011; Lee &amp; Lee, 2015).</caption>
+        <thead><tr><th>Group</th><th>Examples</th><th>Main modes of action</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><em>Trichoderma</em> (fungi)</td><td><em>T. harzianum</em>, <em>T. asperellum</em></td><td>mycoparasitism (coiling around and digesting pathogen hyphae), competition for space and nutrients, antibiotic metabolites, induced systemic resistance</td><td>colonise roots and substrates; applied at planting</td></tr>
+          <tr><td><em>Bacillus</em> (Gram-positive bacteria)</td><td><em>B. subtilis</em>, <em>B. amyloliquefaciens</em></td><td>lipopeptide antibiotics, root-surface biofilms, competition, induced resistance</td><td>heat- and drought-resistant endospores give long shelf life</td></tr>
+          <tr><td><em>Pseudomonas</em> (fluorescent pseudomonads)</td><td><em>P. fluorescens</em>, <em>P. chlororaphis</em></td><td>siderophores that sequester iron from pathogens, antibiotics, aggressive root colonisation, induced resistance</td><td>among the most abundant bacteria in hydroponic solutions and slow filters (Brand &amp; Wohanka, 2001)</td></tr>
+        </tbody>
+      </table>
+
+      <p>What feeds all these microbes? <strong>Root exudates</strong>: sugars, amino acids, organic acids, phenolic compounds, proteins and mucilage released by living roots, plus the cells they slough off. In soil, exudates are diluted and decomposed quickly. In a closed hydroponic loop they can accumulate from crop to crop. Some are toxic to the plant that produced them — <strong>autotoxicity</strong>, a form of allelopathy. Yu and Matsui (1994) identified phytotoxic substances in the root exudates of cucumber, a crop known for autotoxicity in closed systems, and Lee et al. (2006) reported that phytotoxic organic acids accumulated in lettuce nutrient solution reused during hydroponic cultivation. Exudates also attract <em>Pythium</em> zoospores (step ④ in Figure 7). The practical responses are simple: renew the solution between crops, remove root debris, and consider biologically active slow filters, which degrade dissolved organic matter as well as retaining pathogens.</p>
+
+      <div class="callout frontier"><div class="callout-title">Frontier · steering the microbiome instead of sterilising it</div><p>DNA-based methods now reveal which microorganisms live in recirculating solutions, and lab-confirmed diagnostic guides for <em>Pythium</em> in hydroponic leafy greens (Amrhein et al., 2025) are making early diagnosis routine. The research question has shifted from "how do we kill everything?" to "how do we assemble and maintain a microbial community that protects the crop?" — through inoculants, biologically active filters and the management of the solution's own carbon. Expect this to change hydroponic practice over the next decade.</p></div>
+
+      <h2 id="disinfection">Disinfecting the recirculating solution</h2>
+      <p>Closing the loop saves water and fertiliser (<a href="/lessons/soilless-systems/#open-closed">Lesson 5.1</a>, <a href="/lessons/nutrient-solution-chemistry/#recirculation">Lesson 5.2</a>) but lets one diseased plant infect all the others. Commercial closed systems therefore treat the drain water before it returns to the crop. The requirements are demanding: inactivate or remove oomycetes, fungi, bacteria and — ideally — viruses; leave the nutrients intact; keep up with the drain flow; and remain affordable (Ehret et al., 2001; van Os, 2010). Figure 8 shows a typical treatment train; Table 4 compares the methods using the numbers from the original Dutch and German experiments.</p>
+
+      <figure class="figure">
+        <div class="fig-body">
+          <svg class="dg" viewBox="0 0 760 250" role="img" aria-label="Treatment train for recirculating nutrient solution: drain, drain tank, pre-filter, disinfection by heat, UV, ozone or slow sand filtration, clean-water tank, mixing with fresh water and stock solutions, and back to the crop">
+            <defs><marker id="rz-a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--water)"/></marker></defs>
+            <g stroke="currentColor" stroke-width="1.2">
+              <rect x="10" y="56" width="104" height="74" rx="9" class="fill-accent-soft"/>
+              <rect x="134" y="56" width="104" height="74" rx="9" class="fill-water-soft"/>
+              <rect x="258" y="56" width="112" height="74" rx="9" class="fill-bg"/>
+              <rect x="390" y="40" width="150" height="106" rx="10" class="fill-magenta-soft"/>
+              <rect x="560" y="56" width="84" height="74" rx="9" class="fill-water-soft"/>
+              <rect x="662" y="56" width="90" height="74" rx="9" class="fill-bg"/>
+            </g>
+            <g text-anchor="middle">
+              <text x="62" y="84" style="font-weight:600">Crop</text><text x="62" y="102" class="t-small">drain water</text><text x="62" y="116" class="t-small t-muted">+ pathogens</text>
+              <text x="186" y="84" style="font-weight:600">Drain tank</text><text x="186" y="102" class="t-small">collect,</text><text x="186" y="116" class="t-small">buffer flow</text>
+              <text x="314" y="84" style="font-weight:600">Pre-filter</text><text x="314" y="102" class="t-small">remove particles</text><text x="314" y="116" class="t-small">→ clearer for UV</text>
+              <text x="465" y="62" style="font-weight:600">Disinfection</text>
+              <text x="465" y="82" class="t-small">heat: 95 °C for 30 s</text>
+              <text x="465" y="98" class="t-small">or UV-C: dose ≥ D₁₀ × logs</text>
+              <text x="465" y="114" class="t-small">or ozone (pH ≈ 4, contact)</text>
+              <text x="465" y="130" class="t-small">or slow sand filter 0.1 m h⁻¹</text>
+              <text x="602" y="84" style="font-weight:600">Clean</text><text x="602" y="100" style="font-weight:600">tank</text><text x="602" y="116" class="t-small t-muted">kept separate</text>
+              <text x="707" y="84" style="font-weight:600">Mixing</text><text x="707" y="100" class="t-small">water, A + B,</text><text x="707" y="116" class="t-small">acid → EC, pH</text>
+            </g>
+            <g stroke="var(--water)" stroke-width="2.4">
+              <line x1="115" y1="93" x2="132" y2="93" marker-end="url(#rz-a8)"/>
+              <line x1="239" y1="93" x2="256" y2="93" marker-end="url(#rz-a8)"/>
+              <line x1="371" y1="93" x2="388" y2="93" marker-end="url(#rz-a8)"/>
+              <line x1="541" y1="93" x2="558" y2="93" marker-end="url(#rz-a8)"/>
+              <line x1="645" y1="93" x2="660" y2="93" marker-end="url(#rz-a8)"/>
+            </g>
+            <path d="M707 131 V200 H62 V133" stroke="var(--water)" stroke-width="2.4" fill="none" marker-end="url(#rz-a8)"/>
+            <text x="380" y="220" text-anchor="middle" class="t-small">back to the crop: disinfected solution, re-balanced to the EC and pH set points</text>
+            <line x1="186" y1="131" x2="186" y2="172" stroke="var(--magenta)" stroke-width="1.6" stroke-dasharray="4 3"/>
+            <text x="194" y="168" class="t-small" style="fill:var(--magenta)">bleed (Na⁺, Cl⁻)</text>
+            <text x="465" y="164" text-anchor="middle" class="t-small t-muted">UV and ozone destroy Fe chelates:</text>
+            <text x="465" y="178" text-anchor="middle" class="t-small t-muted">re-dose iron in the mixing step</text>
+            <text x="10" y="24" class="t-small t-muted">A closed system's drain loop (flow left to right, return along the bottom)</text>
+          </svg>
+        </div>
+        <figcaption><b>Figure 8.</b> A treatment train for recirculating solution. The drain tank buffers the uneven drain flow, the pre-filter protects the disinfection unit and raises UV transmittance, and disinfected water is kept separate from untreated water. A small bleed removes accumulating sodium and chloride (<a href="/lessons/nutrient-solution-chemistry/#recirculation">Lesson 5.2</a>).</figcaption>
+      </figure>
+
+      <table>
+        <caption>Table 4. Methods to disinfect recirculating nutrient solution, with documented performance (numbers from the cited experiments).</caption>
+        <thead><tr><th>Method</th><th>Principle</th><th>Documented performance</th><th>Drawbacks</th></tr></thead>
+        <tbody>
+          <tr><td>Heat treatment</td><td>heat to a lethal temperature, recover heat in an exchanger</td><td>95 °C for 30 s is the standard treatment. Lethal temperatures after 15 s: <em>Phytophthora cryptogea</em> 44 °C, <em>Pythium aphanidermatum</em> 51 °C, <em>Radopholus similis</em> 53 °C, <em>Fusarium oxysporum</em> 54 °C; 60 °C for 2 min controls fungi, bacteria and nematodes with 42 % less energy (Runia &amp; Amsing, 2001)</td><td>energy and investment; viruses need the high temperature</td></tr>
+          <tr><td>UV-C (254 nm)</td><td>photochemical damage to DNA and RNA</td><td><em>Fusarium oxysporum</em> conidia: −90 % at 28 mJ cm⁻², −99.9 % at 84 mJ cm⁻²; tomato mosaic virus −99 % at 100 mJ cm⁻² (Runia, 1994a)</td><td>needs clear water; lamps age and sleeves foul; degrades iron chelates (cf. Albano &amp; Miller, 2001)</td></tr>
+          <tr><td>Ozone</td><td>strong oxidant, injected into a treatment tank at pH ≈ 4</td><td>cucumber green mottle mosaic virus eliminated in 75 min at 6 g O₃ h⁻¹; tomato mosaic virus in 60 min at 20 g h⁻¹; <em>Verticillium</em> microsclerotia survived 210 min (Runia, 1994b)</td><td>oxidises Fe and Mn chelates → precipitation (Thakulla &amp; Fisher, 2023); toxic gas</td></tr>
+          <tr><td>Slow sand filtration</td><td>physical retention plus a biologically active top layer</td><td>at 0.1 m³ m⁻² h⁻¹ with fine or medium sand, <em>Phytophthora cinnamomi</em> was removed completely, <em>Fusarium</em> and tomato mosaic virus only retarded (van Os et al., 1998); biologically active filters removed 98.5 % of <em>Xanthomonas</em> versus 69 % for sterilised filters (Brand &amp; Wohanka, 2001)</td><td>large filter area; partial barrier for small spores and viruses; weeks to mature</td></tr>
+          <tr><td>Membrane filtration</td><td>pores smaller than the pathogens</td><td>performs well (van Os, 2010)</td><td>mostly too costly; fouling (van Os, 2010)</td></tr>
+          <tr><td>Chemical oxidants</td><td>sodium hypochlorite, chlorine dioxide, hydrogen peroxide</td><td>used in practice; efficacy reduced by organic matter (van Os, 2010; Raudales et al., 2014)</td><td>dose control; phytotoxicity and by-products</td></tr>
+        </tbody>
+      </table>
+
+      <p>Two lessons emerge. First, no method is perfect: heat and UV are reliable against fungi and oomycetes but cost energy; slow filtration is cheap and gentle but partial; oxidants react with the nutrient solution itself. Second, disinfection kills friends as well as foes — it strips the returning solution of the suppressive community of Section 5.3.7, one argument for combining disinfection with biological control (Vallance et al., 2011). For UV disinfection, which numerous growers already used in closed systems in the early 1990s (Runia, 1994a), the physics can be condensed into one design equation.</p>
+
+      <div class="eq-box" id="eq-rz-uv">
+        <div class="eq-head"><span class="eq-label">UV dose of a lamp reactor and log inactivation</span><span class="eq-num">(5.3.9)</span></div>
+        <div class="eq-main">\[ \bar{D} = \frac{P_{\text{UV}}\;\ell_{\text{eff}}}{Q}, \qquad \ell_{\text{eff}} = \frac{1 - 10^{-A\,d}}{A\,\ln 10}, \qquad \log_{10}\frac{N_0}{N} = \frac{\bar{D}}{D_{10}} \]</div>
+        <p class="eq-read">the average UV dose (fluence) delivered to the water equals the UV power of the lamp times an effective path length, divided by the flow. The effective path length accounts for absorption of UV by the water over the layer thickness. The number of tenfold (log) reductions of a microbe equals the dose divided by the dose needed for one log reduction.</p>
+        <table class="symbols">
+          <tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Typical value</th></tr>
+          <tr><td>\(\bar{D}\)</td><td>volume-average UV dose (fluence)</td><td>mJ cm⁻² (= mW s cm⁻²)</td><td>30–300</td></tr>
+          <tr><td>\(P_{\text{UV}}\)</td><td>UV-C power emitted by the lamp at 254 nm (datasheet)</td><td>mW</td><td>roughly a third of the electrical power of a low-pressure lamp</td></tr>
+          <tr><td>\(\ell_{\text{eff}}\)</td><td>effective optical path length of the water layer</td><td>cm</td><td>≈ \(d\) for clear water; ≈ \(1/(A\ln10)\) for turbid water</td></tr>
+          <tr><td>\(Q\)</td><td>flow through the reactor</td><td>cm³ s⁻¹ (1 L min⁻¹ = 16.67 cm³ s⁻¹)</td><td>–</td></tr>
+          <tr><td>\(A\)</td><td>decadic absorbance of the water per cm at 254 nm, \(A = -\log_{10}\text{UVT}\)</td><td>cm⁻¹</td><td>0.05 (UVT 89 %) to 0.5 (UVT 32 %)</td></tr>
+          <tr><td>\(d\)</td><td>thickness of the water layer around the lamp sleeve</td><td>cm</td><td>1–3</td></tr>
+          <tr><td>\(N_0/N\)</td><td>ratio of viable organisms before and after treatment</td><td>–</td><td>10³ = 3-log (99.9 %)</td></tr>
+          <tr><td>\(D_{10}\)</td><td>dose for one log (90 %) reduction</td><td>mJ cm⁻²</td><td>≈ 28 for <em>Fusarium</em> conidia; ≈ 50 for tomato mosaic virus (from Runia, 1994a)</td></tr>
+        </table>
+        <details><summary>Follow the derivation</summary>
+          <ol class="steps">
+            <li><strong>Dose</strong> is irradiance × time: mW cm⁻² × s = mJ cm⁻².</li>
+            <li><strong>Irradiance in an annular reactor.</strong> A long lamp of arc length \(L\) and sleeve radius \(r\) emits \(P_{\text{UV}}\). By Beer–Lambert, the power still travelling outwards at radius \(\rho\) is \(P_{\text{UV}}10^{-A(\rho-r)}\), spread over a cylinder of area \(2\pi\rho L\): \(E(\rho) = P_{\text{UV}}10^{-A(\rho-r)}/(2\pi\rho L)\).</li>
+            <li><strong>Average over the water volume</strong> \(V = \pi L\big((r+d)^2-r^2\big)\): \(\bar{E} = \frac{1}{V}\int_r^{r+d}E(\rho)\,2\pi\rho L\,\mathrm{d}\rho = \frac{P_{\text{UV}}}{V}\int_0^{d}10^{-As}\,\mathrm{d}s = \frac{P_{\text{UV}}\,\ell_{\text{eff}}}{V}\). The \(2\pi\rho L\) of the volume element cancels the geometric dilution exactly.</li>
+            <li><strong>Residence time</strong> \(t = V/Q\), so \(\bar{D} = \bar{E}\,t = P_{\text{UV}}\ell_{\text{eff}}/Q\): the reactor volume cancels too. The average dose depends only on UV power, water clarity and flow.</li>
+            <li><strong>Inactivation kinetics</strong> (Chick's law): each increment of dose inactivates the same fraction of survivors, \(\mathrm{d}N/\mathrm{d}D = -kN\), so \(N = N_0e^{-kD}\) and \(\log_{10}(N_0/N) = D/D_{10}\) with \(D_{10} = \ln10/k\).</li>
+            <li><strong>Check with data.</strong> Runia (1994a) found 1 log (−90 %) at 28 mJ cm⁻² and 3 logs (−99.9 %) at 84 mJ cm⁻² for <em>Fusarium</em> conidia: exactly first-order with \(D_{10}\) = 28 mJ cm⁻². For tomato mosaic virus, 2 logs at 100 mJ cm⁻² gives \(D_{10}\approx\) 50 mJ cm⁻².</li>
+          </ol>
+        </details>
+        <details><summary>Assumptions and validity</summary><p>Eq. 5.3.9 gives the <em>average</em> dose for ideal mixing across the water layer. Real reactors have a dose distribution: water that short-circuits along the outer wall receives much less, which is why Runia's early, slow, laminar units performed poorly even at high nominal doses and why manufacturers rate reactors by a biologically validated dose. Lamp output falls with age and sleeve fouling, so design with a margin. Survival curves can "tail" when spores clump or hide behind particles. Iron chelates absorb UV and are photodegraded (cf. Albano &amp; Miller, 2001), which both lowers the UVT and removes iron.</p></details>
+        <div class="eq-units">mW × cm ÷ (cm³ s⁻¹) = mW s cm⁻² = mJ cm⁻² ✓; \(A\,d\) and \(\bar{D}/D_{10}\) are dimensionless ✓</div>
+        <div class="mini-calc" data-fn="rzUV" data-output="Average UV dose D̄" data-unit="mJ cm⁻²" data-digits="1" data-plot="Q" data-ymin="0">
+          <div data-var="Q" data-label="Flow Q" data-min="1" data-max="60" data-step="0.5" data-value="10" data-unit="L min⁻¹" data-scale="log"></div>
+          <div data-var="P" data-label="Lamp UV-C output P<sub>UV</sub>" data-min="2" data-max="60" data-step="0.5" data-value="12" data-unit="W"></div>
+          <div data-var="uvt" data-label="UV transmittance (1 cm)" data-min="20" data-max="98" data-step="1" data-value="60" data-unit="%"></div>
+          <div data-var="d" data-label="Water-layer thickness d" data-min="0.5" data-max="5" data-step="0.1" data-value="1.5" data-unit="cm"></div>
+        </div>
+      </div>
+
+      <div class="worked-example">
+        <div class="we-head"><span class="we-label">Worked example 6</span><span class="we-title">Will this UV unit protect the crop?</span></div>
+        <div class="we-problem"><p>A grower wants to treat 10 L min⁻¹ of pre-filtered drain water with a low-pressure lamp that emits 12 W of UV-C in an annular reactor with a 1.5 cm water layer. The water's UV transmittance is 60 % per cm. (a) Estimate the average dose. (b) What log reductions of <em>Fusarium oxysporum</em> conidia and tomato mosaic virus should she expect (use Runia's data)? (c) At what flow would <em>Fusarium</em> be reduced by 3 logs?</p></div>
+        <details><summary>Reveal the reasoning</summary>
+          <div class="we-solution">
+            <ol class="steps">
+              <li><strong>Absorbance:</strong> \(A = -\log_{10}0.60 = 0.222\) cm⁻¹; \(A\,d = 0.333\).</li>
+              <li><strong>Effective path length:</strong> \(\ell_{\text{eff}} = (1-10^{-0.333})/(0.222\times2.303) = 0.535/0.511 = 1.05\) cm (the water layer is 1.5 cm, but its outer part receives little UV).</li>
+              <li><strong>(a) Dose:</strong> \(Q = 10\ \text{L min}^{-1} = 166.7\) cm³ s⁻¹; \(\bar{D} = 12\,000\ \text{mW}\times1.05\ \text{cm}/166.7\ \text{cm}^3\,\text{s}^{-1} = 75\) mJ cm⁻².</li>
+              <li><strong>(b) Inactivation:</strong> <em>Fusarium</em>: \(75/28 = 2.7\) logs (99.8 %); tomato mosaic virus: \(75/50 = 1.5\) logs (97 %).</li>
+              <li><strong>(c) Flow for 3 logs:</strong> needs \(\bar{D} = 3\times28 = 84\) mJ cm⁻²: \(Q = 12\,000\times1.05/84 = 150\) cm³ s⁻¹ = 9.0 L min⁻¹.</li>
+              <li><strong>Engineering judgement.</strong> These are averages for a new lamp and ideal mixing; with lamp ageing and a dose distribution, a prudent design would halve the flow, or improve pre-filtration: at 90 % UVT the same unit delivers \(\approx\) 100 mJ cm⁻² at 10 L min⁻¹. Clear water is worth as much as a bigger lamp.</li>
+            </ol>
+            <span class="answer">≈ 75 mJ cm⁻²: ≈ 2.7 logs Fusarium, ≈ 1.5 logs ToMV; ≤ 9 L min⁻¹ for 3 logs</span>
+          </div>
+        </details>
+      </div>
+
+      <figure class="figure" id="uv-designer">
+        <div class="fig-body">
+          <div class="mini-calc-title">Interactive figure — UV reactor designer</div>
+          <div class="ffp-ctl-grid">
+            <div class="mc-var"><div class="mc-lab"><span>Lamp UV-C output</span><output id="uv-P-out"></output></div><input id="uv-P" type="range" min="2" max="60" step="0.5" value="12" aria-label="Lamp UV-C output"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Flow (marker)</span><output id="uv-Q-out"></output></div><input id="uv-Q" type="range" min="0" max="1" step="0.005" value="0.565" aria-label="Flow"></div>
+            <div class="mc-var"><div class="mc-lab"><span>UV transmittance (1 cm)</span><output id="uv-T-out"></output></div><input id="uv-T" type="range" min="20" max="98" step="1" value="60" aria-label="UV transmittance"></div>
+            <div class="mc-var"><div class="mc-lab"><span>Water layer d</span><output id="uv-d-out"></output></div><input id="uv-d" type="range" min="0.5" max="5" step="0.1" value="1.5" aria-label="Water layer thickness"></div>
+          </div>
+          <div id="uv-plot" style="height:300px"></div>
+          <div class="readouts" id="uv-ro" style="margin-bottom:0"></div>
+        </div>
+        <figcaption><b>Figure 9.</b> Log reduction versus flow for <em>Fusarium oxysporum</em> conidia (\(D_{10}\) = 28 mJ cm⁻²) and tomato mosaic virus (\(D_{10}\) ≈ 50 mJ cm⁻²), from Eq. 5.3.9 and the data of Runia (1994a). The dashed green line shows what the same lamp would do for <em>Fusarium</em> in very clear water (UVT 95 %). Averages for ideal mixing and a new lamp — real units need a safety margin.</figcaption>
+      </figure>
+
+      <p>Slow sand filters are sized by their filtration rate. At 0.1 m³ m⁻² h⁻¹ — the rate at which fine and medium sand removed <em>Phytophthora</em> completely (van Os et al., 1998) — a greenhouse draining 3 m³ per day needs a filter area of \(A = Q/v = (3\ \text{m}^3/24\ \text{h})/(0.1\ \text{m h}^{-1}) = 1.25\) m². The biological top layer, with bacterial densities of 10⁷–10⁸ colony-forming units per cm³ dominated by pseudomonads (Brand &amp; Wohanka, 2001), needs weeks to develop and must not be disturbed or allowed to dry out.</p>
+
+      <h2 id="project">Managing the root zone of your project system</h2>
+      <p>The equations of this lesson condense into a short daily routine for the course project. Table 5 lists what to measure; the numbers you log become the data of your report, and — just as important — they let you spot a failing pump or a warming tank before the plants show it.</p>
+
+      <table>
+        <caption>Table 5. Root-zone monitoring routine for Kratky, DWC and NFT project systems.</caption>
+        <thead><tr><th>What</th><th>How</th><th>How often</th><th>Target and action</th></tr></thead>
+        <tbody>
+          <tr><td>Solution temperature</td><td>thermometer or logger at mid-depth</td><td>daily (logger: every 10 min)</td><td>20–24 °C for lettuce; if higher: move the pump out, insulate and shade the tank</td></tr>
+          <tr><td>Dissolved oxygen</td><td>DO meter at mid-depth, same position and time of day</td><td>daily in DWC; weekly in NFT and Kratky</td><td>≥ 6 mg L⁻¹; below 4 mg L⁻¹ act at once (Table 2)</td></tr>
+          <tr><td>Aeration and flow</td><td>look for bubbles, listen to the pump; in NFT check that every channel runs</td><td>morning and evening</td><td>second air pump or alarm before long weekends</td></tr>
+          <tr><td>Roots</td><td>lift a guard plant (not a measured one); photograph against a white card</td><td>2–3 times per week</td><td>white to cream with fine laterals = healthy; tan, soft, slipping cortex = suspect <em>Pythium</em></td></tr>
+          <tr><td>Smell</td><td>when you open the tank</td><td>every time</td><td>sour or fermented = hypoxia</td></tr>
+          <tr><td>OUR and \(k_La\)</td><td>dynamic method (Worked example 4)</td><td>weekly</td><td>plot OUR against time: it tracks root growth</td></tr>
+          <tr><td>Level, EC, pH</td><td>routine of <a href="/lessons/nutrient-solution-chemistry/#kratky">Lesson 5.2</a></td><td>daily</td><td>Kratky: never raise the level</td></tr>
+        </tbody>
+      </table>
+
+      <p><strong>Hygiene.</strong> Before planting, wash tanks, lids, net pots and tubing with water and detergent, disinfect them with a household disinfectant (for example a chlorine product or hydrogen peroxide) diluted as its label specifies, rinse thoroughly and let everything dry. Use new or disinfected growing media. During the crop, use separate tools for each replicate tank — replicate tanks are independent experimental units, and a shared thermometer or net can carry zoospores from one to another and destroy both the plants and the independence of your data (<a href="/lessons/experimental-design/">Lesson 3.1</a>). Keep lids light-proof, remove dead leaves and roots, and wash your hands before touching roots. If a tank develops root rot, do not move water or plants between tanks; lower the temperature, increase aeration, document everything and decide with your teacher whether to discard the unit.</p>
+      <p><strong>Experiments that the root zone offers.</strong> Aerated versus non-aerated DWC (with Kratky as a third treatment) is a classic, strong-effect design; solution temperature (for example 18 versus 24 °C with aquarium heaters) is another; a weekly OUR curve measured with the dynamic method is a growth measurement that needs no destructive harvest. Plan replication and randomisation as in <a href="/lessons/experimental-design/">Lesson 3.1</a>.</p>
+
+      <a class="lab-link" data-lab="deep-water-culture" data-why="Tune aeration, temperature, plant number and root respiration in a 3D raft tank, watch bubbles and dissolved oxygen respond, and test your air-pump design from Worked example 3 against a simulated pump failure."></a>
+
+      <div class="callout danger"><div class="callout-title">Safety</div><p>Water and electricity meet in every hydroponic system: plug pumps and heaters into an outlet protected by a residual-current device (RCD), route cables with a drip loop so water cannot run along them into a socket, and never handle mains equipment with wet hands. Wear gloves and eye protection when diluting disinfectants; never mix chlorine products with acids (toxic chlorine gas is released) or with other cleaners. Ozone generators and concentrated hydrogen peroxide are not for student systems.</p></div>
+
+      <div class="callout key"><div class="callout-title">Key idea</div><p>The root zone is a small ecosystem with two engineering constraints. <strong>Oxygen:</strong> supply (\(C^{*}\), \(k_La\), mixing) must exceed demand (roots and microbes), with a safety margin that survives warm days and pump failures. <strong>Microbiology:</strong> keep pathogens out and roots unstressed, so that the helpful majority of microbes stays in charge. Temperature links the two — keep lettuce roots cool and aerated, and most root problems never start.</p></div>
+
+      <h2 id="check">Check your understanding</h2>
+      <div class="quiz" data-quiz="root-zone-main">
+        <script type="application/json">
+        {"title":"The root zone: oxygen, temperature and microbiology","questions":[
+          {"type":"numeric","q":"Using Henry's law with \\(k_H\\) = 1.27 mmol L⁻¹ atm⁻¹ (25 °C) and an oxygen partial pressure of 0.203 atm (moist air at sea level), calculate the dissolved-oxygen saturation concentration in mg L⁻¹.","answer":8.25,"tol":0.02,"unit":"mg L⁻¹","hint":"\\(C^{*} = k_H\\,p_{\\mathrm{O_2}}\\) gives mmol L⁻¹; multiply by 32.00 mg mmol⁻¹.","explain":"<p>\\(C^{*} = 1.27\\times0.203 = 0.258\\) mmol L⁻¹ × 32.00 = 8.25 mg L⁻¹ — the Benson–Krause value at 25 °C (8.26).</p>"},
+          {"type":"mcq","q":"A commercial raft pond is enriched with pure oxygen instead of air. By roughly what factor can the equilibrium dissolved-oxygen concentration increase at the same temperature?","options":["No change — saturation is a property of water","About 2","About 4.8","About 21, because air contains 21 % oxygen"],"answer":2,"feedback":["Saturation depends on the partial pressure of oxygen in the gas (Henry's law), not only on the water.","Too small: compare the oxygen partial pressures of pure O₂ and air.","","Pure O₂ has 1/0.2095 ≈ 4.8 times the partial pressure of O₂ in air — not 21 times."],"explain":"<p>\\(C^{*}\\propto p_{\\mathrm{O_2}}\\); with pure oxygen \\(x_{\\mathrm{O_2}} = 1\\) instead of 0.2095: 43.4 instead of 9.1 mg L⁻¹ at 20 °C.</p>"},
+          {"type":"numeric","q":"A lettuce's roots consume 3.0 mg O₂ h⁻¹ at 20 °C. With \\(Q_{10}\\) = 2, what is their oxygen consumption at 27 °C?","answer":4.874,"tol":0.02,"unit":"mg O₂ h⁻¹","hint":"\\(\\text{OUR}(T) = \\text{OUR}_{20}\\,Q_{10}^{(T-20)/10}\\).","explain":"<p>\\(3.0\\times2^{0.7} = 3.0\\times1.625 = 4.87\\) mg h⁻¹ — 62 % more than at 20 °C.</p>"},
+          {"type":"numeric","q":"A 40 L DWC tank holds six lettuces that together consume 30 mg O₂ h⁻¹ at 24 °C. The solution is at saturation (8.42 mg L⁻¹) when the air pump fails. Ignoring re-aeration through the surface, after how many hours does DO reach 4 mg L⁻¹?","answer":5.893,"tol":0.03,"unit":"h","hint":"The tank loses 30/40 mg L⁻¹ every hour.","explain":"<p>OUR = 30/40 = 0.75 mg L⁻¹ h⁻¹; \\(\\tau = (8.42-4)/0.75 = 5.9\\) h (Eq. 5.3.5 with \\(k_La\\) ≈ 0).</p>"},
+          {"type":"numeric","q":"What aeration \\(k_La\\) (h⁻¹) is needed to hold DO at 6 mg L⁻¹ at 26 °C (C* = 8.11 mg L⁻¹) when the roots consume 1.2 mg L⁻¹ h⁻¹?","answer":0.5687,"tol":0.03,"unit":"h⁻¹","hint":"At steady state \\(k_La(C^{*}-C) = \\text{OUR}\\).","explain":"<p>\\(k_La = 1.2/(8.11-6) = 0.57\\) h⁻¹ — easily provided by a small aquarium pump (Worked example 3).</p>"},
+          {"type":"multi","q":"Which observations point to root-zone hypoxia in a DWC lettuce crop? (Select all that apply.)","options":["Plants wilt at midday although their roots are in solution.","Roots are brown and the tank smells sour.","Roots are white to cream with many fine laterals.","Growth slows although EC and pH are on target.","DO at mid-depth reads 2 mg L⁻¹ on a warm afternoon."],"answer":[0,1,3,4],"explain":"<p>Hypoxia closes aquaporins (wilting), kills root tissue (brown, sour smell from fermentation) and cuts ATP for nutrient uptake. White roots with fine laterals are the sign of a healthy root zone.</p>"},
+          {"type":"tf","q":"Bubbling air through a nutrient solution can raise dissolved oxygen well above 100 % of air saturation.","answer":false,"explain":"<p>Aeration drives DO towards \\(C^{*}\\) set by air; only pure oxygen or photosynthesis (algae) can raise it above air saturation.</p>"},
+          {"type":"mcq","q":"Which statement about Pythium in hydroponic leafy greens is correct?","options":["Pythium species are true fungi, so any fungicide controls them.","Warmer solution favours P. aphanidermatum, and a root-zone target of about 20–24 °C is recommended.","Pythium cannot spread in recirculating systems because zoospores sink to the bottom of the tank.","Root infection always produces visible symptoms before yield is affected."],"answer":1,"feedback":["Pythium species are oomycetes, not true fungi; many fungicides are ineffective against them.","","Zoospores swim and are carried with the flow to every plant — the reason recirculating systems are vulnerable.","Sutton et al. (2006) describe yield loss from infection before obvious symptoms."],"explain":"<p>Lower temperatures favour P. dissotocum and higher ones P. aphanidermatum; guidance for leafy greens is a root zone of 20–24 °C (Mattson, 2018).</p>"},
+          {"type":"numeric","q":"A UV reactor delivers an average dose of 72 mJ cm⁻². Fusarium oxysporum conidia are reduced by 90 % at 28 mJ cm⁻² (Runia, 1994a). Assuming first-order inactivation, what log₁₀ reduction do you expect?","answer":2.571,"abstol":0.05,"unit":"log₁₀","hint":"One log per \\(D_{10}\\) = 28 mJ cm⁻².","explain":"<p>72/28 = 2.57 logs, i.e. 99.7 % inactivated.</p>"},
+          {"type":"mcq","q":"In the slow-sand-filtration experiments of van Os et al. (1998), what happened at a filtration rate of 0.1 m³ m⁻² h⁻¹ with fine or medium sand?","options":["Phytophthora cinnamomi was removed completely, while Fusarium and tomato mosaic virus were only retarded.","All pathogens, including the virus, were removed completely.","No pathogen was removed; slow filters only retain particles.","Only the virus was removed."],"answer":0,"explain":"<p>Slow filtration is effective against zoosporic oomycetes such as Phytophthora but is only a partial barrier for small fungal spores and viruses.</p>"},
+          {"type":"numeric","q":"An 18 W submersible pump runs continuously in a 50 L tank whose heat-loss coefficient UA is 6 W K⁻¹. The room is at 21 °C. Ignoring other heat sources and evaporation, what is the steady-state solution temperature?","answer":24,"abstol":0.1,"unit":"°C","hint":"\\(T_{ss} = T_{\\text{air}} + P/UA\\).","explain":"<p>21 + 18/6 = 24 °C. The time constant \\(mc_p/UA\\) = 50 × 4186/6 s ≈ 9.7 h.</p>"},
+          {"type":"tf","q":"In Postma et al.'s (2000) experiments, autoclaved (sterilised) stone wool suppressed Pythium root rot of cucumber better than used, non-sterilised stone wool.","answer":false,"explain":"<p>The opposite: used stone wool with its indigenous microflora reduced disease by 52–100 % compared with autoclaved stone wool. Sterile is fragile.</p>"}
+        ]}
+        </script>
+      </div>
+
+      <h2 id="key-terms">Key terms</h2>
+      <dl class="key-terms">
+        <dt>Root respiration</dt><dd>Oxidation of sugars in root mitochondria to make ATP; consumes O₂ and releases CO₂ (respiratory quotient ≈ 1).</dd>
+        <dt>Oxygen uptake rate (OUR)</dt><dd>Rate at which roots and microbes consume dissolved oxygen, per plant (mg h⁻¹) or per litre of solution (mg L⁻¹ h⁻¹).</dd>
+        <dt>Q₁₀</dt><dd>Factor by which a rate increases for a 10 °C rise in temperature; about 2 for root respiration.</dd>
+        <dt>Henry's law</dt><dd>At equilibrium, the concentration of a dissolved gas is proportional to its partial pressure, \(C^{*} = k_H\,p\).</dd>
+        <dt>Dissolved-oxygen saturation (C*)</dt><dd>Equilibrium DO with air: 11.3 mg L⁻¹ at 10 °C, 9.1 at 20 °C, 7.6 at 30 °C (Benson–Krause).</dd>
+        <dt>Volumetric mass-transfer coefficient (kLa)</dt><dd>Product of the liquid-film transfer coefficient and the interfacial area per volume; sets how fast aeration restores DO (h⁻¹).</dd>
+        <dt>Unstirred (diffusion boundary) layer</dt><dd>Thin, nearly stagnant water layer at a root surface through which oxygen moves only by diffusion.</dd>
+        <dt>Hypoxia, anoxia</dt><dd>Oxygen partly limiting, or absent; roots switch to fermentation, which yields about 2 instead of about 30 ATP per glucose.</dd>
+        <dt>Oomycete</dt><dd>Fungus-like "water mould" (e.g. <em>Pythium</em>, <em>Phytophthora</em>) with cellulose-like cell walls and swimming zoospores.</dd>
+        <dt>Zoospore</dt><dd>Motile, flagellated spore of oomycetes; attracted to root exudates and spread by recirculating solution.</dd>
+        <dt>Biofilm</dt><dd>Microbial community embedded in a self-produced polymer matrix on a wet surface; consumes O₂, clogs equipment and protects cells from disinfectants.</dd>
+        <dt>Disease suppressiveness</dt><dd>Capacity of a system's microbial community to limit disease caused by an introduced pathogen.</dd>
+        <dt>Autotoxicity</dt><dd>Inhibition of a plant by compounds released from its own roots; such exudates can accumulate in closed systems.</dd>
+        <dt>UV dose (fluence)</dt><dd>UV energy received per unit area, irradiance × exposure time, in mJ cm⁻²; log reduction = dose / D₁₀.</dd>
+        <dt>Slow sand filtration</dt><dd>Filtration through sand at about 0.1 m h⁻¹, in which a biologically active top layer removes many root pathogens.</dd>
+      </dl>
+
+      <h2 id="check-reasoning">Check your reasoning</h2>
+      <ul class="check-list">
+        <li>I can estimate the oxygen demand of my crop from its growth and temperature, and measure it with a DO meter.</li>
+        <li>I can calculate dissolved-oxygen saturation with Henry's law or the Benson–Krause equation and explain why warm solution is risky.</li>
+        <li>I can use the tank oxygen balance (Eq. 5.3.5) to size an air pump and to predict how long a crop survives an aeration failure.</li>
+        <li>I can recognise the symptoms of hypoxia and Pythium root rot and explain the physiology behind them.</li>
+        <li>I can compare heat, UV, ozone and slow sand filtration, and calculate a UV dose and the resulting log reduction.</li>
+        <li>I can run a root-zone monitoring and hygiene routine for my project system.</li>
+      </ul>
+
+      <h2 id="readings">Readings</h2>
+      <ul class="reading-list">
+        <li><span class="r-type">Required · open access</span>Sutton, J. C., Sopher, C. R., Owen-Going, T. N., Liu, W., Grodzinski, B., Hall, J. C., &amp; Benchimol, R. L. (2006). Etiology and epidemiology of Pythium root rot in hydroponic crops: current knowledge and perspectives. <em>Summa Phytopathologica</em>, 32(4), 307–321. <a href="https://doi.org/10.1590/S0100-54052006000400001" target="_blank" rel="noopener">doi:10.1590/S0100-54052006000400001</a><span class="r-why">The best single overview of Pythium in hydroponics: read the sections on inoculum, dispersal, dissolved oxygen and temperature.</span></li>
+        <li><span class="r-type">Required · open access</span>Levine, C. P., Hayashi, S., Ohmori, Y., Kusano, M., Kobayashi, M., Nishizawa, T., Kurimoto, I., Kawabata, S., &amp; Yamori, W. (2023). Controlling root zone temperature improves plant growth and pigments in hydroponic lettuce. <em>Annals of Botany</em>, 132(3), 455–470. <a href="https://doi.org/10.1093/aob/mcad127" target="_blank" rel="noopener">doi:10.1093/aob/mcad127</a><span class="r-why">A modern root-zone temperature experiment on hydroponic lettuce — note how yield and quality respond differently.</span></li>
+        <li><span class="r-type">Recommended</span>Morard, P., &amp; Silvestre, J. (1996). Plant injury due to oxygen deficiency in the root environment of soilless culture: a review. <em>Plant and Soil</em>, 184(2), 243–254. <a href="https://doi.org/10.1007/BF00010453" target="_blank" rel="noopener">doi:10.1007/BF00010453</a><span class="r-why">The classic review of oxygen deficiency in soilless crops.</span></li>
+        <li><span class="r-type">Recommended</span>Vallance, J., Déniel, F., Le Floch, G., Guérin-Dubrana, L., Blancard, D., &amp; Rey, P. (2011). Pathogenic and beneficial microorganisms in soilless cultures. <em>Agronomy for Sustainable Development</em>, 31(1), 191–203. <a href="https://doi.org/10.1051/agro/2010018" target="_blank" rel="noopener">doi:10.1051/agro/2010018</a><span class="r-why">Pathogens, beneficial microbes and suppressiveness in soilless culture, with management strategies.</span></li>
+        <li><span class="r-type">Recommended</span>Raudales, R. E., Parke, J. L., Guy, C. L., &amp; Fisher, P. R. (2014). Control of waterborne microbes in irrigation: a review. <em>Agricultural Water Management</em>, 143, 9–28. <a href="https://doi.org/10.1016/j.agwat.2014.06.007" target="_blank" rel="noopener">doi:10.1016/j.agwat.2014.06.007</a><span class="r-why">An engineering-oriented tour of every water-treatment option, from chlorine to slow filtration.</span></li>
+        <li><span class="r-type">Classic</span>Drew, M. C. (1997). Oxygen deficiency and root metabolism: injury and acclimation under hypoxia and anoxia. <em>Annual Review of Plant Physiology and Plant Molecular Biology</em>, 48, 223–250. <a href="https://doi.org/10.1146/annurev.arplant.48.1.223" target="_blank" rel="noopener">doi:10.1146/annurev.arplant.48.1.223</a><span class="r-why">What happens inside a root cell when oxygen runs out.</span></li>
+      </ul>
+
+      <h2 id="references">References</h2>
+      <ol class="references">
+        <li>Albano, J. P., &amp; Miller, W. B. (2001). Photodegradation of FeDTPA in nutrient solutions. I. Effects of irradiance, wavelength, and temperature. <em>HortScience</em>, 36(2), 313–316. <a href="https://doi.org/10.21273/HORTSCI.36.2.313" target="_blank" rel="noopener">doi:10.21273/HORTSCI.36.2.313</a></li>
+        <li>American Society of Civil Engineers. (2007). <em>Measurement of oxygen transfer in clean water</em> (ASCE/EWRI 2-06). ASCE, Reston, VA. <a href="https://doi.org/10.1061/9780784408483" target="_blank" rel="noopener">doi:10.1061/9780784408483</a></li>
+        <li>Amrhein, J. J., Rotondo, F., Kubota, C., Miller, S. A., &amp; Testen, A. L. (2025). Diagnostic guide for Pythium root rot in hydroponic leafy green and herb production. <em>Plant Health Progress</em>, 26(1), 87–95. <a href="https://doi.org/10.1094/PHP-07-24-0070-DG" target="_blank" rel="noopener">doi:10.1094/PHP-07-24-0070-DG</a></li>
+        <li>Atkin, O. K., &amp; Tjoelker, M. G. (2003). Thermal acclimation and the dynamic response of plant respiration to temperature. <em>Trends in Plant Science</em>, 8(7), 343–351. <a href="https://doi.org/10.1016/S1360-1385(03)00136-5" target="_blank" rel="noopener">doi:10.1016/S1360-1385(03)00136-5</a></li>
+        <li>Benson, B. B., &amp; Krause, D. (1984). The concentration and isotopic fractionation of oxygen dissolved in freshwater and seawater in equilibrium with the atmosphere. <em>Limnology and Oceanography</em>, 29(3), 620–632. <a href="https://doi.org/10.4319/lo.1984.29.3.0620" target="_blank" rel="noopener">doi:10.4319/lo.1984.29.3.0620</a></li>
+        <li>Brand, T., &amp; Wohanka, W. (2001). Importance and characterization of the biological component in slow filters. <em>Acta Horticulturae</em>, 554, 313–322. <a href="https://doi.org/10.17660/ActaHortic.2001.554.34" target="_blank" rel="noopener">doi:10.17660/ActaHortic.2001.554.34</a></li>
+        <li>Brechner, M., &amp; Both, A. J. (2013). <em>Hydroponic Lettuce Handbook</em>. Cornell University Controlled Environment Agriculture (CEA) Program, Ithaca, NY.</li>
+        <li>Drew, M. C. (1997). Oxygen deficiency and root metabolism: injury and acclimation under hypoxia and anoxia. <em>Annual Review of Plant Physiology and Plant Molecular Biology</em>, 48, 223–250. <a href="https://doi.org/10.1146/annurev.arplant.48.1.223" target="_blank" rel="noopener">doi:10.1146/annurev.arplant.48.1.223</a></li>
+        <li>Ehret, D. L., Alsanius, B., Wohanka, W., Menzies, J. G., &amp; Utkhede, R. (2001). Disinfestation of recirculating nutrient solutions in greenhouse horticulture. <em>Agronomie</em>, 21, 323–339. <a href="https://doi.org/10.1051/agro:2001127" target="_blank" rel="noopener">doi:10.1051/agro:2001127</a></li>
+        <li>Flemming, H.-C., &amp; Wingender, J. (2010). The biofilm matrix. <em>Nature Reviews Microbiology</em>, 8(9), 623–633. <a href="https://doi.org/10.1038/nrmicro2415" target="_blank" rel="noopener">doi:10.1038/nrmicro2415</a></li>
+        <li>Goto, E., Both, A. J., Albright, L. D., Langhans, R. W., &amp; Leed, A. R. (1996). Effect of dissolved oxygen concentration on lettuce growth in floating hydroponics. <em>Acta Horticulturae</em>, 440, 205–210. <a href="https://doi.org/10.17660/ActaHortic.1996.440.36" target="_blank" rel="noopener">doi:10.17660/ActaHortic.1996.440.36</a></li>
+        <li>Higbie, R. (1935). The rate of absorption of a pure gas into a still liquid during short periods of exposure. <em>Transactions of the American Institute of Chemical Engineers</em>, 31, 365–389.</li>
+        <li>Kratky, B. A. (2009). Three non-circulating hydroponic methods for growing lettuce. <em>Acta Horticulturae</em>, 843, 65–72. <a href="https://doi.org/10.17660/ActaHortic.2009.843.6" target="_blank" rel="noopener">doi:10.17660/ActaHortic.2009.843.6</a></li>
+        <li>Lambers, H., Chapin, F. S., III, &amp; Pons, T. L. (2008). <em>Plant Physiological Ecology</em> (2nd ed.). Springer, New York. <a href="https://doi.org/10.1007/978-0-387-78341-3" target="_blank" rel="noopener">doi:10.1007/978-0-387-78341-3</a></li>
+        <li>Lee, J. G., Lee, B. Y., &amp; Lee, H. J. (2006). Accumulation of phytotoxic organic acids in reused nutrient solution during hydroponic cultivation of lettuce (<em>Lactuca sativa</em> L.). <em>Scientia Horticulturae</em>, 110(2), 119–128. <a href="https://doi.org/10.1016/j.scienta.2006.06.013" target="_blank" rel="noopener">doi:10.1016/j.scienta.2006.06.013</a></li>
+        <li>Lee, S., &amp; Lee, J. (2015). Beneficial bacteria and fungi in hydroponic systems: types and characteristics of hydroponic food production methods. <em>Scientia Horticulturae</em>, 195, 206–215. <a href="https://doi.org/10.1016/j.scienta.2015.09.011" target="_blank" rel="noopener">doi:10.1016/j.scienta.2015.09.011</a></li>
+        <li>Levine, C. P., Hayashi, S., Ohmori, Y., Kusano, M., Kobayashi, M., Nishizawa, T., Kurimoto, I., Kawabata, S., &amp; Yamori, W. (2023). Controlling root zone temperature improves plant growth and pigments in hydroponic lettuce. <em>Annals of Botany</em>, 132(3), 455–470. <a href="https://doi.org/10.1093/aob/mcad127" target="_blank" rel="noopener">doi:10.1093/aob/mcad127</a></li>
+        <li>Lewis, W. K., &amp; Whitman, W. G. (1924). Principles of gas absorption. <em>Industrial &amp; Engineering Chemistry</em>, 16(12), 1215–1220. <a href="https://doi.org/10.1021/ie50180a002" target="_blank" rel="noopener">doi:10.1021/ie50180a002</a></li>
+        <li>Mattson, N. (2018, January 31). Pythium root rot on hydroponically grown basil and spinach. <em>e-GRO Alert</em>, Cornell University; republished by HortiDaily. <a href="https://www.hortidaily.com/article/6040777/pythium-root-rot-on-hydroponically-grown-basil-and-spinach/" target="_blank" rel="noopener">hortidaily.com/article/6040777</a></li>
+        <li>Morard, P., &amp; Silvestre, J. (1996). Plant injury due to oxygen deficiency in the root environment of soilless culture: a review. <em>Plant and Soil</em>, 184(2), 243–254. <a href="https://doi.org/10.1007/BF00010453" target="_blank" rel="noopener">doi:10.1007/BF00010453</a></li>
+        <li>Postma, J., Willemsen-de Klein, M. J. E. I. M., &amp; van Elsas, J. D. (2000). Effect of the indigenous microflora on the development of root and crown rot caused by <em>Pythium aphanidermatum</em> in cucumber grown on rockwool. <em>Phytopathology</em>, 90(2), 125–133. <a href="https://doi.org/10.1094/PHYTO.2000.90.2.125" target="_blank" rel="noopener">doi:10.1094/PHYTO.2000.90.2.125</a></li>
+        <li>Raudales, R. E., Parke, J. L., Guy, C. L., &amp; Fisher, P. R. (2014). Control of waterborne microbes in irrigation: a review. <em>Agricultural Water Management</em>, 143, 9–28. <a href="https://doi.org/10.1016/j.agwat.2014.06.007" target="_blank" rel="noopener">doi:10.1016/j.agwat.2014.06.007</a></li>
+        <li>Runia, W. Th. (1994a). Elimination of root-infecting pathogens in recirculation water from closed cultivation systems by ultra-violet radiation. <em>Acta Horticulturae</em>, 361, 361–371. <a href="https://doi.org/10.17660/ActaHortic.1994.361.36" target="_blank" rel="noopener">doi:10.17660/ActaHortic.1994.361.36</a></li>
+        <li>Runia, W. Th. (1994b). Disinfection of recirculation water from closed cultivation systems with ozone. <em>Acta Horticulturae</em>, 361, 388–396. <a href="https://doi.org/10.17660/ActaHortic.1994.361.39" target="_blank" rel="noopener">doi:10.17660/ActaHortic.1994.361.39</a></li>
+        <li>Runia, W. Th., &amp; Amsing, J. J. (2001). Lethal temperatures of soilborne pathogens in recirculation water from closed cultivation systems. <em>Acta Horticulturae</em>, 554, 333–339. <a href="https://doi.org/10.17660/ActaHortic.2001.554.36" target="_blank" rel="noopener">doi:10.17660/ActaHortic.2001.554.36</a></li>
+        <li>Sander, R. (2023). Compilation of Henry's law constants (version 5.0.0) for water as solvent. <em>Atmospheric Chemistry and Physics</em>, 23(19), 10901–12440. <a href="https://doi.org/10.5194/acp-23-10901-2023" target="_blank" rel="noopener">doi:10.5194/acp-23-10901-2023</a></li>
+        <li>Stanghellini, M. E., &amp; Rasmussen, S. L. (1994). Hydroponics: a solution for zoosporic pathogens. <em>Plant Disease</em>, 78(12), 1129–1138. <a href="https://doi.org/10.1094/PD-78-1129" target="_blank" rel="noopener">doi:10.1094/PD-78-1129</a></li>
+        <li>Sutton, J. C., Sopher, C. R., Owen-Going, T. N., Liu, W., Grodzinski, B., Hall, J. C., &amp; Benchimol, R. L. (2006). Etiology and epidemiology of Pythium root rot in hydroponic crops: current knowledge and perspectives. <em>Summa Phytopathologica</em>, 32(4), 307–321. <a href="https://doi.org/10.1590/S0100-54052006000400001" target="_blank" rel="noopener">doi:10.1590/S0100-54052006000400001</a></li>
+        <li>Thakulla, D., &amp; Fisher, P. R. (2023). Effects of cold plasma and ozone water treatment on micronutrient solubility. <em>Horticulturae</em>, 9(5), 568. <a href="https://doi.org/10.3390/horticulturae9050568" target="_blank" rel="noopener">doi:10.3390/horticulturae9050568</a></li>
+        <li>Thompson, H. C., Langhans, R. W., Both, A. J., &amp; Albright, L. D. (1998). Shoot and root temperature effects on lettuce growth in a floating hydroponic system. <em>Journal of the American Society for Horticultural Science</em>, 123(3), 361–364. <a href="https://doi.org/10.21273/JASHS.123.3.361" target="_blank" rel="noopener">doi:10.21273/JASHS.123.3.361</a></li>
+        <li>Tournaire-Roux, C., Sutka, M., Javot, H., Gout, E., Gerbeau, P., Luu, D.-T., Bligny, R., &amp; Maurel, C. (2003). Cytosolic pH regulates root water transport during anoxic stress through gating of aquaporins. <em>Nature</em>, 425(6956), 393–397. <a href="https://doi.org/10.1038/nature01853" target="_blank" rel="noopener">doi:10.1038/nature01853</a></li>
+        <li>Vallance, J., Déniel, F., Le Floch, G., Guérin-Dubrana, L., Blancard, D., &amp; Rey, P. (2011). Pathogenic and beneficial microorganisms in soilless cultures. <em>Agronomy for Sustainable Development</em>, 31(1), 191–203. <a href="https://doi.org/10.1051/agro/2010018" target="_blank" rel="noopener">doi:10.1051/agro/2010018</a></li>
+        <li>van Os, E. A. (2010). Disease management in soilless culture systems. <em>Acta Horticulturae</em>, 883, 385–393. <a href="https://doi.org/10.17660/ActaHortic.2010.883.48" target="_blank" rel="noopener">doi:10.17660/ActaHortic.2010.883.48</a></li>
+        <li>van Os, E. A., van Kuik, F. J., Runia, W. Th., &amp; van Buuren, J. (1998). Prospects of slow sand filtration to eliminate pathogens from recirculating nutrient solutions. <em>Acta Horticulturae</em>, 458, 377–384. <a href="https://doi.org/10.17660/ActaHortic.1998.458.49" target="_blank" rel="noopener">doi:10.17660/ActaHortic.1998.458.49</a></li>
+        <li>Yu, J. Q., &amp; Matsui, Y. (1994). Phytotoxic substances in root exudates of cucumber (<em>Cucumis sativus</em> L.). <em>Journal of Chemical Ecology</em>, 20(1), 21–31. <a href="https://doi.org/10.1007/BF02065988" target="_blank" rel="noopener">doi:10.1007/BF02065988</a></li>
+      </ol>
+    </article>
+    <div data-lesson-foot></div>
+  </main>
+  <aside class="lesson-toc" data-lesson-toc aria-label="On this page"></aside>
+</div>
+<div data-site-footer></div>
+
+<script type="module">
+import { Plot, linspace } from '/assets/js/plot.js';
+import { doSaturation, q10 } from '/assets/js/physics.js';
+import { Readouts, fmt } from '/assets/js/ui.js';
+
+const $ = id => document.getElementById(id);
+function bindRange(id, fmtOut, cb) {
+  const r = $(id), o = $(id + '-out');
+  const upd = () => { r.style.setProperty('--fill', ((+r.value - +r.min) / (+r.max - +r.min) * 100) + '%'); if (o) o.textContent = fmtOut(+r.value); cb && cb(); };
+  r.addEventListener('input', upd); return upd;
+}
+const THETA = 1.024, KS = 0.03, KM = 0.3;   // kLa temperature factor; surface kLa under a lid (h-1, assumed); MM half-saturation (mg/L, assumed)
+
+/* ---------------- Figure 4: dissolved-oxygen simulator ---------------- */
+const DS_PRE = {
+  mid: { V: 40, n: 6, our: 3, T: 21, kla: 2, tf: 12, dur: 10, cc: 4 },
+  late: { V: 40, n: 6, our: 7, T: 26, kla: 2, tf: 12, dur: 10, cc: 4 },
+  big: { V: 120, n: 6, our: 7, T: 26, kla: 2, tf: 12, dur: 10, cc: 4 },
+  weak: { V: 40, n: 6, our: 7, T: 24, kla: 0.3, tf: 12, dur: 10, cc: 4 }
+};
+const dsPlot = new Plot('#ds-plot', { x: { label: 'Time', unit: 'h', min: 0, max: 48 }, y: { label: 'Dissolved oxygen', unit: 'mg L⁻¹', min: 0, max: 12 } });
+const dsRo = new Readouts('#ds-ro');
+dsRo.add({ id: 'cs', label: 'Saturation C* at T', unit: 'mg L⁻¹', digits: 2 })
+  .add({ id: 'our', label: 'Tank O₂ uptake', unit: 'mg L⁻¹ h⁻¹', digits: 2 })
+  .add({ id: 'kla', label: 'Aeration k<sub>L</sub>a at T', unit: 'h⁻¹', digits: 2 })
+  .add({ id: 'css', label: 'DO with pump running', unit: 'mg L⁻¹', digits: 2 })
+  .add({ id: 'tc', label: 'Failure → critical DO', unit: '', format: v => v == null ? 'not reached' : fmt(v, 1) + ' h' })
+  .add({ id: 'min', label: 'Lowest DO in failure', unit: 'mg L⁻¹', digits: 2 });
+function dsGet() { return { V: +$('ds-V').value, n: +$('ds-n').value, our: +$('ds-our').value, T: +$('ds-T').value, kla: +$('ds-kla').value, tf: +$('ds-tf').value, dur: +$('ds-dur').value, cc: +$('ds-cc').value }; }
+function dsRun(p, never) {
+  const Cs = doSaturation(p.T), R = p.n * q10(p.our, 2, p.T, 20) / p.V, k = p.kla * Math.pow(THETA, p.T - 20);
+  const on = t => !never && !(t >= p.tf && t < p.tf + p.dur);
+  const f = (t, C) => { const c = Math.max(C, 0); return ((on(t) ? k : 0) + KS) * (Cs - c) - R * c / (KM + c); };
+  let C = Cs;
+  if (!never) for (let i = 0; i < 80; i++) { const g = (k + KS) * (Cs - C) - R * C / (KM + C), dg = -(k + KS) - R * KM / ((KM + C) ** 2); C = Math.min(Cs, Math.max(0, C - g / dg)); }
+  const dt = 0.02, xs = [0], ys = [C]; let t = 0;
+  while (t < 48 - 1e-9) {
+    const k1 = f(t, C), k2 = f(t + dt / 2, C + dt / 2 * k1), k3 = f(t + dt / 2, C + dt / 2 * k2), k4 = f(t + dt, C + dt * k3);
+    C = Math.max(0, C + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)); t += dt; xs.push(t); ys.push(C);
+  }
+  return { xs, ys, Cs, R, k, Css: ys[0] };
+}
+function dsUpdate() {
+  const p = dsGet();
+  const a = dsRun(p, false), b = dsRun(p, true);
+  dsPlot.region('fail', p.tf, Math.min(48, p.tf + p.dur), { color: 'amber', alpha: 0.14, label: p.dur > 0 ? 'air pump off' : '' });
+  dsPlot.hline('cs', a.Cs, { color: 'water', dash: [2, 4], label: 'saturation C*' });
+  dsPlot.hline('cc', p.cc, { color: 'danger', dash: [6, 4], label: 'critical DO' });
+  dsPlot.line('never', b.xs, b.ys, { color: 'muted', width: 1.6, dash: [5, 4], label: 'never aerated' });
+  dsPlot.line('do', a.xs, a.ys, { color: 'water', width: 2.8, label: 'DO in the tank' });
+  let tc = null, mn = Infinity;
+  for (let i = 0; i < a.xs.length; i++) {
+    const t = a.xs[i];
+    if (t >= p.tf && t <= p.tf + p.dur) { mn = Math.min(mn, a.ys[i]); if (tc == null && a.ys[i] <= p.cc) tc = t - p.tf; }
+  }
+  if (tc != null) dsPlot.point('tc', p.tf + tc, p.cc, { color: 'danger', r: 5, label: 'critical after ' + fmt(tc, 1) + ' h' }); else dsPlot.remove('tc');
+  dsRo.set('cs', a.Cs); dsRo.set('our', a.R); dsRo.set('kla', a.k);
+  dsRo.set('css', a.Css, a.Css >= 6 ? 'ok' : a.Css >= p.cc ? 'warn' : 'bad');
+  dsRo.set('tc', tc, tc == null ? 'ok' : tc < 4 ? 'bad' : tc < 12 ? 'warn' : 'ok');
+  dsRo.set('min', p.dur > 0 ? mn : a.Css, (p.dur > 0 ? mn : a.Css) >= p.cc ? 'ok' : 'bad');
+}
+const dsFmt = { 'ds-V': v => fmt(v, 0) + ' L', 'ds-n': v => fmt(v, 0), 'ds-our': v => fmt(v, 1) + ' mg h⁻¹', 'ds-T': v => fmt(v, 1) + ' °C', 'ds-kla': v => fmt(v, 2) + ' h⁻¹', 'ds-tf': v => fmt(v, 1) + ' h', 'ds-dur': v => fmt(v, 1) + ' h', 'ds-cc': v => fmt(v, 1) + ' mg L⁻¹' };
+const dsUpd = Object.entries(dsFmt).map(([id, f]) => bindRange(id, f, dsUpdate));
+function dsPreset(key) {
+  const p = DS_PRE[key]; const map = { V: 'ds-V', n: 'ds-n', our: 'ds-our', T: 'ds-T', kla: 'ds-kla', tf: 'ds-tf', dur: 'ds-dur', cc: 'ds-cc' };
+  Object.entries(map).forEach(([k, id]) => { $(id).value = p[k]; });
+  dsUpd.forEach(u => u());
+}
+$('ds-pre').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; $('ds-pre').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); dsPreset(b.dataset.v); });
+dsPreset('mid');
+
+/* ---------------- Figure 6: the oxygen squeeze ---------------- */
+const sqPlot = new Plot('#sq-plot', { x: { label: 'Solution temperature', unit: '°C', min: 10, max: 34 }, y: { label: 'Dissolved oxygen', unit: 'mg L⁻¹', min: 0, max: 12 }, y2: { label: 'Hours to critical after pump failure', unit: 'h', min: 0 } });
+const sqRo = new Readouts('#sq-ro');
+sqRo.add({ id: 'cs', label: 'Saturation C*', unit: 'mg L⁻¹', digits: 2 })
+  .add({ id: 'our', label: 'Root O₂ use per plant', unit: 'mg h⁻¹', digits: 2 })
+  .add({ id: 'css', label: 'DO with aeration', unit: 'mg L⁻¹', digits: 2 })
+  .add({ id: 'tau', label: 'Hours to critical after failure', unit: 'h', digits: 1 });
+const TT = linspace(10, 34, 97);
+function sqModel(T, p) {
+  const Cs = doSaturation(T), our = q10(p.our, 2, T, 20), R = our / p.vp, k = p.kla * Math.pow(THETA, T - 20) + KS;
+  const Css = Math.max(0, Cs - R / k), tau = Math.max(0, (Css - p.cc) / R);
+  return { Cs, our, R, Css, tau };
+}
+function sqUpdate() {
+  const p = { T: +$('sq-T').value, our: +$('sq-our').value, vp: +$('sq-vp').value, kla: +$('sq-kla').value, cc: +$('sq-cc').value };
+  const M = TT.map(T => sqModel(T, p));
+  sqPlot.hline('cc', p.cc, { color: 'danger', dash: [6, 4], label: 'critical DO' });
+  sqPlot.line('cs', TT, M.map(m => m.Cs), { color: 'water', width: 2.6, label: 'saturation C*' });
+  sqPlot.line('css', TT, M.map(m => m.Css), { color: 'accent', width: 2.6, label: 'DO with aeration' });
+  sqPlot.line('tau', TT, M.map(m => m.tau), { color: 'magenta', width: 2.2, dash: [7, 4], label: 'hours to critical (right axis)', y2: true });
+  const m = sqModel(p.T, p);
+  sqPlot.vline('T', p.T, { color: 'ink', dash: [2, 3], label: fmt(p.T, 1) + ' °C' });
+  sqPlot.point('pcs', p.T, m.Cs, { color: 'water', r: 4.5 });
+  sqPlot.point('pcss', p.T, m.Css, { color: 'accent', r: 4.5 });
+  sqPlot.point('ptau', p.T, m.tau, { color: 'magenta', r: 4.5, y2: true });
+  sqRo.set('cs', m.Cs); sqRo.set('our', m.our);
+  sqRo.set('css', m.Css, m.Css >= 6 ? 'ok' : m.Css >= p.cc ? 'warn' : 'bad');
+  sqRo.set('tau', m.tau, m.tau >= 12 ? 'ok' : m.tau >= 4 ? 'warn' : 'bad');
+}
+[['sq-T', v => fmt(v, 1) + ' °C'], ['sq-our', v => fmt(v, 1) + ' mg h⁻¹'], ['sq-vp', v => fmt(v, 1) + ' L'], ['sq-kla', v => fmt(v, 2) + ' h⁻¹'], ['sq-cc', v => fmt(v, 1) + ' mg L⁻¹']].forEach(([id, f]) => bindRange(id, f, sqUpdate)());
+
+/* ---------------- Figure 9: UV reactor designer ---------------- */
+const QMIN = 0.5, QMAX = 100;
+const qOf = s => QMIN * Math.pow(QMAX / QMIN, s);
+const uvPlot = new Plot('#uv-plot', { x: { label: 'Flow through the reactor', unit: 'L min⁻¹', min: QMIN, max: QMAX, log: true }, y: { label: 'Log₁₀ reduction', unit: '', min: 0, max: 8 } });
+const uvRo = new Readouts('#uv-ro');
+uvRo.add({ id: 'A', label: 'Absorbance A', unit: 'cm⁻¹', digits: 3 })
+  .add({ id: 'le', label: 'Effective path ℓ<sub>eff</sub>', unit: 'cm', digits: 2 })
+  .add({ id: 'D', label: 'Average dose', unit: 'mJ cm⁻²', digits: 0 })
+  .add({ id: 'fu', label: 'Fusarium conidia', unit: 'log', digits: 1 })
+  .add({ id: 'tv', label: 'Tomato mosaic virus', unit: 'log', digits: 1 })
+  .add({ id: 'q3', label: 'Max flow for 3-log Fusarium', unit: 'L min⁻¹', digits: 1 });
+const QQ = []; for (let i = 0; i <= 160; i++) QQ.push(qOf(i / 160));
+function uvDose(P, Q, uvt, d) { const A = -Math.log10(uvt / 100); const le = A > 1e-9 ? (1 - Math.pow(10, -A * d)) / (A * Math.LN10) : d; return { A, le, D: P * 1000 * le / (Q * 1000 / 60) }; }
+function uvUpdate() {
+  const P = +$('uv-P').value, Q = qOf(+$('uv-Q').value), uvt = +$('uv-T').value, d = +$('uv-d').value;
+  uvPlot.hline('t3', 3, { color: 'ink', dash: [5, 4], label: '3-log target' });
+  uvPlot.line('fu95', QQ, QQ.map(q => Math.min(12, uvDose(P, q, 95, d).D / 28)), { color: 'accent', width: 1.4, dash: [4, 4], label: 'Fusarium, UVT 95 %' });
+  uvPlot.line('fu', QQ, QQ.map(q => Math.min(12, uvDose(P, q, uvt, d).D / 28)), { color: 'accent', width: 2.6, label: 'Fusarium conidia (D₁₀ 28)' });
+  uvPlot.line('tv', QQ, QQ.map(q => Math.min(12, uvDose(P, q, uvt, d).D / 50)), { color: 'magenta', width: 2.6, label: 'tomato mosaic virus (D₁₀ ≈ 50)' });
+  const r = uvDose(P, Q, uvt, d);
+  uvPlot.vline('q', Q, { color: 'ink', dash: [2, 3], label: fmt(Q, Q < 10 ? 1 : 0) + ' L min⁻¹' });
+  uvPlot.point('pf', Q, Math.min(8, r.D / 28), { color: 'accent', r: 4.5 });
+  uvPlot.point('pt', Q, Math.min(8, r.D / 50), { color: 'magenta', r: 4.5 });
+  uvRo.set('A', r.A); uvRo.set('le', r.le); uvRo.set('D', r.D);
+  uvRo.set('fu', r.D / 28, r.D / 28 >= 3 ? 'ok' : r.D / 28 >= 2 ? 'warn' : 'bad');
+  uvRo.set('tv', r.D / 50, r.D / 50 >= 3 ? 'ok' : r.D / 50 >= 2 ? 'warn' : 'bad');
+  uvRo.set('q3', P * 1000 * r.le / 84 * 60 / 1000);
+}
+[['uv-P', v => fmt(v, 1) + ' W'], ['uv-Q', v => fmt(qOf(v), qOf(v) < 10 ? 1 : 0) + ' L min⁻¹'], ['uv-T', v => fmt(v, 0) + ' %'], ['uv-d', v => fmt(v, 1) + ' cm']].forEach(([id, f]) => bindRange(id, f, uvUpdate)());
+</script>
+</body>
+</html>
